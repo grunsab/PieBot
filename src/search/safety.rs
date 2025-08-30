@@ -24,6 +24,27 @@ pub fn is_hanging_after_move(board: &Board, mv: Move, loss_thresh_cp: i32) -> bo
     blunder
 }
 
+/// Returns true if making `mv` allows the opponent, in the resulting position,
+/// to immediately win a large amount of material via any capture (not just on
+/// the destination square). This is useful to detect moves that expose a heavy
+/// piece elsewhere (e.g., queen) to a winning tactical reply like ...Nxf3+.
+///
+/// Threshold is in centipawns; use a high value (e.g., 500) to focus on heavy losses.
+pub fn exposes_heavy_loss_after_move(board: &Board, mv: Move, loss_thresh_cp: i32) -> bool {
+    let mut child = board.clone();
+    child.play(mv);
+    let mut severe = false;
+    child.generate_moves(|ml| {
+        for m2 in ml {
+            if let Some(gain) = crate::search::see::see_gain_cp(&child, m2) {
+                if gain >= loss_thresh_cp { severe = true; break; }
+            }
+        }
+        severe
+    });
+    severe
+}
+
 /// Returns true if the given position is stalemate (no legal moves and not in check).
 pub fn is_stalemate(board: &Board) -> bool {
     let mut has_legal = false;

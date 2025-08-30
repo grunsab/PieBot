@@ -54,3 +54,66 @@ fn experimental_avoids_losing_qxd3() {
         assert_ne!(bm.as_str(), "b1d3", "experimental chose losing queen capture Qxd3 at depth 2");
     }
 }
+
+// Experimental regression: avoid quiet checking queen sac Qf3+
+// FEN: 6k1/8/rb6/8/5K2/2p5/2q5/7q b - - 3 66
+#[test]
+fn experimental_avoids_qf3_check_sac() {
+    let fen = "6k1/8/rb6/8/5K2/2p5/2q5/7q b - - 3 66";
+    let board = Board::from_fen(fen, false).expect("valid FEN");
+    let mut s = piebot::search::alphabeta_temp::Searcher::default();
+    let res = s.search_depth(&board, 2);
+    if let Some(bm) = res.bestmove {
+        assert_ne!(bm.as_str(), "h1f3", "experimental chose losing queen checking sac Qf3+ at depth 2");
+    }
+}
+
+// Baseline regression: avoid queen sac Qc3 (hanging to ...Bxc3)
+// FEN: 3k3r/5ppp/4pn2/r7/qb1PP3/P2Q4/5PPP/R1B1KBR1 w Q - 1 18
+#[test]
+fn baseline_avoids_losing_qc3() {
+    let fen = "3k3r/5ppp/4pn2/r7/qb1PP3/P2Q4/5PPP/R1B1KBR1 w Q - 1 18";
+    let board = Board::from_fen(fen, false).expect("valid FEN");
+    let mut s = piebot::search::alphabeta::Searcher::default();
+    let res = s.search_depth(&board, 2);
+    if let Some(bm) = res.bestmove {
+        assert_ne!(bm.as_str(), "d3c3", "baseline chose losing queen quiet Qc3 at depth 2");
+    }
+}
+
+// Baseline should prefer winning capture gxf3 over a slow move like Bb6
+// FEN: k7/8/3P4/8/8/P3Bn1P/2P2PP1/3R1K2 w - - 5 41
+#[test]
+fn baseline_prefers_gxf3_over_bb6() {
+    let fen = "k7/8/3P4/8/8/P3Bn1P/2P2PP1/3R1K2 w - - 5 41";
+    let board = Board::from_fen(fen, false).expect("valid FEN");
+    let mut s = piebot::search::alphabeta::Searcher::default();
+    // Slightly deeper to let SEE and ordering distinguish
+    let res = s.search_depth(&board, 2);
+    if let Some(bm) = res.bestmove {
+        assert_ne!(bm.as_str(), "e3b6", "baseline chose slow Bb6 instead of strong gxf3");
+    }
+}
+
+// Baseline: mate in 1 must be chosen (Rb7#)
+// FEN: R5NB/5R2/8/1k6/4B3/8/8/2R3K1 w - - 3 61
+#[test]
+fn baseline_plays_mate_in_one_rb7() {
+    let fen = "R5NB/5R2/8/1k6/4B3/8/8/2R3K1 w - - 3 61";
+    let board = Board::from_fen(fen, false).expect("valid FEN");
+    let mut s = piebot::search::alphabeta::Searcher::default();
+    let res = s.search_depth(&board, 1);
+    let bm = res.bestmove.expect("expected a best move");
+    assert_eq!(bm.as_str(), "f7b7", "expected Rb7# (f7b7 in UCI)");
+}
+
+// Baseline: avoid quiet queen hang Qf3 in a losing position
+// FEN: 2bqk2r/2p2pp1/r6p/4N3/3nN3/8/1bP2P1P/3Q1RK1 w k - 0 16
+#[test]
+fn baseline_avoids_qf3_hanging() {
+    let fen = "2bqk2r/2p2pp1/r6p/4N3/3nN3/8/1bP2P1P/3Q1RK1 w k - 0 16";
+    let board = Board::from_fen(fen, false).expect("valid FEN");
+    let mut s = piebot::search::alphabeta::Searcher::default();
+    let res = s.search_depth(&board, 2);
+    if let Some(bm) = res.bestmove { assert_ne!(bm.as_str(), "d1f3", "baseline chose hanging queen move Qf3"); }
+}

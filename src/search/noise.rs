@@ -18,10 +18,15 @@ pub fn choose_noisy_from_order_filtered(
     let mut pool: Vec<Move> = Vec::with_capacity(k);
     // Quiet hanging threshold: avoid obviously hanging quiet moves
     const QUIET_HANGING_THRESH_CP: i32 = 200;
+    // Quiet checking sacrifice: avoid if hanging by a large margin (e.g., queen sac)
+    const CHECK_SAC_THRESH_CP: i32 = 500;
     for &m in order.iter().take(k) {
-        // Use SEE when applicable; if SEE says strongly negative, skip
+        // Use SEE when applicable; if SEE says strongly negative, skip.
+        // Additionally, even if SEE is acceptable, skip moves that expose a heavy
+        // immediate loss elsewhere (e.g., queen hang via a tactical reply).
         if let Some(gain) = crate::search::see::see_gain_cp(board, m) {
             if gain < see_thresh_cp { continue; }
+            if crate::search::safety::exposes_heavy_loss_after_move(board, m, CHECK_SAC_THRESH_CP) { continue; }
             pool.push(m);
             continue;
         }
@@ -30,8 +35,10 @@ pub fn choose_noisy_from_order_filtered(
         let mut child = board.clone();
         child.play(m);
         let gives_check = !(child.checkers()).is_empty();
-        if !gives_check && crate::search::safety::is_hanging_after_move(board, m, QUIET_HANGING_THRESH_CP) {
-            continue;
+        if !gives_check {
+            if crate::search::safety::is_hanging_after_move(board, m, QUIET_HANGING_THRESH_CP) { continue; }
+        } else {
+            if crate::search::safety::is_hanging_after_move(board, m, CHECK_SAC_THRESH_CP) { continue; }
         }
         pool.push(m);
     }

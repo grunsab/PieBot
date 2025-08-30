@@ -43,3 +43,29 @@ fn noisy_topk_filters_hanging_quiet_move() {
         assert_ne!(uci, "b1c3", "filtered should avoid hanging quiet move Nc3 (seed={})", t);
     }
 }
+
+#[test]
+fn noisy_topk_filters_bxh7_exposing_queen() {
+    // From user: White to move. Bxh7 allows ...Nxf3+ winning the white queen on f3.
+    // FEN: r1bqkb1r/1pp1pppp/5n2/3Pn3/p7/P1NB1Q2/1PP2PPP/R1B1K2R w KQkq - 1 9
+    let fen = "r1bqkb1r/1pp1pppp/5n2/3Pn3/p7/P1NB1Q2/1PP2PPP/R1B1K2R w KQkq - 1 9";
+    let board = Board::from_fen(fen, false).expect("valid FEN");
+    // Compute the engine's root order, then find Bxh7 (d3h7) index.
+    let mut s = piebot::search::alphabeta::Searcher::default();
+    s.set_order_captures(true);
+    s.set_use_history(true);
+    s.set_use_killers(true);
+    s.set_use_lmr(true);
+    s.set_use_nullmove(true);
+    s.set_use_aspiration(true);
+    let order = s.debug_order_for_parent(&board, usize::MAX);
+    let idx = order.iter().position(|&m| format!("{}", m) == "d3h7").expect("Bxh7 should be legal");
+    // Limit top-K to include Bxh7 and test multiple seeds; the filter should never return Bxh7
+    let topk = (idx + 1).min(order.len());
+    for t in 0..64u64 {
+        let mut rng = SmallRng::seed_from_u64(0xFEED_F00Du64 ^ t);
+        let mv = piebot::search::noise::choose_noisy_from_order_filtered(&board, &order, topk, &mut rng, -150).expect("some move");
+        let uci = format!("{}", mv);
+        assert_ne!(uci, "d3h7", "filtered should avoid Bxh7 which exposes the queen (seed={})", t);
+    }
+}

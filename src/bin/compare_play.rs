@@ -290,9 +290,9 @@ fn san_for_move(board: &Board, mv: Move) -> String {
         };
         for fen in fens {
             let board = Board::from_fen(fen, false).unwrap();
-            let (mb, db, _nb, _tb, _sb, _ob) = decide_move_baseline(&board, 50, &conf, 3);
+            let (mb, db, _sdb, _nb, _tb, _sb, _ob) = decide_move_baseline(&board, 50, &conf, 3);
             assert!(mb.is_some(), "baseline failed to return move for {}", fen);
-            let (me, de, _ne, _te, _se, _oe) = decide_move_experimental(&board, 50, &conf, 3);
+            let (me, de, _sde, _ne, _te, _se, _oe) = decide_move_experimental(&board, 50, &conf, 3);
             assert!(me.is_some(), "experimental failed to return move for {}", fen);
             assert!(db > 0 && de > 0, "expected positive search depths");
         }
@@ -642,7 +642,7 @@ fn choose_move_noisy_experimental(board: &Board, topk: usize, rng: &mut SmallRng
     piebot::search::noise::choose_noisy_from_order_filtered(board, &order, topk, rng, NOISE_SEE_THRESH_CP)
 }
 
-fn decide_move_baseline(board: &Board, movetime: u64, conf: &EngineConfig, root_topk: usize) -> (Option<Move>, u32, u64, f64, i32, Vec<String>) {
+fn decide_move_baseline(board: &Board, movetime: u64, conf: &EngineConfig, root_topk: usize) -> (Option<Move>, u32, u32, u64, f64, i32, Vec<String>) {
     let mut s = piebot::search::alphabeta::Searcher::default();
     s.set_tt_capacity_mb(conf.hash_mb);
     s.set_threads(conf.threads.max(1));
@@ -672,6 +672,7 @@ fn decide_move_baseline(board: &Board, movetime: u64, conf: &EngineConfig, root_
     let (bm, sc, nodes) = s.search_movetime(board, movetime, 0);
     let dt = t0.elapsed().as_secs_f64();
     let depth = s.last_depth();
+    let seldepth = s.last_seldepth() as u32;
     let mapped = bm.as_ref().and_then(|u| find_move_uci(board, u.as_str()));
     if bm.is_none() {
         // Count legal moves for context
@@ -680,10 +681,10 @@ fn decide_move_baseline(board: &Board, movetime: u64, conf: &EngineConfig, root_
     } else if mapped.is_none() { 
         eprintln!("[decide_baseline] bestmove_uci_not_found: fen={} uci={}", board, bm.unwrap()); 
     }
-    (mapped, depth, nodes, dt, sc, topk)
+    (mapped, depth, seldepth, nodes, dt, sc, topk)
 }
 
-fn decide_move_experimental(board: &Board, movetime: u64, conf: &EngineConfig, root_topk: usize) -> (Option<Move>, u32, u64, f64, i32, Vec<String>) {
+fn decide_move_experimental(board: &Board, movetime: u64, conf: &EngineConfig, root_topk: usize) -> (Option<Move>, u32, u32, u64, f64, i32, Vec<String>) {
     let mut s = piebot::search::alphabeta_temp::Searcher::default();
     s.set_tt_capacity_mb(conf.hash_mb);
     s.set_threads(conf.threads.max(1));
@@ -712,6 +713,7 @@ fn decide_move_experimental(board: &Board, movetime: u64, conf: &EngineConfig, r
     let (bm, sc, nodes) = s.search_movetime(board, movetime, 0);
     let dt = t0.elapsed().as_secs_f64();
     let depth = s.last_depth();
+    let seldepth = s.last_seldepth() as u32;
     let mapped = bm.as_ref().and_then(|u| find_move_uci(board, u.as_str()));
     if bm.is_none() {
         let mut cnt = 0usize; board.generate_moves(|ml| { for _ in ml { cnt += 1; } false });
@@ -719,7 +721,7 @@ fn decide_move_experimental(board: &Board, movetime: u64, conf: &EngineConfig, r
     } else if mapped.is_none() { 
         eprintln!("[decide_experimental] bestmove_uci_not_found: fen={} uci={}", board, bm.unwrap()); 
     }
-    (mapped, depth, nodes, dt, sc, topk)
+    (mapped, depth, seldepth, nodes, dt, sc, topk)
 }
 
 fn find_move_uci(board: &Board, uci: &str) -> Option<Move> {
@@ -805,10 +807,12 @@ fn main() {
     let mut sum_nodes_base: u64 = 0;
     let mut sum_time_base: f64 = 0.0;
     let mut sum_depth_base: u64 = 0;
+    let mut sum_seldepth_base: u64 = 0;
     let mut cnt_base: u64 = 0;
     let mut sum_nodes_exp: u64 = 0;
     let mut sum_time_exp: f64 = 0.0;
     let mut sum_depth_exp: u64 = 0;
+    let mut sum_seldepth_exp: u64 = 0;
     let mut cnt_exp: u64 = 0;
 
     let mut pgn_buf = String::new();
@@ -851,9 +855,9 @@ fn main() {
                 }
             } else {
                 if baseline_to_move {
-                    let (m, d, n, dt, sc, order_top) = decide_move_baseline(&board, args.movetime, &base_conf, root_log_topk);
+                    let (m, d, sd, n, dt, sc, order_top) = decide_move_baseline(&board, args.movetime, &base_conf, root_log_topk);
                     if let Some(mv) = m {
-                        sum_nodes_base += n; sum_time_base += dt; sum_depth_base += d as u64; cnt_base += 1;
+                        sum_nodes_base += n; sum_time_base += dt; sum_depth_base += d as u64; sum_seldepth_base += sd as u64; cnt_base += 1;
                     if let Some(f) = jsonl.as_mut() {
                         let stm = if board.side_to_move() == Color::White { "w" } else { "b" };
                         let in_check = !(board.checkers()).is_empty();
@@ -867,6 +871,7 @@ fn main() {
                             "stm": stm,
                             "movetime_ms": args.movetime,
                             "depth": d,
+                            
                             "nodes": n,
                             "time_s": dt,
                             "score_cp": sc,
@@ -878,23 +883,24 @@ fn main() {
                             "fen": format!("{}", board),
                             "smp_safe": base_conf.smp_safe,
                             "tail_policy": tail,
-                            "aspiration": "on",
+                            "aspiration": "off",
+                            "seldepth": sd,
                         });
                         let _ = writeln!(f, "{}", serde_json::to_string(&obj).unwrap());
                     }
                     }
                     m
                 } else {
-                    let (m, d, n, dt, sc, order_top) = decide_move_experimental(&board, args.movetime, &exp_conf, root_log_topk);
+                    let (m, d, sd, n, dt, sc, order_top) = decide_move_experimental(&board, args.movetime, &exp_conf, root_log_topk);
                     if let Some(mv) = m {
-                        sum_nodes_exp += n; sum_time_exp += dt; sum_depth_exp += d as u64; cnt_exp += 1;
+                        sum_nodes_exp += n; sum_time_exp += dt; sum_depth_exp += d as u64; sum_seldepth_exp += sd as u64; cnt_exp += 1;
                     if let Some(f) = jsonl.as_mut() {
                         let stm = if board.side_to_move() == Color::White { "w" } else { "b" };
                         let in_check = !(board.checkers()).is_empty();
                         let is_cap = is_capture_move(&board, mv);
                         let gives_check = { let mut c = board.clone(); c.play(mv); !(c.checkers()).is_empty() };
                         let tail = if exp_conf.smp_safe { "full" } else { "pvs" };
-                        let asp = if exp_conf.threads > 1 { "worker0_only" } else { "on" };
+                        let asp = "off";
                         let obj = serde_json::json!({
                             "game": g + 1,
                             "ply": plies + 1,
@@ -902,6 +908,7 @@ fn main() {
                             "stm": stm,
                             "movetime_ms": args.movetime,
                             "depth": d,
+                            
                             "nodes": n,
                             "time_s": dt,
                             "score_cp": sc,
@@ -914,6 +921,7 @@ fn main() {
                             "smp_safe": exp_conf.smp_safe,
                             "tail_policy": tail,
                             "aspiration": asp,
+                            "seldepth": sd,
                         });
                         let _ = writeln!(f, "{}", serde_json::to_string(&obj).unwrap());
                     }
@@ -979,12 +987,14 @@ fn main() {
     let avg_nps_exp = if sum_time_exp > 0.0 { sum_nodes_exp as f64 / sum_time_exp } else { 0.0 };
     let avg_depth_base = if cnt_base > 0 { sum_depth_base as f64 / cnt_base as f64 } else { 0.0 };
     let avg_depth_exp = if cnt_exp > 0 { sum_depth_exp as f64 / cnt_exp as f64 } else { 0.0 };
+    let avg_seldepth_base = if cnt_base > 0 { sum_seldepth_base as f64 / cnt_base as f64 } else { 0.0 };
+    let avg_seldepth_exp = if cnt_exp > 0 { sum_seldepth_exp as f64 / cnt_exp as f64 } else { 0.0 };
 
     println!("summary: games={} baseline_pts={} experimental_pts={} draws={}", args.games, baseline_points, experimental_points, draws);
-    println!("baseline: avg_nps={:.1} avg_depth={:.2} moves={} nodes={} time={:.3}s",
-        avg_nps_base, avg_depth_base, cnt_base, sum_nodes_base, sum_time_base);
-    println!("experimental: avg_nps={:.1} avg_depth={:.2} moves={} nodes={} time={:.3}s",
-        avg_nps_exp, avg_depth_exp, cnt_exp, sum_nodes_exp, sum_time_exp);
+    println!("baseline: avg_nps={:.1} avg_depth={:.2} avg_seldepth={:.2} moves={} nodes={} time={:.3}s",
+        avg_nps_base, avg_depth_base, avg_seldepth_base, cnt_base, sum_nodes_base, sum_time_base);
+    println!("experimental: avg_nps={:.1} avg_depth={:.2} avg_seldepth={:.2} moves={} nodes={} time={:.3}s",
+        avg_nps_exp, avg_depth_exp, avg_seldepth_exp, cnt_exp, sum_nodes_exp, sum_time_exp);
 
     // Optional machine-readable outputs
     if let Some(path) = args.json_out.as_deref() {
@@ -1002,11 +1012,11 @@ fn main() {
             "points": {"baseline": baseline_points, "experimental": experimental_points, "draws": draws},
             "baseline": {
                 "moves": cnt_base, "nodes": sum_nodes_base, "time_s": sum_time_base,
-                "avg_nps": avg_nps_base, "avg_depth": avg_depth_base
+                "avg_nps": avg_nps_base, "avg_depth": avg_depth_base, "avg_seldepth": avg_seldepth_base
             },
             "experimental": {
                 "moves": cnt_exp, "nodes": sum_nodes_exp, "time_s": sum_time_exp,
-                "avg_nps": avg_nps_exp, "avg_depth": avg_depth_exp
+                "avg_nps": avg_nps_exp, "avg_depth": avg_depth_exp, "avg_seldepth": avg_seldepth_exp
             }
         });
         if let Err(e) = std::fs::write(path, serde_json::to_string_pretty(&payload).unwrap()) {
@@ -1016,13 +1026,13 @@ fn main() {
 
     if let Some(path) = args.csv_out.as_deref() {
         // Single-row CSV summary with header (includes configs)
-        let header = "games,movetime_ms,noise_plies,noise_topk,seed,self_compare,base_type,exp_type,base_config,exp_config,baseline_pts,experimental_pts,draws,base_moves,base_nodes,base_time_s,base_avg_nps,base_avg_depth,exp_moves,exp_nodes,exp_time_s,exp_avg_nps,exp_avg_depth\n";
+        let header = "games,movetime_ms,noise_plies,noise_topk,seed,self_compare,base_type,exp_type,base_config,exp_config,baseline_pts,experimental_pts,draws,base_moves,base_nodes,base_time_s,base_avg_nps,base_avg_depth,base_avg_seldepth,exp_moves,exp_nodes,exp_time_s,exp_avg_nps,exp_avg_depth,exp_avg_seldepth\n";
         let row = format!(
-            "{},{},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{},{},{:.6},{:.1},{:.2},{},{},{:.6},{:.1},{:.2}\n",
+            "{},{},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{},{},{:.6},{:.1},{:.2},{:.2},{},{},{:.6},{:.1},{:.2},{:.2}\n",
             args.games, args.movetime, args.noise_plies, args.noise_topk, args.seed, self_compare, tn_base, tn_exp, base_conf, exp_conf,
             baseline_points, experimental_points, draws,
-            cnt_base, sum_nodes_base, sum_time_base, avg_nps_base, avg_depth_base,
-            cnt_exp, sum_nodes_exp, sum_time_exp, avg_nps_exp, avg_depth_exp
+            cnt_base, sum_nodes_base, sum_time_base, avg_nps_base, avg_depth_base, avg_seldepth_base,
+            cnt_exp, sum_nodes_exp, sum_time_exp, avg_nps_exp, avg_depth_exp, avg_seldepth_exp
         );
         let mut buf = String::new();
         buf.push_str(header);
