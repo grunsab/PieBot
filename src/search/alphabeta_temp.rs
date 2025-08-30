@@ -435,40 +435,13 @@ impl Searcher {
             if !has_legal { return self.eval_terminal(board, 0); }
         }
 
-        // If in check, do not stand pat; search evasions (full moves)
+        // If in check, do not stand pat; still restrict qsearch to captures and a few checking quiets
         let in_check = !(board.checkers()).is_empty();
         if !in_check {
             // Stand pat for quiet positions
             let stand = self.eval_current(board);
             if stand >= beta { return beta; }
             if stand > alpha { alpha = stand; }
-        } else {
-            // Guard against pathological in-check recursion chains
-            if self.q_incheck_rec >= self.q_incheck_limit { return self.eval_current(board); }
-            self.q_incheck_rec += 1;
-            // In-check qsearch: explore all legal evasions (captures and quiets)
-            let mut moves: Vec<Move> = Vec::with_capacity(64);
-            board.generate_moves(|ml| { for m in ml { moves.push(m); } false });
-            // Prefer captures first
-            let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
-            let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0; for sq in opp_bb { occ_mask |= 1u64 << (sq as usize); }
-            moves.sort_by_key(|&m| {
-                let to_sq: Square = m.to; let bit = 1u64 << (to_sq as usize);
-                let is_cap = (occ_mask & bit) != 0;
-                let mvv = if is_cap { mvv_lva_score(board, m) } else { 0 };
-                -(is_cap as i32 * 1000 + mvv)
-            });
-            let mut res = alpha;
-            for m in moves {
-                let mut child = board.clone(); child.play(m);
-                let score = -self.qsearch(&child, -beta, -alpha);
-                if score >= beta { res = beta; break; }
-                if score > alpha { alpha = score; }
-                res = alpha;
-            }
-            self.q_incheck_rec = self.q_incheck_rec.saturating_sub(1);
-            return res;
         }
 
         // Captures only (first)
@@ -787,6 +760,9 @@ impl Searcher {
         self.nodes += 1;
         if self.nodes >= self.node_limit { self.iteration_aborted = true; return self.eval_cp_internal(board); }
         if let Some(dl) = self.deadline { if Instant::now() >= dl { self.iteration_aborted = true; return self.eval_cp_internal(board); } }
+        // Detect check and apply 1-ply check extension at the horizon
+        let in_check_now = !(board.checkers()).is_empty();
+        let depth = if depth == 0 && in_check_now { 1 } else { depth };
         if depth == 0 { return self.qsearch(board, alpha, beta); }
         // Null-move pruning (guarded)
         // Null-move pruning with shallow-depth verification to avoid tactical misses
@@ -926,7 +902,6 @@ impl Searcher {
         let mut best_move_local: Option<Move> = None;
         let orig_alpha = alpha;
         // Futility pre-eval
-        let in_check_now = !(board.checkers()).is_empty();
         let stand_eval = if self.use_futility && depth <= 3 && !in_check_now { Some(self.eval_current(board)) } else { None };
         for (idx, m) in moves.into_iter().enumerate() {
             let is_cap = self.is_capture(board, m);
