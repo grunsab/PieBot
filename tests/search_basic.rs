@@ -40,3 +40,16 @@ fn search_prefers_winning_queen_capture() {
     let bm = res.bestmove.expect("expected a best move");
     assert_eq!(bm, "e2d2", "expected Qe2xd2 as best move, got {bm}");
 }
+
+#[test]
+fn avoid_immediate_stalemate_when_ahead() {
+    use piebot::search::alphabeta::Searcher;
+    // From user: O-O-O (e2c2) stalemates; engine should avoid choosing it at root
+    let fen = "7R/4k1p1/6B1/1PN5/3PN3/P3BP2/6P1/R3K3 w Q - 3 33";
+    let b = Board::from_fen(fen, false).expect("valid fen");
+    let mut s = Searcher::default();
+    let res = s.search_depth(&b, 3);
+    if let Some(bm) = res.bestmove {
+        assert_ne!(bm, "e2c2", "should not choose immediate stalemate O-O-O, got {bm}");
+    }
+}

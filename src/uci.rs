@@ -7,6 +7,8 @@ use crate::eval::nnue::Nnue;
 use crate::eval::nnue::loader::QuantNnue;
 #[cfg(not(feature = "board-pleco"))]
 use crate::search::alphabeta::{Searcher, SearchParams};
+#[cfg(not(feature = "board-pleco"))]
+use std::time::Duration;
 
 #[cfg(feature = "board-pleco")]
 mod pleco_uci {
@@ -27,13 +29,19 @@ mod pleco_uci {
         threads: usize,
         hash_mb: usize,
         searcher: PlecoSearcher,
+        smp_mode: crate::search::alphabeta_pleco::SmpMode,
+        tm_finish_one: bool,
+        tm_factor: f32,
     }
     impl UciEnginePleco {
-        pub fn new() -> Self { Self { board: PBoard::start_pos(), threads: 1, hash_mb: 64, searcher: PlecoSearcher::default() } }
+        pub fn new() -> Self { Self { board: PBoard::start_pos(), threads: 1, hash_mb: 64, searcher: PlecoSearcher::default(), smp_mode: crate::search::alphabeta_pleco::SmpMode::InTree, tm_finish_one: true, tm_factor: 1.9 } }
         fn cmd_uci(&self) {
             println!("id name PieBot (Pleco)"); println!("id author PieBot Team");
             println!("option name Threads type spin default 1 min 1 max 512");
             println!("option name Hash type spin default 64 min 1 max 4096");
+            println!("option name SMPMode type combo default in-tree var off var in-tree var lazy-indep var lazy-coop var lazy-hybrid");
+            println!("option name TMPolicy type combo default finish var finish var spend");
+            println!("option name TMFactor type spin default 1.9 min 0 max 10");
             println!("uciok");
         }
         fn cmd_isready(&self) { println!("readyok"); }
@@ -42,6 +50,23 @@ mod pleco_uci {
             match name.to_lowercase().as_str() {
                 "threads" => if let Ok(t)=value.parse::<usize>(){ self.threads=t.max(1);} ,
                 "hash" => if let Ok(mb)=value.parse::<usize>(){ self.hash_mb = mb.max(1); self.searcher.set_tt_capacity_mb(self.hash_mb); },
+                "smpmode" => {
+                    let mode = match value.to_ascii_lowercase().as_str() {
+                        "off" => crate::search::alphabeta_pleco::SmpMode::Off,
+                        "in-tree" => crate::search::alphabeta_pleco::SmpMode::InTree,
+                        "lazy-indep" => crate::search::alphabeta_pleco::SmpMode::LazyIndep,
+                        "lazy-coop" => crate::search::alphabeta_pleco::SmpMode::LazyCoop,
+                        "lazy-hybrid" => crate::search::alphabeta_pleco::SmpMode::LazyHybrid,
+                        _ => crate::search::alphabeta_pleco::SmpMode::InTree,
+                    };
+                    self.smp_mode = mode;
+                },
+                "tmpolicy" => {
+                    self.tm_finish_one = match value.to_ascii_lowercase().as_str() { "spend" => false, _ => true };
+                },
+                "tmfactor" => {
+                    if let Ok(f) = value.parse::<f32>() { self.tm_factor = f; }
+                },
                 _=>{}
             }
         }
@@ -53,6 +78,8 @@ mod pleco_uci {
             // Ensure TT size
             self.searcher.set_tt_capacity_mb(self.hash_mb);
             self.searcher.set_threads(self.threads);
+            self.searcher.set_smp_mode(self.smp_mode);
+            self.searcher.set_time_manager(self.tm_finish_one, self.tm_factor);
             let pool=ThreadPoolBuilder::new().num_threads(self.threads).build().unwrap();
             let (best,_sc,_nodes)=pool.install(||{
                 if let Some(ms)=movetime{ self.searcher.search_movetime(&mut self.board.clone(), ms, depth)} else { self.searcher.search_movetime(&mut self.board.clone(), 1000, depth)}
@@ -60,6 +87,27 @@ mod pleco_uci {
             if let Some(bm)=best{ println!("bestmove {}", move_to_uci(bm)); } else { println!("bestmove 0000"); }
         }
         pub fn run_loop(&mut self){ let stdin=io::stdin(); for line in stdin.lock().lines(){ let line=match line{Ok(s)=>s.trim().to_string(),Err(_)=>break}; if line.is_empty(){continue;} if line=="uci"{ self.cmd_uci(); continue;} if line=="isready"{ self.cmd_isready(); continue;} if line=="ucinewgame"{ self.cmd_ucinewgame(); continue;} if let Some(rest)=line.strip_prefix("setoption "){ self.cmd_setoption(rest); continue;} if line=="quit"{ break;} if let Some(rest)=line.strip_prefix("position "){ self.cmd_position(rest); continue;} if let Some(rest)=line.strip_prefix("go "){ self.cmd_go(rest); continue;} if line=="stop"{ continue;} } }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::search::alphabeta_pleco::SmpMode;
+
+        #[test]
+        fn setoptions_update_internal_state() {
+            let mut eng = UciEnginePleco::new();
+            eng.apply_setoption("Threads", "4");
+            eng.apply_setoption("Hash", "128");
+            eng.apply_setoption("SMPMode", "lazy-hybrid");
+            eng.apply_setoption("TMPolicy", "spend");
+            eng.apply_setoption("TMFactor", "2.5");
+            assert_eq!(eng.threads, 4);
+            assert_eq!(eng.hash_mb, 128);
+            assert_eq!(eng.smp_mode, SmpMode::LazyHybrid);
+            assert_eq!(eng.tm_finish_one, false);
+            assert!((eng.tm_factor - 2.5).abs() < 1e-6);
+        }
     }
 }
 

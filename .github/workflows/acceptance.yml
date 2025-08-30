@@ -1,0 +1,45 @@
+name: Acceptance
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  matein3:
+    name: Mate-in-3 Acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build accept binaries (release)
+        run: |
+          cargo build --release --bin accept
+          cargo build --release --bin accept_temp
+
+      - name: Run baseline (alphabeta) acceptance
+        env:
+          PIEBOT_SUITE_FILE: src/suites/matein3.txt
+          PIEBOT_TEST_THREADS: "1"
+          PIEBOT_TEST_START_DEPTH: "7"
+          PIEBOT_TEST_MAX_DEPTH: "7"
+        run: |
+          cargo run --release --bin accept
+
+      - name: Run experimental (alphabeta_temp) acceptance
+        env:
+          PIEBOT_SUITE_FILE: src/suites/matein3.txt
+          PIEBOT_TEST_THREADS: "1"
+          PIEBOT_TEST_START_DEPTH: "7"
+          PIEBOT_TEST_MAX_DEPTH: "7"
+        run: |
+          cargo run --release --bin accept_temp
+

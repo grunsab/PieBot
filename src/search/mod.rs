@@ -1,9 +1,14 @@
 pub mod eval;
 pub mod alphabeta;
+pub mod alphabeta_temp;
 pub mod zobrist;
 pub mod tt;
 pub mod see;
+pub mod noise;
+pub mod safety;
 #[cfg(feature = "board-pleco")]
 pub mod alphabeta_pleco;
 #[cfg(feature = "board-pleco")]
 pub mod tt_pleco;
+#[cfg(feature = "board-pleco")]
+pub mod see_pleco;

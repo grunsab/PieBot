@@ -145,7 +145,7 @@ pub struct Searcher {
     // SMP control
     smp_diversify: bool,
     smp_safe: bool,
-    // Iterative deepening control: set when current iteration aborted by time/node limit
+    // Set true when current ID iteration is aborted by time/node limit
     iteration_aborted: bool,
     // Quiescence: recursion guard for in-check evasions
     q_incheck_rec: u32,
@@ -303,14 +303,12 @@ impl Searcher {
         if self.threads > 1 && !self.deterministic {
             let (bm, sc, n, d) = self.search_movetime_lazy_smp(board, millis, depth);
             self.last_depth = d;
-            // Best available proxy for selective depth in SMP path
-            self.max_seldepth = d;
+            self.max_seldepth = d; // best available proxy in SMP path
             return (bm, sc, n);
         }
         self.nodes = 0;
         self.node_limit = u64::MAX;
         self.deadline = Some(Instant::now() + Duration::from_millis(millis));
-        // Reset selective depth for this time-managed search
         self.max_seldepth = 0;
         if self.use_history {
             for h in &mut self.history_table { *h = 0; }
@@ -324,6 +322,7 @@ impl Searcher {
             self.tt.bump_generation();
             let res = self.search_depth(board, d);
             if self.iteration_aborted {
+                // If no previous completed iteration, at least return the best-so-far from this one
                 if best.is_none() { best = res.bestmove.clone(); last_score = res.score_cp; }
                 break;
             }
@@ -333,10 +332,10 @@ impl Searcher {
             if let Some(dl) = self.deadline { if Instant::now() >= dl { break; } }
         }
         if best.is_none() {
-            // Fallback: return first legal move to preserve liveness
-            let mut mv: Option<Move> = None;
-            board.generate_moves(|ml| { for m in ml { mv = Some(m); break; } mv.is_some() });
-            if let Some(m) = mv { best = Some(format!("{}", m)); }
+            // Fallback: return first legal move to ensure liveness
+            let mut mv_opt: Option<Move> = None;
+            board.generate_moves(|ml| { for m in ml { mv_opt = Some(m); break; } mv_opt.is_some() });
+            if let Some(mv) = mv_opt { best = Some(format!("{}", mv)); }
         }
         (best, last_score, self.nodes)
     }
@@ -351,10 +350,12 @@ impl Searcher {
         let quant_model = self.nnue_quant.as_ref().map(|qn| qn.model.clone());
         let deadline = Some(Instant::now() + Duration::from_millis(millis));
         let maxd = if depth == 0 { 99 } else { depth };
-        let smp_diversify = self.smp_diversify && !self.smp_safe;
-        let helper_tt_exact_only = self.helper_tt_exact_only || self.smp_safe;
-        let tail_policy = self.tail_policy;
-        let smp_safe = self.smp_safe;
+        // Auto-enable SMP-safe profile at very short movetimes to reduce tactical instability
+        let auto_safe = self.threads > 1 && millis <= 20;
+        let smp_safe = self.smp_safe || auto_safe;
+        let smp_diversify = self.smp_diversify && !smp_safe;
+        let helper_tt_exact_only = self.helper_tt_exact_only || smp_safe;
+        let tail_policy = if smp_safe { TailPolicy::Full } else { self.tail_policy };
         let results: Vec<(usize, Option<String>, i32, u64, u32)> = (0..threads).into_par_iter().map(|wid| {
             let mut w = Searcher::default();
             w.tt = shared_tt.clone();
@@ -434,7 +435,7 @@ impl Searcher {
             if !has_legal { return self.eval_terminal(board, 0); }
         }
 
-        // If in check, do not stand pat; we still restrict qsearch to captures and a few checking quiets
+        // If in check, do not stand pat; still restrict qsearch to captures and a few checking quiets
         let in_check = !(board.checkers()).is_empty();
         if !in_check {
             // Stand pat for quiet positions
@@ -492,6 +493,8 @@ impl Searcher {
         let beta = MATE_SCORE;
         let mut bestmove: Option<Move> = None;
         let mut best_score = -MATE_SCORE;
+        let mut second_move: Option<Move> = None;
+        let mut second_score = -MATE_SCORE;
 
         // Root-split parallel search if threads > 1 and depth > 1
         if self.threads > 1 && depth > 1 && !self.deterministic {
@@ -502,14 +505,13 @@ impl Searcher {
         let orig_alpha = alpha;
         let mut moves: Vec<Move> = Vec::with_capacity(64);
         board.generate_moves(|ml| { for m in ml { moves.push(m); } false });
-        // Root blunder guard: push obviously hanging quiet moves to the end.
-        // Skip while in check to avoid misordering legitimate evasions.
+        // Root guard (simple): push obviously hanging quiet, non-check moves to tail; do not touch captures/checks
+        // Skip while in check to avoid misordering legal evasions.
         if depth >= 1 && (board.checkers()).is_empty() {
-            let loss_thresh = 200; // roughly a minor piece
+            let loss_thresh = 200;
             let mut safe: Vec<Move> = Vec::with_capacity(moves.len());
             let mut blunders: Vec<Move> = Vec::new();
             for m in moves.drain(..) {
-                // Skip guard for captures and checking moves
                 let is_cap = self.is_capture(board, m);
                 let mut tmp = board.clone(); tmp.play(m);
                 let gives_check = !(tmp.checkers()).is_empty();
@@ -594,12 +596,31 @@ impl Searcher {
             if score == crate::search::eval::DRAW_SCORE && crate::search::safety::is_stalemate(&child) {
                 score -= 1;
             }
+            if self.iteration_aborted { break; }
             if let Some(ch) = change { if let Some(qn) = self.nnue_quant.as_mut() { qn.revert(ch); } }
-            if score > best_score { best_score = score; bestmove = Some(m); }
+            if score > best_score {
+                second_score = best_score; second_move = bestmove;
+                best_score = score; bestmove = Some(m);
+            } else if score > second_score {
+                second_score = score; second_move = Some(m);
+            }
             if score > alpha { alpha = score; }
         }
 
-        // Store root in TT as exact when using full window (skip if iteration aborted)
+        // Optional root confirm: quick re-search of second-best in SMP-safe profile
+        if self.smp_safe {
+            if let (Some(_bm), Some(sb)) = (bestmove, second_move) {
+                if let Some(dl) = self.deadline { if Instant::now() < dl { 
+                    // Short confirm at depth-1
+                    let mut child = board.clone(); child.play(sb);
+                    let confirm_depth = depth.saturating_sub(1);
+                    let sc = -self.alphabeta(&child, confirm_depth, -beta, -alpha, 1, move_index(sb));
+                    if sc > best_score + 30 { best_score = sc; bestmove = Some(sb); }
+                }}
+            }
+        }
+
+        // Store root in TT only when iteration finished
         let root_bound = if best_score <= orig_alpha { Bound::Upper } else if best_score >= beta { Bound::Lower } else { Bound::Exact };
         if !self.iteration_aborted { self.tt_put(board, depth, best_score, bestmove, root_bound); }
 
@@ -682,7 +703,8 @@ impl Searcher {
         let null_min = self.null_min_depth;
         let use_nnue = self.use_nnue;
         let helper_tt_exact_only = self.helper_tt_exact_only || self.smp_safe;
-        let tail_policy = self.tail_policy;
+        // In safe SMP profile, prefer full-window tails for stability
+        let tail_policy = if self.smp_safe { TailPolicy::Full } else { self.tail_policy };
         let shared_tt = self.tt.clone();
         let quant_model = self.nnue_quant.as_ref().map(|qn| qn.model.clone());
         let tails: Vec<Move> = iter.collect();
@@ -726,18 +748,19 @@ impl Searcher {
             self.nodes += n;
             if s > best_score { best_score = s; best_move_local = Some(m); }
         }
-        self.tt_put(board, depth, best_score, best_move_local, Bound::Exact);
+        if let Some(dl) = self.deadline { if Instant::now() >= dl { self.iteration_aborted = true; } }
+        if !self.iteration_aborted { self.tt_put(board, depth, best_score, best_move_local, Bound::Exact); }
         SearchResult { bestmove: best_move_local.map(|mv| format!("{}", mv)), score_cp: best_score, nodes: self.nodes }
     }
 
     fn alphabeta(&mut self, board: &Board, depth: u32, mut alpha: i32, beta: i32, ply: i32, parent_move_idx: usize) -> i32 {
-        // Track selective depth reached
+        // Track selective depth
         if (ply as u32) > self.max_seldepth { self.max_seldepth = ply as u32; }
         if let Some(ref flag) = self.abort { if flag.load(Ordering::Relaxed) { return self.eval_cp_internal(board); } }
         self.nodes += 1;
         if self.nodes >= self.node_limit { self.iteration_aborted = true; return self.eval_cp_internal(board); }
         if let Some(dl) = self.deadline { if Instant::now() >= dl { self.iteration_aborted = true; return self.eval_cp_internal(board); } }
-        // Detect check at current node and apply 1-ply check extension at the horizon
+        // Detect check and apply 1-ply check extension at the horizon
         let in_check_now = !(board.checkers()).is_empty();
         let depth = if depth == 0 && in_check_now { 1 } else { depth };
         if depth == 0 { return self.qsearch(board, alpha, beta); }
@@ -902,8 +925,10 @@ impl Searcher {
             let score = {
                 let lmr_depth_gate = if self.smp_safe { 5 } else { 3 };
                 let lmr_idx_gate = if self.smp_safe { 4 } else { 3 };
-                // Never reduce moves when the side to move is in check
-                if self.use_lmr && depth >= lmr_depth_gate && !in_check_now {
+                let mut do_lmr = self.use_lmr;
+                if do_lmr && depth >= lmr_depth_gate {
+                    // Never reduce moves when side to move is currently in check
+                    if in_check_now { do_lmr = false; }
                     // Conservative LMR: reduce late quiet moves (no captures or checking moves)
                     if !is_cap && !gives_check && idx >= lmr_idx_gate {
                         let mut r = 1u32 + self.lmr_aggr.max(0) as u32;
@@ -923,7 +948,7 @@ impl Searcher {
             if score > best { best = score; best_move_local = Some(m); }
             if best > alpha { alpha = best; }
             if alpha >= beta { break; }
-            if let Some(dl) = self.deadline { if Instant::now() >= dl { break; } }
+            if let Some(dl) = self.deadline { if Instant::now() >= dl { self.iteration_aborted = true; break; } }
             // (removed) string-based continuation history
         }
         // Store exact score and best move
@@ -953,6 +978,15 @@ impl Searcher {
     fn tt_key(board: &Board) -> u64 { zobrist::compute(board) }
     fn tt_get(&self, board: &Board) -> Option<Entry> { self.tt.get(Self::tt_key(board)) }
     fn tt_put(&mut self, board: &Board, depth: u32, score: i32, best: Option<Move>, bound: Bound) {
+        // Only suppress shallow non-Exact writes in SMP-safe mode to improve helper stability.
+        // Keep baseline-friendly behavior for 1T/normal runs.
+        if self.smp_safe {
+            if !self.helper_tt_exact_only {
+                if depth <= 3 {
+                    if !matches!(bound, Bound::Exact) { return; }
+                }
+            }
+        }
         let b = if self.helper_tt_exact_only { Bound::Exact } else { bound };
         let e = Entry { key: Self::tt_key(board), depth, score, best, bound: b, gen: 0 };
         self.tt.put(e);
@@ -1007,9 +1041,9 @@ impl Searcher {
             if let Some(dl) = self.deadline { if Instant::now() >= dl { break; } }
         }
         if best.is_none() {
-            let mut mv: Option<Move> = None;
-            board.generate_moves(|ml| { for m in ml { mv = Some(m); break; } mv.is_some() });
-            if let Some(m) = mv { best = Some(format!("{}", m)); }
+            let mut mv_opt: Option<Move> = None;
+            board.generate_moves(|ml| { for m in ml { mv_opt = Some(m); break; } mv_opt.is_some() });
+            if let Some(mv) = mv_opt { best = Some(format!("{}", mv)); }
         }
         SearchResult { bestmove: best, score_cp: last_score, nodes: self.nodes }
     }

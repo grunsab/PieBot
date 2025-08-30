@@ -18,6 +18,24 @@ struct Args {
     /// SMP mode: off | in-tree | lazy
     #[arg(long, default_value = "in-tree")]
     smp: String,
+    /// SEE ordering on/off
+    #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+    see_ordering: bool,
+    /// SEE pruning on/off
+    #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+    see_prune: bool,
+    /// SEE ordering top-K captures (0=all)
+    #[arg(long, default_value_t = 6usize)]
+    see_topk: usize,
+    /// Singular extensions on/off
+    #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+    singular: bool,
+    /// Stronger IID on/off
+    #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+    iid_strong: bool,
+    /// Evaluation mode: material | pst
+    #[arg(long, default_value = "material")]
+    eval_mode: String,
     /// Deterministic seed to randomize starting positions
     #[arg(long, default_value_t = 1u64)]
     seed: u64,
@@ -57,12 +75,19 @@ struct Args {
     /// Limit to top-K moves for tempered sampling (0=all)
     #[arg(long, default_value_t = 3usize)]
     rollout_topk: usize,
+    /// Compare eval modes (material vs pst) for NPS on the same cases
+    #[arg(long, default_value_t = false)]
+    compare_eval: bool,
 }
 
 #[cfg(feature = "board-pleco")]
 fn main_inner() {
     let args = Args::parse();
     let pool = rayon::ThreadPoolBuilder::new().num_threads(args.threads).build().unwrap();
+
+    if args.compare_eval {
+        return run_compare_eval(&pool, &args);
+    }
 
     if args.positions <= 1 && args.suite.is_none() {
         let mut board = if args.fen == "startpos" { pleco::Board::start_pos() } else { pleco::Board::from_fen(&args.fen).expect("valid fen") };
@@ -106,7 +131,7 @@ fn main_inner() {
     if args.rollout_depth > 0 && args.rollout_moves > 0 && args.suite.is_none() {
         let mut start = if args.fen == "startpos" { pleco::Board::start_pos() } else { pleco::Board::from_fen(&args.fen).expect("valid fen") };
         randomize_board(&mut start, args.seed, args.min_plies, args.max_plies);
-        let cases = generate_rollout_positions(&start, args.rollout_moves, args.rollout_depth, args.rollout_tempered_plies, args.rollout_temp_cp, args.rollout_topk, args.seed);
+        let cases = generate_rollout_positions(&start, args.rollout_moves, args.rollout_depth, args.rollout_tempered_plies, args.rollout_temp_cp, args.rollout_topk, args.seed, &args.eval_mode);
         let mut depths = Vec::with_capacity(cases.len());
         let mut seldepths = Vec::with_capacity(cases.len());
         let mut nodes_total: u64 = 0;
@@ -183,13 +208,25 @@ fn randomize_board(board: &mut pleco::Board, seed: u64, min_plies: usize, max_pl
 #[cfg(feature = "board-pleco")]
 fn run_one(board: &mut pleco::Board, args: &Args) -> (Option<pleco::BitMove>, i32, u64, u32, u32) {
     use piebot::search::alphabeta_pleco::SmpMode;
+    use piebot::search::alphabeta_pleco::PlecoEvalMode;
     let mut s = piebot::search::alphabeta_pleco::PlecoSearcher::default();
     s.set_threads(args.threads);
+    s.set_see_ordering(args.see_ordering);
+    s.set_see_prune(args.see_prune);
+    s.set_see_ordering_topk(args.see_topk);
+    s.set_singular_enable(args.singular);
+    s.set_iid_strong(args.iid_strong);
+    let eval_mode = match args.eval_mode.as_str() {
+        "pst" => PlecoEvalMode::Pst,
+        _ => PlecoEvalMode::Material,
+    };
+    s.set_eval_mode(eval_mode);
     let smp_mode = match args.smp.as_str() {
         "off" => SmpMode::Off,
         "in-tree" => SmpMode::InTree,
         "lazy-indep" => SmpMode::LazyIndep,
         "lazy-coop" => SmpMode::LazyCoop,
+        "lazy-hybrid" => SmpMode::LazyHybrid,
         "lazy" => SmpMode::LazyCoop,
         _ => SmpMode::InTree,
     };
@@ -201,8 +238,91 @@ fn run_one(board: &mut pleco::Board, args: &Args) -> (Option<pleco::BitMove>, i3
 }
 
 #[cfg(feature = "board-pleco")]
-fn generate_rollout_positions(start: &pleco::Board, moves: usize, depth: u32, tempered_plies: usize, temp_cp: f32, topk: usize, seed: u64) -> Vec<pleco::Board> {
+fn run_one_mode(board: &mut pleco::Board, args: &Args, eval_mode: &str) -> (Option<pleco::BitMove>, i32, u64, u32, u32) {
+    use piebot::search::alphabeta_pleco::{SmpMode, PlecoEvalMode};
+    let mut s = piebot::search::alphabeta_pleco::PlecoSearcher::default();
+    s.set_threads(args.threads);
+    s.set_see_ordering(args.see_ordering);
+    s.set_see_prune(args.see_prune);
+    s.set_see_ordering_topk(args.see_topk);
+    s.set_singular_enable(args.singular);
+    s.set_iid_strong(args.iid_strong);
+    s.set_eval_mode(match eval_mode { "pst" => PlecoEvalMode::Pst, _ => PlecoEvalMode::Material });
+    let smp_mode = match args.smp.as_str() {
+        "off" => SmpMode::Off,
+        "in-tree" => SmpMode::InTree,
+        "lazy-indep" => SmpMode::LazyIndep,
+        "lazy-coop" => SmpMode::LazyCoop,
+        "lazy-hybrid" => SmpMode::LazyHybrid,
+        "lazy" => SmpMode::LazyCoop,
+        _ => SmpMode::InTree,
+    };
+    s.set_smp_mode(smp_mode);
+    let finish = match args.tm_policy.as_str() { "spend" => false, _ => true };
+    s.set_time_manager(finish, args.tm_factor);
+    let (bm, sc, nodes) = s.search_movetime(board, args.movetime, args.depth);
+    (bm, sc, nodes, s.last_depth(), s.last_seldepth())
+}
+
+#[cfg(feature = "board-pleco")]
+fn run_compare_eval(pool: &rayon::ThreadPool, args: &Args) {
+    // Build cases (suite or rollout or randomized from fen) once, then run both evals on same cases
+    let mut cases: Vec<pleco::Board> = Vec::new();
+    if args.rollout_depth > 0 && args.rollout_moves > 0 && args.suite.is_none() {
+        let mut start = if args.fen == "startpos" { pleco::Board::start_pos() } else { pleco::Board::from_fen(&args.fen).expect("valid fen") };
+        randomize_board(&mut start, args.seed, args.min_plies, args.max_plies);
+        cases = generate_rollout_positions(&start, args.rollout_moves, args.rollout_depth, args.rollout_tempered_plies, args.rollout_temp_cp, args.rollout_topk, args.seed, &args.eval_mode);
+    } else if let Some(path) = &args.suite {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            for line in text.lines() {
+                let l = line.trim(); if l.is_empty() { continue; }
+                if l.starts_with('{') {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(l) {
+                        if let Some(f) = v.get("fen").and_then(|x| x.as_str()) {
+                            cases.push(pleco::Board::from_fen(f).expect("valid fen"));
+                        }
+                    }
+                } else { cases.push(pleco::Board::from_fen(l).expect("valid fen")); }
+            }
+        }
+    } else {
+        // randomize from fen for positions count
+        let mut base = if args.fen == "startpos" { pleco::Board::start_pos() } else { pleco::Board::from_fen(&args.fen).expect("valid fen") };
+        randomize_board(&mut base, args.seed, args.min_plies, args.max_plies);
+        cases.push(base);
+    }
+    // Ensure we don't exceed requested positions
+    if cases.len() > args.positions { cases.truncate(args.positions); }
+
+    // Run suite for a given eval mode, compute totals
+    let mut run_suite = |mode: &str| -> (u64, f64, f64) {
+        let t0_all = Instant::now();
+        let mut nodes_total: u64 = 0;
+        let mut depth_sum: u64 = 0;
+        for mut b in cases.clone() {
+            let t0 = Instant::now();
+            let (_bm, _sc, nodes, depth_reached, _sd) = pool.install(|| run_one_mode(&mut b, args, mode));
+            let _ = t0.elapsed();
+            nodes_total += nodes;
+            depth_sum += depth_reached as u64;
+        }
+        let dt = t0_all.elapsed().as_secs_f64();
+        let avg_depth = if cases.is_empty() { 0.0 } else { depth_sum as f64 / cases.len() as f64 };
+        (nodes_total, dt, avg_depth)
+    };
+
+    let (nodes_mat, dt_mat, avgd_mat) = run_suite("material");
+    let (nodes_pst, dt_pst, avgd_pst) = run_suite("pst");
+    let nps_mat = if dt_mat > 0.0 { nodes_mat as f64 / dt_mat } else { 0.0 };
+    let nps_pst = if dt_pst > 0.0 { nodes_pst as f64 / dt_pst } else { 0.0 };
+    println!("{{\"compare_eval\":true,\"positions\":{},\"material\":{{\"nodes\":{},\"elapsed\":{:.3},\"nps\":{:.1},\"avg_depth\":{:.2}}},\"pst\":{{\"nodes\":{},\"elapsed\":{:.3},\"nps\":{:.1},\"avg_depth\":{:.2}}}}}",
+        cases.len(), nodes_mat, dt_mat, nps_mat, avgd_mat, nodes_pst, dt_pst, nps_pst, avgd_pst);
+}
+
+#[cfg(feature = "board-pleco")]
+fn generate_rollout_positions(start: &pleco::Board, moves: usize, depth: u32, tempered_plies: usize, temp_cp: f32, topk: usize, seed: u64, eval_mode: &str) -> Vec<pleco::Board> {
     use piebot::search::alphabeta_pleco::SmpMode;
+    use piebot::search::alphabeta_pleco::PlecoEvalMode;
     let mut boards = Vec::with_capacity(moves);
     let mut cur = start.clone();
     let mut rng = SmallRng::seed_from_u64(seed);
@@ -213,7 +333,9 @@ fn generate_rollout_positions(start: &pleco::Board, moves: usize, depth: u32, te
         w.set_threads(1);
         w.set_smp_mode(SmpMode::Off);
         w.set_time_manager(true, 1.9);
-        // Compute root move scores at fixed depth
+        let em = match eval_mode { "pst" => PlecoEvalMode::Pst, _ => PlecoEvalMode::Material };
+        w.set_eval_mode(em);
+        // Compute root move scores at the specified rollout depth (parity with earlier selection)
         let mut board_clone = cur.clone();
         let scores = w.score_root_moves(&mut board_clone, depth);
         // Choose tempered for initial plies, then absolute best after

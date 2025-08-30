@@ -1,2 +1,7 @@
 Cargo.lock
 target/
+*.json
+*.csv
+*.jsonl
+*.pgn
+*.zst

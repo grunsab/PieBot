@@ -38,7 +38,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = "0.4"
 
 [features]
-default = ["board-pleco"]
+default = []
 # CPU SIMD optimization toggles (used later in NNUE/eval paths)
 simd-neon = []
 simd-avx2 = []
