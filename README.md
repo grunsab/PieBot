@@ -1,6 +1,6 @@
 # PieBot (Rust) – NNUE + Alpha-Beta
 
-This crate is being reimplemented around a CPU-only NNUE evaluation and a highly optimized alpha-beta search (with parallel jamboree), targeting top-tier chess-engine performance.
+This crate is being reimplemented around a CPU-only NNUE evaluation and a highly optimized alpha-beta search (with parallel search), targeting top-tier chess-engine performance.
 
 ## Current Status
 

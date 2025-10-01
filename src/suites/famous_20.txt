@@ -1,0 +1,5 @@
+Opera Game (Morphy 1858)|1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17
+Immortal Game (Anderssen-Kieseritzky 1851)|r1b1k1nr/p2p1ppp/n2B4/1p1NPN1P/6P1/3P1Q2/P1P1K3/q5b1 w kq - 2 21
+Evergreen Game (Anderssen-Dufresne 1852)|1r2k2r/pbppnppp/1bn5/4Pq2/Q1B1N3/B1Pp1N2/P4PPP/R3R1K1 w k - 7 16
+Game of the Century (Byrne-Fischer 1956)|r3r1k1/pp3pbp/1qp1b1p1/2B5/2BP4/Q1n2N2/P4PPP/3R1K1R w - - 4 18
+Kasparov–Topalov 1999 (Wijk)|b2r3r/k3Rp1p/p2q1np1/NppP4/3p1Q2/P4PPB/1PP4P/1K1R4 b - - 2 24

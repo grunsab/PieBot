@@ -75,8 +75,34 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
 
     // From the end, choose optimal stopping point
     for i in (0..gains.len().saturating_sub(1)).rev() {
-        let alt = -gains[i + 1];
-        if alt > gains[i] { gains[i] = alt; }
+        // Stockfish-style fold: gains[i] = -max(-gains[i], gains[i+1])
+        let a = -gains[i];
+        let b = gains[i + 1];
+        let m = if a > b { a } else { b };
+        gains[i] = -m;
     }
     Some(gains[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cozy_chess::{Board, Square};
+
+    #[test]
+    fn see_detects_bad_exchange_rook_x_pawn_on_h7() {
+        // FEN from user: after Rxh7, ...Kxh7 wins the rook; SEE must be negative.
+        let fen = "6k1/2R4p/6p1/8/6K1/6P1/8/8 w - - 3 38";
+        let board = Board::from_fen(fen, false).unwrap();
+        let mut rxh7 = None;
+        board.generate_moves(|ml| {
+            for m in ml {
+                if m.from == Square::C7 && m.to == Square::H7 { rxh7 = Some(m); break; }
+            }
+            rxh7.is_some()
+        });
+        let m = rxh7.expect("Rxh7 must be legal in this position");
+        let see = see_gain_cp(&board, m).expect("SEE must return some");
+        assert!(see < 0, "SEE should be negative for losing exchange, got {}", see);
+    }
 }
