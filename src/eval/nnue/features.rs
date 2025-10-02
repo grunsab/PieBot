@@ -9,7 +9,9 @@ pub const HALFKP_PIECE_ORDER: [Piece; 5] = [
 ];
 
 #[inline]
-pub fn halfkp_dim() -> usize { 2 * 64 * HALFKP_PIECE_ORDER.len() * 64 }
+pub fn halfkp_dim() -> usize {
+    2 * 64 * HALFKP_PIECE_ORDER.len() * 64
+}
 
 #[inline]
 fn square_to_index(sq: Square) -> usize {
@@ -32,13 +34,21 @@ fn idx_for(side: Color, k_idx: usize, piece_idx: usize, sq_idx: usize) -> usize 
 pub struct HalfKpA;
 
 impl HalfKpA {
-    pub fn dim(&self) -> usize { halfkp_dim() }
+    pub fn dim(&self) -> usize {
+        halfkp_dim()
+    }
 
     pub fn active_indices(&self, board: &Board) -> Vec<usize> {
         let mut out = Vec::with_capacity(64);
         // King squares
-        let wk_sq = (board.colors(Color::White) & board.pieces(Piece::King)).into_iter().next().unwrap();
-        let bk_sq = (board.colors(Color::Black) & board.pieces(Piece::King)).into_iter().next().unwrap();
+        let wk_sq = (board.colors(Color::White) & board.pieces(Piece::King))
+            .into_iter()
+            .next()
+            .unwrap();
+        let bk_sq = (board.colors(Color::Black) & board.pieces(Piece::King))
+            .into_iter()
+            .next()
+            .unwrap();
         let wk_idx = square_to_index(wk_sq);
         let bk_idx = square_to_index(bk_sq);
         // For each non-king piece on both sides

@@ -15,7 +15,10 @@ pub fn is_hanging_after_move(board: &Board, mv: Move, loss_thresh_cp: i32) -> bo
         for m2 in ml {
             if m2.to == mv.to {
                 if let Some(gain) = crate::search::see::see_gain_cp(&child, m2) {
-                    if gain >= loss_thresh_cp { blunder = true; break; }
+                    if gain >= loss_thresh_cp {
+                        blunder = true;
+                        break;
+                    }
                 }
             }
         }
@@ -37,7 +40,10 @@ pub fn exposes_heavy_loss_after_move(board: &Board, mv: Move, loss_thresh_cp: i3
     child.generate_moves(|ml| {
         for m2 in ml {
             if let Some(gain) = crate::search::see::see_gain_cp(&child, m2) {
-                if gain >= loss_thresh_cp { severe = true; break; }
+                if gain >= loss_thresh_cp {
+                    severe = true;
+                    break;
+                }
             }
         }
         severe
@@ -48,8 +54,13 @@ pub fn exposes_heavy_loss_after_move(board: &Board, mv: Move, loss_thresh_cp: i3
 /// Returns true if the given position is stalemate (no legal moves and not in check).
 pub fn is_stalemate(board: &Board) -> bool {
     let mut has_legal = false;
-    board.generate_moves(|_| { has_legal = true; true });
-    if has_legal { return false; }
+    board.generate_moves(|_| {
+        has_legal = true;
+        true
+    });
+    if has_legal {
+        return false;
+    }
     (board.checkers()).is_empty()
 }
 
@@ -72,9 +83,17 @@ mod tests {
         let board = Board::from_fen(fen, false).unwrap();
         let mut found = None;
         board.generate_moves(|ml| {
-            for m in ml { if is_stalemate_after_move(&board, m) { found = Some(m); break; } }
+            for m in ml {
+                if is_stalemate_after_move(&board, m) {
+                    found = Some(m);
+                    break;
+                }
+            }
             found.is_some()
         });
-        assert!(found.is_some(), "expected at least one stalemating move from this position");
+        assert!(
+            found.is_some(),
+            "expected at least one stalemating move from this position"
+        );
     }
 }

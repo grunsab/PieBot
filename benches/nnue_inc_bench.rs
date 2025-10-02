@@ -1,7 +1,7 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use cozy_chess::Board;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use piebot::eval::nnue::features::halfkp_dim;
-use piebot::eval::nnue::loader::{QuantNnue, QuantMeta};
+use piebot::eval::nnue::loader::{QuantMeta, QuantNnue};
 use piebot::eval::nnue::network::QuantNetwork;
 
 fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
@@ -14,12 +14,29 @@ fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
     };
     let w1_len = hidden_dim * input_dim;
     let mut w1 = Vec::with_capacity(w1_len);
-    for _ in 0..w1_len { w1.push(next_i8()); }
+    for _ in 0..w1_len {
+        w1.push(next_i8());
+    }
     let b1 = vec![0i16; hidden_dim];
     let mut w2 = Vec::with_capacity(hidden_dim);
-    for _ in 0..hidden_dim { w2.push(next_i8()); }
+    for _ in 0..hidden_dim {
+        w2.push(next_i8());
+    }
     let b2 = vec![0i16; 1];
-    QuantNnue { meta: QuantMeta { version: 1, input_dim, hidden_dim, output_dim: 1 }, w1_scale: 1.0, w2_scale: 1.0, w1, b1, w2, b2 }
+    QuantNnue {
+        meta: QuantMeta {
+            version: 1,
+            input_dim,
+            hidden_dim,
+            output_dim: 1,
+        },
+        w1_scale: 1.0,
+        w2_scale: 1.0,
+        w1,
+        b1,
+        w2,
+        b2,
+    }
 }
 
 fn prepare_sequence(max_plies: usize) -> Vec<(Board, String, Board)> {
@@ -28,12 +45,32 @@ fn prepare_sequence(max_plies: usize) -> Vec<(Board, String, Board)> {
     for _ in 0..max_plies {
         // Pick the first legal move (if any)
         let mut chosen: Option<String> = None;
-        b.generate_moves(|ml| { for m in ml { chosen = Some(format!("{}", m)); break; } chosen.is_some() });
+        b.generate_moves(|ml| {
+            for m in ml {
+                chosen = Some(format!("{}", m));
+                break;
+            }
+            chosen.is_some()
+        });
         let Some(mstr) = chosen else { break };
         let mut nb = b.clone();
         let mut found = None;
-        b.generate_moves(|ml| { for m in ml { if format!("{}", m) == mstr { found = Some(m); break; } } found.is_some() });
-        if let Some(mv) = found { nb.play(mv); out.push((b.clone(), mstr.clone(), nb.clone())); b = nb; } else { break; }
+        b.generate_moves(|ml| {
+            for m in ml {
+                if format!("{}", m) == mstr {
+                    found = Some(m);
+                    break;
+                }
+            }
+            found.is_some()
+        });
+        if let Some(mv) = found {
+            nb.play(mv);
+            out.push((b.clone(), mstr.clone(), nb.clone()));
+            b = nb;
+        } else {
+            break;
+        }
     }
     out
 }
@@ -42,7 +79,9 @@ fn bench_nnue_incremental(c: &mut Criterion) {
     let seq = prepare_sequence(64);
     let model = make_random_quant_model(64);
     let mut net = QuantNetwork::new(model);
-    if let Some((ref b0, _, _)) = seq.first() { net.refresh(b0); }
+    if let Some((ref b0, _, _)) = seq.first() {
+        net.refresh(b0);
+    }
 
     c.bench_function("nnue_incremental_apply_revert", |ben| {
         ben.iter(|| {
@@ -50,7 +89,15 @@ fn bench_nnue_incremental(c: &mut Criterion) {
             for (before, mstr, after) in &seq {
                 // find move again (string → move)
                 let mut chosen = None;
-                before.generate_moves(|ml| { for m in ml { if format!("{}", m) == *mstr { chosen = Some(m); break; } } chosen.is_some() });
+                before.generate_moves(|ml| {
+                    for m in ml {
+                        if format!("{}", m) == *mstr {
+                            chosen = Some(m);
+                            break;
+                        }
+                    }
+                    chosen.is_some()
+                });
                 let mv = chosen.expect("move should be legal");
                 let change = net.apply_move(before, mv, after);
                 acc ^= net.eval_current();

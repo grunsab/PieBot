@@ -21,6 +21,9 @@ fn alphabeta_finds_simple_mate_in_one() {
 
     let result = searcher.search_with_params(&board, params);
     assert_eq!(result.bestmove.as_deref(), Some("qe8"));
-    assert!(result.score_cp > 24_000, "expected mate score, got {}", result.score_cp);
+    assert!(
+        result.score_cp > 24_000,
+        "expected mate score, got {}",
+        result.score_cp
+    );
 }
-

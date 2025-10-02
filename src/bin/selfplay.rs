@@ -1,9 +1,12 @@
 use clap::Parser;
-use piebot::selfplay::{SelfPlayParams, generate_games, write_shards};
+use piebot::selfplay::{generate_games, write_shards, SelfPlayParams};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "piebot-selfplay", about = "Generate self-play games and write shards")]
+#[command(
+    name = "piebot-selfplay",
+    about = "Generate self-play games and write shards"
+)]
 struct Args {
     #[arg(long, default_value_t = 100)]
     games: usize,
@@ -17,7 +20,7 @@ struct Args {
     movetime_ms: Option<u64>,
     #[arg(long, default_value_t = 42)]
     seed: u64,
-    #[arg(long, default_value = "out/shards")] 
+    #[arg(long, default_value = "out/shards")]
     out: PathBuf,
     #[arg(long, default_value_t = 100_000)]
     max_records_per_shard: usize,
@@ -60,7 +63,10 @@ fn main() -> anyhow::Result<()> {
         openings_path: a.openings,
         temperature_tau_final: a.temperature_tau_final,
     };
-    eprintln!("Generating {} games (depth={}, threads={}, engine={}, tau={}, dir_eps={})", a.games, a.depth, a.threads, a.use_engine, a.temperature_tau, a.dirichlet_epsilon);
+    eprintln!(
+        "Generating {} games (depth={}, threads={}, engine={}, tau={}, dir_eps={})",
+        a.games, a.depth, a.threads, a.use_engine, a.temperature_tau, a.dirichlet_epsilon
+    );
     let games = generate_games(&params);
     eprintln!("Writing shards to {}", a.out.display());
     let shards = write_shards(&games, &a.out, a.max_records_per_shard)?;

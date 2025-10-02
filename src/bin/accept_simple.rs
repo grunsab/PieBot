@@ -1,30 +1,54 @@
 use cozy_chess::Board;
-use std::time::Instant;
 use std::collections::HashSet;
+use std::time::Instant;
 
 #[derive(Debug, serde::Deserialize)]
-struct Rec { fen: String, best: String }
+struct Rec {
+    fen: String,
+    best: String,
+}
 
 fn load_jsonl(path: &str) -> Vec<Rec> {
     use std::io::{BufRead, BufReader};
-    let f = match std::fs::File::open(path) { Ok(f) => f, Err(_) => return Vec::new() };
+    let f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
     let rdr = BufReader::new(f);
     let mut out = Vec::new();
     for line in rdr.lines().flatten() {
-        let l = line.trim(); if l.is_empty() { continue; }
+        let l = line.trim();
+        if l.is_empty() {
+            continue;
+        }
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(l) {
-            if let (Some(fen), Some(best)) = (v.get("fen").and_then(|x| x.as_str()), v.get("best").and_then(|x| x.as_str())) {
-                out.push(Rec { fen: fen.to_string(), best: best.to_string() });
+            if let (Some(fen), Some(best)) = (
+                v.get("fen").and_then(|x| x.as_str()),
+                v.get("best").and_then(|x| x.as_str()),
+            ) {
+                out.push(Rec {
+                    fen: fen.to_string(),
+                    best: best.to_string(),
+                });
             }
         }
     }
     out
 }
 
-fn env_parse_usize(name: &str) -> Option<usize> { std::env::var(name).ok().and_then(|s| s.parse().ok()) }
-fn env_parse_u64(name: &str) -> Option<u64> { std::env::var(name).ok().and_then(|s| s.parse().ok()) }
+fn env_parse_usize(name: &str) -> Option<usize> {
+    std::env::var(name).ok().and_then(|s| s.parse().ok())
+}
+fn env_parse_u64(name: &str) -> Option<u64> {
+    std::env::var(name).ok().and_then(|s| s.parse().ok())
+}
 
-fn solve_simple(fen: &str, depth: u32, _threads: usize, max_nodes: Option<u64>) -> piebot::search::alphabeta_simple::SearchResult {
+fn solve_simple(
+    fen: &str,
+    depth: u32,
+    _threads: usize,
+    max_nodes: Option<u64>,
+) -> piebot::search::alphabeta_simple::SearchResult {
     let b = Board::from_fen(fen, false).expect("valid FEN");
     let mut s = piebot::search::alphabeta_simple::Searcher::default();
     s.set_tt_capacity_mb(128);
@@ -40,42 +64,90 @@ fn solve_simple(fen: &str, depth: u32, _threads: usize, max_nodes: Option<u64>) 
 fn main() {
     // Inputs via env (for simplicity)
     let base = format!("{}/src/suites", env!("CARGO_MANIFEST_DIR"));
-    let path = std::env::var("PIEBOT_SUITE_FILE").ok().unwrap_or_else(|| format!("{}/matein3.txt", base));
+    let path = std::env::var("PIEBOT_SUITE_FILE")
+        .ok()
+        .unwrap_or_else(|| format!("{}/matein3.txt", base));
     let cases = load_jsonl(&path);
     let threads = env_parse_usize("PIEBOT_TEST_THREADS").unwrap_or(1).max(1);
     let max_nodes = env_parse_u64("PIEBOT_TEST_MAX_NODES");
     let start_depth = env_parse_usize("PIEBOT_TEST_START_DEPTH").unwrap_or(7) as u32;
-    let max_depth = match env_parse_usize("PIEBOT_TEST_MAX_DEPTH") { Some(v) => v as u32, None => start_depth };
-    let verbose = std::env::var("PIEBOT_TEST_TIMING").ok().map(|v| v == "1").unwrap_or(false);
+    let max_depth = match env_parse_usize("PIEBOT_TEST_MAX_DEPTH") {
+        Some(v) => v as u32,
+        None => start_depth,
+    };
+    let verbose = std::env::var("PIEBOT_TEST_TIMING")
+        .ok()
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let mate_thresh = 25_000; // accept any mating move
-    let only: Option<HashSet<usize>> = std::env::var("PIEBOT_TEST_ONLY_IDX").ok().map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect());
+    let only: Option<HashSet<usize>> = std::env::var("PIEBOT_TEST_ONLY_IDX")
+        .ok()
+        .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect());
 
     let t_total = Instant::now();
     let mut failures: Vec<String> = Vec::new();
     let mut fallback_hits = 0usize;
-    let mut sum_secs = 0.0f64; let mut sum_nodes: u64 = 0; let mut processed = 0usize;
+    let mut sum_secs = 0.0f64;
+    let mut sum_nodes: u64 = 0;
+    let mut processed = 0usize;
 
     for (i, case) in cases.iter().enumerate() {
-        if let Some(ref filt) = only { if !filt.contains(&i) { continue; } }
+        if let Some(ref filt) = only {
+            if !filt.contains(&i) {
+                continue;
+            }
+        }
         let t_case = Instant::now();
         let mut r = solve_simple(&case.fen, start_depth, threads, max_nodes);
         if r.bestmove.as_deref() == Some(case.best.as_str()) || r.score_cp >= mate_thresh {
-            let dt = t_case.elapsed().as_secs_f64(); sum_secs += dt; sum_nodes += r.nodes; processed += 1;
-            if verbose { println!("ok idx={} d{} dt={:.3}s nodes={}", i, start_depth, dt, r.nodes); }
+            let dt = t_case.elapsed().as_secs_f64();
+            sum_secs += dt;
+            sum_nodes += r.nodes;
+            processed += 1;
+            if verbose {
+                println!(
+                    "ok idx={} d{} dt={:.3}s nodes={}",
+                    i, start_depth, dt, r.nodes
+                );
+            }
             continue;
         }
         // fallback ladder
-        let mut matched = false; let mut cur_depth = start_depth + 1; let mut trail = vec![(start_depth, r.bestmove.clone())];
+        let mut matched = false;
+        let mut cur_depth = start_depth + 1;
+        let mut trail = vec![(start_depth, r.bestmove.clone())];
         while cur_depth <= max_depth {
             r = solve_simple(&case.fen, cur_depth, threads, max_nodes);
             trail.push((cur_depth, r.bestmove.clone()));
-            if r.bestmove.as_deref() == Some(case.best.as_str()) || r.score_cp >= mate_thresh { matched = true; break; }
+            if r.bestmove.as_deref() == Some(case.best.as_str()) || r.score_cp >= mate_thresh {
+                matched = true;
+                break;
+            }
             cur_depth += 1;
         }
-        let dt = t_case.elapsed().as_secs_f64(); sum_secs += dt; sum_nodes += r.nodes;
-        if matched { fallback_hits += 1; processed += 1; if verbose { println!("ok idx={} d..{} dt={:.3}s nodes={}", i, cur_depth, dt, r.nodes); } continue; }
-        let trail_s: String = trail.into_iter().map(|(d, mv)| format!("d{}={:?}", d, mv)).collect::<Vec<_>>().join(", ");
-        failures.push(format!("idx={} fen={} {} expect={}", i, case.fen, trail_s, case.best));
+        let dt = t_case.elapsed().as_secs_f64();
+        sum_secs += dt;
+        sum_nodes += r.nodes;
+        if matched {
+            fallback_hits += 1;
+            processed += 1;
+            if verbose {
+                println!(
+                    "ok idx={} d..{} dt={:.3}s nodes={}",
+                    i, cur_depth, dt, r.nodes
+                );
+            }
+            continue;
+        }
+        let trail_s: String = trail
+            .into_iter()
+            .map(|(d, mv)| format!("d{}={:?}", d, mv))
+            .collect::<Vec<_>>()
+            .join(", ");
+        failures.push(format!(
+            "idx={} fen={} {} expect={}",
+            i, case.fen, trail_s, case.best
+        ));
     }
 
     let total = t_total.elapsed().as_secs_f64();
@@ -87,4 +159,3 @@ fn main() {
         std::process::exit(1);
     }
 }
-

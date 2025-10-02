@@ -21,4 +21,3 @@ fn pawn_advanced_better_than_back() {
     let b = eval_cp(&back);
     assert!(a > b, "advanced pawn eval {a} should exceed back pawn {b}");
 }
-

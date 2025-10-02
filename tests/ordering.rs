@@ -2,7 +2,7 @@ use cozy_chess::Board;
 
 #[test]
 fn captures_first_reduces_nodes() {
-    use piebot::search::alphabeta::{Searcher, SearchParams};
+    use piebot::search::alphabeta::{SearchParams, Searcher};
     // Position with a clear capture line available
     let fen = "4k3/8/8/8/5Q2/8/8/2b4K b - - 0 1";
     let b = Board::from_fen(fen, false).expect("valid fen");
@@ -23,6 +23,10 @@ fn captures_first_reduces_nodes() {
     p2.order_captures = true;
     let r2 = s2.search_with_params(&b, p2);
 
-    assert!(r2.nodes < r1.nodes, "captures-first should reduce nodes: {} vs {}", r2.nodes, r1.nodes);
+    assert!(
+        r2.nodes < r1.nodes,
+        "captures-first should reduce nodes: {} vs {}",
+        r2.nodes,
+        r1.nodes
+    );
 }
-

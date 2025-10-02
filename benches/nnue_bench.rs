@@ -1,7 +1,7 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use cozy_chess::Board;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use piebot::eval::nnue::features::halfkp_dim;
-use piebot::eval::nnue::loader::{QuantNnue, QuantMeta};
+use piebot::eval::nnue::loader::{QuantMeta, QuantNnue};
 use piebot::eval::nnue::network::QuantNetwork;
 
 fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
@@ -14,13 +14,22 @@ fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
     };
     let w1_len = hidden_dim * input_dim;
     let mut w1 = Vec::with_capacity(w1_len);
-    for _ in 0..w1_len { w1.push(next_i8()); }
+    for _ in 0..w1_len {
+        w1.push(next_i8());
+    }
     let mut b1 = vec![0i16; hidden_dim];
     let mut w2 = Vec::with_capacity(hidden_dim);
-    for _ in 0..hidden_dim { w2.push(next_i8()); }
+    for _ in 0..hidden_dim {
+        w2.push(next_i8());
+    }
     let b2 = vec![0i16; 1];
     QuantNnue {
-        meta: QuantMeta { version: 1, input_dim, hidden_dim, output_dim: 1 },
+        meta: QuantMeta {
+            version: 1,
+            input_dim,
+            hidden_dim,
+            output_dim: 1,
+        },
         w1_scale: 1.0,
         w2_scale: 1.0,
         w1,
@@ -46,4 +55,3 @@ fn bench_nnue_quant_eval(c: &mut Criterion) {
 
 criterion_group!(benches, bench_nnue_quant_eval);
 criterion_main!(benches);
-

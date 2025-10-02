@@ -9,4 +9,3 @@ fn perft_startpos_small_depths() {
     assert_eq!(perft(&b, 3), 8902);
     assert_eq!(perft(&b, 4), 197281);
 }
-

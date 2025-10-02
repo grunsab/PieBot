@@ -25,4 +25,3 @@ fn nnue_quant_loader_reads_header() {
     assert_eq!(q.meta.hidden_dim, 32);
     assert_eq!(q.meta.output_dim, 1);
 }
-

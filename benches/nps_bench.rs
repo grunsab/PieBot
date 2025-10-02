@@ -1,8 +1,8 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use cozy_chess::Board;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use piebot::eval::nnue::features::halfkp_dim;
-use piebot::eval::nnue::loader::{QuantNnue, QuantMeta};
-use piebot::search::alphabeta::{Searcher, SearchParams};
+use piebot::eval::nnue::loader::{QuantMeta, QuantNnue};
+use piebot::search::alphabeta::{SearchParams, Searcher};
 use std::time::{Duration, Instant};
 
 fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
@@ -15,28 +15,60 @@ fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
     };
     let w1_len = hidden_dim * input_dim;
     let mut w1 = Vec::with_capacity(w1_len);
-    for _ in 0..w1_len { w1.push(next_i8()); }
+    for _ in 0..w1_len {
+        w1.push(next_i8());
+    }
     let b1 = vec![0i16; hidden_dim];
     let mut w2 = Vec::with_capacity(hidden_dim);
-    for _ in 0..hidden_dim { w2.push(next_i8()); }
+    for _ in 0..hidden_dim {
+        w2.push(next_i8());
+    }
     let b2 = vec![0i16; 1];
-    QuantNnue { meta: QuantMeta { version: 1, input_dim, hidden_dim, output_dim: 1 }, w1_scale: 1.0, w2_scale: 1.0, w1, b1, w2, b2 }
+    QuantNnue {
+        meta: QuantMeta {
+            version: 1,
+            input_dim,
+            hidden_dim,
+            output_dim: 1,
+        },
+        w1_scale: 1.0,
+        w2_scale: 1.0,
+        w1,
+        b1,
+        w2,
+        b2,
+    }
 }
 
-fn run_once_nodes(board: &Board, threads: usize, use_nnue: bool, blend: u8, quant: Option<QuantNnue>, movetime_ms: u64) -> (u64, Duration) {
+fn run_once_nodes(
+    board: &Board,
+    threads: usize,
+    use_nnue: bool,
+    blend: u8,
+    quant: Option<QuantNnue>,
+    movetime_ms: u64,
+) -> (u64, Duration) {
     let mut s = Searcher::default();
     let mut p = SearchParams::default();
-    p.use_tt = true; p.order_captures = true; p.use_history = true; p.threads = threads;
+    p.use_tt = true;
+    p.order_captures = true;
+    p.use_history = true;
+    p.threads = threads;
     p.movetime = Some(Duration::from_millis(movetime_ms));
     // Ensure iterative deepening runs; rely on deadline to stop
     p.depth = 99;
     if use_nnue {
         s.set_use_nnue(true);
         s.set_eval_blend_percent(blend);
-        if let Some(q) = quant { s.set_nnue_quant_model(q); }
+        if let Some(q) = quant {
+            s.set_nnue_quant_model(q);
+        }
     }
     // Use a per-case thread pool to avoid global pool effects
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .unwrap();
     let t0 = Instant::now();
     let r = pool.install(|| s.search_with_params(board, p));
     let dt = t0.elapsed();
@@ -59,10 +91,27 @@ fn bench_nps(c: &mut Criterion) {
         let label = format!("nps_{}", name);
         group.bench_function(label, |ben| {
             ben.iter(|| {
-                let (nodes, dt) = run_once_nodes(black_box(&b), threads, use_nnue, blend, Some(model.clone()), 100);
-                let nps = if dt.as_secs_f64() > 0.0 { nodes as f64 / dt.as_secs_f64() } else { 0.0 };
+                let (nodes, dt) = run_once_nodes(
+                    black_box(&b),
+                    threads,
+                    use_nnue,
+                    blend,
+                    Some(model.clone()),
+                    100,
+                );
+                let nps = if dt.as_secs_f64() > 0.0 {
+                    nodes as f64 / dt.as_secs_f64()
+                } else {
+                    0.0
+                };
                 // print for quick visibility (Criterion reports time separately)
-                println!("{}: nodes={}, elapsed={:.3} s, nps={:.1}", name, nodes, dt.as_secs_f64(), nps);
+                println!(
+                    "{}: nodes={}, elapsed={:.3} s, nps={:.1}",
+                    name,
+                    nodes,
+                    dt.as_secs_f64(),
+                    nps
+                );
                 black_box(nps)
             })
         });

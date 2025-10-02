@@ -1,13 +1,13 @@
-use cozy_chess::{Board, Move, Piece, Color};
-pub mod loader;
-pub mod features;
+use cozy_chess::{Board, Color, Move, Piece};
 pub mod accumulator;
+pub mod features;
+pub mod loader;
 pub mod network;
 pub mod quant;
-use std::path::Path;
-use std::fs::File;
-use std::io::{Read, BufReader};
 use anyhow::{bail, Context, Result};
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct NnueMeta {
@@ -36,7 +36,8 @@ impl Nnue {
         // f32 b1[hidden_dim]
         // f32 w2[output_dim * hidden_dim]
         // f32 b2[output_dim]
-        let f = File::open(&path).with_context(|| format!("open nnue file: {}", path.as_ref().display()))?;
+        let f = File::open(&path)
+            .with_context(|| format!("open nnue file: {}", path.as_ref().display()))?;
         let mut r = BufReader::new(f);
         let mut magic = [0u8; 8];
         r.read_exact(&mut magic).context("read magic")?;
@@ -77,8 +78,16 @@ impl Nnue {
         let w2 = read_f32s(output_dim * hidden_dim)?;
         let b2 = read_f32s(output_dim)?;
         Ok(Self {
-            meta: NnueMeta { version, input_dim, hidden_dim, output_dim },
-            w1, b1, w2, b2,
+            meta: NnueMeta {
+                version,
+                input_dim,
+                hidden_dim,
+                output_dim,
+            },
+            w1,
+            b1,
+            w2,
+            b2,
         })
     }
 
@@ -90,14 +99,18 @@ impl Nnue {
         for j in 0..h {
             let mut sum = self.b1[j];
             let row = &self.w1[j * n..(j + 1) * n];
-            for i in 0..n { sum += row[i] * x[i]; }
+            for i in 0..n {
+                sum += row[i] * x[i];
+            }
             y1[j] = if sum > 0.0 { sum } else { 0.0 };
         }
         let mut out = 0f32;
         if self.meta.output_dim > 0 {
             let row = &self.w2[0..h];
             let mut sum = self.b2[0];
-            for j in 0..h { sum += row[j] * y1[j]; }
+            for j in 0..h {
+                sum += row[j] * y1[j];
+            }
             out = sum;
         }
         out.round() as i32
@@ -114,11 +127,22 @@ impl Nnue {
     fn features(&self, board: &Board) -> Vec<f32> {
         let n = self.meta.input_dim;
         if n == 12 {
-            let kinds = [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King];
+            let kinds = [
+                Piece::Pawn,
+                Piece::Knight,
+                Piece::Bishop,
+                Piece::Rook,
+                Piece::Queen,
+                Piece::King,
+            ];
             let mut out = vec![0f32; 12];
             for (i, p) in kinds.iter().enumerate() {
-                out[i] = (board.pieces(*p) & board.colors(Color::White)).into_iter().count() as f32;
-                out[6 + i] = (board.pieces(*p) & board.colors(Color::Black)).into_iter().count() as f32;
+                out[i] = (board.pieces(*p) & board.colors(Color::White))
+                    .into_iter()
+                    .count() as f32;
+                out[6 + i] = (board.pieces(*p) & board.colors(Color::Black))
+                    .into_iter()
+                    .count() as f32;
             }
             return out;
         }

@@ -13,10 +13,19 @@ fn piece_value(piece: Piece) -> i32 {
 
 fn piece_at_str(board: &Board, sq: &str) -> Option<(Color, Piece)> {
     for &color in &[Color::White, Color::Black] {
-        for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
+        for &piece in &[
+            Piece::Pawn,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Rook,
+            Piece::Queen,
+            Piece::King,
+        ] {
             let bb = board.colors(color) & board.pieces(piece);
             for s in bb {
-                if format!("{}", s) == sq { return Some((color, piece)); }
+                if format!("{}", s) == sq {
+                    return Some((color, piece));
+                }
             }
         }
     }
@@ -39,7 +48,11 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
 
     let mut cur = board.clone();
     cur.play(mv);
-    let mut side = if stm == Color::White { Color::Black } else { Color::White };
+    let mut side = if stm == Color::White {
+        Color::Black
+    } else {
+        Color::White
+    };
     let mut current_occ_val = piece_value(attacker0.1);
 
     loop {
@@ -54,7 +67,10 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
                     if let Some((c, p)) = piece_at_str(&cur, &src) {
                         if c == side {
                             let v = piece_value(p);
-                            if v < best_attacker_val { best_attacker_val = v; best_mv = Some(m); }
+                            if v < best_attacker_val {
+                                best_attacker_val = v;
+                                best_mv = Some(m);
+                            }
                         }
                     }
                 }
@@ -66,7 +82,11 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
             let next_gain = current_occ_val - *gains.last().unwrap();
             gains.push(next_gain);
             cur.play(m2);
-            side = if side == Color::White { Color::Black } else { Color::White };
+            side = if side == Color::White {
+                Color::Black
+            } else {
+                Color::White
+            };
             current_occ_val = best_attacker_val;
         } else {
             break;
@@ -97,12 +117,19 @@ mod tests {
         let mut rxh7 = None;
         board.generate_moves(|ml| {
             for m in ml {
-                if m.from == Square::C7 && m.to == Square::H7 { rxh7 = Some(m); break; }
+                if m.from == Square::C7 && m.to == Square::H7 {
+                    rxh7 = Some(m);
+                    break;
+                }
             }
             rxh7.is_some()
         });
         let m = rxh7.expect("Rxh7 must be legal in this position");
         let see = see_gain_cp(&board, m).expect("SEE must return some");
-        assert!(see < 0, "SEE should be negative for losing exchange, got {}", see);
+        assert!(
+            see < 0,
+            "SEE should be negative for losing exchange, got {}",
+            see
+        );
     }
 }

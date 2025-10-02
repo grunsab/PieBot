@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use cozy_chess::Board;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_qsearch(c: &mut Criterion) {
     let start = Board::default();
@@ -14,4 +14,3 @@ fn bench_qsearch(c: &mut Criterion) {
 
 criterion_group!(benches, bench_qsearch);
 criterion_main!(benches);
-

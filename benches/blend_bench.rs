@@ -1,7 +1,7 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use cozy_chess::Board;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use piebot::eval::nnue::features::halfkp_dim;
-use piebot::eval::nnue::loader::{QuantNnue, QuantMeta};
+use piebot::eval::nnue::loader::{QuantMeta, QuantNnue};
 
 fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
     let input_dim = halfkp_dim();
@@ -13,12 +13,29 @@ fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
     };
     let w1_len = hidden_dim * input_dim;
     let mut w1 = Vec::with_capacity(w1_len);
-    for _ in 0..w1_len { w1.push(next_i8()); }
+    for _ in 0..w1_len {
+        w1.push(next_i8());
+    }
     let b1 = vec![0i16; hidden_dim];
     let mut w2 = Vec::with_capacity(hidden_dim);
-    for _ in 0..hidden_dim { w2.push(next_i8()); }
+    for _ in 0..hidden_dim {
+        w2.push(next_i8());
+    }
     let b2 = vec![0i16; 1];
-    QuantNnue { meta: QuantMeta { version: 1, input_dim, hidden_dim, output_dim: 1 }, w1_scale: 1.0, w2_scale: 1.0, w1, b1, w2, b2 }
+    QuantNnue {
+        meta: QuantMeta {
+            version: 1,
+            input_dim,
+            hidden_dim,
+            output_dim: 1,
+        },
+        w1_scale: 1.0,
+        w2_scale: 1.0,
+        w1,
+        b1,
+        w2,
+        b2,
+    }
 }
 
 fn bench_blended_eval(c: &mut Criterion) {
@@ -33,8 +50,13 @@ fn bench_blended_eval(c: &mut Criterion) {
                 let nn = piebot::eval::nnue::network::QuantNetwork::new(model.clone());
                 let nn_val = nn.eval_full(black_box(&b));
                 let pst = piebot::search::eval::eval_cp(black_box(&b));
-                let mixed = if blend >= 100 { nn_val } else if blend == 0 { pst } else {
-                    ((nn_val as i64 * blend as i64 + pst as i64 * (100 - blend) as i64) / 100) as i32
+                let mixed = if blend >= 100 {
+                    nn_val
+                } else if blend == 0 {
+                    pst
+                } else {
+                    ((nn_val as i64 * blend as i64 + pst as i64 * (100 - blend) as i64) / 100)
+                        as i32
                 };
                 black_box(mixed)
             })
@@ -45,4 +67,3 @@ fn bench_blended_eval(c: &mut Criterion) {
 
 criterion_group!(benches, bench_blended_eval);
 criterion_main!(benches);
-

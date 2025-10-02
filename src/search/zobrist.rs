@@ -3,10 +3,14 @@ use std::sync::OnceLock;
 
 fn square_index_from_str(s: &str) -> Option<usize> {
     let b = s.as_bytes();
-    if b.len() != 2 { return None; }
+    if b.len() != 2 {
+        return None;
+    }
     let f = b[0];
     let r = b[1];
-    if !(b'a'..=b'h').contains(&f) || !(b'1'..=b'8').contains(&r) { return None; }
+    if !(b'a'..=b'h').contains(&f) || !(b'1'..=b'8').contains(&r) {
+        return None;
+    }
     let file = (f - b'a') as usize;
     let rank = (r - b'1') as usize;
     Some(rank * 8 + file)
@@ -56,7 +60,14 @@ pub fn compute(board: &Board) -> u64 {
     let table = init_table();
     let mut key = 0u64;
     for &color in &[Color::White, Color::Black] {
-        for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
+        for &piece in &[
+            Piece::Pawn,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Rook,
+            Piece::Queen,
+            Piece::King,
+        ] {
             let bb = board.colors(color) & board.pieces(piece);
             for sq in bb {
                 let s = format!("{}", sq);
@@ -67,7 +78,8 @@ pub fn compute(board: &Board) -> u64 {
             }
         }
     }
-    if board.side_to_move() == Color::Black { key ^= init_side(); }
+    if board.side_to_move() == Color::Black {
+        key ^= init_side();
+    }
     key
 }
-

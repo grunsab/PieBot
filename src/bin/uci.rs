@@ -4,4 +4,3 @@ fn main() {
     let mut engine = UciEngine::new();
     engine.run_loop();
 }
-

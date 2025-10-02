@@ -1,20 +1,28 @@
 #[cfg(feature = "board-pleco")]
 use clap::Parser;
 #[cfg(feature = "board-pleco")]
-use std::time::Instant;
-#[cfg(feature = "board-pleco")]
-use rand::{SeedableRng, Rng};
-#[cfg(feature = "board-pleco")]
 use rand::rngs::SmallRng;
+#[cfg(feature = "board-pleco")]
+use rand::{Rng, SeedableRng};
+#[cfg(feature = "board-pleco")]
+use std::time::Instant;
 
 #[cfg(feature = "board-pleco")]
 #[derive(Parser, Debug)]
-#[command(name = "piebot-bench-pleco", version, about = "Benchmark with Pleco board (make/unmake)")]
+#[command(
+    name = "piebot-bench-pleco",
+    version,
+    about = "Benchmark with Pleco board (make/unmake)"
+)]
 struct Args {
-    #[arg(long, default_value = "startpos")] fen: String,
-    #[arg(long, default_value_t = 4)] threads: usize,
-    #[arg(long, default_value_t = 2000)] movetime: u64,
-    #[arg(long, default_value_t = 6)] depth: u32,
+    #[arg(long, default_value = "startpos")]
+    fen: String,
+    #[arg(long, default_value_t = 4)]
+    threads: usize,
+    #[arg(long, default_value_t = 2000)]
+    movetime: u64,
+    #[arg(long, default_value_t = 6)]
+    depth: u32,
     /// SMP mode: off | in-tree | lazy
     #[arg(long, default_value = "in-tree")]
     smp: String,
@@ -62,19 +70,36 @@ struct Args {
 #[cfg(feature = "board-pleco")]
 fn main_inner() {
     let args = Args::parse();
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(args.threads).build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(args.threads)
+        .build()
+        .unwrap();
 
     if args.positions <= 1 && args.suite.is_none() {
-        let mut board = if args.fen == "startpos" { pleco::Board::start_pos() } else { pleco::Board::from_fen(&args.fen).expect("valid fen") };
+        let mut board = if args.fen == "startpos" {
+            pleco::Board::start_pos()
+        } else {
+            pleco::Board::from_fen(&args.fen).expect("valid fen")
+        };
         randomize_board(&mut board, args.seed, args.min_plies, args.max_plies);
         let t0 = Instant::now();
-        let (bm, sc, nodes, depth_reached, seldepth) = pool.install(|| run_one(&mut board.clone(), &args));
+        let (bm, sc, nodes, depth_reached, seldepth) =
+            pool.install(|| run_one(&mut board.clone(), &args));
         let dt = t0.elapsed();
         if args.json {
             println!("{{\"nodes\":{},\"depth\":{},\"seldepth\":{},\"nps\":{:.1},\"score_cp\":{},\"bestmove\":\"{:?}\"}}",
                 nodes, depth_reached, seldepth, nodes as f64 / dt.as_secs_f64(), sc, bm);
         } else {
-            println!("bestmove={:?} score_cp={} nodes={} depth={} seldepth={} elapsed={:.3}s nps={:.1}", bm, sc, nodes, depth_reached, seldepth, dt.as_secs_f64(), nodes as f64 / dt.as_secs_f64());
+            println!(
+                "bestmove={:?} score_cp={} nodes={} depth={} seldepth={} elapsed={:.3}s nps={:.1}",
+                bm,
+                sc,
+                nodes,
+                depth_reached,
+                seldepth,
+                dt.as_secs_f64(),
+                nodes as f64 / dt.as_secs_f64()
+            );
         }
         return;
     }
@@ -84,48 +109,102 @@ fn main_inner() {
     if let Some(path) = &args.suite {
         if let Ok(text) = std::fs::read_to_string(path) {
             for line in text.lines() {
-                let l = line.trim(); if l.is_empty() { continue; }
+                let l = line.trim();
+                if l.is_empty() {
+                    continue;
+                }
                 if l.starts_with('{') {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(l) {
-                        if let Some(f) = v.get("fen").and_then(|x| x.as_str()) { fens.push(f.to_string()); }
+                        if let Some(f) = v.get("fen").and_then(|x| x.as_str()) {
+                            fens.push(f.to_string());
+                        }
                     }
-                } else { fens.push(l.to_string()); }
+                } else {
+                    fens.push(l.to_string());
+                }
             }
         }
-    } else { fens.push(args.fen.clone()); }
+    } else {
+        fens.push(args.fen.clone());
+    }
 
     // Deterministic shuffle by seed
     let mut rng = SmallRng::seed_from_u64(args.seed);
     let mut idxs: Vec<usize> = (0..fens.len()).collect();
-    for i in (1..idxs.len()).rev() { let j = rng.gen_range(0..=i); idxs.swap(i, j); }
+    for i in (1..idxs.len()).rev() {
+        let j = rng.gen_range(0..=i);
+        idxs.swap(i, j);
+    }
     let mut picked = Vec::new();
     while picked.len() < args.positions && !idxs.is_empty() {
-        for &i in &idxs { if picked.len() >= args.positions { break; } picked.push(fens[i].clone()); }
+        for &i in &idxs {
+            if picked.len() >= args.positions {
+                break;
+            }
+            picked.push(fens[i].clone());
+        }
     }
     // Rollout mode: create positions by following engine best moves from a randomized start
     if args.rollout_depth > 0 && args.rollout_moves > 0 && args.suite.is_none() {
-        let mut start = if args.fen == "startpos" { pleco::Board::start_pos() } else { pleco::Board::from_fen(&args.fen).expect("valid fen") };
+        let mut start = if args.fen == "startpos" {
+            pleco::Board::start_pos()
+        } else {
+            pleco::Board::from_fen(&args.fen).expect("valid fen")
+        };
         randomize_board(&mut start, args.seed, args.min_plies, args.max_plies);
-        let cases = generate_rollout_positions(&start, args.rollout_moves, args.rollout_depth, args.rollout_tempered_plies, args.rollout_temp_cp, args.rollout_topk, args.seed);
+        let cases = generate_rollout_positions(
+            &start,
+            args.rollout_moves,
+            args.rollout_depth,
+            args.rollout_tempered_plies,
+            args.rollout_temp_cp,
+            args.rollout_topk,
+            args.seed,
+        );
         let mut depths = Vec::with_capacity(cases.len());
         let mut seldepths = Vec::with_capacity(cases.len());
         let mut nodes_total: u64 = 0;
         let t0_all = Instant::now();
         for (i, mut board) in cases.into_iter().enumerate().take(args.positions) {
             let t0 = Instant::now();
-            let (bm, sc, nodes, depth_reached, seldepth) = pool.install(|| run_one(&mut board, &args));
+            let (bm, sc, nodes, depth_reached, seldepth) =
+                pool.install(|| run_one(&mut board, &args));
             let dt = t0.elapsed();
-            depths.push(depth_reached); seldepths.push(seldepth); nodes_total += nodes;
-            if args.json { println!("{{\"idx\":{},\"nodes\":{},\"depth\":{},\"seldepth\":{},\"nps\":{:.1},\"score_cp\":{},\"bestmove\":\"{:?}\"}}", i, nodes, depth_reached, seldepth, nodes as f64 / dt.as_secs_f64(), sc, bm); }
-            else { println!("case={} depth={} seldepth={} nodes={} elapsed={:.3}s nps={:.1}", i, depth_reached, seldepth, nodes, dt.as_secs_f64(), nodes as f64 / dt.as_secs_f64()); }
+            depths.push(depth_reached);
+            seldepths.push(seldepth);
+            nodes_total += nodes;
+            if args.json {
+                println!("{{\"idx\":{},\"nodes\":{},\"depth\":{},\"seldepth\":{},\"nps\":{:.1},\"score_cp\":{},\"bestmove\":\"{:?}\"}}", i, nodes, depth_reached, seldepth, nodes as f64 / dt.as_secs_f64(), sc, bm);
+            } else {
+                println!(
+                    "case={} depth={} seldepth={} nodes={} elapsed={:.3}s nps={:.1}",
+                    i,
+                    depth_reached,
+                    seldepth,
+                    nodes,
+                    dt.as_secs_f64(),
+                    nodes as f64 / dt.as_secs_f64()
+                );
+            }
         }
         let dt_all = t0_all.elapsed();
-        let avg_depth = if depths.is_empty() { 0.0 } else { depths.iter().copied().sum::<u32>() as f64 / depths.len() as f64 };
-        let avg_seldepth = if seldepths.is_empty() { 0.0 } else { seldepths.iter().copied().sum::<u32>() as f64 / seldepths.len() as f64 };
+        let avg_depth = if depths.is_empty() {
+            0.0
+        } else {
+            depths.iter().copied().sum::<u32>() as f64 / depths.len() as f64
+        };
+        let avg_seldepth = if seldepths.is_empty() {
+            0.0
+        } else {
+            seldepths.iter().copied().sum::<u32>() as f64 / seldepths.len() as f64
+        };
         let min_depth = depths.iter().copied().min().unwrap_or(0);
         let max_depth = depths.iter().copied().max().unwrap_or(0);
-        if args.json { println!("{{\"summary\":true,\"positions\":{},\"avg_depth\":{:.2},\"avg_seldepth\":{:.2},\"min_depth\":{},\"max_depth\":{},\"total_nodes\":{},\"elapsed\":{:.3}}}", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64()); }
-        else { println!("summary: positions={} avg_depth={:.2} avg_seldepth={:.2} min={} max={} total_nodes={} elapsed={:.3}s", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64()); }
+        if args.json {
+            println!("{{\"summary\":true,\"positions\":{},\"avg_depth\":{:.2},\"avg_seldepth\":{:.2},\"min_depth\":{},\"max_depth\":{},\"total_nodes\":{},\"elapsed\":{:.3}}}", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64());
+        } else {
+            println!("summary: positions={} avg_depth={:.2} avg_seldepth={:.2} min={} max={} total_nodes={} elapsed={:.3}s", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64());
+        }
         return;
     }
 
@@ -134,26 +213,58 @@ fn main_inner() {
     let mut nodes_total: u64 = 0;
     let t0_all = Instant::now();
     for (i, fen) in picked.iter().enumerate() {
-        let mut board = if fen == "startpos" { pleco::Board::start_pos() } else { pleco::Board::from_fen(&fen).expect("valid fen") };
-        randomize_board(&mut board, args.seed.wrapping_add((i as u64).wrapping_mul(101_390_4223)), args.min_plies, args.max_plies);
+        let mut board = if fen == "startpos" {
+            pleco::Board::start_pos()
+        } else {
+            pleco::Board::from_fen(&fen).expect("valid fen")
+        };
+        randomize_board(
+            &mut board,
+            args.seed
+                .wrapping_add((i as u64).wrapping_mul(101_390_4223)),
+            args.min_plies,
+            args.max_plies,
+        );
         let t0 = Instant::now();
-        let (bm, sc, nodes, depth_reached, seldepth) = pool.install(|| run_one(&mut board.clone(), &args));
+        let (bm, sc, nodes, depth_reached, seldepth) =
+            pool.install(|| run_one(&mut board.clone(), &args));
         let dt = t0.elapsed();
-        depths.push(depth_reached); seldepths.push(seldepth); nodes_total += nodes;
+        depths.push(depth_reached);
+        seldepths.push(seldepth);
+        nodes_total += nodes;
         if args.json {
             println!("{{\"idx\":{},\"nodes\":{},\"depth\":{},\"seldepth\":{},\"nps\":{:.1},\"score_cp\":{},\"bestmove\":\"{:?}\"}}",
                 i, nodes, depth_reached, seldepth, nodes as f64 / dt.as_secs_f64(), sc, bm);
         } else {
-            println!("case={} depth={} seldepth={} nodes={} elapsed={:.3}s nps={:.1}", i, depth_reached, seldepth, nodes, dt.as_secs_f64(), nodes as f64 / dt.as_secs_f64());
+            println!(
+                "case={} depth={} seldepth={} nodes={} elapsed={:.3}s nps={:.1}",
+                i,
+                depth_reached,
+                seldepth,
+                nodes,
+                dt.as_secs_f64(),
+                nodes as f64 / dt.as_secs_f64()
+            );
         }
     }
     let dt_all = t0_all.elapsed();
-    let avg_depth = if depths.is_empty() { 0.0 } else { depths.iter().copied().sum::<u32>() as f64 / depths.len() as f64 };
-    let avg_seldepth = if seldepths.is_empty() { 0.0 } else { seldepths.iter().copied().sum::<u32>() as f64 / seldepths.len() as f64 };
+    let avg_depth = if depths.is_empty() {
+        0.0
+    } else {
+        depths.iter().copied().sum::<u32>() as f64 / depths.len() as f64
+    };
+    let avg_seldepth = if seldepths.is_empty() {
+        0.0
+    } else {
+        seldepths.iter().copied().sum::<u32>() as f64 / seldepths.len() as f64
+    };
     let min_depth = depths.iter().copied().min().unwrap_or(0);
     let max_depth = depths.iter().copied().max().unwrap_or(0);
-    if args.json { println!("{{\\\"summary\\\":true,\\\"positions\\\":{},\\\"avg_depth\\\":{:.2},\\\"avg_seldepth\\\":{:.2},\\\"min_depth\\\":{},\\\"max_depth\\\":{},\\\"total_nodes\\\":{},\\\"elapsed\\\":{:.3}}}", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64()); }
-    else { println!("summary: positions={} avg_depth={:.2} avg_seldepth={:.2} min={} max={} total_nodes={} elapsed={:.3}s", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64()); }
+    if args.json {
+        println!("{{\\\"summary\\\":true,\\\"positions\\\":{},\\\"avg_depth\\\":{:.2},\\\"avg_seldepth\\\":{:.2},\\\"min_depth\\\":{},\\\"max_depth\\\":{},\\\"total_nodes\\\":{},\\\"elapsed\\\":{:.3}}}", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64());
+    } else {
+        println!("summary: positions={} avg_depth={:.2} avg_seldepth={:.2} min={} max={} total_nodes={} elapsed={:.3}s", depths.len(), avg_depth, avg_seldepth, min_depth, max_depth, nodes_total, dt_all.as_secs_f64());
+    }
 }
 
 #[cfg(not(feature = "board-pleco"))]
@@ -162,21 +273,35 @@ fn main() {
 }
 
 #[cfg(feature = "board-pleco")]
-fn main() { main_inner(); }
+fn main() {
+    main_inner();
+}
 
 #[cfg(feature = "board-pleco")]
 fn randomize_board(board: &mut pleco::Board, seed: u64, min_plies: usize, max_plies: usize) {
-    if max_plies == 0 || max_plies < min_plies { return; }
+    if max_plies == 0 || max_plies < min_plies {
+        return;
+    }
     let mut rng = SmallRng::seed_from_u64(seed);
     let span = (max_plies - min_plies + 1) as u32;
-    let plies = min_plies + (if span == 0 { 0 } else { (rng.gen::<u32>() % span) as usize });
+    let plies = min_plies
+        + (if span == 0 {
+            0
+        } else {
+            (rng.gen::<u32>() % span) as usize
+        });
     for _ in 0..plies {
         let moves = board.generate_moves();
-        let len = moves.len(); if len == 0 { break; }
+        let len = moves.len();
+        if len == 0 {
+            break;
+        }
         let idx = rng.gen_range(0..len);
         let mv = moves[idx];
         board.apply_move(mv);
-        if board.checkmate() || board.stalemate() { break; }
+        if board.checkmate() || board.stalemate() {
+            break;
+        }
     }
 }
 
@@ -194,14 +319,25 @@ fn run_one(board: &mut pleco::Board, args: &Args) -> (Option<pleco::BitMove>, i3
         _ => SmpMode::InTree,
     };
     s.set_smp_mode(smp_mode);
-    let finish = match args.tm_policy.as_str() { "spend" => false, _ => true };
+    let finish = match args.tm_policy.as_str() {
+        "spend" => false,
+        _ => true,
+    };
     s.set_time_manager(finish, args.tm_factor);
     let (bm, sc, nodes) = s.search_movetime(board, args.movetime, args.depth);
     (bm, sc, nodes, s.last_depth(), s.last_seldepth())
 }
 
 #[cfg(feature = "board-pleco")]
-fn generate_rollout_positions(start: &pleco::Board, moves: usize, depth: u32, tempered_plies: usize, temp_cp: f32, topk: usize, seed: u64) -> Vec<pleco::Board> {
+fn generate_rollout_positions(
+    start: &pleco::Board,
+    moves: usize,
+    depth: u32,
+    tempered_plies: usize,
+    temp_cp: f32,
+    topk: usize,
+    seed: u64,
+) -> Vec<pleco::Board> {
     use piebot::search::alphabeta_pleco::SmpMode;
     let mut boards = Vec::with_capacity(moves);
     let mut cur = start.clone();
@@ -222,27 +358,54 @@ fn generate_rollout_positions(start: &pleco::Board, moves: usize, depth: u32, te
         } else {
             scores.first().map(|(m, _)| *m)
         };
-        if let Some(mv) = mv_opt { cur.apply_move(mv); } else {
+        if let Some(mv) = mv_opt {
+            cur.apply_move(mv);
+        } else {
             // no legal move; if we run out, break
             break;
         }
-        if cur.checkmate() || cur.stalemate() { break; }
+        if cur.checkmate() || cur.stalemate() {
+            break;
+        }
     }
     boards
 }
 
 #[cfg(feature = "board-pleco")]
-fn tempered_pick(scores: &[(pleco::BitMove, i32)], temp_cp: f32, topk: usize, rng: &mut SmallRng) -> Option<pleco::BitMove> {
-    if scores.is_empty() { return None; }
-    let use_k = if topk == 0 { scores.len() } else { topk.min(scores.len()) };
+fn tempered_pick(
+    scores: &[(pleco::BitMove, i32)],
+    temp_cp: f32,
+    topk: usize,
+    rng: &mut SmallRng,
+) -> Option<pleco::BitMove> {
+    if scores.is_empty() {
+        return None;
+    }
+    let use_k = if topk == 0 {
+        scores.len()
+    } else {
+        topk.min(scores.len())
+    };
     let slice = &scores[..use_k];
-    if temp_cp <= 0.0 { return Some(slice[0].0); }
+    if temp_cp <= 0.0 {
+        return Some(slice[0].0);
+    }
     let t = temp_cp;
     let max_sc = slice.iter().map(|&(_, sc)| sc).max().unwrap_or(0) as f32;
-    let mut weights: Vec<f32> = slice.iter().map(|&(_, sc)| ((sc as f32 - max_sc)/t).exp()).collect();
+    let mut weights: Vec<f32> = slice
+        .iter()
+        .map(|&(_, sc)| ((sc as f32 - max_sc) / t).exp())
+        .collect();
     let sum: f32 = weights.iter().sum();
-    if sum <= 0.0 { return Some(slice[0].0); }
+    if sum <= 0.0 {
+        return Some(slice[0].0);
+    }
     let mut r = rng.gen::<f32>() * sum;
-    for (i, w) in weights.iter().enumerate() { r -= *w; if r <= 0.0 { return Some(slice[i].0); } }
-    Some(slice[use_k-1].0)
+    for (i, w) in weights.iter().enumerate() {
+        r -= *w;
+        if r <= 0.0 {
+            return Some(slice[i].0);
+        }
+    }
+    Some(slice[use_k - 1].0)
 }

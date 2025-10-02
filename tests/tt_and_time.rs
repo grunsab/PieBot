@@ -2,7 +2,7 @@ use cozy_chess::Board;
 
 #[test]
 fn tt_reduces_nodes_on_second_run() {
-    use piebot::search::alphabeta::{Searcher, SearchParams};
+    use piebot::search::alphabeta::{SearchParams, Searcher};
     let b = Board::default();
     let mut searcher = Searcher::default();
     let mut params = SearchParams::default();
@@ -13,12 +13,17 @@ fn tt_reduces_nodes_on_second_run() {
     let first = searcher.search_with_params(&b, params);
     // Second run should reuse TT and visit fewer nodes
     let second = searcher.search_with_params(&b, params);
-    assert!(second.nodes < first.nodes, "TT did not reduce nodes: {} vs {}", second.nodes, first.nodes);
+    assert!(
+        second.nodes < first.nodes,
+        "TT did not reduce nodes: {} vs {}",
+        second.nodes,
+        first.nodes
+    );
 }
 
 #[test]
 fn node_limit_stops_early_and_returns_move() {
-    use piebot::search::alphabeta::{Searcher, SearchParams};
+    use piebot::search::alphabeta::{SearchParams, Searcher};
     let b = Board::default();
     let mut searcher = Searcher::default();
     let mut params = SearchParams::default();
@@ -29,4 +34,3 @@ fn node_limit_stops_early_and_returns_move() {
     assert!(res.bestmove.is_some(), "no bestmove under node limit");
     assert!(res.nodes <= 6_000, "node limit exceeded: {}", res.nodes);
 }
-

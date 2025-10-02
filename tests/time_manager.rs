@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn movetime_returns_quickly_with_move() {
-    use piebot::search::alphabeta::{Searcher, SearchParams};
+    use piebot::search::alphabeta::{SearchParams, Searcher};
     let b = Board::default();
     let mut searcher = Searcher::default();
     let mut params = SearchParams::default();
@@ -14,6 +14,9 @@ fn movetime_returns_quickly_with_move() {
     let res = searcher.search_with_params(&b, params);
     let elapsed = t0.elapsed();
     assert!(res.bestmove.is_some(), "no bestmove under movetime");
-    assert!(elapsed < Duration::from_millis(300), "search exceeded time: {:?}", elapsed);
+    assert!(
+        elapsed < Duration::from_millis(300),
+        "search exceeded time: {:?}",
+        elapsed
+    );
 }
-

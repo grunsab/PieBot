@@ -19,4 +19,3 @@ fn nnue_loader_reads_header() {
     assert_eq!(nn.meta.hidden_dim, 256);
     assert_eq!(nn.meta.output_dim, 1);
 }
-

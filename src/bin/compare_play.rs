@@ -1,12 +1,15 @@
 use clap::Parser;
 use cozy_chess::{Board, Move};
-use rand::{Rng, SeedableRng};
+use cozy_chess::{BitBoard, Color, Piece, Square};
 use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 use std::time::Instant;
-use cozy_chess::{Color, Piece, Square};
 
 #[derive(Parser, Debug)]
-#[command(name = "compare-play", about = "Play games: baseline (alphabeta) vs experimental (alphabeta_temp)")]
+#[command(
+    name = "compare-play",
+    about = "Play games: baseline (alphabeta) vs experimental (alphabeta_temp)"
+)]
 struct Args {
     /// Number of games to play
     #[arg(long, default_value_t = 40)]
@@ -83,129 +86,190 @@ struct Args {
 
 fn legal_moves(board: &Board) -> Vec<Move> {
     let mut v = Vec::new();
-    board.generate_moves(|ml| { for m in ml { v.push(m); } false });
+    board.generate_moves(|ml| {
+        for m in ml {
+            v.push(m);
+        }
+        false
+    });
     v
+}
+
+fn bb_contains(bb: BitBoard, target: Square) -> bool {
+    for sq in bb {
+        if sq == target {
+            return true;
+        }
+    }
+    false
 }
 
 fn piece_at(board: &Board, sq: Square) -> Option<(Color, Piece)> {
     for &color in &[Color::White, Color::Black] {
         let cb = board.colors(color);
-        for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
-            if (cb & board.pieces(piece)).contains(sq) { return Some((color, piece)); }
+        for &piece in &[
+            Piece::Pawn,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Rook,
+            Piece::Queen,
+            Piece::King,
+        ] {
+            if bb_contains(cb & board.pieces(piece), sq) {
+                return Some((color, piece));
+            }
         }
     }
     None
 }
 
 fn is_capture_move(board: &Board, mv: Move) -> bool {
-    let stm = board.side_to_move();
-    let opp = if stm == Color::White { Color::Black } else { Color::White };
-    let opp_bb = board.colors(opp);
-    let to = mv.to;
-    if (opp_bb & Square::ALL).contains(to) && (opp_bb & Square::SINGLE[to as usize]).any() {
-        return true;
-    }
-    // Handle generic occupancy check
-    if (opp_bb & board.occupied()).contains(to) { return true; }
-    // En passant heuristic: pawn moves diagonally to empty square
-    if let Some((_, Piece::Pawn)) = piece_at(board, mv.from) {
-        let from_s = format!("{}", mv.from); let to_s = format!("{}", mv.to);
-        if from_s.chars().next() != to_s.chars().next() {
-            // destination not occupied by opp -> likely en passant
-            if !((opp_bb & board.occupied()).contains(to)) { return true; }
-        }
-    }
-    false
+    piece_at(board, mv.to).is_some()
 }
 
 fn san_for_move(board: &Board, mv: Move) -> String {
     // Castling
     if let Some((_, Piece::King)) = piece_at(board, mv.from) {
-        let from = format!("{}", mv.from); let to = format!("{}", mv.to);
-        let ff = from.as_bytes()[0]; let tf = to.as_bytes()[0];
-        if (ff as i32 - tf as i32).abs() == 2 { return if tf > ff { "O-O".into() } else { "O-O-O".into() } }
+        let from = format!("{}", mv.from);
+        let to = format!("{}", mv.to);
+        let ff = from.as_bytes()[0];
+        let tf = to.as_bytes()[0];
+        if (ff as i32 - tf as i32).abs() == 2 {
+            return if tf > ff {
+                "O-O".into()
+            } else {
+                "O-O-O".into()
+            };
+        }
     }
     let mut s = String::new();
     let stm = board.side_to_move();
     let (piece_char, is_pawn) = match piece_at(board, mv.from).map(|(_, p)| p) {
-        Some(Piece::Knight) => ('N', false), Some(Piece::Bishop) => ('B', false),
-        Some(Piece::Rook) => ('R', false), Some(Piece::Queen) => ('Q', false), Some(Piece::King) => ('K', false),
-        _ => (' ', true)
+        Some(Piece::Knight) => ('N', false),
+        Some(Piece::Bishop) => ('B', false),
+        Some(Piece::Rook) => ('R', false),
+        Some(Piece::Queen) => ('Q', false),
+        Some(Piece::King) => ('K', false),
+        _ => (' ', true),
     };
     let capture = is_capture_move(board, mv);
     // Disambiguation for non-pawn non-king moves
-    let mut disamb_file = false; let mut disamb_rank = false;
+    let mut disamb_file = false;
+    let mut disamb_rank = false;
     if !is_pawn && piece_char != 'K' {
         let mut candidates: Vec<Move> = Vec::new();
         board.generate_moves(|ml| {
-            for m in ml { if m.to == mv.to && m != mv { if let Some((_, p)) = piece_at(board, m.from) { if !is_pawn && p.to_string().chars().next().unwrap_or(' ') == piece_char { candidates.push(m); } } } }
+            for m in ml {
+                if m.to == mv.to && m != mv {
+                    if let Some((_, p)) = piece_at(board, m.from) {
+                        if !is_pawn && p.to_string().chars().next().unwrap_or(' ') == piece_char {
+                            candidates.push(m);
+                        }
+                    }
+                }
+            }
             false
         });
         if !candidates.is_empty() {
             let from_file = format!("{}", mv.from).as_bytes()[0];
             let from_rank = format!("{}", mv.from).as_bytes()[1];
-            let mut file_unique = true; let mut rank_unique = true;
+            let mut file_unique = true;
+            let mut rank_unique = true;
             for m in &candidates {
                 let f = format!("{}", m.from);
-                if f.as_bytes()[0] == from_file { file_unique = false; }
-                if f.as_bytes()[1] == from_rank { rank_unique = false; }
+                if f.as_bytes()[0] == from_file {
+                    file_unique = false;
+                }
+                if f.as_bytes()[1] == from_rank {
+                    rank_unique = false;
+                }
             }
             disamb_file = !file_unique && rank_unique;
             disamb_rank = file_unique && !rank_unique;
-            if !disamb_file && !disamb_rank { disamb_file = true; disamb_rank = true; }
+            if !disamb_file && !disamb_rank {
+                disamb_file = true;
+                disamb_rank = true;
+            }
         }
     }
-    if !is_pawn { s.push(piece_char); }
+    if !is_pawn {
+        s.push(piece_char);
+    }
     if !is_pawn && (disamb_file || disamb_rank) {
         let from = format!("{}", mv.from);
-        if disamb_file || (disamb_file && disamb_rank) { s.push(from.chars().next().unwrap()); }
-        if disamb_rank || (disamb_file && disamb_rank) { s.push(from.chars().nth(1).unwrap()); }
+        if disamb_file || (disamb_file && disamb_rank) {
+            s.push(from.chars().next().unwrap());
+        }
+        if disamb_rank || (disamb_file && disamb_rank) {
+            s.push(from.chars().nth(1).unwrap());
+        }
     }
     if is_pawn && capture {
         // Pawn capture SAN starts with file of from
         let from = format!("{}", mv.from);
         s.push(from.chars().next().unwrap());
     }
-    if capture { s.push('x'); }
+    if capture {
+        s.push('x');
+    }
     s.push_str(&format!("{}", mv.to));
     // Promotion
     if let Some((_, Piece::Pawn)) = piece_at(board, mv.from) {
         if let Some(promo) = mv.promotion {
-            let c = match promo { Piece::Knight=>'N',Piece::Bishop=>'B',Piece::Rook=>'R',Piece::Queen=>'Q',_=>'Q' };
-            s.push('='); s.push(c);
+            let c = match promo {
+                Piece::Knight => 'N',
+                Piece::Bishop => 'B',
+                Piece::Rook => 'R',
+                Piece::Queen => 'Q',
+                _ => 'Q',
+            };
+            s.push('=');
+            s.push(c);
         }
     }
     // Check or checkmate
-    let mut next = board.clone(); next.play(mv);
+    let mut next = board.clone();
+    next.play(mv);
     let in_check = !(next.checkers()).is_empty();
-    let mut has_legal = false; next.generate_moves(|_| { has_legal = true; true });
+    let mut has_legal = false;
+    next.generate_moves(|_| {
+        has_legal = true;
+        true
+    });
     if in_check {
-        if !has_legal { s.push('#'); } else { s.push('+'); }
+        if !has_legal {
+            s.push('#');
+        } else {
+            s.push('+');
+        }
     }
     s
 }
 
 fn noisy_choice(order: &[Move], topk: usize, rng: &mut SmallRng) -> Option<Move> {
-    if order.is_empty() { return None; }
+    if order.is_empty() {
+        return None;
+    }
     let k = topk.min(order.len()).max(1);
     let idx = rng.gen_range(0..k);
     Some(order[idx])
 }
 
 fn choose_move_noisy_baseline(board: &Board, topk: usize, rng: &mut SmallRng) -> Option<Move> {
-    let mut s = piebot::search::alphabeta::Searcher::default();
-    // Get ordered list (parent idx unknown)
-    let order = s.debug_order_for_parent(board, usize::MAX);
+    let order = legal_moves(board);
     noisy_choice(&order, topk, rng)
 }
 
 fn choose_move_noisy_experimental(board: &Board, topk: usize, rng: &mut SmallRng) -> Option<Move> {
-    let mut s = piebot::search::alphabeta_temp::Searcher::default();
-    let order = s.debug_order_for_parent(board, usize::MAX);
+    let order = legal_moves(board);
     noisy_choice(&order, topk, rng)
 }
 
-fn decide_move_baseline(board: &Board, movetime: u64, threads: usize) -> (Option<Move>, u32, u64, f64) {
+fn decide_move_baseline(
+    board: &Board,
+    movetime: u64,
+    threads: usize,
+) -> (Option<Move>, u32, u64, f64) {
     let mut s = piebot::search::alphabeta::Searcher::default();
     s.set_tt_capacity_mb(64);
     s.set_threads(threads.max(1));
@@ -220,10 +284,19 @@ fn decide_move_baseline(board: &Board, movetime: u64, threads: usize) -> (Option
     let (bm, _sc, nodes) = s.search_movetime(board, movetime, 0);
     let dt = t0.elapsed().as_secs_f64();
     let depth = s.last_depth();
-    (bm.and_then(|u| find_move_uci(board, u.as_str())), depth, nodes, dt)
+    (
+        bm.and_then(|u| find_move_uci(board, u.as_str())),
+        depth,
+        nodes,
+        dt,
+    )
 }
 
-fn decide_move_experimental(board: &Board, movetime: u64, threads: usize) -> (Option<Move>, u32, u64, f64) {
+fn decide_move_experimental(
+    board: &Board,
+    movetime: u64,
+    threads: usize,
+) -> (Option<Move>, u32, u64, f64) {
     let mut s = piebot::search::alphabeta_temp::Searcher::default();
     s.set_tt_capacity_mb(64);
     s.set_threads(threads.max(1));
@@ -238,13 +311,23 @@ fn decide_move_experimental(board: &Board, movetime: u64, threads: usize) -> (Op
     let (bm, _sc, nodes) = s.search_movetime(board, movetime, 0);
     let dt = t0.elapsed().as_secs_f64();
     let depth = s.last_depth();
-    (bm.and_then(|u| find_move_uci(board, u.as_str())), depth, nodes, dt)
+    (
+        bm.and_then(|u| find_move_uci(board, u.as_str())),
+        depth,
+        nodes,
+        dt,
+    )
 }
 
 fn find_move_uci(board: &Board, uci: &str) -> Option<Move> {
     let mut found = None;
     board.generate_moves(|ml| {
-        for m in ml { if format!("{}", m) == uci { found = Some(m); break; } }
+        for m in ml {
+            if format!("{}", m) == uci {
+                found = Some(m);
+                break;
+            }
+        }
         found.is_some()
     });
     found
@@ -254,10 +337,19 @@ fn is_game_over(board: &Board) -> Option<i32> {
     // Return Some(1) if side-to-move is checkmated (previous side wins)
     // Some(0) draw, Some(-1) if stalemate counts as draw too; use 0 for draw
     let mut has_legal = false;
-    board.generate_moves(|_| { has_legal = true; true });
+    board.generate_moves(|_| {
+        has_legal = true;
+        true
+    });
     if !has_legal {
-        if !(board.checkers()).is_empty() { Some(1) } else { Some(0) }
-    } else { None }
+        if !(board.checkers()).is_empty() {
+            Some(1)
+        } else {
+            Some(0)
+        }
+    } else {
+        None
+    }
 }
 
 fn main() {
@@ -298,15 +390,24 @@ fn main() {
         loop {
             if let Some(res) = is_game_over(&board) {
                 result = Some(match res {
-                    1 => { // side to move has no moves and is in check => previous mover won
-                        let prev_was_baseline = (plies > 0) && ((plies - 1) % 2 == 0) == baseline_is_white;
-                        if prev_was_baseline { 1.0 } else { -1.0 }
+                    1 => {
+                        // side to move has no moves and is in check => previous mover won
+                        let prev_was_baseline =
+                            (plies > 0) && ((plies - 1) % 2 == 0) == baseline_is_white;
+                        if prev_was_baseline {
+                            1.0
+                        } else {
+                            -1.0
+                        }
                     }
                     _ => 0.0,
                 });
                 break;
             }
-            if plies >= args.max_plies { result = Some(0.0); break; }
+            if plies >= args.max_plies {
+                result = Some(0.0);
+                break;
+            }
 
             let baseline_to_move = (plies % 2 == 0) == baseline_is_white;
             let mv = if plies < args.noise_plies {
@@ -319,18 +420,32 @@ fn main() {
             } else {
                 if baseline_to_move {
                     let (m, d, n, dt) = decide_move_baseline(&board, args.movetime, args.threads);
-                    if let Some(_) = m { sum_nodes_base += n; sum_time_base += dt; sum_depth_base += d as u64; cnt_base += 1; }
+                    if let Some(_) = m {
+                        sum_nodes_base += n;
+                        sum_time_base += dt;
+                        sum_depth_base += d as u64;
+                        cnt_base += 1;
+                    }
                     m
                 } else {
-                    let (m, d, n, dt) = decide_move_experimental(&board, args.movetime, args.threads);
-                    if let Some(_) = m { sum_nodes_exp += n; sum_time_exp += dt; sum_depth_exp += d as u64; cnt_exp += 1; }
+                    let (m, d, n, dt) =
+                        decide_move_experimental(&board, args.movetime, args.threads);
+                    if let Some(_) = m {
+                        sum_nodes_exp += n;
+                        sum_time_exp += dt;
+                        sum_depth_exp += d as u64;
+                        cnt_exp += 1;
+                    }
                     m
                 }
             };
 
             let mv = match mv {
                 Some(m) => m,
-                None => { result = Some(0.0); break; }
+                None => {
+                    result = Some(0.0);
+                    break;
+                }
             };
             // Record SAN before updating board
             let san = san_for_move(&board, mv);
@@ -347,24 +462,55 @@ fn main() {
             std::cmp::Ordering::Equal => draws += 1,
         }
 
-        println!("game={} result={} (baseline_white={}) plies={}", g + 1, result.unwrap_or(0.0), baseline_is_white, plies);
+        println!(
+            "game={} result={} (baseline_white={}) plies={}",
+            g + 1,
+            result.unwrap_or(0.0),
+            baseline_is_white,
+            plies
+        );
 
         // Append PGN if requested
         if args.pgn_out.is_some() {
             let res = match result.unwrap_or(0.0).partial_cmp(&0.0).unwrap() {
-                std::cmp::Ordering::Greater => if baseline_is_white { "1-0" } else { "0-1" },
-                std::cmp::Ordering::Less => if baseline_is_white { "0-1" } else { "1-0" },
+                std::cmp::Ordering::Greater => {
+                    if baseline_is_white {
+                        "1-0"
+                    } else {
+                        "0-1"
+                    }
+                }
+                std::cmp::Ordering::Less => {
+                    if baseline_is_white {
+                        "0-1"
+                    } else {
+                        "1-0"
+                    }
+                }
                 std::cmp::Ordering::Equal => "1/2-1/2",
             };
-            let white = if baseline_is_white { "Baseline" } else { "Experimental" };
-            let black = if baseline_is_white { "Experimental" } else { "Baseline" };
+            let white = if baseline_is_white {
+                "Baseline"
+            } else {
+                "Experimental"
+            };
+            let black = if baseline_is_white {
+                "Experimental"
+            } else {
+                "Baseline"
+            };
             pgn_buf.push_str(&format!("[Event \"Cozy A/B\"]\n[Site \"Local\"]\n[Round \"{}\"]\n[White \"{}\"]\n[Black \"{}\"]\n[Result \"{}\"]\n[TimeControl \"{}\"]\n\n",
                                      g + 1, white, black, res, args.movetime));
             // Moves with numbers
             let mut move_num = 1;
             for i in (0..san_moves.len()).step_by(2) {
                 if i + 1 < san_moves.len() {
-                    pgn_buf.push_str(&format!("{}. {} {} ", move_num, san_moves[i], san_moves[i+1]));
+                    pgn_buf.push_str(&format!(
+                        "{}. {} {} ",
+                        move_num,
+                        san_moves[i],
+                        san_moves[i + 1]
+                    ));
                 } else {
                     pgn_buf.push_str(&format!("{}. {} ", move_num, san_moves[i]));
                 }
@@ -374,16 +520,39 @@ fn main() {
         }
     }
 
-    let avg_nps_base = if sum_time_base > 0.0 { sum_nodes_base as f64 / sum_time_base } else { 0.0 };
-    let avg_nps_exp = if sum_time_exp > 0.0 { sum_nodes_exp as f64 / sum_time_exp } else { 0.0 };
-    let avg_depth_base = if cnt_base > 0 { sum_depth_base as f64 / cnt_base as f64 } else { 0.0 };
-    let avg_depth_exp = if cnt_exp > 0 { sum_depth_exp as f64 / cnt_exp as f64 } else { 0.0 };
+    let avg_nps_base = if sum_time_base > 0.0 {
+        sum_nodes_base as f64 / sum_time_base
+    } else {
+        0.0
+    };
+    let avg_nps_exp = if sum_time_exp > 0.0 {
+        sum_nodes_exp as f64 / sum_time_exp
+    } else {
+        0.0
+    };
+    let avg_depth_base = if cnt_base > 0 {
+        sum_depth_base as f64 / cnt_base as f64
+    } else {
+        0.0
+    };
+    let avg_depth_exp = if cnt_exp > 0 {
+        sum_depth_exp as f64 / cnt_exp as f64
+    } else {
+        0.0
+    };
 
-    println!("summary: games={} baseline_pts={} experimental_pts={} draws={}", args.games, baseline_points, experimental_points, draws);
-    println!("baseline: avg_nps={:.1} avg_depth={:.2} moves={} nodes={} time={:.3}s",
-        avg_nps_base, avg_depth_base, cnt_base, sum_nodes_base, sum_time_base);
-    println!("experimental: avg_nps={:.1} avg_depth={:.2} moves={} nodes={} time={:.3}s",
-        avg_nps_exp, avg_depth_exp, cnt_exp, sum_nodes_exp, sum_time_exp);
+    println!(
+        "summary: games={} baseline_pts={} experimental_pts={} draws={}",
+        args.games, baseline_points, experimental_points, draws
+    );
+    println!(
+        "baseline: avg_nps={:.1} avg_depth={:.2} moves={} nodes={} time={:.3}s",
+        avg_nps_base, avg_depth_base, cnt_base, sum_nodes_base, sum_time_base
+    );
+    println!(
+        "experimental: avg_nps={:.1} avg_depth={:.2} moves={} nodes={} time={:.3}s",
+        avg_nps_exp, avg_depth_exp, cnt_exp, sum_nodes_exp, sum_time_exp
+    );
 
     // Optional machine-readable outputs
     if let Some(path) = args.json_out.as_deref() {
@@ -424,10 +593,14 @@ fn main() {
         let mut buf = String::new();
         buf.push_str(header);
         buf.push_str(&row);
-        if let Err(e) = std::fs::write(path, buf) { eprintln!("warn: failed to write csv_out: {}", e); }
+        if let Err(e) = std::fs::write(path, buf) {
+            eprintln!("warn: failed to write csv_out: {}", e);
+        }
     }
 
     if let Some(path) = args.pgn_out.as_deref() {
-        if let Err(e) = std::fs::write(path, pgn_buf) { eprintln!("warn: failed to write pgn_out: {}", e); }
+        if let Err(e) = std::fs::write(path, pgn_buf) {
+            eprintln!("warn: failed to write pgn_out: {}", e);
+        }
     }
 }

@@ -15,11 +15,17 @@ fn nnue_eval_bias_only() {
     f.write_all(&hidden_dim.to_le_bytes()).unwrap();
     f.write_all(&output_dim.to_le_bytes()).unwrap();
     // w1 zeros
-    for _ in 0..(input_dim * hidden_dim) { f.write_all(&0f32.to_le_bytes()).unwrap(); }
+    for _ in 0..(input_dim * hidden_dim) {
+        f.write_all(&0f32.to_le_bytes()).unwrap();
+    }
     // b1 zeros
-    for _ in 0..hidden_dim { f.write_all(&0f32.to_le_bytes()).unwrap(); }
+    for _ in 0..hidden_dim {
+        f.write_all(&0f32.to_le_bytes()).unwrap();
+    }
     // w2 zeros
-    for _ in 0..hidden_dim { f.write_all(&0f32.to_le_bytes()).unwrap(); }
+    for _ in 0..hidden_dim {
+        f.write_all(&0f32.to_le_bytes()).unwrap();
+    }
     // b2 = 50.0
     f.write_all(&50f32.to_le_bytes()).unwrap();
     drop(f);

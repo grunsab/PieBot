@@ -1,4 +1,4 @@
-use cozy_chess::{Board, Move, Square};
+use cozy_chess::{Board, Move, Square, Color};
 use crate::search::eval::{eval_cp, material_eval_cp, MATE_SCORE, DRAW_SCORE};
 use std::time::{Duration, Instant};
 use crate::search::zobrist;
@@ -159,6 +159,11 @@ impl Searcher {
     pub fn set_use_nullmove(&mut self, on: bool) { self.use_nullmove = on; }
     pub fn set_use_aspiration(&mut self, on: bool) { self.use_aspiration = on; }
     pub fn set_deterministic(&mut self, on: bool) { self.deterministic = on; }
+    pub fn set_null_min_depth(&mut self, _d: u32) {}
+    pub fn set_hist_min_depth(&mut self, _d: u32) {}
+    pub fn set_root_see_top_k(&mut self, _k: usize) {}
+    pub fn set_use_futility(&mut self, _on: bool) {}
+    pub fn set_use_lmp(&mut self, _on: bool) {}
     pub fn see_gain_cp(&mut self, board: &Board, uci: &str) -> Option<i32> {
         // Locate a matching legal move by UCI string
         let mut chosen: Option<Move> = None;
@@ -356,21 +361,35 @@ impl Searcher {
         if self.nodes >= self.node_limit { return self.eval_cp_internal(board); }
         if let Some(dl) = self.deadline { if Instant::now() >= dl { return self.eval_cp_internal(board); } }
         if depth == 0 { return self.qsearch(board, alpha, beta); }
-        // Null-move pruning (guarded)
-        // Disable at depth <= 7 for mate puzzles (too tactical)
-        if self.use_nullmove && depth >= 8 {
-            // avoid in check
-            if (board.checkers()).is_empty() {
-                // null move
-                let nb = board.clone();
-                // cozy_chess null move; if unavailable, skip
-                let null_ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    nb.null_move();
-                })).is_ok();
-                if null_ok {
-                    let r = 2 + (depth / 4) as u32;
-                    let score = -self.alphabeta(&nb, depth - 1 - r, -beta, -beta + 1, ply + 1, usize::MAX);
-                    if score >= beta { return score; }
+        // Null-move pruning with additional guards for shallow depths and endgames
+        let mut static_eval: Option<i32> = None;
+        if self.should_try_null_move(board, depth, beta, parent_move_idx, &mut static_eval) {
+            let eval = static_eval.unwrap_or_else(|| self.eval_current(board));
+            let r = self.null_move_reduction(depth, eval, beta);
+
+            let mut nb = board.clone();
+            let null_ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                nb.null_move();
+            })).is_ok();
+            if null_ok {
+                let reduced_depth = depth.saturating_sub(1 + r);
+                let score = -self.alphabeta(&nb, reduced_depth, -beta, -beta + 1, ply + 1, usize::MAX);
+                if score >= beta {
+                    if depth <= 7 {
+                        let full_verify = depth.saturating_sub(1);
+                        let verify = -self.alphabeta(&nb, full_verify, -beta, -beta + 1, ply + 1, usize::MAX);
+                        if verify >= beta { return verify; }
+                    } else if reduced_depth > 0 {
+                        let verify_r = r.saturating_sub(1).max(1);
+                        let verify_depth = depth.saturating_sub(1 + verify_r);
+                        if verify_depth == 0 {
+                            return score;
+                        }
+                        let verify = -self.alphabeta(&nb, verify_depth, -beta, -beta + 1, ply + 1, usize::MAX);
+                        if verify >= beta { return verify; }
+                    } else {
+                        return score;
+                    }
                 }
             }
         }
@@ -530,6 +549,59 @@ impl Searcher {
             }
         }
         best
+    }
+
+    fn null_move_reduction(&self, depth: u32, eval: i32, beta: i32) -> u32 {
+        let mut r = if depth <= 4 { 1 } else { 2 };
+        if depth >= 8 { r = 3; }
+        if depth >= 11 { r = 4; }
+        let eval_margin = eval - beta;
+        if eval_margin > 300 { r += 1; }
+        if eval_margin > 600 { r += 1; }
+        if depth <= 7 && r > 2 { r = 2; }
+        r = r.min(depth.saturating_sub(1));
+        r.max(1)
+    }
+
+    fn should_try_null_move(&self, board: &Board, depth: u32, beta: i32, parent_move_idx: usize, static_eval: &mut Option<i32>) -> bool {
+        if !self.use_nullmove { return false; }
+        if depth < 3 { return false; }
+        if !(board.checkers()).is_empty() { return false; }
+        if parent_move_idx == usize::MAX { return false; }
+        if self.is_zugzwang_prone(board) { return false; }
+        let eval = static_eval.get_or_insert_with(|| self.eval_current(board));
+        if self.get_mate_distance(*eval) < 800 { return false; }
+        let beta_mate_dist = MATE_SCORE - beta.abs();
+        if beta_mate_dist < 800 { return false; }
+        if *eval < beta { return false; }
+        let stm = board.side_to_move();
+        let material_cp = self.side_material_cp(board, stm);
+        if depth <= 7 && material_cp <= 800 { return false; }
+        if depth <= 5 && *eval + 80 < beta { return false; }
+        let mut occupied_count = 0;
+        for _ in board.occupied() { occupied_count += 1; }
+        if occupied_count <= 8 { return false; }
+        true
+    }
+
+    fn is_zugzwang_prone(&self, board: &Board) -> bool {
+        let stm = board.side_to_move();
+        let our_pieces = board.colors(stm);
+        let our_king = board.pieces(cozy_chess::Piece::King) & our_pieces;
+        let our_pawns = board.pieces(cozy_chess::Piece::Pawn) & our_pieces;
+        (our_pieces ^ our_king ^ our_pawns).is_empty()
+    }
+
+    fn get_mate_distance(&self, eval: i32) -> i32 { MATE_SCORE - eval.abs() }
+
+    fn side_material_cp(&self, board: &Board, color: Color) -> i32 {
+        let pieces = board.colors(color);
+        let mut total = 0;
+        for &piece in &[cozy_chess::Piece::Pawn, cozy_chess::Piece::Knight, cozy_chess::Piece::Bishop, cozy_chess::Piece::Rook, cozy_chess::Piece::Queen] {
+            let bb = board.pieces(piece) & pieces;
+            for _ in bb { total += piece_value_cp(piece); }
+        }
+        total
     }
 
     fn eval_terminal(&self, board: &Board, ply: i32) -> i32 {
@@ -695,6 +767,9 @@ impl Searcher {
     pub fn set_nnue_quant_model(&mut self, model: QuantNnue) { self.nnue_quant = Some(QuantNetwork::new(model)); }
     pub fn clear_nnue_quant(&mut self) { self.nnue_quant = None; }
     pub fn set_eval_blend_percent(&mut self, p: u8) { self.eval_blend_percent = p.min(100); }
+    pub fn search_movetime_lazy_smp(&mut self, board: &Board, millis: u64, depth: u32) -> (Option<String>, i32, u64) {
+        self.search_movetime(board, millis, depth)
+    }
 
     fn eval_cp_internal(&self, board: &Board) -> i32 { self.eval_current(board) }
 
