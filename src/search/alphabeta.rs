@@ -43,12 +43,31 @@ fn piece_value_cp(p: cozy_chess::Piece) -> i32 {
 }
 
 #[inline]
+fn bb_contains(bb: cozy_chess::BitBoard, target: Square) -> bool {
+    for sq in bb {
+        if sq == target {
+            return true;
+        }
+    }
+    false
+}
+
+#[inline]
 fn piece_at(board: &Board, sq: Square) -> Option<(cozy_chess::Color, cozy_chess::Piece)> {
-    for &color in &[cozy_chess::Color::White, cozy_chess::Color::Black] {
-        let cb = board.colors(color);
-        for &piece in &[cozy_chess::Piece::Pawn, cozy_chess::Piece::Knight, cozy_chess::Piece::Bishop, cozy_chess::Piece::Rook, cozy_chess::Piece::Queen, cozy_chess::Piece::King] {
-            let bb = cb & board.pieces(piece);
-            for s in bb { if s == sq { return Some((color, piece)); } }
+    // Check which color occupies this square
+    let color = if bb_contains(board.colors(cozy_chess::Color::White), sq) {
+        cozy_chess::Color::White
+    } else if bb_contains(board.colors(cozy_chess::Color::Black), sq) {
+        cozy_chess::Color::Black
+    } else {
+        return None; // Empty square
+    };
+
+    // Find which piece type
+    for &piece in &[cozy_chess::Piece::Pawn, cozy_chess::Piece::Knight, cozy_chess::Piece::Bishop,
+                    cozy_chess::Piece::Rook, cozy_chess::Piece::Queen, cozy_chess::Piece::King] {
+        if bb_contains(board.pieces(piece), sq) {
+            return Some((color, piece));
         }
     }
     None
@@ -375,7 +394,7 @@ impl Searcher {
                 let reduced_depth = depth.saturating_sub(1 + r);
                 let score = -self.alphabeta(&nb, reduced_depth, -beta, -beta + 1, ply + 1, usize::MAX);
                 if score >= beta {
-                    if depth <= 7 {
+                    if depth <= 12 {
                         let full_verify = depth.saturating_sub(1);
                         let verify = -self.alphabeta(&nb, full_verify, -beta, -beta + 1, ply + 1, usize::MAX);
                         if verify >= beta { return verify; }
@@ -558,7 +577,7 @@ impl Searcher {
         let eval_margin = eval - beta;
         if eval_margin > 300 { r += 1; }
         if eval_margin > 600 { r += 1; }
-        if depth <= 7 && r > 2 { r = 2; }
+        if depth <= 12 && r > 2 { r = 2; }
         r = r.min(depth.saturating_sub(1));
         r.max(1)
     }
@@ -576,7 +595,7 @@ impl Searcher {
         if *eval < beta { return false; }
         let stm = board.side_to_move();
         let material_cp = self.side_material_cp(board, stm);
-        if depth <= 7 && material_cp <= 800 { return false; }
+        if depth <= 12 && material_cp <= 800 { return false; }
         if depth <= 5 && *eval + 80 < beta { return false; }
         let mut occupied_count = 0;
         for _ in board.occupied() { occupied_count += 1; }
@@ -718,12 +737,13 @@ impl Searcher {
     }
 
     fn is_capture(&self, board: &Board, m: Move) -> bool {
-        let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
+        let opp = if board.side_to_move() == cozy_chess::Color::White {
+            cozy_chess::Color::Black
+        } else {
+            cozy_chess::Color::White
+        };
         let opp_bb = board.colors(opp);
-        let m_str = format!("{}", m);
-        let to_str = &m_str[2..4];
-        for sq in opp_bb { if format!("{}", sq) == to_str { return true; } }
-        false
+        bb_contains(opp_bb, m.to)
     }
 
     fn update_killers(&mut self, ply: i32, m: Move) {

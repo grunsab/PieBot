@@ -11,39 +11,43 @@ fn piece_value(piece: Piece) -> i32 {
     }
 }
 
-fn piece_at_str(board: &Board, sq: &str) -> Option<(Color, Piece)> {
-    for &color in &[Color::White, Color::Black] {
-        for &piece in &[
-            Piece::Pawn,
-            Piece::Knight,
-            Piece::Bishop,
-            Piece::Rook,
-            Piece::Queen,
-            Piece::King,
-        ] {
-            let bb = board.colors(color) & board.pieces(piece);
-            for s in bb {
-                if format!("{}", s) == sq {
-                    return Some((color, piece));
-                }
-            }
+fn bb_contains(bb: cozy_chess::BitBoard, target: cozy_chess::Square) -> bool {
+    for sq in bb {
+        if sq == target {
+            return true;
+        }
+    }
+    false
+}
+
+fn piece_at_square(board: &Board, sq: cozy_chess::Square) -> Option<(Color, Piece)> {
+    // Check which color occupies this square
+    let color = if bb_contains(board.colors(Color::White), sq) {
+        Color::White
+    } else if bb_contains(board.colors(Color::Black), sq) {
+        Color::Black
+    } else {
+        return None; // Empty square
+    };
+
+    // Find which piece type
+    for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop,
+                    Piece::Rook, Piece::Queen, Piece::King] {
+        if bb_contains(board.pieces(piece), sq) {
+            return Some((color, piece));
         }
     }
     None
-}
-
-fn move_from_to_str(mv: cozy_chess::Move) -> (String, String) {
-    let s = format!("{}", mv);
-    (s[0..2].to_string(), s[2..4].to_string())
 }
 
 pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
     // Swap-off list SEE using only legal moves to the target square.
     // Returns net material gain in centipawns from the side-to-move perspective.
     let stm = board.side_to_move();
-    let (from_s, to_s) = move_from_to_str(mv);
-    let captured0 = piece_at_str(board, &to_s)?;
-    let attacker0 = piece_at_str(board, &from_s)?;
+    let to_sq = mv.to;
+    let from_sq = mv.from;
+    let captured0 = piece_at_square(board, to_sq)?;
+    let attacker0 = piece_at_square(board, from_sq)?;
     let mut gains: Vec<i32> = vec![piece_value(captured0.1)];
 
     let mut cur = board.clone();
@@ -56,15 +60,15 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
     let mut current_occ_val = piece_value(attacker0.1);
 
     loop {
-        // Find least valuable attacker from 'side' that captures back on to_s
+        // Find least valuable attacker from 'side' that captures back on to_sq
         let mut best_mv: Option<cozy_chess::Move> = None;
         let mut best_attacker_val = i32::MAX;
         cur.generate_moves(|ml| {
             for m in ml {
-                let (_, to2) = move_from_to_str(m);
-                if to2 == to_s {
-                    let (src, _) = move_from_to_str(m);
-                    if let Some((c, p)) = piece_at_str(&cur, &src) {
+                // Check if this move targets the original capture square
+                if m.to == to_sq {
+                    // Check if attacker is the correct side
+                    if let Some((c, p)) = piece_at_square(&cur, m.from) {
                         if c == side {
                             let v = piece_value(p);
                             if v < best_attacker_val {
@@ -78,7 +82,7 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
             false
         });
         if let Some(m2) = best_mv {
-            // Next gain is the value of the piece captured on to_s (current occupant) minus previous gain
+            // Next gain is the value of the piece captured on to_sq (current occupant) minus previous gain
             let next_gain = current_occ_val - *gains.last().unwrap();
             gains.push(next_gain);
             cur.play(m2);

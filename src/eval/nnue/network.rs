@@ -121,11 +121,7 @@ impl QuantNetwork {
             for (pi, p) in HALFKP_PIECE_ORDER.iter().enumerate() {
                 let bb = after.colors(side) & after.pieces(*p);
                 for sq in bb {
-                    let s = format!("{}", sq);
-                    let b = s.as_bytes();
-                    let file = (b[0] - b'a') as usize;
-                    let rank = (b[1] - b'1') as usize;
-                    let sq_idx = rank * 8 + file;
+                    let sq_idx = sq as usize;
                     let idx = (((if side == Color::White { 0 } else { 1 }) * 64 + k_idx)
                         * HALFKP_PIECE_ORDER.len()
                         + pi)
@@ -208,11 +204,8 @@ fn square_index(board: &Board, side: Color, piece: Piece) -> usize {
         .into_iter()
         .next()
         .unwrap();
-    let s = format!("{}", sq);
-    let b = s.as_bytes();
-    let file = (b[0] - b'a') as usize;
-    let rank = (b[1] - b'1') as usize;
-    rank * 8 + file
+    // Cozy-chess Square implements Into<u8>, returns 0-63 in row-major order
+    sq as usize
 }
 
 fn active_indices_side_diff(board: &Board, side: Color, k_idx: usize) -> Vec<usize> {
@@ -220,11 +213,7 @@ fn active_indices_side_diff(board: &Board, side: Color, k_idx: usize) -> Vec<usi
     for (pi, p) in HALFKP_PIECE_ORDER.iter().enumerate() {
         let bb = board.colors(side) & board.pieces(*p);
         for sq in bb {
-            let s = format!("{}", sq);
-            let b = s.as_bytes();
-            let file = (b[0] - b'a') as usize;
-            let rank = (b[1] - b'1') as usize;
-            let sq_idx = rank * 8 + file;
+            let sq_idx = sq as usize;
             let idx = (((if side == Color::White { 0 } else { 1 }) * 64 + k_idx)
                 * HALFKP_PIECE_ORDER.len()
                 + pi)
