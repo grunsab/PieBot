@@ -280,24 +280,36 @@ impl Searcher {
             }
         }
         // Order with captures/history and a small bonus for checking moves
+        // Pre-compute scores to avoid board clones during sorting
         if self.order_captures || self.use_history || self.use_killers {
             let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
             let opp_bb = board.colors(opp);
             let mut occ_mask: u64 = 0; for sq in opp_bb { occ_mask |= 1u64 << (sq as usize); }
-            moves.sort_by_key(|&m| {
+
+            // Build scored tuples (once per move, not once per comparison)
+            let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
+            for &m in &moves {
                 let to_sq: Square = m.to;
                 let bit = 1u64 << (to_sq as usize);
                 let is_cap = if self.order_captures { if (occ_mask & bit) != 0 { 1 } else { 0 } } else { 0 };
                 let mvv = if is_cap == 1 { mvv_lva_score(board, m) } else { 0 };
                 let see_b = if is_cap == 1 { crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8 } else { 0 };
+
+                // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
                     let mut c = board.clone(); c.play(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
                 };
+
                 let mi = move_index(m);
                 let hist = if self.use_history { self.history_table.get(mi).copied().unwrap_or(0) } else { 0 };
                 let kb = if self.use_killers { self.killer_bonus(0, m) } else { 0 };
-                -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist)
-            });
+                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
+                scored.push((m, score));
+            }
+
+            // Sort by pre-computed scores
+            scored.sort_by_key(|&(_, score)| score);
+            moves = scored.into_iter().map(|(m, _)| m).collect();
         }
         for m in moves.into_iter() {
             let mut child = board.clone(); child.play(m);
@@ -708,18 +720,29 @@ impl Searcher {
             let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
             let opp_bb = board.colors(opp);
             let mut occ_mask: u64 = 0; for sq in opp_bb { occ_mask |= 1u64 << (sq as usize); }
-            moves.sort_by_key(|&m| {
+
+            // Build scored tuples (once per move, not once per comparison)
+            let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
+            for &m in &moves {
                 let to_sq: Square = m.to;
                 let bit = 1u64 << (to_sq as usize);
                 let is_cap = if self.order_captures { if (occ_mask & bit) != 0 { 1 } else { 0 } } else { 0 };
+
+                // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
                     let mut c = board.clone(); c.play(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
                 };
+
                 let mi = move_index(m);
                 let hist = if self.use_history { self.history_table.get(mi).copied().unwrap_or(0) } else { 0 };
                 let kb = if self.use_killers { self.killer_bonus(0, m) } else { 0 };
-                -(is_cap * 10 + gives_check_bonus + kb + hist)
-            });
+                let score = -(is_cap * 10 + gives_check_bonus + kb + hist);
+                scored.push((m, score));
+            }
+
+            // Sort by pre-computed scores
+            scored.sort_by_key(|&(_, score)| score);
+            moves = scored.into_iter().map(|(m, _)| m).collect();
         }
         for m in moves.into_iter() {
             let mut child = board.clone(); child.play(m);

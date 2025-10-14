@@ -1,4 +1,10 @@
-use cozy_chess::{Board, Color, Piece};
+use cozy_chess::{Board, Color, Piece, Square, BitBoard};
+
+// Helper to create a single-square bitboard
+#[inline]
+fn square_bb(sq: Square) -> BitBoard {
+    BitBoard::EMPTY | sq.into()
+}
 
 fn piece_value(piece: Piece) -> i32 {
     match piece {
@@ -11,7 +17,8 @@ fn piece_value(piece: Piece) -> i32 {
     }
 }
 
-fn bb_contains(bb: cozy_chess::BitBoard, target: cozy_chess::Square) -> bool {
+#[inline]
+fn bb_contains(bb: BitBoard, target: Square) -> bool {
     for sq in bb {
         if sq == target {
             return true;
@@ -20,7 +27,7 @@ fn bb_contains(bb: cozy_chess::BitBoard, target: cozy_chess::Square) -> bool {
     false
 }
 
-fn piece_at_square(board: &Board, sq: cozy_chess::Square) -> Option<(Color, Piece)> {
+fn piece_at_square(board: &Board, sq: Square) -> Option<(Color, Piece)> {
     // Check which color occupies this square
     let color = if bb_contains(board.colors(Color::White), sq) {
         Color::White
@@ -40,71 +47,155 @@ fn piece_at_square(board: &Board, sq: cozy_chess::Square) -> Option<(Color, Piec
     None
 }
 
+// Bitboard-based attack generation for SEE
+#[inline]
+fn get_bishop_attacks(sq: Square, occupied: BitBoard) -> BitBoard {
+    cozy_chess::get_bishop_moves(sq, occupied)
+}
+
+#[inline]
+fn get_rook_attacks(sq: Square, occupied: BitBoard) -> BitBoard {
+    cozy_chess::get_rook_moves(sq, occupied)
+}
+
+#[inline]
+fn get_queen_attacks(sq: Square, occupied: BitBoard) -> BitBoard {
+    get_bishop_attacks(sq, occupied) | get_rook_attacks(sq, occupied)
+}
+
+#[inline]
+fn get_knight_attacks(sq: Square) -> BitBoard {
+    cozy_chess::get_knight_moves(sq)
+}
+
+#[inline]
+fn get_king_attacks(sq: Square) -> BitBoard {
+    cozy_chess::get_king_moves(sq)
+}
+
+#[inline]
+fn get_pawn_attacks(sq: Square, color: Color) -> BitBoard {
+    cozy_chess::get_pawn_attacks(sq, color)
+}
+
+// Find all pieces of a given color that attack a target square
+fn get_attackers(board: &Board, target: Square, color: Color, occupied: BitBoard) -> BitBoard {
+    let our_pieces = board.colors(color);
+
+    let mut attackers = BitBoard::EMPTY;
+
+    // Pawns
+    let pawns = board.pieces(Piece::Pawn) & our_pieces;
+    for sq in pawns {
+        if bb_contains(get_pawn_attacks(sq, color), target) {
+            attackers |= square_bb(sq);
+        }
+    }
+
+    // Knights
+    let knights = board.pieces(Piece::Knight) & our_pieces;
+    for sq in knights {
+        if bb_contains(get_knight_attacks(sq), target) {
+            attackers |= square_bb(sq);
+        }
+    }
+
+    // Bishops and Queens (diagonal attacks)
+    let bishops_queens = (board.pieces(Piece::Bishop) | board.pieces(Piece::Queen)) & our_pieces;
+    let bishop_atks = get_bishop_attacks(target, occupied);
+    attackers |= bishops_queens & bishop_atks;
+
+    // Rooks and Queens (straight attacks)
+    let rooks_queens = (board.pieces(Piece::Rook) | board.pieces(Piece::Queen)) & our_pieces;
+    let rook_atks = get_rook_attacks(target, occupied);
+    attackers |= rooks_queens & rook_atks;
+
+    // King
+    let king = board.pieces(Piece::King) & our_pieces;
+    for sq in king {
+        if bb_contains(get_king_attacks(sq), target) {
+            attackers |= square_bb(sq);
+        }
+    }
+
+    attackers
+}
+
+// Find the least valuable attacker of target square for given color
+fn least_valuable_attacker(board: &Board, target: Square, color: Color, occupied: BitBoard) -> Option<(Square, Piece)> {
+    let attackers = get_attackers(board, target, color, occupied) & occupied;  // Mask with occupied!
+
+    // Check each piece type in order of value (cheapest first)
+    for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
+        let piece_attackers = board.pieces(piece) & attackers;
+        if let Some(sq) = piece_attackers.into_iter().next() {
+            return Some((sq, piece));
+        }
+    }
+
+    None
+}
+
 pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
-    // Swap-off list SEE using only legal moves to the target square.
-    // Returns net material gain in centipawns from the side-to-move perspective.
+    // Bitboard-based SEE: compute static exchange evaluation without move generation
     let stm = board.side_to_move();
     let to_sq = mv.to;
     let from_sq = mv.from;
-    let captured0 = piece_at_square(board, to_sq)?;
-    let attacker0 = piece_at_square(board, from_sq)?;
-    let mut gains: Vec<i32> = vec![piece_value(captured0.1)];
 
-    let mut cur = board.clone();
-    cur.play(mv);
-    let mut side = if stm == Color::White {
-        Color::Black
-    } else {
-        Color::White
-    };
-    let mut current_occ_val = piece_value(attacker0.1);
+    // Get the captured piece value (or 0 if moving to empty square)
+    let captured_val = piece_at_square(board, to_sq)
+        .map(|(_, p)| piece_value(p))
+        .unwrap_or(0);
 
+    // Get the attacker piece
+    let (_, attacker_piece) = piece_at_square(board, from_sq)?;
+
+    // Track material gains in the exchange sequence
+    // gains[0] = value captured by initial move
+    let mut gains: Vec<i32> = vec![captured_val];
+
+    // Simulate the exchange: track occupied squares as pieces are captured
+    let mut occupied = board.occupied();
+
+    // Remove the initial attacker from occupied
+    occupied ^= square_bb(from_sq);
+
+    // The target square is now occupied by the initial attacker
+    let mut current_occupant_val = piece_value(attacker_piece);
+    let mut side = if stm == Color::White { Color::Black } else { Color::White };
+
+    // Continue the exchange until no more attackers
     loop {
-        // Find least valuable attacker from 'side' that captures back on to_sq
-        let mut best_mv: Option<cozy_chess::Move> = None;
-        let mut best_attacker_val = i32::MAX;
-        cur.generate_moves(|ml| {
-            for m in ml {
-                // Check if this move targets the original capture square
-                if m.to == to_sq {
-                    // Check if attacker is the correct side
-                    if let Some((c, p)) = piece_at_square(&cur, m.from) {
-                        if c == side {
-                            let v = piece_value(p);
-                            if v < best_attacker_val {
-                                best_attacker_val = v;
-                                best_mv = Some(m);
-                            }
-                        }
-                    }
-                }
-            }
-            false
-        });
-        if let Some(m2) = best_mv {
-            // Next gain is the value of the piece captured on to_sq (current occupant) minus previous gain
-            let next_gain = current_occ_val - *gains.last().unwrap();
-            gains.push(next_gain);
-            cur.play(m2);
-            side = if side == Color::White {
-                Color::Black
-            } else {
-                Color::White
-            };
-            current_occ_val = best_attacker_val;
+        // Find least valuable attacker from current side
+        if let Some((sq, piece)) = least_valuable_attacker(board, to_sq, side, occupied) {
+            let attacker_val = piece_value(piece);
+
+            // Calculate gain: we capture current_occupant_val, then subtract what we gained so far
+            // This represents the material swing from the perspective of alternating sides
+            let gain = current_occupant_val - *gains.last().unwrap();
+            gains.push(gain);
+
+            // Remove this attacker from occupied
+            occupied ^= square_bb(sq);
+
+            // Update state for next iteration: attacker is now the occupant
+            current_occupant_val = attacker_val;
+            side = if side == Color::White { Color::Black } else { Color::White };
         } else {
+            // No more attackers for this side
             break;
         }
     }
 
-    // From the end, choose optimal stopping point
+    // Minimax fold from the end: each player chooses whether to stop or continue
+    // Stockfish-style fold: gains[i] = -max(-gains[i], gains[i+1])
     for i in (0..gains.len().saturating_sub(1)).rev() {
-        // Stockfish-style fold: gains[i] = -max(-gains[i], gains[i+1])
         let a = -gains[i];
         let b = gains[i + 1];
         let m = if a > b { a } else { b };
         gains[i] = -m;
     }
+
     Some(gains[0])
 }
 
