@@ -243,7 +243,7 @@ impl Searcher {
         // Order captures quickly via MVV-LVA heuristic
         caps.sort_by_key(|&m| -mvv_lva_score(board, m));
         for m in caps {
-            let mut child = board.clone(); child.play(m);
+            let mut child = board.clone(); child.play_unchecked(m);
             let mut change = None;
             if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { change = Some(qn.apply_move(board, m, &child)); } }
             let score = -self.qsearch(&child, -beta, -alpha);
@@ -297,7 +297,7 @@ impl Searcher {
 
                 // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
-                    let mut c = board.clone(); c.play(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
+                    let mut c = board.clone(); c.play_unchecked(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
                 };
 
                 let mi = move_index(m);
@@ -312,7 +312,7 @@ impl Searcher {
             moves = scored.into_iter().map(|(m, _)| m).collect();
         }
         for m in moves.into_iter() {
-            let mut child = board.clone(); child.play(m);
+            let mut child = board.clone(); child.play_unchecked(m);
             let mut change = None;
             if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { change = Some(qn.apply_move(board, m, &child)); } }
             let gives_check = !(child.checkers()).is_empty();
@@ -355,7 +355,7 @@ impl Searcher {
         let use_nnue = self.use_nnue;
         let results: Vec<(Move, i32, u64)> = moves.par_iter().map(|&m| {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let mut w = Searcher::default();
             w.node_limit = u64::MAX; // rely on shared deadline for stopping
             w.deadline = deadline;
@@ -483,7 +483,7 @@ impl Searcher {
             let mut iter = moves.into_iter();
             let first = iter.next().unwrap();
             let mut child = board.clone();
-            child.play(first);
+            child.play_unchecked(first);
             let mut seed = Searcher::default();
             seed.node_limit = u64::MAX;
             seed.deadline = deadline;
@@ -502,7 +502,7 @@ impl Searcher {
             let tails: Vec<Move> = iter.collect();
             let results: Vec<(Move, i32, u64)> = tails.par_iter().map(|&m| {
                 let mut c = board.clone();
-                c.play(m);
+                c.play_unchecked(m);
                 let mut w = Searcher::default();
                 w.node_limit = u64::MAX;
                 w.deadline = deadline;
@@ -545,7 +545,7 @@ impl Searcher {
         let orig_alpha = alpha;
         for (idx, m) in moves.into_iter().enumerate() {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let gives_check = !(child.checkers()).is_empty();
             let ext = if gives_check { 1 } else { 0 };
             let score;
@@ -730,7 +730,7 @@ impl Searcher {
 
                 // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
-                    let mut c = board.clone(); c.play(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
+                    let mut c = board.clone(); c.play_unchecked(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
                 };
 
                 let mi = move_index(m);
@@ -745,7 +745,7 @@ impl Searcher {
             moves = scored.into_iter().map(|(m, _)| m).collect();
         }
         for m in moves.into_iter() {
-            let mut child = board.clone(); child.play(m);
+            let mut child = board.clone(); child.play_unchecked(m);
             let mut change = None;
             if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { change = Some(qn.apply_move(board, m, &child)); } }
             let gives_check = !(child.checkers()).is_empty();

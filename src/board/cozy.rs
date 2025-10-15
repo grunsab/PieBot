@@ -34,7 +34,7 @@ impl Position {
             found.is_some()
         });
         if let Some(m) = found {
-            self.board.play(m);
+            self.board.play_unchecked(m);
             Ok(())
         } else {
             Err(format!("Illegal move: {}", mv_uci))

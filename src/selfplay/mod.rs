@@ -82,7 +82,7 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
                 if let Some(m) = mv {
                     let mstr = format!("{}", m);
                     record.moves.push(mstr);
-                    board.play(m);
+                    board.play_unchecked(m);
                     plies += 1;
                 } else {
                     break;
@@ -134,7 +134,7 @@ fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) ->
         let mut scores: Vec<f32> = Vec::with_capacity(moves.len());
         for &m in &moves {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let mut s = Searcher::default();
             let mut p = SearchParams::default();
             p.depth = pol_depth;
@@ -324,7 +324,7 @@ pub fn flatten_game_to_records(game: &GameRecord) -> Vec<RecordBin> {
             chosen.is_some()
         });
         if let Some(m) = chosen {
-            board.play(m);
+            board.play_unchecked(m);
         } else {
             break;
         }

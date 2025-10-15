@@ -8,7 +8,7 @@ pub fn perft(board: &Board, depth: u32) -> u64 {
     board.generate_moves(|moves| {
         for m in moves {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             nodes += perft(&child, depth - 1);
         }
         false

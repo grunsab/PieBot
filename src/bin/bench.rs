@@ -357,7 +357,7 @@ fn main() {
                         break;
                     }
                     let idx = rng.gen_range(0..moves.len());
-                    b.play(moves[idx]);
+                    b.play_unchecked(moves[idx]);
                 }
                 let fen = format!("{}", b);
                 suite.push((format!("Rand{}", suite.len() + 1), fen));

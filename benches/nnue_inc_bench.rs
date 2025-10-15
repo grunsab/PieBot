@@ -65,7 +65,7 @@ fn prepare_sequence(max_plies: usize) -> Vec<(Board, String, Board)> {
             found.is_some()
         });
         if let Some(mv) = found {
-            nb.play(mv);
+            nb.play_unchecked(mv);
             out.push((b.clone(), mstr.clone(), nb.clone()));
             b = nb;
         } else {

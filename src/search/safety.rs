@@ -8,7 +8,7 @@ use cozy_chess::{Board, Move};
 pub fn is_hanging_after_move(board: &Board, mv: Move, loss_thresh_cp: i32) -> bool {
     // Only consider quiets; for captures, SEE is handled elsewhere.
     let mut child = board.clone();
-    child.play(mv);
+    child.play_unchecked(mv);
     // Check if opponent can profitably capture on mv.to
     let mut blunder = false;
     child.generate_moves(|ml| {
@@ -35,7 +35,7 @@ pub fn is_hanging_after_move(board: &Board, mv: Move, loss_thresh_cp: i32) -> bo
 /// Threshold is in centipawns; use a high value (e.g., 500) to focus on heavy losses.
 pub fn exposes_heavy_loss_after_move(board: &Board, mv: Move, loss_thresh_cp: i32) -> bool {
     let mut child = board.clone();
-    child.play(mv);
+    child.play_unchecked(mv);
     let mut severe = false;
     child.generate_moves(|ml| {
         for m2 in ml {
@@ -67,7 +67,7 @@ pub fn is_stalemate(board: &Board) -> bool {
 /// Returns true if applying `mv` results in a stalemate for the opponent.
 pub fn is_stalemate_after_move(board: &Board, mv: Move) -> bool {
     let mut child = board.clone();
-    child.play(mv);
+    child.play_unchecked(mv);
     is_stalemate(&child)
 }
 

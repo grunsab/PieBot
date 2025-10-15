@@ -75,7 +75,7 @@ fn parse_puzzle_row(line: &str) -> Option<Puzzle> {
     // Apply first move to get the actual puzzle position
     let mut board = Board::from_fen(initial_fen, false).ok()?;
     let first_move = parse_uci_move(&board, first_move_uci)?;
-    board.play(first_move);
+    board.play_unchecked(first_move);
 
     // Get FEN after first move
     let puzzle_fen = board.to_string();

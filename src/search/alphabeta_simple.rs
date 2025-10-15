@@ -213,7 +213,7 @@ impl Searcher {
         caps.sort_by_key(|&m| -mvv_lva_score(board, m));
         for m in caps {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let score = -self.qsearch(&child, -beta, -alpha);
             if score >= beta {
                 return beta;
@@ -234,7 +234,7 @@ impl Searcher {
             });
             for m in moves {
                 let mut child = board.clone();
-                child.play(m);
+                child.play_unchecked(m);
                 let score = -self.qsearch(&child, -beta, -alpha);
                 if score >= beta {
                     return beta;
@@ -350,7 +350,7 @@ impl Searcher {
 
         for m in moves.into_iter() {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let score = -self.alphabeta(&child, depth - 1, -beta, -alpha, 1);
             if score > best_score {
                 best_score = score;
@@ -440,7 +440,7 @@ impl Searcher {
         let orig_alpha = alpha;
         for m in moves.into_iter() {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let score = -self.alphabeta(&child, depth - 1, -beta, -alpha, ply + 1);
             if score > best {
                 best = score;

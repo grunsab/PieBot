@@ -79,7 +79,7 @@ fn halfkp_incremental_matches_full_over_sequence() {
         });
         let m = chosen.expect("legal move in sequence");
         let mut after = b.clone();
-        after.play(m);
+        after.play_unchecked(m);
         let change = net.apply_move(&b, m, &after);
         let inc = net.eval_current();
         let full = net.eval_full(&after);

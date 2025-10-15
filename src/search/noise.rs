@@ -33,7 +33,7 @@ pub fn choose_noisy_from_order_filtered(
         // Non-capture (SEE not applicable). Avoid quiet moves that leave the piece hanging by SEE.
         // Skip if the move gives check (tactical), only filter quiet blunders.
         let mut child = board.clone();
-        child.play(m);
+        child.play_unchecked(m);
         let gives_check = !(child.checkers()).is_empty();
         if !gives_check {
             if crate::search::safety::is_hanging_after_move(board, m, QUIET_HANGING_THRESH_CP) { continue; }
