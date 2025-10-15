@@ -649,7 +649,7 @@ impl Searcher {
         caps.sort_by_key(|&m| -mvv_lva_score(board, m));
         for m in caps {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let mut change = None;
             if self.use_nnue {
                 if let Some(qn) = self.nnue_quant.as_mut() {
@@ -686,7 +686,7 @@ impl Searcher {
                 continue;
             } // skip captures (already done)
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             if !(child.checkers()).is_empty() {
                 let score = -self.qsearch(&child, -beta, -alpha);
                 if score >= beta {
@@ -754,7 +754,7 @@ impl Searcher {
                 let to_bit = 1u64 << (to_sq as usize);
                 let is_cap_fast = (occ_mask & to_bit) != 0; // exclude EP; acceptable for root guard
                 let mut tmp = board.clone();
-                tmp.play(m);
+                tmp.play_unchecked(m);
                 let gives_check = !(tmp.checkers()).is_empty();
                 if !is_cap_fast
                     && !gives_check
@@ -816,7 +816,7 @@ impl Searcher {
                 let to_bit = 1u64 << (to_sq as usize);
                 let is_cap_fast = (occ_mask & to_bit) != 0;
                 let mut tmp = board.clone();
-                tmp.play(m);
+                tmp.play_unchecked(m);
                 let gives_check = !(tmp.checkers()).is_empty();
                 if !is_cap_fast
                     && !gives_check
@@ -895,7 +895,7 @@ impl Searcher {
                 };
                 let gives_check_bonus = {
                     let mut c = board.clone();
-                    c.play(m);
+                    c.play_unchecked(m);
                     if !(c.checkers()).is_empty() {
                         30
                     } else {
@@ -948,7 +948,7 @@ impl Searcher {
         }
         for m in moves.into_iter() {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let mut change = None;
             if self.use_nnue {
                 if let Some(qn) = self.nnue_quant.as_mut() {
@@ -984,7 +984,7 @@ impl Searcher {
                     if Instant::now() < dl {
                         // Short confirm at depth-1
                         let mut child = board.clone();
-                        child.play(sb);
+                        child.play_unchecked(sb);
                         let confirm_depth = depth.saturating_sub(1);
                         let sc = -self.alphabeta(
                             &child,
@@ -1099,7 +1099,7 @@ impl Searcher {
                 };
                 let gives_check_bonus = {
                     let mut c = board.clone();
-                    c.play(m);
+                    c.play_unchecked(m);
                     if !(c.checkers()).is_empty() {
                         30
                     } else {
@@ -1125,7 +1125,7 @@ impl Searcher {
         let mut iter = moves.into_iter();
         let first = iter.next().unwrap();
         let mut child = board.clone();
-        child.play(first);
+        child.play_unchecked(first);
         let mut seed = Searcher::default();
         seed.node_limit = u64::MAX;
         seed.deadline = self.deadline;
@@ -1169,7 +1169,7 @@ impl Searcher {
             .par_iter()
             .map(|&m| {
                 let mut c = board.clone();
-                c.play(m);
+                c.play_unchecked(m);
                 let mut w = Searcher::default();
                 w.node_limit = u64::MAX;
                 w.deadline = deadline;
@@ -1368,7 +1368,7 @@ impl Searcher {
             let mut iter = moves.into_iter();
             let first = iter.next().unwrap();
             let mut child = board.clone();
-            child.play(first);
+            child.play_unchecked(first);
             let mut seed = Searcher::default();
             seed.node_limit = u64::MAX;
             seed.deadline = deadline;
@@ -1404,7 +1404,7 @@ impl Searcher {
                 .par_iter()
                 .map(|&m| {
                     let mut c = board.clone();
-                    c.play(m);
+                    c.play_unchecked(m);
                     let mut w = Searcher::default();
                     w.node_limit = u64::MAX;
                     w.deadline = deadline;
@@ -1488,7 +1488,7 @@ impl Searcher {
         for (idx, m) in moves.into_iter().enumerate() {
             let is_cap = self.is_capture(board, m);
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let gives_check = !(child.checkers()).is_empty();
 
             // Futility pruning: shallow, non-capture, non-check moves when not currently in check
@@ -1816,7 +1816,7 @@ impl Searcher {
                 };
                 let gives_check_bonus = {
                     let mut c = board.clone();
-                    c.play(m);
+                    c.play_unchecked(m);
                     if !(c.checkers()).is_empty() {
                         30
                     } else {
@@ -1862,7 +1862,7 @@ impl Searcher {
         }
         for m in moves.into_iter() {
             let mut child = board.clone();
-            child.play(m);
+            child.play_unchecked(m);
             let mut change = None;
             if self.use_nnue {
                 if let Some(qn) = self.nnue_quant.as_mut() {
@@ -1901,7 +1901,7 @@ impl Searcher {
                 if let Some(dl) = self.deadline {
                     if Instant::now() < dl {
                         let mut child = board.clone();
-                        child.play(sb);
+                        child.play_unchecked(sb);
                         let confirm_depth = depth.saturating_sub(1);
                         let sc = -self.alphabeta(
                             &child,

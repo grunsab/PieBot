@@ -229,7 +229,7 @@ fn san_for_move(board: &Board, mv: Move) -> String {
     }
     // Check or checkmate
     let mut next = board.clone();
-    next.play(mv);
+    next.play_unchecked(mv);
     let in_check = !(next.checkers()).is_empty();
     let mut has_legal = false;
     next.generate_moves(|_| {
@@ -450,7 +450,7 @@ fn main() {
             // Record SAN before updating board
             let san = san_for_move(&board, mv);
             let mut next = board.clone();
-            next.play(mv);
+            next.play_unchecked(mv);
             board = next;
             san_moves.push(san);
             plies += 1;
