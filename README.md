@@ -40,3 +40,7 @@ cargo run --bin perft -- 3
 ## Notes
 
 All old MCTS/Torch-based code and scripts have been removed to keep the codebase focused on the new NNUE + alpha-beta direction.
+
+## License
+
+PieBot is distributed under the GNU Affero General Public License v3.0. See `LICENSE` for the full text.
