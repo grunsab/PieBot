@@ -1,3 +1,17 @@
-Cargo.lock
-target/
-data/
+.DS_Store
+
+# Rust artifacts
+/Cargo.lock
+/target/
+/data/
+/PieBot/target/
+/PieBot/data/
+/PieBot/Cargo.lock
+
+# Python artifacts
+.venv/
+__pycache__/
+*.pyc
+
+# Generated outputs
+out/
