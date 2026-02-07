@@ -29,8 +29,18 @@ pub struct SelfPlayParams {
 
 pub struct GameRecord {
     pub start_fen: String,
-    pub moves: Vec<String>,
+    pub moves: Vec<String>, // played moves
+    pub move_target_best: Vec<Option<String>>,     // teacher best move for each ply
+    pub move_value_cp: Vec<Option<f32>>,           // white-perspective teacher value for each ply
+    pub move_policy_top: Vec<Vec<(String, f32)>>,  // optional root policy samples
     pub result: i8, // 1 white win, 0 draw, -1 black win
+}
+
+struct MoveChoice {
+    played_mv: Move,
+    target_best_mv: Option<Move>,
+    value_cp: Option<f32>,
+    policy_top: Vec<(String, f32)>,
 }
 
 pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
@@ -47,6 +57,9 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
         let mut record = GameRecord {
             start_fen: format!("{}", board),
             moves: Vec::new(),
+            move_target_best: Vec::new(),
+            move_value_cp: Vec::new(),
+            move_policy_top: Vec::new(),
             result: 0,
         };
         let mut plies = 0usize;
@@ -82,9 +95,14 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
                     select_random_move(&board, &mut rng)
                 };
                 if let Some(m) = mv {
-                    let mstr = format!("{}", m);
+                    let mstr = format!("{}", m.played_mv);
                     record.moves.push(mstr);
-                    board.play_unchecked(m);
+                    record
+                        .move_target_best
+                        .push(m.target_best_mv.map(|x| format!("{}", x)));
+                    record.move_value_cp.push(m.value_cp);
+                    record.move_policy_top.push(m.policy_top);
+                    board.play_unchecked(m.played_mv);
                     plies += 1;
                 } else {
                     break;
@@ -96,7 +114,7 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
     games
 }
 
-fn select_random_move(board: &Board, rng: &mut SmallRng) -> Option<Move> {
+fn select_random_move(board: &Board, rng: &mut SmallRng) -> Option<MoveChoice> {
     let mut moves: Vec<Move> = Vec::new();
     board.generate_moves(|ml| {
         for m in ml {
@@ -104,14 +122,17 @@ fn select_random_move(board: &Board, rng: &mut SmallRng) -> Option<Move> {
         }
         false
     });
-    if moves.is_empty() {
-        None
-    } else {
-        Some(moves[rng.gen_range(0..moves.len())])
-    }
+    if moves.is_empty() { return None; }
+    let mv = moves[rng.gen_range(0..moves.len())];
+    Some(MoveChoice {
+        played_mv: mv,
+        target_best_mv: None,
+        value_cp: None,
+        policy_top: Vec::new(),
+    })
 }
 
-fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) -> Option<Move> {
+fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) -> Option<MoveChoice> {
     // If temperature or Dirichlet requested, compute root policy and sample
     let use_temp = params.temperature_tau > 0.0 && ply_idx < params.temperature_moves;
     let use_dir = params.dirichlet_epsilon > 0.0 && ply_idx < params.dirichlet_plies;
@@ -176,24 +197,31 @@ fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) ->
         };
         let logits: Vec<f32> = scores.iter().map(|s| s / (scale * tau)).collect();
         let max_log = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let mut probs: Vec<f32> = logits.iter().map(|l| (l - max_log).exp()).collect();
-        let sum_p: f32 = probs.iter().sum();
+        let mut clean_probs: Vec<f32> = logits.iter().map(|l| (l - max_log).exp()).collect();
+        let sum_p: f32 = clean_probs.iter().sum();
         if sum_p > 0.0 {
-            for p in &mut probs {
+            for p in &mut clean_probs {
                 *p /= sum_p;
             }
         } else {
-            let n = probs.len() as f32;
-            for p in &mut probs {
+            let n = clean_probs.len() as f32;
+            for p in &mut clean_probs {
                 *p = 1.0 / n;
             }
         }
+        let mut best_idx = 0usize;
+        for i in 1..clean_probs.len() {
+            if clean_probs[i] > clean_probs[best_idx] {
+                best_idx = i;
+            }
+        }
+        let mut sample_probs = clean_probs.clone();
         // Dirichlet noise
         if use_dir && params.dirichlet_alpha > 0.0 {
             let alpha = params.dirichlet_alpha;
             let gamma = Gamma::new(alpha, 1.0).unwrap();
             let mut rng = SmallRng::seed_from_u64(params.seed ^ zobrist::compute(board));
-            let mut noise: Vec<f32> = (0..probs.len())
+            let mut noise: Vec<f32> = (0..sample_probs.len())
                 .map(|_| gamma.sample(&mut rng) as f32)
                 .collect();
             let sum_n: f32 = noise.iter().sum();
@@ -203,8 +231,8 @@ fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) ->
                 }
             }
             let eps = params.dirichlet_epsilon;
-            for i in 0..probs.len() {
-                probs[i] = (1.0 - eps) * probs[i] + eps * noise[i];
+            for i in 0..sample_probs.len() {
+                sample_probs[i] = (1.0 - eps) * sample_probs[i] + eps * noise[i];
             }
         }
         // Sample according to probs
@@ -212,13 +240,37 @@ fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) ->
             SmallRng::seed_from_u64(params.seed ^ (zobrist::compute(board).rotate_left(13)));
         let r: f32 = rng.gen();
         let mut cdf = 0.0f32;
-        for (i, &p) in probs.iter().enumerate() {
+        let mut picked_idx = moves.len() - 1;
+        for (i, &p) in sample_probs.iter().enumerate() {
             cdf += p.max(0.0);
             if r <= cdf {
-                return Some(moves[i]);
+                picked_idx = i;
+                break;
             }
         }
-        return Some(moves[moves.len() - 1]);
+        let mut order: Vec<usize> = (0..clean_probs.len()).collect();
+        order.sort_by(|&a, &b| {
+            clean_probs[b]
+                .partial_cmp(&clean_probs[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let keep = order.len().min(8);
+        let mut policy_top = Vec::with_capacity(keep);
+        for &idx in &order[..keep] {
+            policy_top.push((format!("{}", moves[idx]), clean_probs[idx]));
+        }
+        let best_cp_parent = scores[best_idx];
+        let best_cp_white = if board.side_to_move() == Color::White {
+            best_cp_parent
+        } else {
+            -best_cp_parent
+        };
+        return Some(MoveChoice {
+            played_mv: moves[picked_idx],
+            target_best_mv: Some(moves[best_idx]),
+            value_cp: Some(best_cp_white),
+            policy_top,
+        });
     }
     // Greedy best move
     let mut s = Searcher::default();
@@ -238,6 +290,11 @@ fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) ->
         .movetime_ms
         .map(|t| std::time::Duration::from_millis(t));
     let res = s.search_with_params(board, p);
+    let score_white = if board.side_to_move() == Color::White {
+        res.score_cp as f32
+    } else {
+        -(res.score_cp as f32)
+    };
     res.bestmove.and_then(|s| {
         let mut choice = None;
         board.generate_moves(|ml| {
@@ -249,7 +306,12 @@ fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) ->
             }
             choice.is_some()
         });
-        choice
+        choice.map(|mv| MoveChoice {
+            played_mv: mv,
+            target_best_mv: Some(mv),
+            value_cp: Some(score_white),
+            policy_top: Vec::new(),
+        })
     })
 }
 
@@ -337,9 +399,23 @@ pub fn flatten_game_to_records(game: &GameRecord) -> Vec<RecordBin> {
 #[derive(serde::Serialize)]
 struct JsonlSelfPlayRecord<'a> {
     fen: String,
+    ply: usize,
     result: i8,
     result_q: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value_cp: Option<f32>,
+    played_move: &'a str,
+    target_best_move: &'a str,
     best_move: &'a str,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    policy_top: Vec<JsonPolicyTopEntry<'a>>,
+}
+
+#[derive(serde::Serialize)]
+struct JsonPolicyTopEntry<'a> {
+    #[serde(rename = "move")]
+    mv: &'a str,
+    p: f32,
 }
 
 pub fn write_jsonl_shards<P: AsRef<Path>>(
@@ -362,18 +438,39 @@ pub fn write_jsonl_shards<P: AsRef<Path>>(
 
     for g in games {
         let mut board = Board::from_fen(&g.start_fen, false).unwrap_or_default();
-        for mv_str in &g.moves {
+        for (ply, mv_str) in g.moves.iter().enumerate() {
             if writer.is_none() || rec_in_shard >= max_records_per_shard {
                 writer = Some(start_new_shard(shard_index)?);
                 shard_index += 1;
                 rec_in_shard = 0;
             }
             let w = writer.as_mut().unwrap();
+            let value_cp = g.move_value_cp.get(ply).copied().flatten();
+            let target_best = g
+                .move_target_best
+                .get(ply)
+                .and_then(|s| s.as_deref())
+                .unwrap_or(mv_str.as_str());
+            let mut policy_top = Vec::new();
+            if let Some(items) = g.move_policy_top.get(ply) {
+                policy_top.reserve(items.len());
+                for (mv, p) in items {
+                    policy_top.push(JsonPolicyTopEntry {
+                        mv: mv.as_str(),
+                        p: *p,
+                    });
+                }
+            }
             let rec = JsonlSelfPlayRecord {
                 fen: format!("{}", board),
+                ply,
                 result: g.result,
                 result_q: g.result as f32,
-                best_move: mv_str.as_str(),
+                value_cp,
+                played_move: mv_str.as_str(),
+                target_best_move: target_best,
+                best_move: target_best,
+                policy_top,
             };
             serde_json::to_writer(&mut *w, &rec)?;
             w.write_all(b"\n")?;

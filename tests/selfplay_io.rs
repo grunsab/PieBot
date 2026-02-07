@@ -59,9 +59,46 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
     let first = content.lines().next().expect("jsonl line");
     let v: serde_json::Value = serde_json::from_str(first).unwrap();
     assert!(v.get("fen").and_then(|x| x.as_str()).is_some());
+    assert!(v.get("played_move").and_then(|x| x.as_str()).is_some());
     assert!(v.get("best_move").and_then(|x| x.as_str()).is_some());
+    assert!(v.get("target_best_move").and_then(|x| x.as_str()).is_some());
     assert!(v.get("result").and_then(|x| x.as_i64()).is_some());
     assert!(v.get("result_q").and_then(|x| x.as_f64()).is_some());
+}
+
+#[test]
+fn write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games() {
+    let params = SelfPlayParams {
+        games: 1,
+        max_plies: 4,
+        threads: 1,
+        use_engine: true,
+        depth: 1,
+        movetime_ms: None,
+        seed: 777,
+        temperature_tau: 1.0,
+        temp_cp_scale: 200.0,
+        dirichlet_alpha: 0.3,
+        dirichlet_epsilon: 0.25,
+        dirichlet_plies: 4,
+        temperature_moves: 4,
+        openings_path: None,
+        temperature_tau_final: 0.1,
+    };
+    let games = generate_games(&params);
+    let outdir = std::path::Path::new("target/selfplay_jsonl_value_test");
+    create_dir_all(outdir).unwrap();
+    let shards = write_jsonl_shards(&games, outdir, 10).unwrap();
+    assert!(!shards.is_empty());
+    let content = std::fs::read_to_string(&shards[0]).unwrap();
+    let first = content.lines().next().expect("jsonl line");
+    let v: serde_json::Value = serde_json::from_str(first).unwrap();
+    assert!(v.get("ply").and_then(|x| x.as_u64()).is_some());
+    assert!(v.get("value_cp").and_then(|x| x.as_f64()).is_some());
+    assert!(v.get("target_best_move").and_then(|x| x.as_str()).is_some());
+    assert!(v.get("played_move").and_then(|x| x.as_str()).is_some());
+    let policy = v.get("policy_top").and_then(|x| x.as_array()).unwrap();
+    assert!(!policy.is_empty());
 }
 
 #[test]

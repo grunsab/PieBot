@@ -92,7 +92,7 @@ impl QuantNetwork {
             let v = y[j].max(0) as i64;
             out += (self.model.w2[j] as i64) * v;
         }
-        out as i32
+        self.scale_output(out)
     }
 
     pub fn apply_move(&mut self, before: &Board, _mv: Move, after: &Board) -> ChangeSet {
@@ -195,7 +195,17 @@ impl QuantNetwork {
             let v = self.acc[j].max(0) as i64;
             out += (self.model.w2[j] as i64) * v;
         }
-        out as i32
+        self.scale_output(out)
+    }
+
+    #[inline]
+    fn scale_output(&self, raw: i64) -> i32 {
+        let s = self.model.w1_scale * self.model.w2_scale;
+        if s.is_finite() && s > 0.0 {
+            ((raw as f32) * s).round() as i32
+        } else {
+            raw as i32
+        }
     }
 }
 

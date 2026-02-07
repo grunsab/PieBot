@@ -25,3 +25,40 @@ fn nnue_quant_loader_reads_header() {
     assert_eq!(q.meta.hidden_dim, 32);
     assert_eq!(q.meta.output_dim, 1);
 }
+
+#[test]
+fn quant_scales_are_applied_in_eval() {
+    use cozy_chess::Board;
+    use piebot::eval::nnue::features::halfkp_dim;
+    use piebot::eval::nnue::loader::{QuantMeta, QuantNnue};
+    use piebot::search::alphabeta::{EvalMode, Searcher};
+
+    let input_dim = halfkp_dim();
+    let hidden_dim = 4usize;
+    let model = QuantNnue {
+        meta: QuantMeta {
+            version: 1,
+            input_dim,
+            hidden_dim,
+            output_dim: 1,
+        },
+        // Effective output scale = 0.5 * 0.25 = 0.125
+        // With raw int output b2=8, expected cp is 1.
+        w1_scale: 0.5,
+        w2_scale: 0.25,
+        w1: vec![0; hidden_dim * input_dim],
+        b1: vec![0; hidden_dim],
+        w2: vec![0; hidden_dim],
+        b2: vec![8],
+    };
+
+    let mut s = Searcher::default();
+    s.set_eval_mode(EvalMode::Nnue);
+    s.set_use_nnue(true);
+    s.set_eval_blend_percent(100);
+    s.set_nnue_quant_model(model);
+
+    let b = Board::default();
+    let sc = s.qsearch_eval_cp(&b);
+    assert_eq!(sc, 1);
+}
