@@ -28,6 +28,7 @@ pub struct SelfPlayParams {
 }
 
 pub struct GameRecord {
+    pub start_fen: String,
     pub moves: Vec<String>,
     pub result: i8, // 1 white win, 0 draw, -1 black win
 }
@@ -44,6 +45,7 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
             Board::default()
         };
         let mut record = GameRecord {
+            start_fen: format!("{}", board),
             moves: Vec::new(),
             result: 0,
         };
@@ -298,7 +300,7 @@ pub const RECORD_SIZE: usize = 8 + 1 + 1 + 2;
 
 pub fn flatten_game_to_records(game: &GameRecord) -> Vec<RecordBin> {
     let mut recs = Vec::new();
-    let mut board = Board::default();
+    let mut board = Board::from_fen(&game.start_fen, false).unwrap_or_default();
     for mv_str in &game.moves {
         let key = zobrist::compute(&board);
         let stm = if board.side_to_move() == Color::White {
@@ -330,6 +332,74 @@ pub fn flatten_game_to_records(game: &GameRecord) -> Vec<RecordBin> {
         }
     }
     recs
+}
+
+#[derive(serde::Serialize)]
+struct JsonlSelfPlayRecord<'a> {
+    fen: String,
+    result: i8,
+    result_q: f32,
+    best_move: &'a str,
+}
+
+pub fn write_jsonl_shards<P: AsRef<Path>>(
+    games: &[GameRecord],
+    out_dir: P,
+    max_records_per_shard: usize,
+) -> std::io::Result<Vec<PathBuf>> {
+    create_dir_all(&out_dir)?;
+    let mut shard_index = 0usize;
+    let mut rec_in_shard = 0usize;
+    let mut out_paths = Vec::new();
+    let mut writer: Option<BufWriter<File>> = None;
+
+    let mut start_new_shard = |idx: usize| -> std::io::Result<BufWriter<File>> {
+        let path = out_dir.as_ref().join(format!("shard_{:06}.jsonl", idx));
+        let f = BufWriter::new(File::create(&path)?);
+        out_paths.push(path);
+        Ok(f)
+    };
+
+    for g in games {
+        let mut board = Board::from_fen(&g.start_fen, false).unwrap_or_default();
+        for mv_str in &g.moves {
+            if writer.is_none() || rec_in_shard >= max_records_per_shard {
+                writer = Some(start_new_shard(shard_index)?);
+                shard_index += 1;
+                rec_in_shard = 0;
+            }
+            let w = writer.as_mut().unwrap();
+            let rec = JsonlSelfPlayRecord {
+                fen: format!("{}", board),
+                result: g.result,
+                result_q: g.result as f32,
+                best_move: mv_str.as_str(),
+            };
+            serde_json::to_writer(&mut *w, &rec)?;
+            w.write_all(b"\n")?;
+            rec_in_shard += 1;
+
+            let mut chosen = None;
+            board.generate_moves(|ml| {
+                for m in ml {
+                    if format!("{}", m) == *mv_str {
+                        chosen = Some(m);
+                        break;
+                    }
+                }
+                chosen.is_some()
+            });
+            if let Some(m) = chosen {
+                board.play_unchecked(m);
+            } else {
+                break;
+            }
+        }
+    }
+    if let Some(mut w) = writer {
+        w.flush()?;
+    }
+    Ok(out_paths)
 }
 
 pub fn write_shards<P: AsRef<Path>>(

@@ -817,22 +817,51 @@ impl Searcher {
     fn eval_cp_internal(&self, board: &Board) -> i32 { self.eval_current(board) }
 
     #[inline]
+    fn nnue_eval_cp(&self, board: &Board) -> Option<i32> {
+        if !self.use_nnue {
+            return None;
+        }
+        let raw = if let Some(qn) = &self.nnue_quant {
+            // Hot path: rely on refreshed/incremental accumulator state.
+            Some(qn.eval_current())
+        } else if let Some(nn) = &self.nnue {
+            Some(nn.evaluate(board))
+        } else {
+            None
+        }?;
+        Some(if board.side_to_move() == cozy_chess::Color::White {
+            raw
+        } else {
+            -raw
+        })
+    }
+
+    #[inline]
+    fn blend_pst_nnue(&self, pst_cp: i32, nnue_cp: i32) -> i32 {
+        let nnue_w = self.eval_blend_percent as i32;
+        let pst_w = 100 - nnue_w;
+        (nnue_cp * nnue_w + pst_cp * pst_w) / 100
+    }
+
+    #[inline]
     fn eval_current(&self, board: &Board) -> i32 {
         match self.eval_mode {
             EvalMode::Material => material_eval_cp(board),
-            EvalMode::Pst => eval_cp(board),
-            EvalMode::Nnue => {
-                // Fall back to PST if no NNUE configured
-                if self.use_nnue {
-                    if let Some(qn) = &self.nnue_quant {
-                        let score = qn.eval_full(board);
-                        return if board.side_to_move() == cozy_chess::Color::White { score } else { -score };
-                    } else if let Some(nn) = &self.nnue {
-                        let score = nn.evaluate(board);
-                        return if board.side_to_move() == cozy_chess::Color::White { score } else { -score };
-                    }
+            EvalMode::Pst => {
+                let pst = eval_cp(board);
+                if let Some(nnue) = self.nnue_eval_cp(board) {
+                    self.blend_pst_nnue(pst, nnue)
+                } else {
+                    pst
                 }
-                eval_cp(board)
+            }
+            EvalMode::Nnue => {
+                let pst = eval_cp(board);
+                if let Some(nnue) = self.nnue_eval_cp(board) {
+                    self.blend_pst_nnue(pst, nnue)
+                } else {
+                    pst
+                }
             }
         }
     }

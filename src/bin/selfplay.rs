@@ -1,5 +1,5 @@
 use clap::Parser;
-use piebot::selfplay::{generate_games, write_shards, SelfPlayParams};
+use piebot::selfplay::{generate_games, write_jsonl_shards, write_shards, SelfPlayParams};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -22,8 +22,12 @@ struct Args {
     seed: u64,
     #[arg(long, default_value = "out/shards")]
     out: PathBuf,
+    #[arg(long)]
+    jsonl_out: Option<PathBuf>,
     #[arg(long, default_value_t = 100_000)]
     max_records_per_shard: usize,
+    #[arg(long, default_value_t = false)]
+    skip_bin: bool,
     #[arg(long, default_value_t = true)]
     use_engine: bool,
     #[arg(long, default_value_t = 1.0)]
@@ -68,8 +72,15 @@ fn main() -> anyhow::Result<()> {
         a.games, a.depth, a.threads, a.use_engine, a.temperature_tau, a.dirichlet_epsilon
     );
     let games = generate_games(&params);
-    eprintln!("Writing shards to {}", a.out.display());
-    let shards = write_shards(&games, &a.out, a.max_records_per_shard)?;
-    eprintln!("Wrote {} shards", shards.len());
+    if !a.skip_bin {
+        eprintln!("Writing binary shards to {}", a.out.display());
+        let shards = write_shards(&games, &a.out, a.max_records_per_shard)?;
+        eprintln!("Wrote {} binary shards", shards.len());
+    }
+    if let Some(jsonl_out) = a.jsonl_out.as_ref() {
+        eprintln!("Writing JSONL shards to {}", jsonl_out.display());
+        let shards = write_jsonl_shards(&games, jsonl_out, a.max_records_per_shard)?;
+        eprintln!("Wrote {} JSONL shards", shards.len());
+    }
     Ok(())
 }
