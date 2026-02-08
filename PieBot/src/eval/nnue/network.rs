@@ -3,7 +3,7 @@ use crate::eval::nnue::loader::QuantNnue;
 use cozy_chess::{Board, Color, Move, Piece};
 use std::collections::HashSet;
 
-/// Quantized NNUE wrapper; currently a placeholder that will be wired to the search.
+/// Quantized NNUE wrapper with full refresh + incremental apply/revert support.
 pub struct QuantNetwork {
     pub model: QuantNnue,
     pub feats: HalfKpA,

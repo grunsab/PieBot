@@ -29,11 +29,11 @@ pub struct SelfPlayParams {
 
 pub struct GameRecord {
     pub start_fen: String,
-    pub moves: Vec<String>, // played moves
-    pub move_target_best: Vec<Option<String>>,     // teacher best move for each ply
-    pub move_value_cp: Vec<Option<f32>>,           // white-perspective teacher value for each ply
-    pub move_policy_top: Vec<Vec<(String, f32)>>,  // optional root policy samples
-    pub result: i8, // 1 white win, 0 draw, -1 black win
+    pub moves: Vec<String>,                       // played moves
+    pub move_target_best: Vec<Option<String>>,    // teacher best move for each ply
+    pub move_value_cp: Vec<Option<f32>>,          // white-perspective teacher value for each ply
+    pub move_policy_top: Vec<Vec<(String, f32)>>, // optional root policy samples
+    pub result: i8,                               // 1 white win, 0 draw, -1 black win
 }
 
 struct MoveChoice {
@@ -122,7 +122,9 @@ fn select_random_move(board: &Board, rng: &mut SmallRng) -> Option<MoveChoice> {
         }
         false
     });
-    if moves.is_empty() { return None; }
+    if moves.is_empty() {
+        return None;
+    }
     let mv = moves[rng.gen_range(0..moves.len())];
     Some(MoveChoice {
         played_mv: mv,
@@ -132,7 +134,11 @@ fn select_random_move(board: &Board, rng: &mut SmallRng) -> Option<MoveChoice> {
     })
 }
 
-fn select_engine_move(board: &Board, params: &SelfPlayParams, ply_idx: usize) -> Option<MoveChoice> {
+fn select_engine_move(
+    board: &Board,
+    params: &SelfPlayParams,
+    ply_idx: usize,
+) -> Option<MoveChoice> {
     // If temperature or Dirichlet requested, compute root policy and sample
     let use_temp = params.temperature_tau > 0.0 && ply_idx < params.temperature_moves;
     let use_dir = params.dirichlet_epsilon > 0.0 && ply_idx < params.dirichlet_plies;

@@ -1,13 +1,13 @@
-use cozy_chess::{Board, Move, Square, Color};
-use crate::search::eval::{eval_cp, material_eval_cp, MATE_SCORE, DRAW_SCORE};
-use std::time::{Duration, Instant};
+use crate::eval::nnue::loader::QuantNnue;
+use crate::eval::nnue::network::QuantNetwork;
+use crate::search::eval::{eval_cp, material_eval_cp, DRAW_SCORE, MATE_SCORE};
+use crate::search::tt::{Bound, Entry, Tt};
 use crate::search::zobrist;
-use crate::search::tt::{Tt, Entry, Bound};
-use std::sync::Arc;
+use cozy_chess::{Board, Color, Move, Square};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicI32, Ordering};
-use crate::eval::nnue::network::QuantNetwork;
-use crate::eval::nnue::loader::QuantNnue;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 const HIST_PROMO_KINDS: usize = 5; // None, N, B, R, Q
 const HIST_SIZE: usize = 64 * 64 * HIST_PROMO_KINDS;
 
@@ -64,8 +64,14 @@ fn piece_at(board: &Board, sq: Square) -> Option<(cozy_chess::Color, cozy_chess:
     };
 
     // Find which piece type
-    for &piece in &[cozy_chess::Piece::Pawn, cozy_chess::Piece::Knight, cozy_chess::Piece::Bishop,
-                    cozy_chess::Piece::Rook, cozy_chess::Piece::Queen, cozy_chess::Piece::King] {
+    for &piece in &[
+        cozy_chess::Piece::Pawn,
+        cozy_chess::Piece::Knight,
+        cozy_chess::Piece::Bishop,
+        cozy_chess::Piece::Rook,
+        cozy_chess::Piece::Queen,
+        cozy_chess::Piece::King,
+    ] {
         if bb_contains(board.pieces(piece), sq) {
             return Some((color, piece));
         }
@@ -75,9 +81,14 @@ fn piece_at(board: &Board, sq: Square) -> Option<(cozy_chess::Color, cozy_chess:
 
 #[inline]
 fn mvv_lva_score(board: &Board, m: Move) -> i32 {
-    let to = m.to; let from = m.from;
-    let victim = piece_at(board, to).map(|(_, p)| piece_value_cp(p)).unwrap_or(0);
-    let attacker = piece_at(board, from).map(|(_, p)| piece_value_cp(p)).unwrap_or(0);
+    let to = m.to;
+    let from = m.from;
+    let victim = piece_at(board, to)
+        .map(|(_, p)| piece_value_cp(p))
+        .unwrap_or(0);
+    let attacker = piece_at(board, from)
+        .map(|(_, p)| piece_value_cp(p))
+        .unwrap_or(0);
     victim * 10 - attacker
 }
 
@@ -169,15 +180,33 @@ impl Default for Searcher {
 
 impl Searcher {
     // Choose evaluation mode
-    pub fn set_eval_mode(&mut self, mode: EvalMode) { self.eval_mode = mode; }
-    pub fn set_threads(&mut self, t: usize) { self.threads = t.max(1); }
-    pub fn set_order_captures(&mut self, on: bool) { self.order_captures = on; }
-    pub fn set_use_history(&mut self, on: bool) { self.use_history = on; }
-    pub fn set_use_killers(&mut self, on: bool) { self.use_killers = on; }
-    pub fn set_use_lmr(&mut self, on: bool) { self.use_lmr = on; }
-    pub fn set_use_nullmove(&mut self, on: bool) { self.use_nullmove = on; }
-    pub fn set_use_aspiration(&mut self, on: bool) { self.use_aspiration = on; }
-    pub fn set_deterministic(&mut self, on: bool) { self.deterministic = on; }
+    pub fn set_eval_mode(&mut self, mode: EvalMode) {
+        self.eval_mode = mode;
+    }
+    pub fn set_threads(&mut self, t: usize) {
+        self.threads = t.max(1);
+    }
+    pub fn set_order_captures(&mut self, on: bool) {
+        self.order_captures = on;
+    }
+    pub fn set_use_history(&mut self, on: bool) {
+        self.use_history = on;
+    }
+    pub fn set_use_killers(&mut self, on: bool) {
+        self.use_killers = on;
+    }
+    pub fn set_use_lmr(&mut self, on: bool) {
+        self.use_lmr = on;
+    }
+    pub fn set_use_nullmove(&mut self, on: bool) {
+        self.use_nullmove = on;
+    }
+    pub fn set_use_aspiration(&mut self, on: bool) {
+        self.use_aspiration = on;
+    }
+    pub fn set_deterministic(&mut self, on: bool) {
+        self.deterministic = on;
+    }
     pub fn set_null_min_depth(&mut self, _d: u32) {}
     pub fn set_hist_min_depth(&mut self, _d: u32) {}
     pub fn set_root_see_top_k(&mut self, _k: usize) {}
@@ -187,25 +216,43 @@ impl Searcher {
         // Locate a matching legal move by UCI string
         let mut chosen: Option<Move> = None;
         board.generate_moves(|ml| {
-            for m in ml { if format!("{}", m) == uci { chosen = Some(m); break; } }
+            for m in ml {
+                if format!("{}", m) == uci {
+                    chosen = Some(m);
+                    break;
+                }
+            }
             chosen.is_some()
         });
         chosen.and_then(|m| crate::search::see::see_gain_cp(board, m))
     }
 
     pub fn qsearch_eval_cp(&mut self, board: &Board) -> i32 {
-        if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { qn.refresh(board); } }
+        if self.use_nnue {
+            if let Some(qn) = self.nnue_quant.as_mut() {
+                qn.refresh(board);
+            }
+        }
         self.qsearch(board, -MATE_SCORE, MATE_SCORE)
     }
 
     // Time-managed iterative deepening up to a maximum depth
-    pub fn search_movetime(&mut self, board: &Board, millis: u64, depth: u32) -> (Option<String>, i32, u64) {
+    pub fn search_movetime(
+        &mut self,
+        board: &Board,
+        millis: u64,
+        depth: u32,
+    ) -> (Option<String>, i32, u64) {
         self.nodes = 0;
         self.node_limit = u64::MAX;
         self.deadline = Some(Instant::now() + Duration::from_millis(millis));
         if self.use_history {
-            for h in &mut self.history_table { *h = 0; }
-            for c in &mut self.counter_move { *c = usize::MAX; }
+            for h in &mut self.history_table {
+                *h = 0;
+            }
+            for c in &mut self.counter_move {
+                *c = usize::MAX;
+            }
         }
         let max_depth = if depth == 0 { 99 } else { depth };
         let mut best: Option<String> = None;
@@ -216,7 +263,11 @@ impl Searcher {
             best = res.bestmove.clone();
             last_score = res.score_cp;
             self.last_depth = d;
-            if let Some(dl) = self.deadline { if Instant::now() >= dl { break; } }
+            if let Some(dl) = self.deadline {
+                if Instant::now() >= dl {
+                    break;
+                }
+            }
         }
         (best, last_score, self.nodes)
     }
@@ -224,32 +275,58 @@ impl Searcher {
     fn qsearch(&mut self, board: &Board, mut alpha: i32, beta: i32) -> i32 {
         // Stand pat
         let stand = self.eval_current(board);
-        if stand >= beta { return beta; }
-        if stand > alpha { alpha = stand; }
+        if stand >= beta {
+            return beta;
+        }
+        if stand > alpha {
+            alpha = stand;
+        }
 
         // Captures only
-        let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
+        let opp = if board.side_to_move() == cozy_chess::Color::White {
+            cozy_chess::Color::Black
+        } else {
+            cozy_chess::Color::White
+        };
         let opp_bb = board.colors(opp);
-        let mut occ_mask: u64 = 0; for sq in opp_bb { occ_mask |= 1u64 << (sq as usize); }
+        let mut occ_mask: u64 = 0;
+        for sq in opp_bb {
+            occ_mask |= 1u64 << (sq as usize);
+        }
         let mut caps: Vec<Move> = Vec::with_capacity(64);
         board.generate_moves(|ml| {
             for m in ml {
                 let to_sq: Square = m.to;
                 let bit = 1u64 << (to_sq as usize);
-                if (occ_mask & bit) != 0 { caps.push(m); }
+                if (occ_mask & bit) != 0 {
+                    caps.push(m);
+                }
             }
             false
         });
         // Order captures quickly via MVV-LVA heuristic
         caps.sort_by_key(|&m| -mvv_lva_score(board, m));
         for m in caps {
-            let mut child = board.clone(); child.play_unchecked(m);
+            let mut child = board.clone();
+            child.play_unchecked(m);
             let mut change = None;
-            if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { change = Some(qn.apply_move(board, m, &child)); } }
+            if self.use_nnue {
+                if let Some(qn) = self.nnue_quant.as_mut() {
+                    change = Some(qn.apply_move(board, m, &child));
+                }
+            }
             let score = -self.qsearch(&child, -beta, -alpha);
-            if let Some(ch) = change { if let Some(qn) = self.nnue_quant.as_mut() { qn.revert(ch); } }
-            if score >= beta { return beta; }
-            if score > alpha { alpha = score; }
+            if let Some(ch) = change {
+                if let Some(qn) = self.nnue_quant.as_mut() {
+                    qn.revert(ch);
+                }
+            }
+            if score >= beta {
+                return beta;
+            }
+            if score > alpha {
+                alpha = score;
+            }
         }
         alpha
     }
@@ -265,11 +342,26 @@ impl Searcher {
             return self.search_depth_parallel(board, depth);
         }
 
-        if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { qn.refresh(board); } }
+        if self.use_nnue {
+            if let Some(qn) = self.nnue_quant.as_mut() {
+                qn.refresh(board);
+            }
+        }
         let orig_alpha = alpha;
         let mut moves: Vec<Move> = Vec::with_capacity(64);
-        board.generate_moves(|ml| { for m in ml { moves.push(m); } false });
-        if moves.is_empty() { return SearchResult { bestmove: None, score_cp: self.eval_terminal(board, 0), nodes: self.nodes }; }
+        board.generate_moves(|ml| {
+            for m in ml {
+                moves.push(m);
+            }
+            false
+        });
+        if moves.is_empty() {
+            return SearchResult {
+                bestmove: None,
+                score_cp: self.eval_terminal(board, 0),
+                nodes: self.nodes,
+            };
+        }
         // TT-first
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
@@ -282,27 +374,64 @@ impl Searcher {
         // Order with captures/history and a small bonus for checking moves
         // Pre-compute scores to avoid board clones during sorting
         if self.order_captures || self.use_history || self.use_killers {
-            let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
+            let opp = if board.side_to_move() == cozy_chess::Color::White {
+                cozy_chess::Color::Black
+            } else {
+                cozy_chess::Color::White
+            };
             let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0; for sq in opp_bb { occ_mask |= 1u64 << (sq as usize); }
+            let mut occ_mask: u64 = 0;
+            for sq in opp_bb {
+                occ_mask |= 1u64 << (sq as usize);
+            }
 
             // Build scored tuples (once per move, not once per comparison)
             let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
             for &m in &moves {
                 let to_sq: Square = m.to;
                 let bit = 1u64 << (to_sq as usize);
-                let is_cap = if self.order_captures { if (occ_mask & bit) != 0 { 1 } else { 0 } } else { 0 };
-                let mvv = if is_cap == 1 { mvv_lva_score(board, m) } else { 0 };
-                let see_b = if is_cap == 1 { crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8 } else { 0 };
+                let is_cap = if self.order_captures {
+                    if (occ_mask & bit) != 0 {
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                let mvv = if is_cap == 1 {
+                    mvv_lva_score(board, m)
+                } else {
+                    0
+                };
+                let see_b = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                } else {
+                    0
+                };
 
                 // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
-                    let mut c = board.clone(); c.play_unchecked(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
+                    let mut c = board.clone();
+                    c.play_unchecked(m);
+                    if !(c.checkers()).is_empty() {
+                        30
+                    } else {
+                        0
+                    }
                 };
 
                 let mi = move_index(m);
-                let hist = if self.use_history { self.history_table.get(mi).copied().unwrap_or(0) } else { 0 };
-                let kb = if self.use_killers { self.killer_bonus(0, m) } else { 0 };
+                let hist = if self.use_history {
+                    self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let kb = if self.use_killers {
+                    self.killer_bonus(0, m)
+                } else {
+                    0
+                };
                 let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
                 scored.push((m, score));
             }
@@ -312,29 +441,64 @@ impl Searcher {
             moves = scored.into_iter().map(|(m, _)| m).collect();
         }
         for m in moves.into_iter() {
-            let mut child = board.clone(); child.play_unchecked(m);
+            let mut child = board.clone();
+            child.play_unchecked(m);
             let mut change = None;
-            if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { change = Some(qn.apply_move(board, m, &child)); } }
+            if self.use_nnue {
+                if let Some(qn) = self.nnue_quant.as_mut() {
+                    change = Some(qn.apply_move(board, m, &child));
+                }
+            }
             let gives_check = !(child.checkers()).is_empty();
             let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
             let score = -self.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m));
-            if let Some(ch) = change { if let Some(qn) = self.nnue_quant.as_mut() { qn.revert(ch); } }
-            if score > best_score { best_score = score; bestmove = Some(m); }
-            if score > alpha { alpha = score; }
+            if let Some(ch) = change {
+                if let Some(qn) = self.nnue_quant.as_mut() {
+                    qn.revert(ch);
+                }
+            }
+            if score > best_score {
+                best_score = score;
+                bestmove = Some(m);
+            }
+            if score > alpha {
+                alpha = score;
+            }
         }
 
         // Store root in TT as exact when using full window
-        let root_bound = if best_score <= orig_alpha { Bound::Upper } else if best_score >= beta { Bound::Lower } else { Bound::Exact };
+        let root_bound = if best_score <= orig_alpha {
+            Bound::Upper
+        } else if best_score >= beta {
+            Bound::Lower
+        } else {
+            Bound::Exact
+        };
         self.tt_put(board, depth, best_score, bestmove, root_bound);
 
         let bestmove_uci = bestmove.map(|m| format!("{}", m));
-        SearchResult { bestmove: bestmove_uci, score_cp: best_score, nodes: self.nodes }
+        SearchResult {
+            bestmove: bestmove_uci,
+            score_cp: best_score,
+            nodes: self.nodes,
+        }
     }
 
     fn search_depth_parallel(&mut self, board: &Board, depth: u32) -> SearchResult {
         let mut moves: Vec<Move> = Vec::with_capacity(64);
-        board.generate_moves(|ml| { for m in ml { moves.push(m); } false });
-        if moves.is_empty() { return SearchResult { bestmove: None, score_cp: self.eval_terminal(board, 0), nodes: self.nodes }; }
+        board.generate_moves(|ml| {
+            for m in ml {
+                moves.push(m);
+            }
+            false
+        });
+        if moves.is_empty() {
+            return SearchResult {
+                bestmove: None,
+                score_cp: self.eval_terminal(board, 0),
+                nodes: self.nodes,
+            };
+        }
 
         // Optional: TT move first (ordering only)
         if let Some(en) = self.tt_get(board) {
@@ -353,45 +517,92 @@ impl Searcher {
         let shared_tt = self.tt.clone();
         let quant_model = self.nnue_quant.as_ref().map(|qn| qn.model.clone());
         let use_nnue = self.use_nnue;
-        let results: Vec<(Move, i32, u64)> = moves.par_iter().map(|&m| {
-            let mut child = board.clone();
-            child.play_unchecked(m);
-            let mut w = Searcher::default();
-            w.node_limit = u64::MAX; // rely on shared deadline for stopping
-            w.deadline = deadline;
-            w.order_captures = order_captures;
-            w.use_history = use_history;
-            w.tt = shared_tt.clone();
-            w.use_nnue = use_nnue;
-            if let Some(model) = &quant_model { w.nnue_quant = Some(QuantNetwork::new(model.clone())); if w.use_nnue { if let Some(qn) = w.nnue_quant.as_mut() { qn.refresh(&child); } } }
-            let gives_check = !(child.checkers()).is_empty();
-            let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
-            let score = -w.alphabeta(&child, next_depth, -MATE_SCORE, MATE_SCORE, 1, move_index(m));
-            (m, score, w.nodes)
-        }).collect();
+        let results: Vec<(Move, i32, u64)> = moves
+            .par_iter()
+            .map(|&m| {
+                let mut child = board.clone();
+                child.play_unchecked(m);
+                let mut w = Searcher::default();
+                w.node_limit = u64::MAX; // rely on shared deadline for stopping
+                w.deadline = deadline;
+                w.order_captures = order_captures;
+                w.use_history = use_history;
+                w.tt = shared_tt.clone();
+                w.use_nnue = use_nnue;
+                if let Some(model) = &quant_model {
+                    w.nnue_quant = Some(QuantNetwork::new(model.clone()));
+                    if w.use_nnue {
+                        if let Some(qn) = w.nnue_quant.as_mut() {
+                            qn.refresh(&child);
+                        }
+                    }
+                }
+                let gives_check = !(child.checkers()).is_empty();
+                let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
+                let score = -w.alphabeta(
+                    &child,
+                    next_depth,
+                    -MATE_SCORE,
+                    MATE_SCORE,
+                    1,
+                    move_index(m),
+                );
+                (m, score, w.nodes)
+            })
+            .collect();
 
         // Reduce to best
         let mut best: Option<(Move, i32)> = None;
         let mut total_nodes = 0u64;
         for (m, s, n) in results {
             total_nodes += n;
-            if best.map_or(true, |(_, bs)| s > bs) { best = Some((m, s)); }
+            if best.map_or(true, |(_, bs)| s > bs) {
+                best = Some((m, s));
+            }
         }
         self.nodes = total_nodes;
         if let Some((bm, sc)) = best {
             // Store TT root as exact
             self.tt_put(board, depth, sc, Some(bm), Bound::Exact);
-            return SearchResult { bestmove: Some(format!("{}", bm)), score_cp: sc, nodes: self.nodes };
+            return SearchResult {
+                bestmove: Some(format!("{}", bm)),
+                score_cp: sc,
+                nodes: self.nodes,
+            };
         }
-        SearchResult { bestmove: None, score_cp: self.eval_terminal(board, 0), nodes: self.nodes }
+        SearchResult {
+            bestmove: None,
+            score_cp: self.eval_terminal(board, 0),
+            nodes: self.nodes,
+        }
     }
 
-    fn alphabeta(&mut self, board: &Board, depth: u32, mut alpha: i32, beta: i32, ply: i32, parent_move_idx: usize) -> i32 {
-        if let Some(ref flag) = self.abort { if flag.load(Ordering::Relaxed) { return self.eval_cp_internal(board); } }
+    fn alphabeta(
+        &mut self,
+        board: &Board,
+        depth: u32,
+        mut alpha: i32,
+        beta: i32,
+        ply: i32,
+        parent_move_idx: usize,
+    ) -> i32 {
+        if let Some(ref flag) = self.abort {
+            if flag.load(Ordering::Relaxed) {
+                return self.eval_cp_internal(board);
+            }
+        }
         self.nodes += 1;
-        if self.nodes >= self.node_limit { return self.eval_cp_internal(board); }
-        if let Some(dl) = self.deadline { if Instant::now() >= dl { return self.eval_cp_internal(board); } }
-        if depth == 0 { return self.qsearch(board, alpha, beta); }
+        if self.nodes >= self.node_limit {
+            return self.eval_cp_internal(board);
+        }
+        if let Some(dl) = self.deadline {
+            if Instant::now() >= dl {
+                return self.eval_cp_internal(board);
+            }
+        }
+        if depth == 0 {
+            return self.qsearch(board, alpha, beta);
+        }
         // Null-move pruning with additional guards for shallow depths and endgames
         let mut static_eval: Option<i32> = None;
         if self.should_try_null_move(board, depth, beta, parent_move_idx, &mut static_eval) {
@@ -401,23 +612,43 @@ impl Searcher {
             let mut nb = board.clone();
             let null_ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 nb.null_move();
-            })).is_ok();
+            }))
+            .is_ok();
             if null_ok {
                 let reduced_depth = depth.saturating_sub(1 + r);
-                let score = -self.alphabeta(&nb, reduced_depth, -beta, -beta + 1, ply + 1, usize::MAX);
+                let score =
+                    -self.alphabeta(&nb, reduced_depth, -beta, -beta + 1, ply + 1, usize::MAX);
                 if score >= beta {
                     if depth <= 12 {
                         let full_verify = depth.saturating_sub(1);
-                        let verify = -self.alphabeta(&nb, full_verify, -beta, -beta + 1, ply + 1, usize::MAX);
-                        if verify >= beta { return verify; }
+                        let verify = -self.alphabeta(
+                            &nb,
+                            full_verify,
+                            -beta,
+                            -beta + 1,
+                            ply + 1,
+                            usize::MAX,
+                        );
+                        if verify >= beta {
+                            return verify;
+                        }
                     } else if reduced_depth > 0 {
                         let verify_r = r.saturating_sub(1).max(1);
                         let verify_depth = depth.saturating_sub(1 + verify_r);
                         if verify_depth == 0 {
                             return score;
                         }
-                        let verify = -self.alphabeta(&nb, verify_depth, -beta, -beta + 1, ply + 1, usize::MAX);
-                        if verify >= beta { return verify; }
+                        let verify = -self.alphabeta(
+                            &nb,
+                            verify_depth,
+                            -beta,
+                            -beta + 1,
+                            ply + 1,
+                            usize::MAX,
+                        );
+                        if verify >= beta {
+                            return verify;
+                        }
                     } else {
                         return score;
                     }
@@ -430,16 +661,31 @@ impl Searcher {
             if en.depth >= depth {
                 match en.bound {
                     Bound::Exact => return en.score,
-                    Bound::Lower => if en.score >= beta { return en.score; },
-                    Bound::Upper => if en.score <= alpha { return en.score; },
+                    Bound::Lower => {
+                        if en.score >= beta {
+                            return en.score;
+                        }
+                    }
+                    Bound::Upper => {
+                        if en.score <= alpha {
+                            return en.score;
+                        }
+                    }
                 }
             }
         }
 
         // Build movelist and order
         let mut moves: Vec<Move> = Vec::with_capacity(64);
-        board.generate_moves(|ml| { for m in ml { moves.push(m); } false });
-        if moves.is_empty() { return self.eval_terminal(board, ply); }
+        board.generate_moves(|ml| {
+            for m in ml {
+                moves.push(m);
+            }
+            false
+        });
+        if moves.is_empty() {
+            return self.eval_terminal(board, ply);
+        }
         // TT move first
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
@@ -451,21 +697,64 @@ impl Searcher {
         }
         // Captures-first, killers, and history ordering
         if self.order_captures || self.use_history || self.use_killers {
-            let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
+            let opp = if board.side_to_move() == cozy_chess::Color::White {
+                cozy_chess::Color::Black
+            } else {
+                cozy_chess::Color::White
+            };
             let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0; for sq in opp_bb { occ_mask |= 1u64 << (sq as usize); }
+            let mut occ_mask: u64 = 0;
+            for sq in opp_bb {
+                occ_mask |= 1u64 << (sq as usize);
+            }
             moves.sort_by_key(|&m| {
                 let to_sq: Square = m.to;
                 let bit = 1u64 << (to_sq as usize);
-                let is_cap = if self.order_captures { if (occ_mask & bit) != 0 { 1 } else { 0 } } else { 0 };
-                let mvv = if is_cap == 1 { mvv_lva_score(board, m) } else { 0 };
-                let see_b = if is_cap == 1 { crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8 } else { 0 };
+                let is_cap = if self.order_captures {
+                    if (occ_mask & bit) != 0 {
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                let mvv = if is_cap == 1 {
+                    mvv_lva_score(board, m)
+                } else {
+                    0
+                };
+                let see_b = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                } else {
+                    0
+                };
                 let mi = move_index(m);
-                let hist = if self.use_history { self.history_table.get(mi).copied().unwrap_or(0) } else { 0 };
+                let hist = if self.use_history {
+                    self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
                 let cm = if self.use_history && parent_move_idx != usize::MAX {
-                    if self.counter_move.get(parent_move_idx).copied().unwrap_or(usize::MAX) == mi { 40 } else { 0 }
-                } else { 0 };
-                let kb = if self.use_killers { self.killer_bonus(ply, m) } else { 0 };
+                    if self
+                        .counter_move
+                        .get(parent_move_idx)
+                        .copied()
+                        .unwrap_or(usize::MAX)
+                        == mi
+                    {
+                        40
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                let kb = if self.use_killers {
+                    self.killer_bonus(ply, m)
+                } else {
+                    0
+                };
                 -(is_cap * 1000 + mvv + see_b + kb + hist + cm)
             });
         }
@@ -491,8 +780,22 @@ impl Searcher {
             seed.use_history = use_history;
             seed.tt = shared_tt.clone();
             seed.use_nnue = use_nnue;
-            if let Some(model) = &quant_model { seed.nnue_quant = Some(QuantNetwork::new(model.clone())); if seed.use_nnue { if let Some(qn) = seed.nnue_quant.as_mut() { qn.refresh(&child); } } }
-            let mut best = -seed.alphabeta(&child, depth - 1, -MATE_SCORE, MATE_SCORE, ply + 1, move_index(first));
+            if let Some(model) = &quant_model {
+                seed.nnue_quant = Some(QuantNetwork::new(model.clone()));
+                if seed.use_nnue {
+                    if let Some(qn) = seed.nnue_quant.as_mut() {
+                        qn.refresh(&child);
+                    }
+                }
+            }
+            let mut best = -seed.alphabeta(
+                &child,
+                depth - 1,
+                -MATE_SCORE,
+                MATE_SCORE,
+                ply + 1,
+                move_index(first),
+            );
             let mut best_move_local: Option<Move> = Some(first);
             self.nodes += seed.nodes;
             let alpha_shared = AtomicI32::new(best);
@@ -500,42 +803,75 @@ impl Searcher {
 
             // Parallel tail search with shared alpha
             let tails: Vec<Move> = iter.collect();
-            let results: Vec<(Move, i32, u64)> = tails.par_iter().map(|&m| {
-                let mut c = board.clone();
-                c.play_unchecked(m);
-                let mut w = Searcher::default();
-                w.node_limit = u64::MAX;
-                w.deadline = deadline;
-                w.order_captures = order_captures;
-                w.use_history = use_history;
-                w.tt = shared_tt.clone();
-                w.use_nnue = use_nnue;
-                if let Some(model) = &quant_model { w.nnue_quant = Some(QuantNetwork::new(model.clone())); if w.use_nnue { if let Some(qn) = w.nnue_quant.as_mut() { qn.refresh(&c); } } }
-                w.abort = Some(abort_flag.clone());
-                // Read current alpha
-                let a = alpha_shared.load(Ordering::Relaxed);
-                if abort_flag.load(Ordering::Relaxed) { return (m, -MATE_SCORE, 0); }
-                let score = -w.alphabeta(&c, depth - 1, -MATE_SCORE, -a, ply + 1, move_index(m));
-                // Update shared alpha if improved
-                let mut cur = a;
-                while score > cur {
-                    match alpha_shared.compare_exchange(cur, score, Ordering::Relaxed, Ordering::Relaxed) {
-                        Ok(_) => break,
-                        Err(observed) => { if observed >= score { break; } cur = observed; }
+            let results: Vec<(Move, i32, u64)> = tails
+                .par_iter()
+                .map(|&m| {
+                    let mut c = board.clone();
+                    c.play_unchecked(m);
+                    let mut w = Searcher::default();
+                    w.node_limit = u64::MAX;
+                    w.deadline = deadline;
+                    w.order_captures = order_captures;
+                    w.use_history = use_history;
+                    w.tt = shared_tt.clone();
+                    w.use_nnue = use_nnue;
+                    if let Some(model) = &quant_model {
+                        w.nnue_quant = Some(QuantNetwork::new(model.clone()));
+                        if w.use_nnue {
+                            if let Some(qn) = w.nnue_quant.as_mut() {
+                                qn.refresh(&c);
+                            }
+                        }
                     }
-                }
-                if score >= beta { abort_flag.store(true, Ordering::Relaxed); }
-                (m, score, w.nodes)
-            }).collect();
+                    w.abort = Some(abort_flag.clone());
+                    // Read current alpha
+                    let a = alpha_shared.load(Ordering::Relaxed);
+                    if abort_flag.load(Ordering::Relaxed) {
+                        return (m, -MATE_SCORE, 0);
+                    }
+                    let score =
+                        -w.alphabeta(&c, depth - 1, -MATE_SCORE, -a, ply + 1, move_index(m));
+                    // Update shared alpha if improved
+                    let mut cur = a;
+                    while score > cur {
+                        match alpha_shared.compare_exchange(
+                            cur,
+                            score,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        ) {
+                            Ok(_) => break,
+                            Err(observed) => {
+                                if observed >= score {
+                                    break;
+                                }
+                                cur = observed;
+                            }
+                        }
+                    }
+                    if score >= beta {
+                        abort_flag.store(true, Ordering::Relaxed);
+                    }
+                    (m, score, w.nodes)
+                })
+                .collect();
 
             for (m, s, n) in results {
                 self.nodes += n;
-                if s > best { best = s; best_move_local = Some(m); }
+                if s > best {
+                    best = s;
+                    best_move_local = Some(m);
+                }
             }
             // Store as exact at this node
             self.tt_put(board, depth, best, best_move_local, Bound::Exact);
             if let Some(mv) = best_move_local {
-                if self.use_history { let mi = move_index(mv); if let Some(h) = self.history_table.get_mut(mi) { *h += (depth as i32) * (depth as i32); } }
+                if self.use_history {
+                    let mi = move_index(mv);
+                    if let Some(h) = self.history_table.get_mut(mi) {
+                        *h += (depth as i32) * (depth as i32);
+                    }
+                }
             }
             return best;
         }
@@ -554,29 +890,87 @@ impl Searcher {
                 let is_cap = self.is_capture(&board, m);
                 if !is_cap && !gives_check && idx >= 3 {
                     let r = 1; // basic reduction
-                    let red = -self.alphabeta(&child, depth - 1 - r + ext, -alpha - 1, -alpha, ply + 1, move_index(m));
-                    if red > alpha { score = -self.alphabeta(&child, depth - 1 + ext, -beta, -alpha, ply + 1, move_index(m)); } else { score = red; }
+                    let red = -self.alphabeta(
+                        &child,
+                        depth - 1 - r + ext,
+                        -alpha - 1,
+                        -alpha,
+                        ply + 1,
+                        move_index(m),
+                    );
+                    if red > alpha {
+                        score = -self.alphabeta(
+                            &child,
+                            depth - 1 + ext,
+                            -beta,
+                            -alpha,
+                            ply + 1,
+                            move_index(m),
+                        );
+                    } else {
+                        score = red;
+                    }
                 } else {
-                    score = -self.alphabeta(&child, depth - 1 + ext, -beta, -alpha, ply + 1, move_index(m));
+                    score = -self.alphabeta(
+                        &child,
+                        depth - 1 + ext,
+                        -beta,
+                        -alpha,
+                        ply + 1,
+                        move_index(m),
+                    );
                 }
             } else {
-                score = -self.alphabeta(&child, depth - 1 + ext, -beta, -alpha, ply + 1, move_index(m));
+                score = -self.alphabeta(
+                    &child,
+                    depth - 1 + ext,
+                    -beta,
+                    -alpha,
+                    ply + 1,
+                    move_index(m),
+                );
             }
-            if score > best { best = score; best_move_local = Some(m); }
-            if best > alpha { alpha = best; }
-            if alpha >= beta { break; }
-            if let Some(dl) = self.deadline { if Instant::now() >= dl { break; } }
+            if score > best {
+                best = score;
+                best_move_local = Some(m);
+            }
+            if best > alpha {
+                alpha = best;
+            }
+            if alpha >= beta {
+                break;
+            }
+            if let Some(dl) = self.deadline {
+                if Instant::now() >= dl {
+                    break;
+                }
+            }
             // (removed) string-based continuation history
         }
         // Store exact score and best move
-        let bound = if best <= orig_alpha { Bound::Upper } else if best >= beta { Bound::Lower } else { Bound::Exact };
+        let bound = if best <= orig_alpha {
+            Bound::Upper
+        } else if best >= beta {
+            Bound::Lower
+        } else {
+            Bound::Exact
+        };
         self.tt_put(board, depth, best, best_move_local, bound);
         if let Some(mv) = best_move_local {
             let mi = move_index(mv);
-            if self.use_history { let v = (depth as i32) * (depth as i32); if let Some(h) = self.history_table.get_mut(mi) { *h += v; } }
-            if self.use_killers && bound == Bound::Lower { self.update_killers(ply, mv); }
+            if self.use_history {
+                let v = (depth as i32) * (depth as i32);
+                if let Some(h) = self.history_table.get_mut(mi) {
+                    *h += v;
+                }
+            }
+            if self.use_killers && bound == Bound::Lower {
+                self.update_killers(ply, mv);
+            }
             if self.use_history && bound == Bound::Lower && parent_move_idx != usize::MAX {
-                if let Some(slot) = self.counter_move.get_mut(parent_move_idx) { *slot = mi; }
+                if let Some(slot) = self.counter_move.get_mut(parent_move_idx) {
+                    *slot = mi;
+                }
             }
         }
         best
@@ -584,34 +978,75 @@ impl Searcher {
 
     fn null_move_reduction(&self, depth: u32, eval: i32, beta: i32) -> u32 {
         let mut r = if depth <= 4 { 1 } else { 2 };
-        if depth >= 8 { r = 3; }
-        if depth >= 11 { r = 4; }
+        if depth >= 8 {
+            r = 3;
+        }
+        if depth >= 11 {
+            r = 4;
+        }
         let eval_margin = eval - beta;
-        if eval_margin > 300 { r += 1; }
-        if eval_margin > 600 { r += 1; }
-        if depth <= 12 && r > 2 { r = 2; }
+        if eval_margin > 300 {
+            r += 1;
+        }
+        if eval_margin > 600 {
+            r += 1;
+        }
+        if depth <= 12 && r > 2 {
+            r = 2;
+        }
         r = r.min(depth.saturating_sub(1));
         r.max(1)
     }
 
-    fn should_try_null_move(&self, board: &Board, depth: u32, beta: i32, parent_move_idx: usize, static_eval: &mut Option<i32>) -> bool {
-        if !self.use_nullmove { return false; }
-        if depth < 3 { return false; }
-        if !(board.checkers()).is_empty() { return false; }
-        if parent_move_idx == usize::MAX { return false; }
-        if self.is_zugzwang_prone(board) { return false; }
+    fn should_try_null_move(
+        &self,
+        board: &Board,
+        depth: u32,
+        beta: i32,
+        parent_move_idx: usize,
+        static_eval: &mut Option<i32>,
+    ) -> bool {
+        if !self.use_nullmove {
+            return false;
+        }
+        if depth < 3 {
+            return false;
+        }
+        if !(board.checkers()).is_empty() {
+            return false;
+        }
+        if parent_move_idx == usize::MAX {
+            return false;
+        }
+        if self.is_zugzwang_prone(board) {
+            return false;
+        }
         let eval = static_eval.get_or_insert_with(|| self.eval_current(board));
-        if self.get_mate_distance(*eval) < 800 { return false; }
+        if self.get_mate_distance(*eval) < 800 {
+            return false;
+        }
         let beta_mate_dist = MATE_SCORE - beta.abs();
-        if beta_mate_dist < 800 { return false; }
-        if *eval < beta { return false; }
+        if beta_mate_dist < 800 {
+            return false;
+        }
+        if *eval < beta {
+            return false;
+        }
         let stm = board.side_to_move();
         let material_cp = self.side_material_cp(board, stm);
-        if depth <= 12 && material_cp <= 800 { return false; }
-        if depth <= 5 && *eval + 80 < beta { return false; }
+        if depth <= 12 && material_cp <= 800 {
+            return false;
+        }
+        if depth <= 5 && *eval + 80 < beta {
+            return false;
+        }
         let mut occupied_count = 0;
-        for _ in board.occupied() { occupied_count += 1; }
-        if occupied_count <= 8 { return false; }
+        for _ in board.occupied() {
+            occupied_count += 1;
+        }
+        if occupied_count <= 8 {
+            return false;
+        }
         true
     }
 
@@ -623,29 +1058,52 @@ impl Searcher {
         (our_pieces ^ our_king ^ our_pawns).is_empty()
     }
 
-    fn get_mate_distance(&self, eval: i32) -> i32 { MATE_SCORE - eval.abs() }
+    fn get_mate_distance(&self, eval: i32) -> i32 {
+        MATE_SCORE - eval.abs()
+    }
 
     fn side_material_cp(&self, board: &Board, color: Color) -> i32 {
         let pieces = board.colors(color);
         let mut total = 0;
-        for &piece in &[cozy_chess::Piece::Pawn, cozy_chess::Piece::Knight, cozy_chess::Piece::Bishop, cozy_chess::Piece::Rook, cozy_chess::Piece::Queen] {
+        for &piece in &[
+            cozy_chess::Piece::Pawn,
+            cozy_chess::Piece::Knight,
+            cozy_chess::Piece::Bishop,
+            cozy_chess::Piece::Rook,
+            cozy_chess::Piece::Queen,
+        ] {
             let bb = board.pieces(piece) & pieces;
-            for _ in bb { total += piece_value_cp(piece); }
+            for _ in bb {
+                total += piece_value_cp(piece);
+            }
         }
         total
     }
 
     fn eval_terminal(&self, board: &Board, ply: i32) -> i32 {
-        if !(board.checkers()).is_empty() { return -MATE_SCORE + ply; }
+        if !(board.checkers()).is_empty() {
+            return -MATE_SCORE + ply;
+        }
         DRAW_SCORE
     }
 }
 
 impl Searcher {
-    fn tt_key(board: &Board) -> u64 { zobrist::compute(board) }
-    fn tt_get(&self, board: &Board) -> Option<Entry> { self.tt.get(Self::tt_key(board)) }
+    fn tt_key(board: &Board) -> u64 {
+        zobrist::compute(board)
+    }
+    fn tt_get(&self, board: &Board) -> Option<Entry> {
+        self.tt.get(Self::tt_key(board))
+    }
     fn tt_put(&mut self, board: &Board, depth: u32, score: i32, best: Option<Move>, bound: Bound) {
-        let e = Entry { key: Self::tt_key(board), depth, score, best, bound, gen: 0 };
+        let e = Entry {
+            key: Self::tt_key(board),
+            depth,
+            score,
+            best,
+            bound,
+            gen: 0,
+        };
         self.tt.put(e);
     }
 
@@ -654,7 +1112,9 @@ impl Searcher {
         self.nodes = 0;
         self.last_depth = 0;
         self.node_limit = params.max_nodes.unwrap_or(u64::MAX);
-        if !params.use_tt { self.tt = Arc::new(Tt::new()); }
+        if !params.use_tt {
+            self.tt = Arc::new(Tt::new());
+        }
         self.order_captures = params.order_captures;
         self.use_history = params.use_history;
         self.threads = params.threads.max(1);
@@ -665,8 +1125,12 @@ impl Searcher {
         self.killers = vec![[None, None]; 256];
         self.deterministic = params.deterministic;
         if self.use_history {
-            for h in &mut self.history_table { *h = 0; }
-            for c in &mut self.counter_move { *c = usize::MAX; }
+            for h in &mut self.history_table {
+                *h = 0;
+            }
+            for c in &mut self.counter_move {
+                *c = usize::MAX;
+            }
         }
         let mut best: Option<String> = None;
         let mut last_score = 0;
@@ -689,25 +1153,58 @@ impl Searcher {
             best = r.bestmove.clone();
             last_score = r.score_cp;
             self.last_depth = d;
-            if self.nodes >= self.node_limit { break; }
-            if let Some(dl) = self.deadline { if Instant::now() >= dl { break; } }
+            if self.nodes >= self.node_limit {
+                break;
+            }
+            if let Some(dl) = self.deadline {
+                if Instant::now() >= dl {
+                    break;
+                }
+            }
         }
-        SearchResult { bestmove: best, score_cp: last_score, nodes: self.nodes }
+        SearchResult {
+            bestmove: best,
+            score_cp: last_score,
+            nodes: self.nodes,
+        }
     }
 
-    fn search_depth_window(&mut self, board: &Board, depth: u32, alpha0: i32, beta0: i32) -> SearchResult {
+    fn search_depth_window(
+        &mut self,
+        board: &Board,
+        depth: u32,
+        alpha0: i32,
+        beta0: i32,
+    ) -> SearchResult {
         let mut alpha = alpha0;
         let beta = beta0;
         let mut bestmove: Option<Move> = None;
         let mut best_score = -MATE_SCORE;
 
-        if self.threads > 1 && depth > 1 { return self.search_depth(board, depth); }
+        if self.threads > 1 && depth > 1 {
+            return self.search_depth(board, depth);
+        }
 
-        if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { qn.refresh(board); } }
+        if self.use_nnue {
+            if let Some(qn) = self.nnue_quant.as_mut() {
+                qn.refresh(board);
+            }
+        }
         let orig_alpha = alpha;
         let mut moves: Vec<Move> = Vec::with_capacity(64);
-        board.generate_moves(|ml| { for m in ml { moves.push(m); } false });
-        if moves.is_empty() { return SearchResult { bestmove: None, score_cp: self.eval_terminal(board, 0), nodes: self.nodes }; }
+        board.generate_moves(|ml| {
+            for m in ml {
+                moves.push(m);
+            }
+            false
+        });
+        if moves.is_empty() {
+            return SearchResult {
+                bestmove: None,
+                score_cp: self.eval_terminal(board, 0),
+                nodes: self.nodes,
+            };
+        }
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
@@ -717,25 +1214,54 @@ impl Searcher {
             }
         }
         if self.order_captures || self.use_history || self.use_killers {
-            let opp = if board.side_to_move() == cozy_chess::Color::White { cozy_chess::Color::Black } else { cozy_chess::Color::White };
+            let opp = if board.side_to_move() == cozy_chess::Color::White {
+                cozy_chess::Color::Black
+            } else {
+                cozy_chess::Color::White
+            };
             let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0; for sq in opp_bb { occ_mask |= 1u64 << (sq as usize); }
+            let mut occ_mask: u64 = 0;
+            for sq in opp_bb {
+                occ_mask |= 1u64 << (sq as usize);
+            }
 
             // Build scored tuples (once per move, not once per comparison)
             let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
             for &m in &moves {
                 let to_sq: Square = m.to;
                 let bit = 1u64 << (to_sq as usize);
-                let is_cap = if self.order_captures { if (occ_mask & bit) != 0 { 1 } else { 0 } } else { 0 };
+                let is_cap = if self.order_captures {
+                    if (occ_mask & bit) != 0 {
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
 
                 // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
-                    let mut c = board.clone(); c.play_unchecked(m); if !(c.checkers()).is_empty() { 30 } else { 0 }
+                    let mut c = board.clone();
+                    c.play_unchecked(m);
+                    if !(c.checkers()).is_empty() {
+                        30
+                    } else {
+                        0
+                    }
                 };
 
                 let mi = move_index(m);
-                let hist = if self.use_history { self.history_table.get(mi).copied().unwrap_or(0) } else { 0 };
-                let kb = if self.use_killers { self.killer_bonus(0, m) } else { 0 };
+                let hist = if self.use_history {
+                    self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let kb = if self.use_killers {
+                    self.killer_bonus(0, m)
+                } else {
+                    0
+                };
                 let score = -(is_cap * 10 + gives_check_bonus + kb + hist);
                 scored.push((m, score));
             }
@@ -745,18 +1271,36 @@ impl Searcher {
             moves = scored.into_iter().map(|(m, _)| m).collect();
         }
         for m in moves.into_iter() {
-            let mut child = board.clone(); child.play_unchecked(m);
+            let mut child = board.clone();
+            child.play_unchecked(m);
             let mut change = None;
-            if self.use_nnue { if let Some(qn) = self.nnue_quant.as_mut() { change = Some(qn.apply_move(board, m, &child)); } }
+            if self.use_nnue {
+                if let Some(qn) = self.nnue_quant.as_mut() {
+                    change = Some(qn.apply_move(board, m, &child));
+                }
+            }
             let gives_check = !(child.checkers()).is_empty();
             let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
             let score = -self.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m));
-            if let Some(ch) = change { if let Some(qn) = self.nnue_quant.as_mut() { qn.revert(ch); } }
-            if score > best_score { best_score = score; bestmove = Some(m); }
-            if score > alpha { alpha = score; }
+            if let Some(ch) = change {
+                if let Some(qn) = self.nnue_quant.as_mut() {
+                    qn.revert(ch);
+                }
+            }
+            if score > best_score {
+                best_score = score;
+                bestmove = Some(m);
+            }
+            if score > alpha {
+                alpha = score;
+            }
         }
         let bestmove_uci = bestmove.map(|m| format!("{}", m));
-        SearchResult { bestmove: bestmove_uci, score_cp: best_score, nodes: self.nodes }
+        SearchResult {
+            bestmove: bestmove_uci,
+            score_cp: best_score,
+            nodes: self.nodes,
+        }
     }
 
     fn is_capture(&self, board: &Board, m: Move) -> bool {
@@ -771,9 +1315,13 @@ impl Searcher {
 
     fn update_killers(&mut self, ply: i32, m: Move) {
         let p = ply as usize;
-        if p >= self.killers.len() { return; }
+        if p >= self.killers.len() {
+            return;
+        }
         let slot = &mut self.killers[p];
-        if slot[0] == Some(m) { return; }
+        if slot[0] == Some(m) {
+            return;
+        }
         if slot[1] == Some(m) {
             slot[1] = slot[0];
             slot[0] = Some(m);
@@ -785,9 +1333,17 @@ impl Searcher {
 
     fn killer_bonus(&self, ply: i32, m: Move) -> i32 {
         let p = ply as usize;
-        if p >= self.killers.len() { return 0; }
+        if p >= self.killers.len() {
+            return 0;
+        }
         let slot = &self.killers[p];
-        if slot[0] == Some(m) { 50 } else if slot[1] == Some(m) { 30 } else { 0 }
+        if slot[0] == Some(m) {
+            50
+        } else if slot[1] == Some(m) {
+            30
+        } else {
+            0
+        }
     }
 
     // removed string-based continuation parent key
@@ -801,20 +1357,43 @@ impl Searcher {
         tt.set_capacity_mb(mb);
         self.tt = Arc::new(tt);
     }
-    pub fn get_threads(&self) -> usize { self.threads }
-    pub fn last_depth(&self) -> u32 { self.last_depth }
-    pub fn last_seldepth(&self) -> u32 { self.max_seldepth }
+    pub fn get_threads(&self) -> usize {
+        self.threads
+    }
+    pub fn last_depth(&self) -> u32 {
+        self.last_depth
+    }
+    pub fn last_seldepth(&self) -> u32 {
+        self.max_seldepth
+    }
 
-    pub fn set_use_nnue(&mut self, on: bool) { self.use_nnue = on; }
-    pub fn set_nnue_network(&mut self, nn: Option<crate::eval::nnue::Nnue>) { self.nnue = nn; }
-    pub fn set_nnue_quant_model(&mut self, model: QuantNnue) { self.nnue_quant = Some(QuantNetwork::new(model)); }
-    pub fn clear_nnue_quant(&mut self) { self.nnue_quant = None; }
-    pub fn set_eval_blend_percent(&mut self, p: u8) { self.eval_blend_percent = p.min(100); }
-    pub fn search_movetime_lazy_smp(&mut self, board: &Board, millis: u64, depth: u32) -> (Option<String>, i32, u64) {
+    pub fn set_use_nnue(&mut self, on: bool) {
+        self.use_nnue = on;
+    }
+    pub fn set_nnue_network(&mut self, nn: Option<crate::eval::nnue::Nnue>) {
+        self.nnue = nn;
+    }
+    pub fn set_nnue_quant_model(&mut self, model: QuantNnue) {
+        self.nnue_quant = Some(QuantNetwork::new(model));
+    }
+    pub fn clear_nnue_quant(&mut self) {
+        self.nnue_quant = None;
+    }
+    pub fn set_eval_blend_percent(&mut self, p: u8) {
+        self.eval_blend_percent = p.min(100);
+    }
+    pub fn search_movetime_lazy_smp(
+        &mut self,
+        board: &Board,
+        millis: u64,
+        depth: u32,
+    ) -> (Option<String>, i32, u64) {
         self.search_movetime(board, millis, depth)
     }
 
-    fn eval_cp_internal(&self, board: &Board) -> i32 { self.eval_current(board) }
+    fn eval_cp_internal(&self, board: &Board) -> i32 {
+        self.eval_current(board)
+    }
 
     #[inline]
     fn nnue_eval_cp(&self, board: &Board) -> Option<i32> {
@@ -868,4 +1447,8 @@ impl Searcher {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum EvalMode { Material, Pst, Nnue }
+pub enum EvalMode {
+    Material,
+    Pst,
+    Nnue,
+}

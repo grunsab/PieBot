@@ -105,9 +105,11 @@ fn main() -> anyhow::Result<()> {
     let period = args.every.max(1);
 
     for in_path in inputs {
-        let out_path = args
-            .output
-            .join(in_path.file_name().ok_or_else(|| anyhow::anyhow!("bad input filename"))?);
+        let out_path = args.output.join(
+            in_path
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("bad input filename"))?,
+        );
         let rdr = BufReader::new(File::open(&in_path)?);
         let mut wr = BufWriter::new(File::create(&out_path)?);
 
@@ -128,10 +130,7 @@ fn main() -> anyhow::Result<()> {
             ensure_played_move(&mut v);
 
             let can_relabel_more = max_records.map(|m| relabeled < m).unwrap_or(true);
-            let fen = v
-                .get("fen")
-                .and_then(|x| x.as_str())
-                .map(|s| s.to_string());
+            let fen = v.get("fen").and_then(|x| x.as_str()).map(|s| s.to_string());
             let ply = v.get("ply").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
 
             if can_relabel_more && ply % period == 0 {
@@ -144,10 +143,7 @@ fn main() -> anyhow::Result<()> {
                             v.insert("best_move".to_string(), Value::String(best));
                             v.insert("value_cp".to_string(), Value::from(cpw));
                             v.insert("target_value_cp".to_string(), Value::from(cpw));
-                            v.insert(
-                                "teacher_depth".to_string(),
-                                Value::from(args.depth as u64),
-                            );
+                            v.insert("teacher_depth".to_string(), Value::from(args.depth as u64));
                             relabeled += 1;
                         }
                     }
@@ -163,4 +159,3 @@ fn main() -> anyhow::Result<()> {
     println!("Relabeled records: {}", relabeled);
     Ok(())
 }
-

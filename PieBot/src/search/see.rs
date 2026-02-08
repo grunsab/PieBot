@@ -1,4 +1,4 @@
-use cozy_chess::{Board, Color, Piece, Square, BitBoard};
+use cozy_chess::{BitBoard, Board, Color, Piece, Square};
 
 // Helper to create a single-square bitboard
 #[inline]
@@ -38,8 +38,14 @@ fn piece_at_square(board: &Board, sq: Square) -> Option<(Color, Piece)> {
     };
 
     // Find which piece type
-    for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop,
-                    Piece::Rook, Piece::Queen, Piece::King] {
+    for &piece in &[
+        Piece::Pawn,
+        Piece::Knight,
+        Piece::Bishop,
+        Piece::Rook,
+        Piece::Queen,
+        Piece::King,
+    ] {
         if bb_contains(board.pieces(piece), sq) {
             return Some((color, piece));
         }
@@ -122,11 +128,23 @@ fn get_attackers(board: &Board, target: Square, color: Color, occupied: BitBoard
 }
 
 // Find the least valuable attacker of target square for given color
-fn least_valuable_attacker(board: &Board, target: Square, color: Color, occupied: BitBoard) -> Option<(Square, Piece)> {
-    let attackers = get_attackers(board, target, color, occupied) & occupied;  // Mask with occupied!
+fn least_valuable_attacker(
+    board: &Board,
+    target: Square,
+    color: Color,
+    occupied: BitBoard,
+) -> Option<(Square, Piece)> {
+    let attackers = get_attackers(board, target, color, occupied) & occupied; // Mask with occupied!
 
     // Check each piece type in order of value (cheapest first)
-    for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
+    for &piece in &[
+        Piece::Pawn,
+        Piece::Knight,
+        Piece::Bishop,
+        Piece::Rook,
+        Piece::Queen,
+        Piece::King,
+    ] {
         let piece_attackers = board.pieces(piece) & attackers;
         if let Some(sq) = piece_attackers.into_iter().next() {
             return Some((sq, piece));
@@ -162,7 +180,11 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
 
     // The target square is now occupied by the initial attacker
     let mut current_occupant_val = piece_value(attacker_piece);
-    let mut side = if stm == Color::White { Color::Black } else { Color::White };
+    let mut side = if stm == Color::White {
+        Color::Black
+    } else {
+        Color::White
+    };
 
     // Continue the exchange until no more attackers
     loop {
@@ -180,7 +202,11 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
 
             // Update state for next iteration: attacker is now the occupant
             current_occupant_val = attacker_val;
-            side = if side == Color::White { Color::Black } else { Color::White };
+            side = if side == Color::White {
+                Color::Black
+            } else {
+                Color::White
+            };
         } else {
             // No more attackers for this side
             break;

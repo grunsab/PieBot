@@ -1,6 +1,6 @@
 use clap::Parser;
-use cozy_chess::{Board, Move};
 use cozy_chess::{BitBoard, Color, Piece, Square};
+use cozy_chess::{Board, Move};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::time::Instant;

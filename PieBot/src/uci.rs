@@ -6,9 +6,9 @@ use crate::eval::nnue::loader::QuantNnue;
 use crate::eval::nnue::Nnue;
 #[cfg(not(feature = "board-pleco"))]
 use crate::search::alphabeta::{SearchParams, Searcher};
+use std::io::{self, BufRead};
 #[cfg(not(feature = "board-pleco"))]
 use std::time::Duration;
-use std::io::{self, BufRead};
 
 #[cfg(feature = "board-pleco")]
 mod pleco_uci {

@@ -15,12 +15,7 @@ pub fn halfkp_dim() -> usize {
 
 #[inline]
 fn square_to_index(sq: Square) -> usize {
-    // Cozy displays algebraic like "e4"; map to 0..63 with a1=0..h8=63
-    let s = format!("{}", sq);
-    let b = s.as_bytes();
-    let file = (b[0] - b'a') as usize;
-    let rank = (b[1] - b'1') as usize;
-    rank * 8 + file
+    sq as usize
 }
 
 #[inline]
@@ -29,8 +24,7 @@ fn idx_for(side: Color, k_idx: usize, piece_idx: usize, sq_idx: usize) -> usize 
     (((side_off * 64 + k_idx) * HALFKP_PIECE_ORDER.len() + piece_idx) * 64) + sq_idx
 }
 
-/// Placeholder for HalfKP(A) feature extractor.
-/// Final implementation will build king-relative piece-square features and support incremental updates.
+/// HalfKP(A) feature extractor: active indices for non-king pieces keyed by each side's king square.
 pub struct HalfKpA;
 
 impl HalfKpA {

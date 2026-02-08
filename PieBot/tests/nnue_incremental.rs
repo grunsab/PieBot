@@ -123,7 +123,11 @@ fn halfkp_indices_are_unique_and_in_range() {
     let feats = HalfKpA;
     let act = feats.active_indices(&b);
 
-    assert_eq!(act.len(), 30, "start position should have 30 active non-king features");
+    assert_eq!(
+        act.len(),
+        30,
+        "start position should have 30 active non-king features"
+    );
     assert!(
         act.iter().all(|&i| i < halfkp_dim()),
         "feature index out of HalfKP bounds"
@@ -143,8 +147,16 @@ fn halfkp_king_move_changes_feature_indices() {
     let bset: HashSet<usize> = feats.active_indices(&before).into_iter().collect();
     let aset: HashSet<usize> = feats.active_indices(&after).into_iter().collect();
 
-    assert_eq!(bset.len(), 1, "expected one non-king piece feature before move");
-    assert_eq!(aset.len(), 1, "expected one non-king piece feature after move");
+    assert_eq!(
+        bset.len(),
+        1,
+        "expected one non-king piece feature before move"
+    );
+    assert_eq!(
+        aset.len(),
+        1,
+        "expected one non-king piece feature after move"
+    );
     assert_ne!(
         bset, aset,
         "king move must re-key HalfKP features even with unchanged piece set"

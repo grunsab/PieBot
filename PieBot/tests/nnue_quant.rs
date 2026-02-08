@@ -5,25 +5,58 @@ use std::io::Write;
 fn nnue_quant_loader_reads_header() {
     use piebot::eval::nnue::loader::QuantNnue;
     let path = "target/nnue_quant_header.nnue";
+    let input_dim = 12u32;
+    let hidden_dim = 32u32;
+    let output_dim = 1u32;
     let mut f = File::create(path).unwrap();
     // magic PIENNQ01
     f.write_all(b"PIENNQ01").unwrap();
     // version
     f.write_all(&1u32.to_le_bytes()).unwrap();
     // dims: input 12, hidden 32, output 1
-    f.write_all(&12u32.to_le_bytes()).unwrap();
-    f.write_all(&32u32.to_le_bytes()).unwrap();
-    f.write_all(&1u32.to_le_bytes()).unwrap();
+    f.write_all(&input_dim.to_le_bytes()).unwrap();
+    f.write_all(&hidden_dim.to_le_bytes()).unwrap();
+    f.write_all(&output_dim.to_le_bytes()).unwrap();
     // scales
     f.write_all(&1.0f32.to_le_bytes()).unwrap();
     f.write_all(&1.0f32.to_le_bytes()).unwrap();
+    // payload
+    for _ in 0..(input_dim * hidden_dim) {
+        f.write_all(&[0u8]).unwrap();
+    }
+    for _ in 0..hidden_dim {
+        f.write_all(&0i16.to_le_bytes()).unwrap();
+    }
+    for _ in 0..(output_dim * hidden_dim) {
+        f.write_all(&[0u8]).unwrap();
+    }
+    for _ in 0..output_dim {
+        f.write_all(&0i16.to_le_bytes()).unwrap();
+    }
     drop(f);
 
     let q = QuantNnue::load_quantized(path).unwrap();
     assert_eq!(q.meta.version, 1);
-    assert_eq!(q.meta.input_dim, 12);
-    assert_eq!(q.meta.hidden_dim, 32);
-    assert_eq!(q.meta.output_dim, 1);
+    assert_eq!(q.meta.input_dim, input_dim as usize);
+    assert_eq!(q.meta.hidden_dim, hidden_dim as usize);
+    assert_eq!(q.meta.output_dim, output_dim as usize);
+}
+
+#[test]
+fn nnue_quant_loader_rejects_truncated_payload() {
+    use piebot::eval::nnue::loader::QuantNnue;
+    let path = "target/nnue_quant_truncated.nnue";
+    let mut f = File::create(path).unwrap();
+    f.write_all(b"PIENNQ01").unwrap();
+    f.write_all(&1u32.to_le_bytes()).unwrap();
+    f.write_all(&12u32.to_le_bytes()).unwrap();
+    f.write_all(&32u32.to_le_bytes()).unwrap();
+    f.write_all(&1u32.to_le_bytes()).unwrap();
+    f.write_all(&1.0f32.to_le_bytes()).unwrap();
+    f.write_all(&1.0f32.to_le_bytes()).unwrap();
+    drop(f);
+    let loaded = QuantNnue::load_quantized(path);
+    assert!(loaded.is_err());
 }
 
 #[test]
