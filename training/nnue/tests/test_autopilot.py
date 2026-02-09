@@ -10,6 +10,8 @@ from training.nnue import autopilot
 class AutopilotTests(unittest.TestCase):
     def test_zen5_9755_profile_has_expected_relabel_defaults(self) -> None:
         profile = autopilot.zen5_9755_7d_profile()
+        self.assertEqual(1, profile["selfplay_threads"])
+        self.assertEqual(0, profile["selfplay_parallel_games"])
         self.assertEqual(9, profile["teacher_relabel_depth"])
         self.assertEqual(8, profile["teacher_relabel_every"])
         self.assertGreaterEqual(profile["teacher_relabel_threads"], 32)

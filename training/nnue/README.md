@@ -64,6 +64,7 @@ python -m training.nnue.run_pipeline \
   --selfplay-games 200 \
   --selfplay-depth 4 \
   --selfplay-threads 1 \
+  --selfplay-parallel-games 0 \
   --teacher-relabel-depth 8 \
   --teacher-relabel-every 4 \
   --trainer-backend auto \
@@ -101,6 +102,7 @@ Set-and-forget autopilot
   - resume-safe cycle execution (`run_pipeline --resume`)
   - automatic NNUE handoff: cycle `N+1` uses cycle `N`'s `nnue_quant.nnue` for self-play + relabel teacher search
   - replay-window training: each cycle can merge JSONL from recent prior cycles
+  - game-level parallel self-play: defaults to 1 search thread/game and auto fan-out to available cores (`--selfplay-parallel-games 0`)
   - lagged teacher option: relabel can use an older accepted model (reduces tight student-teacher coupling)
   - automatic model gate: candidate NNUE is promoted only after head-to-head `compare_play` passes
     - gate runs in model-only mode (`compare_play --same-search`) to avoid search-code confounding
@@ -115,5 +117,6 @@ python -m training.nnue.autopilot \
 
 Notes:
 - Profile defaults favor throughput with periodic stronger-teacher relabeling.
+- For high-core machines, leave `--selfplay-parallel-games 0` (auto) and keep `--selfplay-threads 1` unless you intentionally trade game count for deeper per-move search.
 - If CUDA is unavailable, `trainer-backend=auto` falls back to the CPU stub trainer.
 - For quick validation runs, you can disable promotion gating by setting `--gate-games 0`.

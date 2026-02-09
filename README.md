@@ -1,58 +1,60 @@
-# PieBot Repository (Rust Engine + NNUE Training Pipeline)
+# PieBot (Rust Engine + NNUE Training Pipeline)
 
-This repository now includes the full project in one git root:
-- Rust engine crate in `PieBot/`
-- Python NNUE data/training pipeline in `training/nnue/`
-- setup docs and scripts in `documents/` and `scripts/`
+PieBot combines a Rust chess engine (`PieBot/`) with a Python NNUE data/training stack (`training/nnue/`) for continuous self-play, relabeling, training, and model-gated promotion.
 
-## Current State (Accurate Snapshot)
+## Repository Layout
 
-- Search/eval code is active in `PieBot/src/` with alpha-beta variants, TT, and NNUE eval paths.
-- A/B workflow is supported via baseline `alphabeta.rs` and experimental `alphabeta_temp.rs`.
-- Rust self-play (`selfplay` binary) produces JSONL shards with:
-  - `played_move` (sampled move)
-  - `target_best_move` (teacher target)
-  - `best_move` (compat alias)
-  - `value_cp`, `policy_top`, game outcome labels
-- Stronger-teacher relabeling exists via `relabel_jsonl` binary.
-- End-to-end Python pipeline (`training.nnue.run_pipeline`) supports:
-  - self-play generation
-  - periodic relabeling
-  - training (stub or torch backend)
-  - export to dense + quantized NNUE formats
-  - resume mode for interrupted runs
-- Unattended orchestration exists via `training.nnue.autopilot`:
-  - crash-safe state file
-  - single-instance lock
-  - retry/backoff
-  - 7-day Zen5 profile (`zen5_9755_7d`)
+- Engine crate: `PieBot/`
+- Training pipeline: `training/nnue/`
+- Setup and host docs: `documents/`
+- Automation and helper scripts: `scripts/`
+- Team workflow and gates: `AGENTS.md`
 
-## Known Gaps
+## Latest Changes (2026-02)
 
-- Full `cargo test` currently fails due compile issues in `PieBot/src/bin/bench.rs`.
-- Targeted NNUE/self-play Rust tests and Python pipeline tests pass.
-- Training stack is functional and automated, but not yet validated at super-GM strength.
+- Closed-loop model handoff is active: cycle `N+1` self-play/relabel uses the accepted model from cycle `N`.
+- Replay-window training is active: each cycle can train on fresh + recent-cycle JSONL shards.
+- Lagged teacher support is active: relabel can use an older accepted model to reduce coupling.
+- Self-play now supports game-level parallel fan-out (`--parallel-games`, with `0` = auto by available cores / per-game threads).
+- Autopilot now gates promotion via engine A/B; candidate model is promoted only if `compare_play` passes in `--same-search` mode.
+- `compare_play` now applies per-side configs correctly (eval mode, blend, NNUE files, hash, threads).
+- Noise opening sampling now uses engine-ordered top-K, not raw legal-move order.
+- `bench.rs` compile drift against Pleco APIs has been fixed.
+- Full `cargo test -q` is green in current tree.
+
+## Current Status
+
+- Baseline search: `PieBot/src/search/alphabeta.rs`
+- Experimental search: `PieBot/src/search/alphabeta_temp.rs`
+- Acceptance binaries: `accept`, `accept_temp`
+- A/B runner: `compare_play`
+- Training orchestrator: `training.nnue.autopilot`
+
+Known gap to keep iterating:
+- Experimental acceptance (`accept_temp`) still misses one `matein3` case in default depth-7 settings (index 15).
 
 ## Quick Start
 
-Build key Rust binaries:
+Build key binaries:
 ```bash
-cargo build --release --manifest-path PieBot/Cargo.toml --bin selfplay --bin relabel_jsonl
+cargo build --release --manifest-path PieBot/Cargo.toml \
+  --bin selfplay --bin relabel_jsonl --bin compare_play --bin accept --bin accept_temp
 ```
 
-Run a tiny end-to-end smoke cycle:
+Run a one-cycle smoke autopilot run:
 ```bash
 python3 -m training.nnue.autopilot \
   --out-root /tmp/piebot_smoke \
   --max-cycles 1 \
-  --selfplay-games 2 \
-  --selfplay-depth 1 \
-  --teacher-relabel-depth 2 \
-  --teacher-relabel-every 2 \
+  --selfplay-games 4 \
+  --selfplay-depth 2 \
+  --selfplay-threads 1 \
+  --selfplay-parallel-games 0 \
+  --teacher-relabel-depth 4 \
   --epochs 1 \
-  --batch-size 64 \
+  --batch-size 128 \
   --trainer-backend auto \
-  --trainer-device cuda
+  --trainer-device auto
 ```
 
 Run the 7-day Zen5 profile:
@@ -60,28 +62,41 @@ Run the 7-day Zen5 profile:
 python3 -m training.nnue.autopilot \
   --out-root /opt/piebot_runs/zen5_7d \
   --profile zen5_9755_7d \
-  --hours 168 \
-  --trainer-backend torch \
-  --trainer-device cuda
+  --hours 168
 ```
-
-## Repo Map
-
-- Engine crate: `PieBot/`
-- Training pipeline: `training/nnue/`
-- Ubuntu setup guide: `documents/ZEN5_3090_NNUE_SETUP.md`
-- Team workflow requirements: `AGENTS.md`
 
 ## Validation Commands
 
-Python:
+Python pipeline tests:
 ```bash
-python3 -m unittest -q training.nnue.tests.test_run_pipeline training.nnue.tests.test_autopilot
+python3 -m unittest -q \
+  training.nnue.tests.test_run_pipeline \
+  training.nnue.tests.test_autopilot
 ```
 
-Targeted Rust:
+Rust full test gate:
 ```bash
-cargo test -q --manifest-path PieBot/Cargo.toml --no-default-features --test nnue_eval --test nnue_quant --test selfplay_io --test selfplay
+cargo test -q --manifest-path PieBot/Cargo.toml
+```
+
+Acceptance sanity (single thread):
+```bash
+cargo run --quiet --manifest-path PieBot/Cargo.toml --bin accept
+cargo run --quiet --manifest-path PieBot/Cargo.toml --bin accept_temp
+```
+
+Game-level A/B sanity:
+```bash
+cargo run --quiet --manifest-path PieBot/Cargo.toml --bin compare_play -- \
+  --games 40 --movetime 200 --noise-plies 12 --noise-topk 5 --threads 1
+```
+
+Model-only gate-style A/B (same search, different models):
+```bash
+cargo run --quiet --manifest-path PieBot/Cargo.toml --bin compare_play -- \
+  --same-search --games 40 --movetime 200 --threads 1 \
+  --base_eval nnue --base_nnue_quant_file /path/base.nnue \
+  --exp_eval nnue --exp_nnue_quant_file /path/candidate.nnue
 ```
 
 ## License

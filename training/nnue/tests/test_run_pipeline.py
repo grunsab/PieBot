@@ -37,6 +37,7 @@ class RunPipelineTests(unittest.TestCase):
             games=12,
             max_plies=80,
             threads=2,
+            parallel_games=8,
             depth=5,
             movetime_ms=50,
             seed=42,
@@ -57,6 +58,8 @@ class RunPipelineTests(unittest.TestCase):
         self.assertIn("/tmp/out/jsonl", cmd)
         self.assertIn("--skip-bin", cmd)
         self.assertIn("--movetime-ms", cmd)
+        self.assertIn("--parallel-games", cmd)
+        self.assertIn("8", cmd)
 
     def test_build_relabel_command_uses_depth_and_period(self) -> None:
         cmd = run_pipeline.build_relabel_command(
@@ -89,6 +92,7 @@ class RunPipelineTests(unittest.TestCase):
             games=12,
             max_plies=80,
             threads=2,
+            parallel_games=6,
             depth=5,
             movetime_ms=50,
             seed=42,

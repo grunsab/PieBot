@@ -29,7 +29,8 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
     return {
         "selfplay_games": 12_000,
         "selfplay_max_plies": 160,
-        "selfplay_threads": 24,
+        "selfplay_threads": 1,
+        "selfplay_parallel_games": 0,
         "selfplay_depth": 2,
         "selfplay_temperature_tau": 1.0,
         "selfplay_temperature_tau_final": 0.1,
@@ -109,6 +110,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--selfplay-games", type=int, default=None)
     ap.add_argument("--selfplay-depth", type=int, default=None)
     ap.add_argument("--selfplay-threads", type=int, default=None)
+    ap.add_argument("--selfplay-parallel-games", type=int, default=None)
     ap.add_argument("--teacher-relabel-depth", type=int, default=None)
     ap.add_argument("--teacher-relabel-every", type=int, default=None)
     ap.add_argument("--teacher-relabel-threads", type=int, default=None)
@@ -143,6 +145,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "selfplay_games": args.selfplay_games,
         "selfplay_depth": args.selfplay_depth,
         "selfplay_threads": args.selfplay_threads,
+        "selfplay_parallel_games": args.selfplay_parallel_games,
         "teacher_relabel_depth": args.teacher_relabel_depth,
         "teacher_relabel_every": args.teacher_relabel_every,
         "teacher_relabel_threads": args.teacher_relabel_threads,

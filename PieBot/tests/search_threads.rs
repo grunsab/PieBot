@@ -63,3 +63,41 @@ fn multi_thread_search_produces_valid_result_under_time() {
         "multi-thread search should return a best move"
     );
 }
+
+#[test]
+fn threaded_search_respects_pruning_flags() {
+    use cozy_chess::Board;
+    use piebot::search::alphabeta::{SearchParams, Searcher};
+
+    let b = Board::default();
+    let run = |use_lmr: bool, use_nullmove: bool| {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            let mut s = Searcher::default();
+            let mut p = SearchParams::default();
+            p.depth = 5;
+            p.use_tt = true;
+            p.order_captures = true;
+            p.use_history = true;
+            p.use_killers = true;
+            p.use_lmr = use_lmr;
+            p.use_nullmove = use_nullmove;
+            p.threads = 4;
+            s.search_with_params(&b, p)
+        })
+    };
+
+    let base = run(false, false);
+    let pruned = run(true, true);
+    assert!(
+        base.nodes != pruned.nodes || base.score_cp != pruned.score_cp,
+        "threaded search ignored pruning flags: base nodes={} score={} vs pruned nodes={} score={}",
+        base.nodes,
+        base.score_cp,
+        pruned.nodes,
+        pruned.score_cp
+    );
+}

@@ -198,6 +198,7 @@ def build_selfplay_command(
     games: int,
     max_plies: int,
     threads: int,
+    parallel_games: int,
     depth: int,
     movetime_ms: Optional[int],
     seed: int,
@@ -227,6 +228,8 @@ def build_selfplay_command(
         str(max_plies),
         "--threads",
         str(threads),
+        "--parallel-games",
+        str(max(0, int(parallel_games))),
         "--depth",
         str(depth),
         "--seed",
@@ -321,6 +324,7 @@ def _generate_selfplay_jsonl(
     games: int,
     max_plies: int,
     threads: int,
+    parallel_games: int,
     depth: int,
     movetime_ms: Optional[int],
     seed: int,
@@ -344,6 +348,7 @@ def _generate_selfplay_jsonl(
         games=games,
         max_plies=max_plies,
         threads=threads,
+        parallel_games=parallel_games,
         depth=depth,
         movetime_ms=movetime_ms,
         seed=seed,
@@ -498,6 +503,7 @@ def run_pipeline(
     selfplay_games: int = 0,
     selfplay_max_plies: int = 100,
     selfplay_threads: int = 1,
+    selfplay_parallel_games: int = 0,
     selfplay_depth: int = 4,
     selfplay_movetime_ms: Optional[int] = None,
     selfplay_seed: int = 42,
@@ -567,6 +573,7 @@ def run_pipeline(
                 games=selfplay_games,
                 max_plies=selfplay_max_plies,
                 threads=selfplay_threads,
+                parallel_games=selfplay_parallel_games,
                 depth=selfplay_depth,
                 movetime_ms=selfplay_movetime_ms,
                 seed=selfplay_seed,
@@ -723,6 +730,7 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--selfplay-games", type=int, default=0, help="Generate this many selfplay games before training")
     ap.add_argument("--selfplay-max-plies", type=int, default=100)
     ap.add_argument("--selfplay-threads", type=int, default=1)
+    ap.add_argument("--selfplay-parallel-games", type=int, default=0)
     ap.add_argument("--selfplay-depth", type=int, default=4)
     ap.add_argument("--selfplay-movetime-ms", type=int, default=None)
     ap.add_argument("--selfplay-seed", type=int, default=42)
@@ -809,6 +817,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         selfplay_games=args.selfplay_games,
         selfplay_max_plies=args.selfplay_max_plies,
         selfplay_threads=args.selfplay_threads,
+        selfplay_parallel_games=args.selfplay_parallel_games,
         selfplay_depth=args.selfplay_depth,
         selfplay_movetime_ms=args.selfplay_movetime_ms,
         selfplay_seed=args.selfplay_seed,

@@ -1,6 +1,8 @@
 use clap::Parser;
 use piebot::eval::nnue::loader::QuantNnue;
-use piebot::selfplay::{generate_games, write_jsonl_shards, write_shards, SelfPlayParams};
+use piebot::selfplay::{
+    effective_parallel_games, generate_games, write_jsonl_shards, write_shards, SelfPlayParams,
+};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -15,6 +17,8 @@ struct Args {
     max_plies: usize,
     #[arg(long, default_value_t = 1)]
     threads: usize,
+    #[arg(long, default_value_t = 0)]
+    parallel_games: usize,
     #[arg(long, default_value_t = 4)]
     depth: u32,
     #[arg(long)]
@@ -64,6 +68,7 @@ fn main() -> anyhow::Result<()> {
         games: a.games,
         max_plies: a.max_plies,
         threads: a.threads,
+        parallel_games: a.parallel_games,
         use_engine: a.use_engine,
         depth: a.depth,
         movetime_ms: a.movetime_ms,
@@ -79,11 +84,14 @@ fn main() -> anyhow::Result<()> {
         nnue_quant_model,
         nnue_blend_percent: a.nnue_blend_percent,
     };
+    let effective_parallel = effective_parallel_games(&params);
     eprintln!(
-        "Generating {} games (depth={}, threads={}, engine={}, tau={}, dir_eps={}, nnue={})",
+        "Generating {} games (depth={}, threads/game={}, parallel_games={} [requested={}], engine={}, tau={}, dir_eps={}, nnue={})",
         a.games,
         a.depth,
         a.threads,
+        effective_parallel,
+        a.parallel_games,
         a.use_engine,
         a.temperature_tau,
         a.dirichlet_epsilon,

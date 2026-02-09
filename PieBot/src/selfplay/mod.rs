@@ -5,6 +5,7 @@ use cozy_chess::{Board, Color, Move};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Gamma};
+use rayon::prelude::*;
 use std::fs::{create_dir_all, File};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
@@ -13,7 +14,8 @@ use std::path::{Path, PathBuf};
 pub struct SelfPlayParams {
     pub games: usize,
     pub max_plies: usize,
-    pub threads: usize,
+    pub threads: usize,        // engine search threads per game
+    pub parallel_games: usize, // 0 => auto from available cores
     pub use_engine: bool,
     pub depth: u32,
     pub movetime_ms: Option<u64>,
@@ -47,84 +49,139 @@ struct MoveChoice {
 }
 
 pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
-    let mut rng = SmallRng::seed_from_u64(params.seed);
     let openings = load_openings(params);
-    let mut games = Vec::with_capacity(params.games);
-    for gi in 0..params.games {
-        let mut searcher = if params.use_engine {
-            Some(build_selfplay_searcher(params))
-        } else {
-            None
-        };
-        let mut board = if !openings.is_empty() {
-            let idx = (rng.gen::<u64>() ^ (gi as u64)) as usize % openings.len();
-            openings[idx].clone()
-        } else {
-            Board::default()
-        };
-        let mut record = GameRecord {
-            start_fen: format!("{}", board),
-            moves: Vec::new(),
-            move_target_best: Vec::new(),
-            move_value_cp: Vec::new(),
-            move_policy_top: Vec::new(),
-            result: 0,
-        };
-        let mut plies = 0usize;
-        loop {
-            if plies >= params.max_plies {
-                break;
-            }
-            // Determine end conditions
-            let mut has_move = false;
-            board.generate_moves(|ml| {
-                if !ml.is_empty() {
-                    has_move = true;
-                }
-                false
-            });
-            if !has_move {
-                if (board.checkers()).is_empty() {
-                    record.result = 0;
-                } else {
-                    record.result = if board.side_to_move() == Color::White {
-                        -1
-                    } else {
-                        1
-                    };
-                }
-                break;
-            }
-            {
-                // choose move
-                let mv = if params.use_engine {
-                    select_engine_move(
-                        &board,
-                        params,
-                        plies,
-                        searcher.as_mut().expect("engine searcher available"),
-                    )
-                } else {
-                    select_random_move(&board, &mut rng)
-                };
-                if let Some(m) = mv {
-                    let mstr = format!("{}", m.played_mv);
-                    record.moves.push(mstr);
-                    record
-                        .move_target_best
-                        .push(m.target_best_mv.map(|x| format!("{}", x)));
-                    record.move_value_cp.push(m.value_cp);
-                    record.move_policy_top.push(m.policy_top);
-                    board.play_unchecked(m.played_mv);
-                    plies += 1;
-                } else {
-                    break;
-                }
-            }
-        }
-        games.push(record);
+    if params.games == 0 {
+        return Vec::new();
     }
-    games
+
+    let parallel_games = effective_parallel_games(params);
+    if parallel_games <= 1 || params.games <= 1 {
+        return (0..params.games)
+            .map(|game_idx| generate_single_game(params, &openings, game_idx))
+            .collect();
+    }
+
+    match rayon::ThreadPoolBuilder::new()
+        .num_threads(parallel_games)
+        .build()
+    {
+        Ok(pool) => pool.install(|| {
+            (0..params.games)
+                .into_par_iter()
+                .map(|game_idx| generate_single_game(params, &openings, game_idx))
+                .collect()
+        }),
+        Err(_) => (0..params.games)
+            .map(|game_idx| generate_single_game(params, &openings, game_idx))
+            .collect(),
+    }
+}
+
+pub fn effective_parallel_games(params: &SelfPlayParams) -> usize {
+    if params.games == 0 {
+        return 1;
+    }
+    if params.parallel_games > 0 {
+        return params.parallel_games.max(1).min(params.games);
+    }
+    let available = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let per_game_threads = params.threads.max(1);
+    let auto_games = (available / per_game_threads).max(1);
+    auto_games.min(params.games)
+}
+
+fn generate_single_game(
+    params: &SelfPlayParams,
+    openings: &[Board],
+    game_idx: usize,
+) -> GameRecord {
+    let game_seed = game_seed(params.seed, game_idx);
+    let mut rng = SmallRng::seed_from_u64(game_seed);
+    let mut searcher = if params.use_engine {
+        Some(build_selfplay_searcher(params))
+    } else {
+        None
+    };
+    let mut board = if !openings.is_empty() {
+        let idx = (mix_u64(game_seed ^ 0xA5A5_A5A5_A5A5_A5A5) as usize) % openings.len();
+        openings[idx].clone()
+    } else {
+        Board::default()
+    };
+    let mut record = GameRecord {
+        start_fen: format!("{}", board),
+        moves: Vec::new(),
+        move_target_best: Vec::new(),
+        move_value_cp: Vec::new(),
+        move_policy_top: Vec::new(),
+        result: 0,
+    };
+    let mut plies = 0usize;
+    loop {
+        if plies >= params.max_plies {
+            break;
+        }
+        // Determine end conditions
+        let mut has_move = false;
+        board.generate_moves(|ml| {
+            if !ml.is_empty() {
+                has_move = true;
+            }
+            false
+        });
+        if !has_move {
+            if (board.checkers()).is_empty() {
+                record.result = 0;
+            } else {
+                record.result = if board.side_to_move() == Color::White {
+                    -1
+                } else {
+                    1
+                };
+            }
+            break;
+        }
+        // choose move
+        let mv = if params.use_engine {
+            select_engine_move(
+                &board,
+                params,
+                plies,
+                game_seed,
+                searcher.as_mut().expect("engine searcher available"),
+            )
+        } else {
+            select_random_move(&board, &mut rng)
+        };
+        if let Some(m) = mv {
+            let mstr = format!("{}", m.played_mv);
+            record.moves.push(mstr);
+            record
+                .move_target_best
+                .push(m.target_best_mv.map(|x| format!("{}", x)));
+            record.move_value_cp.push(m.value_cp);
+            record.move_policy_top.push(m.policy_top);
+            board.play_unchecked(m.played_mv);
+            plies += 1;
+        } else {
+            break;
+        }
+    }
+    record
+}
+
+fn game_seed(base_seed: u64, game_idx: usize) -> u64 {
+    mix_u64(base_seed ^ ((game_idx as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)))
+}
+
+fn mix_u64(mut x: u64) -> u64 {
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^ (x >> 31)
 }
 
 fn build_selfplay_searcher(params: &SelfPlayParams) -> Searcher {
@@ -162,6 +219,7 @@ fn select_engine_move(
     board: &Board,
     params: &SelfPlayParams,
     ply_idx: usize,
+    game_seed: u64,
     searcher: &mut Searcher,
 ) -> Option<MoveChoice> {
     // If temperature or Dirichlet requested, compute root policy and sample
@@ -250,7 +308,7 @@ fn select_engine_move(
         if use_dir && params.dirichlet_alpha > 0.0 {
             let alpha = params.dirichlet_alpha;
             let gamma = Gamma::new(alpha, 1.0).unwrap();
-            let mut rng = SmallRng::seed_from_u64(params.seed ^ zobrist::compute(board));
+            let mut rng = SmallRng::seed_from_u64(game_seed ^ zobrist::compute(board));
             let mut noise: Vec<f32> = (0..sample_probs.len())
                 .map(|_| gamma.sample(&mut rng) as f32)
                 .collect();
@@ -267,7 +325,7 @@ fn select_engine_move(
         }
         // Sample according to probs
         let mut rng =
-            SmallRng::seed_from_u64(params.seed ^ (zobrist::compute(board).rotate_left(13)));
+            SmallRng::seed_from_u64(game_seed ^ (zobrist::compute(board).rotate_left(13)));
         let r: f32 = rng.gen();
         let mut cdf = 0.0f32;
         let mut picked_idx = moves.len() - 1;
