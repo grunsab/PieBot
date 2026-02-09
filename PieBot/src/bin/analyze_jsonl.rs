@@ -160,7 +160,7 @@ fn main() {
             if let Some(first_mate) = moves.iter().find(|r| r.score_cp >= mate_thresh) {
                 found_any = true;
                 println!(
-                    "game={} result={} ply={} side={} stm={} score={} depth={} fen={} best={}",
+                    "game={} result={} ply={} side={} stm={} score={} depth={} seldepth={} fen={} best={}",
                     g,
                     res,
                     first_mate.ply,
@@ -168,6 +168,7 @@ fn main() {
                     first_mate.stm,
                     first_mate.score_cp,
                     first_mate.depth.unwrap_or(0),
+                    first_mate.seldepth.unwrap_or(0),
                     first_mate.fen,
                     first_mate.bestmove
                 );

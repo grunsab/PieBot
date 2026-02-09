@@ -21,6 +21,8 @@ fn write_and_read_shard() {
         temperature_moves: 0,
         openings_path: None,
         temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
     };
     let games = generate_games(&params);
     let outdir = std::path::Path::new("target/selfplay_test");
@@ -49,6 +51,8 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
         temperature_moves: 0,
         openings_path: None,
         temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
     };
     let games = generate_games(&params);
     let outdir = std::path::Path::new("target/selfplay_jsonl_test");
@@ -84,6 +88,8 @@ fn write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games() {
         temperature_moves: 4,
         openings_path: None,
         temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
     };
     let games = generate_games(&params);
     let outdir = std::path::Path::new("target/selfplay_jsonl_value_test");
@@ -123,6 +129,8 @@ fn selfplay_preserves_opening_start_fen() {
         temperature_moves: 0,
         openings_path: Some(openings_path.to_path_buf()),
         temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
     };
     let games = generate_games(&params);
     assert_eq!(games.len(), 1);

@@ -1,6 +1,7 @@
 use clap::Parser;
 use cozy_chess::{Board, Color};
-use piebot::search::alphabeta::{SearchParams, Searcher};
+use piebot::eval::nnue::loader::QuantNnue;
+use piebot::search::alphabeta::{EvalMode, SearchParams, Searcher};
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -33,6 +34,12 @@ struct Args {
     /// Optional cap on number of records relabeled across all shards.
     #[arg(long, default_value_t = 0)]
     max_records: usize,
+    /// Optional quantized NNUE model used by the relabel teacher search.
+    #[arg(long)]
+    nnue_quant_file: Option<PathBuf>,
+    /// Eval blend percent (0..100) when NNUE is enabled.
+    #[arg(long, default_value_t = 100)]
+    nnue_blend_percent: u8,
 }
 
 fn collect_inputs(input: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -51,13 +58,13 @@ fn collect_inputs(input: &Path) -> std::io::Result<Vec<PathBuf>> {
 }
 
 fn teacher_label(
+    searcher: &mut Searcher,
     board: &Board,
     depth: u32,
     threads: usize,
     hash_mb: usize,
 ) -> Option<(String, f32)> {
-    let mut s = Searcher::default();
-    s.set_tt_capacity_mb(hash_mb.max(1));
+    searcher.set_tt_capacity_mb(hash_mb.max(1));
     let mut p = SearchParams::default();
     p.depth = depth.max(1);
     p.use_tt = true;
@@ -69,7 +76,7 @@ fn teacher_label(
     p.use_lmr = true;
     p.use_killers = true;
     p.use_nullmove = true;
-    let res = s.search_with_params(board, p);
+    let res = searcher.search_with_params(board, p);
     let best = res.bestmove?;
     let score_white = if board.side_to_move() == Color::White {
         res.score_cp as f32
@@ -102,6 +109,14 @@ fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+    let mut teacher = Searcher::default();
+    if let Some(path) = args.nnue_quant_file.as_ref() {
+        let model = QuantNnue::load_quantized(path)?;
+        teacher.set_use_nnue(true);
+        teacher.set_eval_mode(EvalMode::Nnue);
+        teacher.set_eval_blend_percent(args.nnue_blend_percent);
+        teacher.set_nnue_quant_model(model);
+    }
     let period = args.every.max(1);
 
     for in_path in inputs {
@@ -137,7 +152,7 @@ fn main() -> anyhow::Result<()> {
                 if let Some(fen_str) = fen {
                     if let Ok(board) = Board::from_fen(&fen_str, false) {
                         if let Some((best, cpw)) =
-                            teacher_label(&board, args.depth, args.threads, args.hash_mb)
+                            teacher_label(&mut teacher, &board, args.depth, args.threads, args.hash_mb)
                         {
                             v.insert("target_best_move".to_string(), Value::String(best.clone()));
                             v.insert("best_move".to_string(), Value::String(best));

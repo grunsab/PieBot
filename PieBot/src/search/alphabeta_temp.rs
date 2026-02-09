@@ -923,7 +923,7 @@ impl Searcher {
             // Optional root-only SEE refinement for the top-K moves
             if self.root_see_top_k > 0 && !moves.is_empty() {
                 let k = self.root_see_top_k.min(moves.len());
-                let mut prefix: Vec<Move> = moves[..k].to_vec();
+                let prefix: Vec<Move> = moves[..k].to_vec();
                 // Partition captures vs non-captures in prefix
                 let mut caps: Vec<(Move, i32)> = Vec::new();
                 let mut quiets: Vec<Move> = Vec::new();
@@ -1189,7 +1189,7 @@ impl Searcher {
                 }
                 let a = alpha_shared.load(Ordering::Relaxed);
                 let next_depth = depth - 1;
-                let mut sc = match tail_policy {
+                let sc = match tail_policy {
                     TailPolicy::Pvs => {
                         // PVS: try narrow window first; if fail-high, re-search with full window
                         let mut tsc = -w.alphabeta(&c, next_depth, -a - 1, -a, 1, move_index(m));
@@ -1754,7 +1754,6 @@ impl Searcher {
                 qn.refresh(board);
             }
         }
-        let orig_alpha = alpha;
         let mut moves: Vec<Move> = Vec::with_capacity(64);
         board.generate_moves(|ml| {
             for m in ml {
@@ -1839,7 +1838,7 @@ impl Searcher {
             // Optional root-only SEE refinement for the top-K moves
             if self.root_see_top_k > 0 && !moves.is_empty() {
                 let k = self.root_see_top_k.min(moves.len());
-                let mut prefix: Vec<Move> = moves[..k].to_vec();
+                let prefix: Vec<Move> = moves[..k].to_vec();
                 let mut caps: Vec<(Move, i32)> = Vec::new();
                 let mut quiets: Vec<Move> = Vec::new();
                 for &m in &prefix {
@@ -2055,6 +2054,113 @@ impl Searcher {
     }
 
     // --- Debug helpers for tests ---
+    pub fn debug_order_root(&self, board: &Board) -> Vec<Move> {
+        let mut moves: Vec<Move> = Vec::new();
+        board.generate_moves(|ml| {
+            for m in ml {
+                moves.push(m);
+            }
+            false
+        });
+        if moves.is_empty() {
+            return moves;
+        }
+
+        if self.tt_first {
+            if let Some(en) = self.tt_get(board) {
+                if let Some(ttm) = en.best {
+                    let trusted = matches!(en.bound, Bound::Exact);
+                    if trusted {
+                        if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
+                            let mv = moves.remove(pos);
+                            moves.insert(0, mv);
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.order_captures || self.use_history || self.use_killers {
+            let opp = if board.side_to_move() == cozy_chess::Color::White {
+                cozy_chess::Color::Black
+            } else {
+                cozy_chess::Color::White
+            };
+            let opp_bb = board.colors(opp);
+            let mut occ_mask: u64 = 0;
+            for sq in opp_bb {
+                occ_mask |= 1u64 << (sq as usize);
+            }
+            moves.sort_by_key(|&m| {
+                let to_sq: Square = m.to;
+                let bit = 1u64 << (to_sq as usize);
+                let is_cap = if self.order_captures && (occ_mask & bit) != 0 {
+                    1
+                } else {
+                    0
+                };
+                let mvv = if is_cap == 1 {
+                    mvv_lva_score(board, m)
+                } else {
+                    0
+                };
+                let see_b = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                } else {
+                    0
+                };
+                let gives_check_bonus = {
+                    let mut child = board.clone();
+                    child.play_unchecked(m);
+                    if !(child.checkers()).is_empty() {
+                        30
+                    } else {
+                        0
+                    }
+                };
+                let mi = move_index(m);
+                let hist = if self.use_history {
+                    self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let kb = if self.use_killers {
+                    self.killer_bonus(0, m)
+                } else {
+                    0
+                };
+                -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist)
+            });
+            if self.order_offset > 0 && moves.len() > 2 {
+                let k = self.order_offset % (moves.len() - 1);
+                moves[1..].rotate_left(k);
+            }
+            if self.root_see_top_k > 0 && !moves.is_empty() {
+                let k = self.root_see_top_k.min(moves.len());
+                let prefix: Vec<Move> = moves[..k].to_vec();
+                let mut caps: Vec<(Move, i32)> = Vec::new();
+                let mut quiets: Vec<Move> = Vec::new();
+                for &m in &prefix {
+                    let to_sq: Square = m.to;
+                    let bit = 1u64 << (to_sq as usize);
+                    if (occ_mask & bit) != 0 {
+                        let see = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                        caps.push((m, see));
+                    } else {
+                        quiets.push(m);
+                    }
+                }
+                caps.sort_by_key(|&(_, see)| -see);
+                let mut refined: Vec<Move> = caps.into_iter().map(|(m, _)| m).collect();
+                refined.extend(quiets.into_iter());
+                for i in 0..k {
+                    moves[i] = refined[i];
+                }
+            }
+        }
+        moves
+    }
+
     pub fn debug_move_index(&self, m: Move) -> usize {
         move_index(m)
     }

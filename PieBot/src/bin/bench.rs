@@ -1,6 +1,6 @@
 use clap::Parser;
 use cozy_chess::Board;
-use piebot::search::alphabeta::{EvalMode, SearchParams, Searcher};
+use piebot::search::alphabeta::{EvalMode, Searcher};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::time::Instant;
@@ -79,9 +79,9 @@ fn run_pleco(
     threads: usize,
     depth: u32,
     movetime: Option<u64>,
-    eval: &str,
+    _eval: &str,
 ) -> (Option<String>, i32, u64, f64, u32) {
-    use piebot::search::alphabeta_pleco::{PlecoEvalMode, PlecoSearcher, SmpMode};
+    use piebot::search::alphabeta_pleco::{PlecoSearcher, SmpMode};
     let mut board = if fen == "startpos" {
         pleco::Board::start_pos()
     } else {
@@ -92,11 +92,6 @@ fn run_pleco(
     s.set_smp_mode(SmpMode::InTree);
     // Use 'spend' policy for compare runs to utilize most of the movetime
     s.set_time_manager(false, 1.9);
-    match eval.to_ascii_lowercase().as_str() {
-        "material" => s.set_eval_mode(PlecoEvalMode::Material),
-        "pst" => s.set_eval_mode(PlecoEvalMode::Pst),
-        _ => s.set_eval_mode(PlecoEvalMode::Material),
-    }
     let t0 = Instant::now();
     let (bm, sc, nodes) = {
         let ms = movetime.unwrap_or(10_000);
@@ -405,12 +400,14 @@ fn main() {
                     }
                 }
                 let t0 = Instant::now();
-                let (bm_c, sc_c, nodes_c, depth_c) = if args.threads > 1 {
+                let (_bm_c, _sc_c, nodes_c, depth_c) = if args.threads > 1 {
                     let pool = rayon::ThreadPoolBuilder::new()
                         .num_threads(args.threads)
                         .build()
                         .unwrap();
-                    pool.install(|| sc.search_movetime_lazy_smp(&board, args.movetime, args.depth))
+                    let (bm, sc_score, n) =
+                        pool.install(|| sc.search_movetime_lazy_smp(&board, args.movetime, args.depth));
+                    (bm, sc_score, n, sc.last_depth())
                 } else {
                     let (bm, sc_score, n) = sc.search_movetime(&board, args.movetime, args.depth);
                     (bm, sc_score, n, sc.last_depth())
@@ -423,7 +420,7 @@ fn main() {
                 };
 
                 // Pleco per-position
-                let (bm_p, sc_p, nodes_p, dt_p, depth_p) = run_pleco(
+                let (_bm_p, _sc_p, nodes_p, dt_p, depth_p) = run_pleco(
                     fen,
                     args.threads,
                     args.depth,

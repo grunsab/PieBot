@@ -74,7 +74,7 @@ pub fn is_stalemate_after_move(board: &Board, mv: Move) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cozy_chess::{Board, Square};
+    use cozy_chess::Board;
 
     #[test]
     fn detects_a_stalemating_move_from_user_fen() {

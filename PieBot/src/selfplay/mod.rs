@@ -1,4 +1,5 @@
-use crate::search::alphabeta::{SearchParams, Searcher};
+use crate::eval::nnue::loader::QuantNnue;
+use crate::search::alphabeta::{EvalMode, SearchParams, Searcher};
 use crate::search::zobrist;
 use cozy_chess::{Board, Color, Move};
 use rand::rngs::SmallRng;
@@ -25,6 +26,8 @@ pub struct SelfPlayParams {
     pub temperature_moves: usize,       // apply temperature for first N plies
     pub openings_path: Option<PathBuf>, // optional path to FEN list (one per line)
     pub temperature_tau_final: f32,     // anneal temperature to this by temperature_moves
+    pub nnue_quant_model: Option<QuantNnue>,
+    pub nnue_blend_percent: u8, // 0..100, only used when nnue_quant_model is Some
 }
 
 pub struct GameRecord {
@@ -48,6 +51,11 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
     let openings = load_openings(params);
     let mut games = Vec::with_capacity(params.games);
     for gi in 0..params.games {
+        let mut searcher = if params.use_engine {
+            Some(build_selfplay_searcher(params))
+        } else {
+            None
+        };
         let mut board = if !openings.is_empty() {
             let idx = (rng.gen::<u64>() ^ (gi as u64)) as usize % openings.len();
             openings[idx].clone()
@@ -90,7 +98,12 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
             {
                 // choose move
                 let mv = if params.use_engine {
-                    select_engine_move(&board, params, plies)
+                    select_engine_move(
+                        &board,
+                        params,
+                        plies,
+                        searcher.as_mut().expect("engine searcher available"),
+                    )
                 } else {
                     select_random_move(&board, &mut rng)
                 };
@@ -112,6 +125,17 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
         games.push(record);
     }
     games
+}
+
+fn build_selfplay_searcher(params: &SelfPlayParams) -> Searcher {
+    let mut s = Searcher::default();
+    if let Some(model) = params.nnue_quant_model.as_ref() {
+        s.set_use_nnue(true);
+        s.set_eval_mode(EvalMode::Nnue);
+        s.set_eval_blend_percent(params.nnue_blend_percent);
+        s.set_nnue_quant_model(model.clone());
+    }
+    s
 }
 
 fn select_random_move(board: &Board, rng: &mut SmallRng) -> Option<MoveChoice> {
@@ -138,6 +162,7 @@ fn select_engine_move(
     board: &Board,
     params: &SelfPlayParams,
     ply_idx: usize,
+    searcher: &mut Searcher,
 ) -> Option<MoveChoice> {
     // If temperature or Dirichlet requested, compute root policy and sample
     let use_temp = params.temperature_tau > 0.0 && ply_idx < params.temperature_moves;
@@ -164,7 +189,6 @@ fn select_engine_move(
         for &m in &moves {
             let mut child = board.clone();
             child.play_unchecked(m);
-            let mut s = Searcher::default();
             let mut p = SearchParams::default();
             p.depth = pol_depth;
             p.use_tt = true;
@@ -180,7 +204,7 @@ fn select_engine_move(
             p.movetime = params
                 .movetime_ms
                 .map(|t| std::time::Duration::from_millis(t));
-            let r = s.search_with_params(&child, p);
+            let r = searcher.search_with_params(&child, p);
             let score_from_parent = -(r.score_cp as f32);
             scores.push(score_from_parent);
         }
@@ -279,7 +303,6 @@ fn select_engine_move(
         });
     }
     // Greedy best move
-    let mut s = Searcher::default();
     let mut p = SearchParams::default();
     p.depth = params.depth;
     p.use_tt = true;
@@ -295,7 +318,7 @@ fn select_engine_move(
     p.movetime = params
         .movetime_ms
         .map(|t| std::time::Duration::from_millis(t));
-    let res = s.search_with_params(board, p);
+    let res = searcher.search_with_params(board, p);
     let score_white = if board.side_to_move() == Color::White {
         res.score_cp as f32
     } else {

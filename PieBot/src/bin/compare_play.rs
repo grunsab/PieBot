@@ -39,6 +39,10 @@ struct Args {
     #[arg(long, default_value_t = 1u64)]
     seed: u64,
 
+    /// Force both sides to use baseline search implementation (model-only A/B).
+    #[arg(long, default_value_t = false)]
+    same_search: bool,
+
     /// Optional: write summary JSON to this path
     #[arg(long)]
     json_out: Option<String>,
@@ -84,6 +88,7 @@ struct Args {
     exp_hash_mb: Option<usize>,
 }
 
+#[cfg(test)]
 fn legal_moves(board: &Board) -> Vec<Move> {
     let mut v = Vec::new();
     board.generate_moves(|ml| {
@@ -143,7 +148,6 @@ fn san_for_move(board: &Board, mv: Move) -> String {
         }
     }
     let mut s = String::new();
-    let stm = board.side_to_move();
     let (piece_char, is_pawn) = match piece_at(board, mv.from).map(|(_, p)| p) {
         Some(Piece::Knight) => ('N', false),
         Some(Piece::Bishop) => ('B', false),
@@ -255,68 +259,199 @@ fn noisy_choice(order: &[Move], topk: usize, rng: &mut SmallRng) -> Option<Move>
     Some(order[idx])
 }
 
-fn choose_move_noisy_baseline(board: &Board, topk: usize, rng: &mut SmallRng) -> Option<Move> {
-    let order = legal_moves(board);
+fn choose_move_noisy_baseline(
+    board: &Board,
+    engine: &BaselineEngine,
+    topk: usize,
+    rng: &mut SmallRng,
+) -> Option<Move> {
+    let order = engine.searcher.debug_order_root(board);
     noisy_choice(&order, topk, rng)
 }
 
-fn choose_move_noisy_experimental(board: &Board, topk: usize, rng: &mut SmallRng) -> Option<Move> {
-    let order = legal_moves(board);
+fn choose_move_noisy_experimental(
+    board: &Board,
+    engine: &ExperimentalEngine,
+    topk: usize,
+    rng: &mut SmallRng,
+) -> Option<Move> {
+    let order = match &engine.inner {
+        ExperimentalEngineKind::Temp(s) => s.debug_order_root(board),
+        ExperimentalEngineKind::Base(s) => s.debug_order_root(board),
+    };
     noisy_choice(&order, topk, rng)
+}
+
+struct BaselineEngine {
+    searcher: piebot::search::alphabeta::Searcher,
+}
+
+enum ExperimentalEngineKind {
+    Temp(piebot::search::alphabeta_temp::Searcher),
+    Base(piebot::search::alphabeta::Searcher),
+}
+
+struct ExperimentalEngine {
+    inner: ExperimentalEngineKind,
+}
+
+fn parse_eval_mode_base(raw: Option<&str>) -> piebot::search::alphabeta::EvalMode {
+    match raw.unwrap_or("pst").to_ascii_lowercase().as_str() {
+        "material" => piebot::search::alphabeta::EvalMode::Material,
+        "nnue" => piebot::search::alphabeta::EvalMode::Nnue,
+        _ => piebot::search::alphabeta::EvalMode::Pst,
+    }
+}
+
+fn parse_eval_mode_exp(raw: Option<&str>) -> piebot::search::alphabeta_temp::EvalMode {
+    match raw.unwrap_or("pst").to_ascii_lowercase().as_str() {
+        "material" => piebot::search::alphabeta_temp::EvalMode::Material,
+        "nnue" => piebot::search::alphabeta_temp::EvalMode::Nnue,
+        _ => piebot::search::alphabeta_temp::EvalMode::Pst,
+    }
+}
+
+fn build_baseline_engine(args: &Args) -> BaselineEngine {
+    let mut s = piebot::search::alphabeta::Searcher::default();
+    s.set_tt_capacity_mb(args.base_hash_mb.unwrap_or(64));
+    s.set_threads(args.base_threads.unwrap_or(args.threads).max(1));
+    s.set_order_captures(true);
+    s.set_use_history(true);
+    s.set_use_killers(true);
+    s.set_use_lmr(true);
+    s.set_use_nullmove(true);
+    s.set_null_min_depth(8);
+    s.set_use_aspiration(true);
+
+    let mut mode = parse_eval_mode_base(args.base_eval.as_deref());
+    if args.base_nnue_quant_file.is_some() || args.base_nnue_file.is_some() || args.base_use_nnue == Some(true) {
+        mode = piebot::search::alphabeta::EvalMode::Nnue;
+    }
+    s.set_eval_mode(mode);
+    if matches!(mode, piebot::search::alphabeta::EvalMode::Nnue) || args.base_use_nnue == Some(true) {
+        s.set_use_nnue(true);
+        s.set_eval_blend_percent(args.base_blend.unwrap_or(100));
+        if let Some(path) = args.base_nnue_quant_file.as_deref() {
+            let model = piebot::eval::nnue::loader::QuantNnue::load_quantized(path)
+                .unwrap_or_else(|e| panic!("failed to load baseline quant NNUE {}: {}", path, e));
+            s.set_nnue_quant_model(model);
+        } else if let Some(path) = args.base_nnue_file.as_deref() {
+            let nn = piebot::eval::nnue::Nnue::load(path)
+                .unwrap_or_else(|e| panic!("failed to load baseline dense NNUE {}: {}", path, e));
+            s.set_nnue_network(Some(nn));
+        }
+    }
+    BaselineEngine { searcher: s }
+}
+
+fn build_experimental_engine(args: &Args) -> ExperimentalEngine {
+    if args.same_search {
+        let mut s = piebot::search::alphabeta::Searcher::default();
+        s.set_tt_capacity_mb(args.exp_hash_mb.unwrap_or(64));
+        s.set_threads(args.exp_threads.unwrap_or(args.threads).max(1));
+        s.set_order_captures(true);
+        s.set_use_history(true);
+        s.set_use_killers(true);
+        s.set_use_lmr(true);
+        s.set_use_nullmove(true);
+        s.set_null_min_depth(8);
+        s.set_use_aspiration(true);
+
+        let mut mode = parse_eval_mode_base(args.exp_eval.as_deref());
+        if args.exp_nnue_quant_file.is_some()
+            || args.exp_nnue_file.is_some()
+            || args.exp_use_nnue == Some(true)
+        {
+            mode = piebot::search::alphabeta::EvalMode::Nnue;
+        }
+        s.set_eval_mode(mode);
+        if matches!(mode, piebot::search::alphabeta::EvalMode::Nnue) || args.exp_use_nnue == Some(true)
+        {
+            s.set_use_nnue(true);
+            s.set_eval_blend_percent(args.exp_blend.unwrap_or(100));
+            if let Some(path) = args.exp_nnue_quant_file.as_deref() {
+                let model = piebot::eval::nnue::loader::QuantNnue::load_quantized(path)
+                    .unwrap_or_else(|e| panic!("failed to load experimental quant NNUE {}: {}", path, e));
+                s.set_nnue_quant_model(model);
+            } else if let Some(path) = args.exp_nnue_file.as_deref() {
+                let nn = piebot::eval::nnue::Nnue::load(path)
+                    .unwrap_or_else(|e| panic!("failed to load experimental dense NNUE {}: {}", path, e));
+                s.set_nnue_network(Some(nn));
+            }
+        }
+        return ExperimentalEngine {
+            inner: ExperimentalEngineKind::Base(s),
+        };
+    }
+
+    let mut s = piebot::search::alphabeta_temp::Searcher::default();
+    s.set_tt_capacity_mb(args.exp_hash_mb.unwrap_or(64));
+    s.set_threads(args.exp_threads.unwrap_or(args.threads).max(1));
+    s.set_order_captures(true);
+    s.set_use_history(true);
+    s.set_use_killers(true);
+    s.set_use_lmr(true);
+    s.set_use_nullmove(true);
+    s.set_null_min_depth(8);
+    s.set_use_aspiration(true);
+
+    let mut mode = parse_eval_mode_exp(args.exp_eval.as_deref());
+    if args.exp_nnue_quant_file.is_some() || args.exp_nnue_file.is_some() || args.exp_use_nnue == Some(true) {
+        mode = piebot::search::alphabeta_temp::EvalMode::Nnue;
+    }
+    s.set_eval_mode(mode);
+    if matches!(mode, piebot::search::alphabeta_temp::EvalMode::Nnue) || args.exp_use_nnue == Some(true) {
+        s.set_use_nnue(true);
+        s.set_eval_blend_percent(args.exp_blend.unwrap_or(100));
+        if let Some(path) = args.exp_nnue_quant_file.as_deref() {
+            let model = piebot::eval::nnue::loader::QuantNnue::load_quantized(path).unwrap_or_else(
+                |e| panic!("failed to load experimental quant NNUE {}: {}", path, e),
+            );
+            s.set_nnue_quant_model(model);
+        } else if let Some(path) = args.exp_nnue_file.as_deref() {
+            let nn = piebot::eval::nnue::Nnue::load(path)
+                .unwrap_or_else(|e| panic!("failed to load experimental dense NNUE {}: {}", path, e));
+            s.set_nnue_network(Some(nn));
+        }
+    }
+    ExperimentalEngine {
+        inner: ExperimentalEngineKind::Temp(s),
+    }
 }
 
 fn decide_move_baseline(
     board: &Board,
     movetime: u64,
-    threads: usize,
+    engine: &mut BaselineEngine,
 ) -> (Option<Move>, u32, u64, f64) {
-    let mut s = piebot::search::alphabeta::Searcher::default();
-    s.set_tt_capacity_mb(64);
-    s.set_threads(threads.max(1));
-    s.set_order_captures(true);
-    s.set_use_history(true);
-    s.set_use_killers(true);
-    s.set_use_lmr(true);
-    s.set_use_nullmove(true);
-    s.set_null_min_depth(8);
-    s.set_use_aspiration(true);
     let t0 = Instant::now();
-    let (bm, _sc, nodes) = s.search_movetime(board, movetime, 0);
+    let (bm, _sc, nodes) = engine.searcher.search_movetime(board, movetime, 0);
     let dt = t0.elapsed().as_secs_f64();
-    let depth = s.last_depth();
-    (
-        bm.and_then(|u| find_move_uci(board, u.as_str())),
-        depth,
-        nodes,
-        dt,
-    )
+    let depth = engine.searcher.last_depth();
+    (bm.and_then(|u| find_move_uci(board, u.as_str())), depth, nodes, dt)
 }
 
 fn decide_move_experimental(
     board: &Board,
     movetime: u64,
-    threads: usize,
+    engine: &mut ExperimentalEngine,
 ) -> (Option<Move>, u32, u64, f64) {
-    let mut s = piebot::search::alphabeta_temp::Searcher::default();
-    s.set_tt_capacity_mb(64);
-    s.set_threads(threads.max(1));
-    s.set_order_captures(true);
-    s.set_use_history(true);
-    s.set_use_killers(true);
-    s.set_use_lmr(true);
-    s.set_use_nullmove(true);
-    s.set_null_min_depth(8);
-    s.set_use_aspiration(true);
-    let t0 = Instant::now();
-    let (bm, _sc, nodes) = s.search_movetime(board, movetime, 0);
-    let dt = t0.elapsed().as_secs_f64();
-    let depth = s.last_depth();
-    (
-        bm.and_then(|u| find_move_uci(board, u.as_str())),
-        depth,
-        nodes,
-        dt,
-    )
+    match &mut engine.inner {
+        ExperimentalEngineKind::Temp(s) => {
+            let t0 = Instant::now();
+            let (bm, _sc, nodes) = s.search_movetime(board, movetime, 0);
+            let dt = t0.elapsed().as_secs_f64();
+            let depth = s.last_depth();
+            (bm.and_then(|u| find_move_uci(board, u.as_str())), depth, nodes, dt)
+        }
+        ExperimentalEngineKind::Base(s) => {
+            let t0 = Instant::now();
+            let (bm, _sc, nodes) = s.search_movetime(board, movetime, 0);
+            let dt = t0.elapsed().as_secs_f64();
+            let depth = s.last_depth();
+            (bm.and_then(|u| find_move_uci(board, u.as_str())), depth, nodes, dt)
+        }
+    }
 }
 
 fn find_move_uci(board: &Board, uci: &str) -> Option<Move> {
@@ -360,10 +495,14 @@ fn main() {
     // Detect if experimental search is identical to baseline (alphabeta_temp reexports alphabeta)
     let tn_base = std::any::type_name::<piebot::search::alphabeta::Searcher>();
     let tn_exp = std::any::type_name::<piebot::search::alphabeta_temp::Searcher>();
-    let self_compare = tn_base == tn_exp;
-    if self_compare {
+    let self_compare = args.same_search || tn_base == tn_exp;
+    if args.same_search {
+        eprintln!("[INFO] same-search mode enabled: both sides use baseline search implementation.");
+    } else if tn_base == tn_exp {
         eprintln!("[WARN] Experimental search equals baseline (alphabeta_temp reexports alphabeta). Comparing baseline against itself.");
     }
+    let mut base_engine = build_baseline_engine(&args);
+    let mut exp_engine = build_experimental_engine(&args);
 
     let mut baseline_points = 0.0f64;
     let mut experimental_points = 0.0f64;
@@ -384,12 +523,11 @@ fn main() {
         let mut board = Board::default();
         let baseline_is_white = g % 2 == 0;
         let mut plies = 0usize;
-        let mut result: Option<f64> = None; // 1.0 baseline win, 0.0 draw, -1.0 experimental win
         let mut san_moves: Vec<String> = Vec::new();
 
-        loop {
+        let result = loop {
             if let Some(res) = is_game_over(&board) {
-                result = Some(match res {
+                break match res {
                     1 => {
                         // side to move has no moves and is in check => previous mover won
                         let prev_was_baseline =
@@ -401,25 +539,23 @@ fn main() {
                         }
                     }
                     _ => 0.0,
-                });
-                break;
+                };
             }
             if plies >= args.max_plies {
-                result = Some(0.0);
-                break;
+                break 0.0;
             }
 
             let baseline_to_move = (plies % 2 == 0) == baseline_is_white;
             let mv = if plies < args.noise_plies {
                 // Noisy selection from ordered top-K
                 if baseline_to_move {
-                    choose_move_noisy_baseline(&board, args.noise_topk, &mut rng)
+                    choose_move_noisy_baseline(&board, &base_engine, args.noise_topk, &mut rng)
                 } else {
-                    choose_move_noisy_experimental(&board, args.noise_topk, &mut rng)
+                    choose_move_noisy_experimental(&board, &exp_engine, args.noise_topk, &mut rng)
                 }
             } else {
                 if baseline_to_move {
-                    let (m, d, n, dt) = decide_move_baseline(&board, args.movetime, args.threads);
+                    let (m, d, n, dt) = decide_move_baseline(&board, args.movetime, &mut base_engine);
                     if let Some(_) = m {
                         sum_nodes_base += n;
                         sum_time_base += dt;
@@ -428,8 +564,11 @@ fn main() {
                     }
                     m
                 } else {
-                    let (m, d, n, dt) =
-                        decide_move_experimental(&board, args.movetime, args.threads);
+                    let (m, d, n, dt) = decide_move_experimental(
+                        &board,
+                        args.movetime,
+                        &mut exp_engine,
+                    );
                     if let Some(_) = m {
                         sum_nodes_exp += n;
                         sum_time_exp += dt;
@@ -443,8 +582,7 @@ fn main() {
             let mv = match mv {
                 Some(m) => m,
                 None => {
-                    result = Some(0.0);
-                    break;
+                    break 0.0;
                 }
             };
             // Record SAN before updating board
@@ -454,9 +592,9 @@ fn main() {
             board = next;
             san_moves.push(san);
             plies += 1;
-        }
+        };
 
-        match result.unwrap_or(0.0).partial_cmp(&0.0).unwrap() {
+        match result.partial_cmp(&0.0).unwrap() {
             std::cmp::Ordering::Greater => baseline_points += 1.0,
             std::cmp::Ordering::Less => experimental_points += 1.0,
             std::cmp::Ordering::Equal => draws += 1,
@@ -465,14 +603,14 @@ fn main() {
         println!(
             "game={} result={} (baseline_white={}) plies={}",
             g + 1,
-            result.unwrap_or(0.0),
+            result,
             baseline_is_white,
             plies
         );
 
         // Append PGN if requested
         if args.pgn_out.is_some() {
-            let res = match result.unwrap_or(0.0).partial_cmp(&0.0).unwrap() {
+            let res = match result.partial_cmp(&0.0).unwrap() {
                 std::cmp::Ordering::Greater => {
                     if baseline_is_white {
                         "1-0"
@@ -602,5 +740,76 @@ fn main() {
         if let Err(e) = std::fs::write(path, pgn_buf) {
             eprintln!("warn: failed to write pgn_out: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn first_order_difference_position() -> Board {
+        let candidates = [
+            // Positions from mate-in-1 suite (guaranteed legal).
+            "2kr1b1r/p1p2pp1/2pqN3/7p/6n1/2NPB3/PPP2PPP/R2Q1RK1 b - - 0 13",
+            "6k1/p1p3pp/4N3/1p6/2q1r1n1/2B5/PP4PP/3R1R1K w - - 0 29",
+            "8/3B2pp/p5k1/6P1/1ppp1K2/8/1P6/8 w - - 0 39",
+            "r4rk1/pp3ppp/3b4/2p1pPB1/7N/2PP3n/PP4PP/R2Q2RK b - - 0 18",
+        ];
+        for fen in candidates {
+            let board = Board::from_fen(fen, false).expect("valid FEN");
+            let legal = legal_moves(&board);
+            if legal.is_empty() {
+                continue;
+            }
+            let mut searcher = piebot::search::alphabeta_temp::Searcher::default();
+            searcher.set_order_captures(true);
+            searcher.set_use_history(true);
+            searcher.set_use_killers(true);
+            let ordered = searcher.debug_order_root(&board);
+            if !ordered.is_empty() && ordered[0] != legal[0] {
+                return board;
+            }
+        }
+        panic!("no candidate position showed a legal-order vs engine-order difference");
+    }
+
+    #[test]
+    fn noisy_choice_topk_one_picks_first() {
+        let board = Board::from_fen("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1", false).expect("valid FEN");
+        let order = legal_moves(&board);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let pick = noisy_choice(&order, 1, &mut rng).expect("pick");
+        assert_eq!(pick, order[0]);
+    }
+
+    #[test]
+    fn noisy_experimental_uses_engine_order_for_top1() {
+        let board = first_order_difference_position();
+        let mut searcher = piebot::search::alphabeta_temp::Searcher::default();
+        searcher.set_order_captures(true);
+        searcher.set_use_history(true);
+        searcher.set_use_killers(true);
+        let ordered = searcher.debug_order_root(&board);
+        let expected = ordered[0];
+        let engine = ExperimentalEngine {
+            inner: ExperimentalEngineKind::Temp(searcher),
+        };
+        let mut rng = SmallRng::seed_from_u64(1);
+        let picked = choose_move_noisy_experimental(&board, &engine, 1, &mut rng).expect("pick");
+        assert_eq!(picked, expected);
+    }
+
+    #[test]
+    fn noisy_baseline_uses_engine_order_for_top1() {
+        let board = first_order_difference_position();
+        let mut searcher = piebot::search::alphabeta::Searcher::default();
+        searcher.set_order_captures(true);
+        searcher.set_use_history(true);
+        searcher.set_use_killers(true);
+        let expected = searcher.debug_order_root(&board)[0];
+        let engine = BaselineEngine { searcher };
+        let mut rng = SmallRng::seed_from_u64(1);
+        let picked = choose_move_noisy_baseline(&board, &engine, 1, &mut rng).expect("pick");
+        assert_eq!(picked, expected);
     }
 }

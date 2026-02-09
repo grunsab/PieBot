@@ -40,6 +40,9 @@ End-to-end pipeline
     - `--teacher-relabel-depth <N>` enables relabeling with PieBot search at depth `N`
     - `--teacher-relabel-every <K>` relabel every `K` plies
     - `--teacher-relabel-threads`, `--teacher-relabel-hash-mb`, `--teacher-relabel-max-records`
+  - Optional NNUE bootstrap for search-driven data stages:
+    - self-play: `--selfplay-nnue-quant-file <path>` and `--selfplay-nnue-blend-percent <0..100>`
+    - relabel: `--teacher-relabel-nnue-quant-file <path>` and `--teacher-relabel-nnue-blend-percent <0..100>`
   - Optional resume:
     - `--resume` reuses existing self-play/relabel/train/export artifacts if present (fault-tolerant reruns)
   - Optional trainer backend:
@@ -96,6 +99,11 @@ Set-and-forget autopilot
   - single-instance lock (`autopilot.lock`)
   - automatic retry on transient failures
   - resume-safe cycle execution (`run_pipeline --resume`)
+  - automatic NNUE handoff: cycle `N+1` uses cycle `N`'s `nnue_quant.nnue` for self-play + relabel teacher search
+  - replay-window training: each cycle can merge JSONL from recent prior cycles
+  - lagged teacher option: relabel can use an older accepted model (reduces tight student-teacher coupling)
+  - automatic model gate: candidate NNUE is promoted only after head-to-head `compare_play` passes
+    - gate runs in model-only mode (`compare_play --same-search`) to avoid search-code confounding
 
 Zen5 9755 (7-day) profile:
 ```bash
@@ -108,3 +116,4 @@ python -m training.nnue.autopilot \
 Notes:
 - Profile defaults favor throughput with periodic stronger-teacher relabeling.
 - If CUDA is unavailable, `trainer-backend=auto` falls back to the CPU stub trainer.
+- For quick validation runs, you can disable promotion gating by setting `--gate-games 0`.

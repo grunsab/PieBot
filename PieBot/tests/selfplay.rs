@@ -18,6 +18,8 @@ fn selfplay_generates_games_deterministically() {
         temperature_moves: 0,
         openings_path: None,
         temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
     };
     let g1 = generate_games(&params);
     let g2 = generate_games(&params);
@@ -46,6 +48,8 @@ fn selfplay_noise_changes_moves_with_different_seeds() {
         temperature_moves: 10,
         openings_path: None,
         temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
     };
     let g1 = generate_games(&p);
     p.seed = 2;

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -209,6 +211,8 @@ def build_selfplay_command(
     dirichlet_plies: int,
     temperature_moves: int,
     temperature_tau_final: float,
+    nnue_quant_file: Optional[Path],
+    nnue_blend_percent: int,
 ) -> List[str]:
     cmd: List[str] = [
         "cargo",
@@ -249,6 +253,14 @@ def build_selfplay_command(
     ]
     if use_engine:
         cmd.append("--use-engine")
+    if nnue_quant_file is not None:
+        cmd.extend(["--nnue-quant-file", str(nnue_quant_file)])
+        cmd.extend(
+            [
+                "--nnue-blend-percent",
+                str(max(0, min(100, int(nnue_blend_percent)))),
+            ]
+        )
     if movetime_ms is not None:
         cmd.extend(["--movetime-ms", str(movetime_ms)])
     if openings is not None:
@@ -266,6 +278,8 @@ def build_relabel_command(
     threads: int,
     hash_mb: int,
     max_records: int,
+    nnue_quant_file: Optional[Path],
+    nnue_blend_percent: int,
 ) -> List[str]:
     cmd: List[str] = [
         "cargo",
@@ -287,6 +301,14 @@ def build_relabel_command(
         "--hash-mb",
         str(hash_mb),
     ]
+    if nnue_quant_file is not None:
+        cmd.extend(["--nnue-quant-file", str(nnue_quant_file)])
+        cmd.extend(
+            [
+                "--nnue-blend-percent",
+                str(max(0, min(100, int(nnue_blend_percent)))),
+            ]
+        )
     if max_records > 0:
         cmd.extend(["--max-records", str(max_records)])
     return cmd
@@ -312,6 +334,8 @@ def _generate_selfplay_jsonl(
     dirichlet_plies: int,
     temperature_moves: int,
     temperature_tau_final: float,
+    nnue_quant_file: Optional[Path],
+    nnue_blend_percent: int,
 ) -> List[str]:
     jsonl_out.mkdir(parents=True, exist_ok=True)
     cmd = build_selfplay_command(
@@ -333,6 +357,8 @@ def _generate_selfplay_jsonl(
         dirichlet_plies=dirichlet_plies,
         temperature_moves=temperature_moves,
         temperature_tau_final=temperature_tau_final,
+        nnue_quant_file=nnue_quant_file,
+        nnue_blend_percent=nnue_blend_percent,
     )
     subprocess.run(cmd, cwd=str(piebot_dir), check=True)
     return cmd
@@ -348,6 +374,8 @@ def _relabel_jsonl(
     threads: int,
     hash_mb: int,
     max_records: int,
+    nnue_quant_file: Optional[Path],
+    nnue_blend_percent: int,
 ) -> List[str]:
     jsonl_out.mkdir(parents=True, exist_ok=True)
     cmd = build_relabel_command(
@@ -359,6 +387,8 @@ def _relabel_jsonl(
         threads=threads,
         hash_mb=hash_mb,
         max_records=max_records,
+        nnue_quant_file=nnue_quant_file,
+        nnue_blend_percent=nnue_blend_percent,
     )
     subprocess.run(cmd, cwd=str(piebot_dir), check=True)
     return cmd
@@ -376,6 +406,57 @@ def _count_jsonl_records(jsonl_dir: Path) -> int:
 
 def _has_jsonl_files(jsonl_dir: Path) -> bool:
     return jsonl_dir.exists() and any(jsonl_dir.glob("*.jsonl"))
+
+
+def _is_same_path(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except Exception:
+        return str(a) == str(b)
+
+
+def _build_training_jsonl_dir(
+    *,
+    out_dir: Path,
+    primary_jsonl_dir: Path,
+    replay_jsonl_dirs: Optional[Sequence[Path]],
+    resume: bool,
+) -> Path:
+    replay_dirs = [Path(p) for p in (replay_jsonl_dirs or [])]
+    unique_replay: List[Path] = []
+    for d in replay_dirs:
+        if _is_same_path(d, primary_jsonl_dir):
+            continue
+        if not d.exists() or not _has_jsonl_files(d):
+            continue
+        if any(_is_same_path(d, ex) for ex in unique_replay):
+            continue
+        unique_replay.append(d)
+
+    if not unique_replay:
+        return primary_jsonl_dir
+
+    merged_dir = out_dir / "jsonl_train"
+    if resume and _has_jsonl_files(merged_dir):
+        return merged_dir
+    if merged_dir.exists():
+        for old in merged_dir.glob("*.jsonl"):
+            old.unlink()
+    merged_dir.mkdir(parents=True, exist_ok=True)
+
+    src_dirs = [primary_jsonl_dir] + unique_replay
+    total = 0
+    for src_idx, src_dir in enumerate(src_dirs):
+        for shard_idx, src in enumerate(sorted(src_dir.glob("*.jsonl"))):
+            dst = merged_dir / f"src{src_idx:02d}_shard{shard_idx:06d}.jsonl"
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copy2(src, dst)
+            total += 1
+    if total == 0:
+        raise ValueError("no JSONL shards found after replay merge")
+    return merged_dir
 
 
 def _resolve_trainer_backend(requested: str, trainer_device: str = "auto") -> str:
@@ -429,11 +510,16 @@ def run_pipeline(
     selfplay_dirichlet_plies: int = 8,
     selfplay_temperature_moves: int = 20,
     selfplay_temperature_tau_final: float = 0.1,
+    selfplay_nnue_quant_file: Optional[Path] = None,
+    selfplay_nnue_blend_percent: int = 100,
+    replay_jsonl_dirs: Optional[Sequence[Path]] = None,
     teacher_relabel_depth: int = 0,
     teacher_relabel_every: int = 4,
     teacher_relabel_threads: int = 1,
     teacher_relabel_hash_mb: int = 64,
     teacher_relabel_max_records: int = 0,
+    teacher_relabel_nnue_quant_file: Optional[Path] = None,
+    teacher_relabel_nnue_blend_percent: int = 100,
     bin_glob: str = "*.bin*",
     shard_size: int = 200_000,
     top_policy: int = 8,
@@ -494,6 +580,8 @@ def run_pipeline(
                 dirichlet_plies=selfplay_dirichlet_plies,
                 temperature_moves=selfplay_temperature_moves,
                 temperature_tau_final=selfplay_temperature_tau_final,
+                nnue_quant_file=selfplay_nnue_quant_file,
+                nnue_blend_percent=selfplay_nnue_blend_percent,
             )
         ingested = _count_jsonl_records(jsonl_dir)
     elif jsonl_dir is None:
@@ -525,9 +613,18 @@ def run_pipeline(
                 threads=teacher_relabel_threads,
                 hash_mb=teacher_relabel_hash_mb,
                 max_records=teacher_relabel_max_records,
+                nnue_quant_file=teacher_relabel_nnue_quant_file,
+                nnue_blend_percent=teacher_relabel_nnue_blend_percent,
             )
         jsonl_dir = relabeled_dir
         ingested = _count_jsonl_records(jsonl_dir)
+
+    train_jsonl_dir = _build_training_jsonl_dir(
+        out_dir=out_dir,
+        primary_jsonl_dir=Path(jsonl_dir),
+        replay_jsonl_dirs=replay_jsonl_dirs,
+        resume=resume,
+    )
 
     train_out = out_dir / "train"
     checkpoint_path = train_out / "checkpoint.json"
@@ -538,7 +635,7 @@ def run_pipeline(
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     else:
         train_kwargs = dict(
-            jsonl_dir=Path(jsonl_dir),
+            jsonl_dir=train_jsonl_dir,
             batch_size=batch_size,
             max_samples=max_samples,
             epochs=epochs,
@@ -594,9 +691,15 @@ def run_pipeline(
 
     summary: Dict[str, Any] = {
         "jsonl_dir": str(Path(jsonl_dir)),
+        "train_jsonl_dir": str(train_jsonl_dir),
+        "replay_jsonl_dirs": [str(Path(p)) for p in (replay_jsonl_dirs or [])],
         "ingested_records": ingested,
         "selfplay_command": selfplay_cmd,
         "relabel_command": relabel_cmd,
+        "selfplay_nnue_quant_file": str(selfplay_nnue_quant_file) if selfplay_nnue_quant_file else None,
+        "teacher_relabel_nnue_quant_file": str(teacher_relabel_nnue_quant_file)
+        if teacher_relabel_nnue_quant_file
+        else None,
         "checkpoint_path": str(checkpoint_path),
         "metrics_path": str(metrics_path),
         "dense_path": str(dense_path),
@@ -629,6 +732,9 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=True,
     )
     ap.add_argument("--selfplay-openings", type=Path, default=None)
+    ap.add_argument("--selfplay-nnue-quant-file", type=Path, default=None)
+    ap.add_argument("--selfplay-nnue-blend-percent", type=int, default=100)
+    ap.add_argument("--replay-jsonl-dirs", nargs="*", type=Path, default=None)
     ap.add_argument("--selfplay-temperature-tau", type=float, default=1.0)
     ap.add_argument("--selfplay-temp-cp-scale", type=float, default=200.0)
     ap.add_argument("--selfplay-dirichlet-alpha", type=float, default=0.3)
@@ -641,6 +747,8 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--teacher-relabel-threads", type=int, default=1)
     ap.add_argument("--teacher-relabel-hash-mb", type=int, default=64)
     ap.add_argument("--teacher-relabel-max-records", type=int, default=0)
+    ap.add_argument("--teacher-relabel-nnue-quant-file", type=Path, default=None)
+    ap.add_argument("--teacher-relabel-nnue-blend-percent", type=int, default=100)
     ap.add_argument(
         "--bin-inputs",
         nargs="*",
@@ -706,6 +814,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         selfplay_seed=args.selfplay_seed,
         selfplay_use_engine=args.selfplay_use_engine,
         selfplay_openings=args.selfplay_openings,
+        selfplay_nnue_quant_file=args.selfplay_nnue_quant_file,
+        selfplay_nnue_blend_percent=args.selfplay_nnue_blend_percent,
+        replay_jsonl_dirs=args.replay_jsonl_dirs,
         selfplay_temperature_tau=args.selfplay_temperature_tau,
         selfplay_temp_cp_scale=args.selfplay_temp_cp_scale,
         selfplay_dirichlet_alpha=args.selfplay_dirichlet_alpha,
@@ -718,6 +829,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         teacher_relabel_threads=args.teacher_relabel_threads,
         teacher_relabel_hash_mb=args.teacher_relabel_hash_mb,
         teacher_relabel_max_records=args.teacher_relabel_max_records,
+        teacher_relabel_nnue_quant_file=args.teacher_relabel_nnue_quant_file,
+        teacher_relabel_nnue_blend_percent=args.teacher_relabel_nnue_blend_percent,
         bin_glob=args.bin_glob,
         shard_size=args.shard_size,
         top_policy=args.top_policy,

@@ -42,11 +42,6 @@ impl TtPleco {
             gen: std::sync::atomic::AtomicU32::new(0),
         }
     }
-    fn ensure(&mut self) {
-        if self.buckets.is_empty() {
-            self.set_capacity_entries(65_536);
-        }
-    }
     pub fn set_capacity_entries(&mut self, entries: usize) {
         let buckets = (entries + WAYS - 1) / WAYS;
         self.buckets.clear();

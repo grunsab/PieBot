@@ -609,7 +609,7 @@ impl Searcher {
             let eval = static_eval.unwrap_or_else(|| self.eval_current(board));
             let r = self.null_move_reduction(depth, eval, beta);
 
-            let mut nb = board.clone();
+            let nb = board.clone();
             let null_ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 nb.null_move();
             }))
@@ -1190,7 +1190,6 @@ impl Searcher {
                 qn.refresh(board);
             }
         }
-        let orig_alpha = alpha;
         let mut moves: Vec<Move> = Vec::with_capacity(64);
         board.generate_moves(|ml| {
             for m in ml {
@@ -1357,6 +1356,89 @@ impl Searcher {
         tt.set_capacity_mb(mb);
         self.tt = Arc::new(tt);
     }
+
+    pub fn debug_order_root(&self, board: &Board) -> Vec<Move> {
+        let mut moves: Vec<Move> = Vec::with_capacity(64);
+        board.generate_moves(|ml| {
+            for m in ml {
+                moves.push(m);
+            }
+            false
+        });
+        if moves.is_empty() {
+            return moves;
+        }
+
+        if let Some(en) = self.tt_get(board) {
+            if let Some(ttm) = en.best {
+                if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
+                    let mv = moves.remove(pos);
+                    moves.insert(0, mv);
+                }
+            }
+        }
+
+        if self.order_captures || self.use_history || self.use_killers {
+            let opp = if board.side_to_move() == cozy_chess::Color::White {
+                cozy_chess::Color::Black
+            } else {
+                cozy_chess::Color::White
+            };
+            let opp_bb = board.colors(opp);
+            let mut occ_mask: u64 = 0;
+            for sq in opp_bb {
+                occ_mask |= 1u64 << (sq as usize);
+            }
+
+            let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
+            for &m in &moves {
+                let to_sq: Square = m.to;
+                let bit = 1u64 << (to_sq as usize);
+                let is_cap = if self.order_captures && (occ_mask & bit) != 0 {
+                    1
+                } else {
+                    0
+                };
+                let mvv = if is_cap == 1 {
+                    mvv_lva_score(board, m)
+                } else {
+                    0
+                };
+                let see_b = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                } else {
+                    0
+                };
+                let gives_check_bonus = {
+                    let mut child = board.clone();
+                    child.play_unchecked(m);
+                    if !(child.checkers()).is_empty() {
+                        30
+                    } else {
+                        0
+                    }
+                };
+                let mi = move_index(m);
+                let hist = if self.use_history {
+                    self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let kb = if self.use_killers {
+                    self.killer_bonus(0, m)
+                } else {
+                    0
+                };
+                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
+                scored.push((m, score));
+            }
+
+            scored.sort_by_key(|&(_, score)| score);
+            moves = scored.into_iter().map(|(m, _)| m).collect();
+        }
+        moves
+    }
+
     pub fn get_threads(&self) -> usize {
         self.threads
     }

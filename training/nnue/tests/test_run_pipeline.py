@@ -50,6 +50,8 @@ class RunPipelineTests(unittest.TestCase):
             dirichlet_plies=8,
             temperature_moves=20,
             temperature_tau_final=0.1,
+            nnue_quant_file=None,
+            nnue_blend_percent=100,
         )
         self.assertIn("--jsonl-out", cmd)
         self.assertIn("/tmp/out/jsonl", cmd)
@@ -66,6 +68,8 @@ class RunPipelineTests(unittest.TestCase):
             threads=2,
             hash_mb=256,
             max_records=1000,
+            nnue_quant_file=None,
+            nnue_blend_percent=100,
         )
         self.assertIn("--bin", cmd)
         self.assertIn("relabel_jsonl", cmd)
@@ -77,6 +81,52 @@ class RunPipelineTests(unittest.TestCase):
         self.assertIn("8", cmd)
         self.assertIn("--every", cmd)
         self.assertIn("4", cmd)
+
+    def test_build_selfplay_command_with_bootstrap_nnue(self) -> None:
+        cmd = run_pipeline.build_selfplay_command(
+            piebot_dir=Path("/tmp/repo/PieBot"),
+            jsonl_out=Path("/tmp/out/jsonl"),
+            games=12,
+            max_plies=80,
+            threads=2,
+            depth=5,
+            movetime_ms=50,
+            seed=42,
+            max_records_per_shard=1000,
+            use_engine=True,
+            openings=None,
+            temperature_tau=1.0,
+            temp_cp_scale=200.0,
+            dirichlet_alpha=0.3,
+            dirichlet_epsilon=0.25,
+            dirichlet_plies=8,
+            temperature_moves=20,
+            temperature_tau_final=0.1,
+            nnue_quant_file=Path("/tmp/prev_cycle/nnue_quant.nnue"),
+            nnue_blend_percent=90,
+        )
+        self.assertIn("--nnue-quant-file", cmd)
+        self.assertIn("/tmp/prev_cycle/nnue_quant.nnue", cmd)
+        self.assertIn("--nnue-blend-percent", cmd)
+        self.assertIn("90", cmd)
+
+    def test_build_relabel_command_with_bootstrap_nnue(self) -> None:
+        cmd = run_pipeline.build_relabel_command(
+            piebot_dir=Path("/tmp/repo/PieBot"),
+            jsonl_in=Path("/tmp/in_jsonl"),
+            jsonl_out=Path("/tmp/out_jsonl"),
+            depth=8,
+            every=4,
+            threads=2,
+            hash_mb=256,
+            max_records=1000,
+            nnue_quant_file=Path("/tmp/prev_cycle/nnue_quant.nnue"),
+            nnue_blend_percent=95,
+        )
+        self.assertIn("--nnue-quant-file", cmd)
+        self.assertIn("/tmp/prev_cycle/nnue_quant.nnue", cmd)
+        self.assertIn("--nnue-blend-percent", cmd)
+        self.assertIn("95", cmd)
 
     def test_resume_skips_existing_selfplay_relabel_train_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,6 +225,38 @@ class RunPipelineTests(unittest.TestCase):
             loaded = json.loads(pipeline_summary.read_text(encoding="utf-8"))
             self.assertEqual(str(dense_path), loaded["dense_path"])
             self.assertGreater(loaded["metrics"]["train_samples"], 0)
+
+    def test_pipeline_replay_jsonl_dirs_are_merged_for_training(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            current_dir = root / "current"
+            replay_dir = root / "replay"
+            out_dir = root / "out"
+            current_dir.mkdir(parents=True, exist_ok=True)
+            replay_dir.mkdir(parents=True, exist_ok=True)
+
+            _write_dataset(current_dir, n=30)
+            _write_dataset(replay_dir, n=30)
+
+            summary = run_pipeline.run_pipeline(
+                jsonl_dir=current_dir,
+                replay_jsonl_dirs=[replay_dir],
+                out_dir=out_dir,
+                batch_size=10,
+                max_samples=60,
+                epochs=2,
+                val_split=0.2,
+                learning_rate=0.1,
+                hidden_dim=4,
+                target_cp=50.0,
+                seed=17,
+            )
+
+            train_jsonl_dir = Path(summary["train_jsonl_dir"])
+            self.assertTrue(train_jsonl_dir.exists())
+            shards = sorted(train_jsonl_dir.glob("*.jsonl"))
+            self.assertGreaterEqual(len(shards), 2)
+            self.assertEqual(str(replay_dir), summary["replay_jsonl_dirs"][0])
 
 
 if __name__ == "__main__":  # pragma: no cover

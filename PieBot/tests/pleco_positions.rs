@@ -49,7 +49,7 @@ fn pleco_positions_shallow_bestmove() {
 #[test]
 fn pleco_root_smp_scales_nodes() {
     let fen = "startpos";
-    let mut b1 = if fen == "startpos" {
+    let b1 = if fen == "startpos" {
         PBoard::start_pos()
     } else {
         PBoard::from_fen(fen).unwrap()

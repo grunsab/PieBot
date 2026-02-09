@@ -217,20 +217,3 @@ fn square_index(board: &Board, side: Color, piece: Piece) -> usize {
     // Cozy-chess Square implements Into<u8>, returns 0-63 in row-major order
     sq as usize
 }
-
-fn active_indices_side_diff(board: &Board, side: Color, k_idx: usize) -> Vec<usize> {
-    let mut out = Vec::with_capacity(16);
-    for (pi, p) in HALFKP_PIECE_ORDER.iter().enumerate() {
-        let bb = board.colors(side) & board.pieces(*p);
-        for sq in bb {
-            let sq_idx = sq as usize;
-            let idx = (((if side == Color::White { 0 } else { 1 }) * 64 + k_idx)
-                * HALFKP_PIECE_ORDER.len()
-                + pi)
-                * 64
-                + sq_idx;
-            out.push(idx);
-        }
-    }
-    out
-}

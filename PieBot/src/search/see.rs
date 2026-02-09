@@ -65,11 +65,6 @@ fn get_rook_attacks(sq: Square, occupied: BitBoard) -> BitBoard {
 }
 
 #[inline]
-fn get_queen_attacks(sq: Square, occupied: BitBoard) -> BitBoard {
-    get_bishop_attacks(sq, occupied) | get_rook_attacks(sq, occupied)
-}
-
-#[inline]
 fn get_knight_attacks(sq: Square) -> BitBoard {
     cozy_chess::get_knight_moves(sq)
 }

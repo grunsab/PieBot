@@ -1,4 +1,5 @@
 use clap::Parser;
+use piebot::eval::nnue::loader::QuantNnue;
 use piebot::selfplay::{generate_games, write_jsonl_shards, write_shards, SelfPlayParams};
 use std::path::PathBuf;
 
@@ -46,10 +47,19 @@ struct Args {
     openings: Option<PathBuf>,
     #[arg(long, default_value_t = 0.1)]
     temperature_tau_final: f32,
+    #[arg(long)]
+    nnue_quant_file: Option<PathBuf>,
+    #[arg(long, default_value_t = 100)]
+    nnue_blend_percent: u8,
 }
 
 fn main() -> anyhow::Result<()> {
     let a = Args::parse();
+    let nnue_quant_model = if let Some(path) = a.nnue_quant_file.as_ref() {
+        Some(QuantNnue::load_quantized(path)?)
+    } else {
+        None
+    };
     let params = SelfPlayParams {
         games: a.games,
         max_plies: a.max_plies,
@@ -66,10 +76,18 @@ fn main() -> anyhow::Result<()> {
         temperature_moves: a.temperature_moves,
         openings_path: a.openings,
         temperature_tau_final: a.temperature_tau_final,
+        nnue_quant_model,
+        nnue_blend_percent: a.nnue_blend_percent,
     };
     eprintln!(
-        "Generating {} games (depth={}, threads={}, engine={}, tau={}, dir_eps={})",
-        a.games, a.depth, a.threads, a.use_engine, a.temperature_tau, a.dirichlet_epsilon
+        "Generating {} games (depth={}, threads={}, engine={}, tau={}, dir_eps={}, nnue={})",
+        a.games,
+        a.depth,
+        a.threads,
+        a.use_engine,
+        a.temperature_tau,
+        a.dirichlet_epsilon,
+        a.nnue_quant_file.is_some()
     );
     let games = generate_games(&params);
     if !a.skip_bin {

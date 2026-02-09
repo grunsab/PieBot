@@ -392,7 +392,7 @@ fn tempered_pick(
     }
     let t = temp_cp;
     let max_sc = slice.iter().map(|&(_, sc)| sc).max().unwrap_or(0) as f32;
-    let mut weights: Vec<f32> = slice
+    let weights: Vec<f32> = slice
         .iter()
         .map(|&(_, sc)| ((sc as f32 - max_sc) / t).exp())
         .collect();

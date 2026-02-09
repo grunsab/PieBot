@@ -183,7 +183,6 @@ impl PlecoSearcher {
         let mut best: Option<PMove> = None;
         let mut best_score = -MATE_SCORE;
         let max_depth = if depth == 0 { 99 } else { depth };
-        let mut last_score = 0;
         let mut last_iter_time = Duration::from_millis(0);
         for d in 1..=max_depth {
             self.tt.bump_generation();

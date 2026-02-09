@@ -63,7 +63,7 @@ fn solve_alphabeta(
     let mut use_asp = false;
     let mut use_lmr = false;
     if let Some(spec) = opts_raw.as_deref() {
-        let mut set = |key: &str, flag: &mut bool| {
+        let set = |key: &str, flag: &mut bool| {
             if spec.split(',').any(|t| t.trim().eq_ignore_ascii_case(key)) {
                 *flag = true;
             }
