@@ -11,8 +11,6 @@ Usage:
     --jsonl-dir data/nnue_jsonl/test80 --batch-size 4096 --max-samples 500000 \
     --epochs 8 --val-split 0.1 --learning-rate 0.05 --out out/nnue_stub_train
 
-Requires:
-  - python-chess
 """
 from __future__ import annotations
 import argparse
@@ -23,63 +21,72 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Sequence, Tuple
 
 try:
-    import chess  # type: ignore
-except Exception as e:
-    raise SystemExit("python-chess is required: pip install python-chess")
-
-try:
     from .dataloader import TrainingRecord, jsonl_to_training_samples, read_jsonl_dir
 except Exception:
     from dataloader import TrainingRecord, jsonl_to_training_samples, read_jsonl_dir  # type: ignore
+
+
+PIECE_ORDER = "PNBRQ"
+COUNT_ORDER = "PNBRQKpnbrqk"
+
+
+def _parse_board_fen(fen: str) -> Tuple[List[Tuple[str, int]], int | None, int | None]:
+    board_part = fen.split()[0]
+    ranks = board_part.split("/")
+    if len(ranks) != 8:
+        raise ValueError(f"invalid FEN board part: {board_part}")
+
+    pieces: List[Tuple[str, int]] = []
+    white_king = None
+    black_king = None
+    for fen_rank, rank_str in enumerate(ranks):
+        rank_idx = 7 - fen_rank
+        file_idx = 0
+        for ch in rank_str:
+            if ch.isdigit():
+                file_idx += int(ch)
+                continue
+            if file_idx >= 8:
+                raise ValueError(f"invalid FEN rank overflow: {rank_str}")
+            sq = rank_idx * 8 + file_idx
+            pieces.append((ch, sq))
+            if ch == "K":
+                white_king = sq
+            elif ch == "k":
+                black_king = sq
+            file_idx += 1
+        if file_idx != 8:
+            raise ValueError(f"invalid FEN rank width: {rank_str}")
+    return pieces, white_king, black_king
 
 
 def featureize_fen_counts(fen: str) -> List[int]:
     """Simple placeholder features: counts of 12 piece types (white/black x 6).
     Order: [P,N,B,R,Q,K, p,n,b,r,q,k]
     """
-    board = chess.Board(fen)
-    order = [
-        (chess.WHITE, chess.PAWN),
-        (chess.WHITE, chess.KNIGHT),
-        (chess.WHITE, chess.BISHOP),
-        (chess.WHITE, chess.ROOK),
-        (chess.WHITE, chess.QUEEN),
-        (chess.WHITE, chess.KING),
-        (chess.BLACK, chess.PAWN),
-        (chess.BLACK, chess.KNIGHT),
-        (chess.BLACK, chess.BISHOP),
-        (chess.BLACK, chess.ROOK),
-        (chess.BLACK, chess.QUEEN),
-        (chess.BLACK, chess.KING),
-    ]
-    feats = []
-    for color, piece in order:
-        bb = board.pieces(piece, color)
-        feats.append(len(bb))
-    return feats
+    pieces, _wk, _bk = _parse_board_fen(fen)
+    counts = {ch: 0 for ch in COUNT_ORDER}
+    for piece, _sq in pieces:
+        if piece in counts:
+            counts[piece] += 1
+    return [counts[ch] for ch in COUNT_ORDER]
 
 
-HALFKP_PIECE_ORDER = [
-    chess.PAWN,
-    chess.KNIGHT,
-    chess.BISHOP,
-    chess.ROOK,
-    chess.QUEEN,
-]
-HALFKP_DIM = 2 * 64 * len(HALFKP_PIECE_ORDER) * 64
+HALFKP_DIM = 2 * 64 * len(PIECE_ORDER) * 64
 
 
 def _active_halfkp_indices(fen: str) -> List[int]:
-    board = chess.Board(fen)
-    wk = board.king(chess.WHITE)
-    bk = board.king(chess.BLACK)
+    pieces, wk, bk = _parse_board_fen(fen)
     if wk is None or bk is None:
         return []
     out: List[int] = []
-    for side_off, (color, ksq) in enumerate(((chess.WHITE, wk), (chess.BLACK, bk))):
-        for piece_idx, piece in enumerate(HALFKP_PIECE_ORDER):
-            for sq in board.pieces(piece, color):
-                idx = (((side_off * 64 + int(ksq)) * len(HALFKP_PIECE_ORDER) + piece_idx) * 64) + int(sq)
+    for side_off, (is_white, ksq) in enumerate(((True, wk), (False, bk))):
+        for piece_idx, piece in enumerate(PIECE_ORDER):
+            want = piece if is_white else piece.lower()
+            for actual, sq in pieces:
+                if actual != want:
+                    continue
+                idx = (((side_off * 64 + ksq) * len(PIECE_ORDER) + piece_idx) * 64) + sq
                 out.append(idx)
     return out
 

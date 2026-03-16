@@ -1,4 +1,6 @@
 use cozy_chess::Board;
+use piebot::eval::nnue::loader::QuantNnue;
+use piebot::search::alphabeta_temp::EvalMode;
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -48,10 +50,18 @@ fn solve_cozy_exp(
     depth: u32,
     threads: usize,
     max_nodes: Option<u64>,
+    test_nnue: Option<&QuantNnue>,
+    nnue_blend_percent: u8,
 ) -> piebot::search::alphabeta_temp::SearchResult {
     let b = Board::from_fen(fen, false).expect("valid FEN");
     let mut s = piebot::search::alphabeta_temp::Searcher::default();
     s.set_tt_capacity_mb(128);
+    if let Some(model) = test_nnue {
+        s.set_use_nnue(true);
+        s.set_eval_mode(EvalMode::Nnue);
+        s.set_eval_blend_percent(nnue_blend_percent);
+        s.set_nnue_quant_model(model.clone());
+    }
     let mut p = piebot::search::alphabeta_temp::SearchParams::default();
     p.depth = depth;
     let opts_raw = std::env::var("PIEBOT_TEST_OPTS").ok();
@@ -129,6 +139,8 @@ fn main() {
         .ok()
         .map(|v| v == "1")
         .unwrap_or(false);
+    let test_nnue = piebot::test_support::load_test_nnue_config_from_env()
+        .expect("failed to load test NNUE config");
     let mate_thresh = 25_000; // accept any mating move
     let only: Option<HashSet<usize>> = std::env::var("PIEBOT_TEST_ONLY_IDX")
         .ok()
@@ -148,7 +160,14 @@ fn main() {
             }
         }
         let t_case = Instant::now();
-        let mut r = solve_cozy_exp(&case.fen, start_depth, threads, max_nodes);
+        let mut r = solve_cozy_exp(
+            &case.fen,
+            start_depth,
+            threads,
+            max_nodes,
+            test_nnue.quant_model.as_ref(),
+            test_nnue.blend_percent,
+        );
         if r.bestmove.as_deref() == Some(case.best.as_str()) || r.score_cp >= mate_thresh {
             let dt = t_case.elapsed().as_secs_f64();
             sum_secs += dt;
@@ -167,7 +186,14 @@ fn main() {
         let mut cur_depth = start_depth + 1;
         let mut trail = vec![(start_depth, r.bestmove.clone())];
         while cur_depth <= max_depth {
-            r = solve_cozy_exp(&case.fen, cur_depth, threads, max_nodes);
+            r = solve_cozy_exp(
+                &case.fen,
+                cur_depth,
+                threads,
+                max_nodes,
+                test_nnue.quant_model.as_ref(),
+                test_nnue.blend_percent,
+            );
             trail.push((cur_depth, r.bestmove.clone()));
             if r.bestmove.as_deref() == Some(case.best.as_str()) || r.score_cp >= mate_thresh {
                 matched = true;

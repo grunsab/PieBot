@@ -5,6 +5,7 @@ pub mod io;
 pub mod perft;
 pub mod search;
 pub mod selfplay;
+pub mod test_support;
 pub mod uci;
 
 // Re-exports kept minimal for new engine path

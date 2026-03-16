@@ -14,12 +14,18 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
 
-import requests
-
 TRAINING_DATA_BASE = "https://storage.lczero.org/files/training_data/"
 DEFAULT_SUITES: tuple[str, ...] = ("test90/", "test80/")
 BIN_SUFFIXES: tuple[str, ...] = (".bin", ".bin.zst", ".bin.zstd")
 LINK_RE = re.compile(r'<a href="([^"]+)">')
+
+
+def _require_requests():
+    try:
+        import requests
+    except ImportError as exc:  # pragma: no cover - exercised by import-only tests
+        raise RuntimeError("requests is required for remote BIN fetching") from exc
+    return requests
 
 
 @dataclass(frozen=True)
@@ -42,6 +48,7 @@ class DownloadJob:
 def list_dir(url: str) -> List[str]:
     """Return href names from an LCZero directory listing."""
 
+    requests = _require_requests()
     response = requests.get(url, timeout=60)
     response.raise_for_status()
     return LINK_RE.findall(response.text)
@@ -50,6 +57,7 @@ def list_dir(url: str) -> List[str]:
 def head_last_modified(url: str) -> Optional[_dt.datetime]:
     """Fetch the Last-Modified timestamp for a remote object."""
 
+    requests = _require_requests()
     try:
         response = requests.head(url, timeout=60)
         response.raise_for_status()
@@ -159,6 +167,7 @@ def plan_suite_downloads(
 def download(job: DownloadJob) -> dict:
     """Download a single BIN file."""
 
+    requests = _require_requests()
     job.dest.parent.mkdir(parents=True, exist_ok=True)
     start = time.time()
     with requests.get(job.url, stream=True, timeout=120) as response:
