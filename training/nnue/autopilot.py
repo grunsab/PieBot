@@ -11,7 +11,7 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import IO, Any, Dict, Optional
 
 try:
     from . import run_pipeline
@@ -22,6 +22,62 @@ try:
     import fcntl  # type: ignore
 except Exception:  # pragma: no cover
     fcntl = None  # type: ignore
+
+try:
+    import msvcrt  # type: ignore
+except Exception:  # pragma: no cover
+    msvcrt = None  # type: ignore
+
+
+class _FileLockBackend:
+    name = "unknown"
+
+    def lock(self, handle: IO[str]) -> None:
+        raise NotImplementedError
+
+    def unlock(self, handle: IO[str]) -> None:
+        raise NotImplementedError
+
+
+class _FcntlFileLockBackend(_FileLockBackend):
+    name = "fcntl"
+
+    def lock(self, handle: IO[str]) -> None:
+        if fcntl is None:
+            raise RuntimeError("fcntl backend unavailable")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def unlock(self, handle: IO[str]) -> None:
+        if fcntl is None:
+            return
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+class _MsvcrtFileLockBackend(_FileLockBackend):
+    name = "msvcrt"
+
+    def lock(self, handle: IO[str]) -> None:
+        if msvcrt is None:
+            raise RuntimeError("msvcrt backend unavailable")
+        handle.seek(0)
+        handle.write("0")
+        handle.flush()
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+
+    def unlock(self, handle: IO[str]) -> None:
+        if msvcrt is None:
+            return
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _select_lock_backend() -> _FileLockBackend:
+    if fcntl is not None:
+        return _FcntlFileLockBackend()
+    if msvcrt is not None:
+        return _MsvcrtFileLockBackend()
+    raise RuntimeError("autopilot locking requires either fcntl or msvcrt support")
 
 
 def zen5_9755_7d_profile() -> Dict[str, Any]:
@@ -81,21 +137,25 @@ def _load_state(path: Path) -> Optional[Dict[str, Any]]:
 
 
 @contextmanager
-def _single_instance_lock(lock_path: Path):
+def _single_instance_lock(lock_path: Path, *, backend: Optional[_FileLockBackend] = None):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = open(lock_path, "w", encoding="utf-8")
+    handle = open(lock_path, "a+", encoding="utf-8")
+    lock_backend = backend or _select_lock_backend()
+    locked = False
     try:
-        if fcntl is not None:
-            fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fd.write(str(os.getpid()))
-        fd.flush()
+        lock_backend.lock(handle)
+        locked = True
+        handle.seek(0)
+        handle.truncate(0)
+        handle.write(str(os.getpid()))
+        handle.flush()
         yield
     finally:
         try:
-            if fcntl is not None:
-                fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+            if locked:
+                lock_backend.unlock(handle)
         finally:
-            fd.close()
+            handle.close()
 
 
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:

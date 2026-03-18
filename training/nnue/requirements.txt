@@ -1,0 +1,4 @@
+python-chess
+requests
+zstandard
+tqdm

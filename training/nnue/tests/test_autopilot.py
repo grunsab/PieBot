@@ -7,6 +7,22 @@ from unittest import mock
 from training.nnue import autopilot
 
 
+class _FakeLockBackend:
+    name = "fake"
+
+    def __init__(self) -> None:
+        self._locked: set[str] = set()
+
+    def lock(self, handle) -> None:
+        key = str(Path(handle.name))
+        if key in self._locked:
+            raise BlockingIOError(f"lock already held for {key}")
+        self._locked.add(key)
+
+    def unlock(self, handle) -> None:
+        self._locked.discard(str(Path(handle.name)))
+
+
 class AutopilotTests(unittest.TestCase):
     def test_zen5_9755_profile_has_expected_relabel_defaults(self) -> None:
         profile = autopilot.zen5_9755_7d_profile()
@@ -141,6 +157,24 @@ class AutopilotTests(unittest.TestCase):
 
             state = json.loads((out_root / "autopilot_state.json").read_text(encoding="utf-8"))
             self.assertEqual(str(first_quant), state["active_model_path"])
+
+    def test_select_lock_backend_prefers_msvcrt_when_fcntl_missing(self) -> None:
+        fake_msvcrt = object()
+        with mock.patch.object(autopilot, "fcntl", None):
+            with mock.patch.object(autopilot, "msvcrt", fake_msvcrt):
+                backend = autopilot._select_lock_backend()
+        self.assertEqual("msvcrt", backend.name)
+
+    def test_single_instance_lock_rejects_second_acquire(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = Path(tmp) / "autopilot.lock"
+            backend = _FakeLockBackend()
+            with autopilot._single_instance_lock(lock_path, backend=backend):
+                with self.assertRaises(BlockingIOError):
+                    with autopilot._single_instance_lock(lock_path, backend=backend):
+                        pass
+            with autopilot._single_instance_lock(lock_path, backend=backend):
+                self.assertTrue(lock_path.exists())
 
 
 if __name__ == "__main__":  # pragma: no cover

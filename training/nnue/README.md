@@ -120,3 +120,44 @@ Notes:
 - For high-core machines, leave `--selfplay-parallel-games 0` (auto) and keep `--selfplay-threads 1` unless you intentionally trade game count for deeper per-move search.
 - If CUDA is unavailable, `trainer-backend=auto` falls back to the CPU stub trainer.
 - For quick validation runs, you can disable promotion gating by setting `--gate-games 0`.
+
+Windows 11 quick start
+----------------------
+- Current status: the Python NNUE pipeline is Windows-friendly, and autopilot single-instance locking now works on Windows too.
+- Recommended shell: PowerShell from the repo root.
+- Recommended Python: 64-bit Python 3.11 or newer.
+- Install Python-side dependencies with:
+  - `py -3.11 -m venv .venv`
+  - `.venv\Scripts\Activate.ps1`
+  - `python -m pip install --upgrade pip`
+  - `python -m pip install -r training\nnue\requirements.txt`
+- Install PyTorch separately using the official Windows CUDA wheel that matches your NVIDIA driver. For GPU training you want a CUDA-enabled build; otherwise `run_pipeline` will fall back to the CPU stub trainer.
+
+Two supported ways to run
+-------------------------
+- Python-only training from existing JSONL shards:
+  - This path does not invoke Cargo or the Rust engine binaries.
+  - Example:
+    - `python -m training.nnue.run_pipeline --jsonl-dir data\nnue_jsonl\test80 --out out\nnue_pipeline --trainer-backend auto --trainer-device cuda --epochs 8 --batch-size 4096 --val-split 0.1 --learning-rate 0.05`
+- Full pipeline with self-play and/or teacher relabel:
+  - This path invokes PieBot Rust binaries via `cargo run`.
+  - Install Rust and ensure `cargo` is on `PATH`.
+  - Build the training-related binaries first:
+    - `cargo build --release --manifest-path PieBot\Cargo.toml --bin selfplay --bin relabel_jsonl --bin compare_play`
+  - Example:
+    - `python -m training.nnue.run_pipeline --out out\nnue_selfplay_pipeline --selfplay-games 200 --selfplay-depth 4 --selfplay-threads 1 --selfplay-parallel-games 0 --teacher-relabel-depth 8 --teacher-relabel-every 4 --trainer-backend auto --trainer-device cuda --teacher-mix 0.8 --max-teacher-cp 1200 --epochs 8 --batch-size 4096 --val-split 0.1 --learning-rate 0.05`
+
+Windows verification steps
+--------------------------
+- Verify Python imports:
+  - `python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"`
+- Verify the Rust side only when you need self-play/relabel/autopilot:
+  - `cargo run --release --manifest-path PieBot\Cargo.toml --bin selfplay -- --help`
+  - `cargo run --release --manifest-path PieBot\Cargo.toml --bin relabel_jsonl -- --help`
+  - `cargo run --release --manifest-path PieBot\Cargo.toml --bin compare_play -- --help`
+- Verify the NNUE Python tests:
+  - `python -m unittest discover training/nnue/tests`
+
+Current caveat
+--------------
+- The top-level repository-wide `cargo test -q` is not the right validation command for this workflow right now because `PieBot/src/bin/bench.rs` still has unrelated compile drift. The training pipeline itself uses the targeted binaries above.
