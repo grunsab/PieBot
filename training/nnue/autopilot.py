@@ -95,7 +95,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_dirichlet_alpha": 0.30,
         "selfplay_dirichlet_epsilon": 0.25,
         "selfplay_dirichlet_plies": 12,
-        "teacher_relabel_depth": 7,
+        "teacher_relabel_depth": 5,
         "teacher_relabel_every": 8,
         "teacher_relabel_threads": 48,
         "teacher_relabel_hash_mb": 4096,

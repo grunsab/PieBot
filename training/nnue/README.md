@@ -121,7 +121,7 @@ python -m training.nnue.autopilot \
 
 Notes:
 - Profile defaults favor throughput with periodic stronger-teacher relabeling.
-- Current default relabel depth in autopilot is 7.
+- Current default relabel depth in autopilot is 5.
 - For high-core machines, leave `--selfplay-parallel-games 0` (auto) and keep `--selfplay-threads 1` unless you intentionally trade game count for deeper per-move search.
 - If CUDA is unavailable, `trainer-backend=auto` falls back to the CPU stub trainer.
 - For quick validation runs, you can disable promotion gating by setting `--gate-games 0`.

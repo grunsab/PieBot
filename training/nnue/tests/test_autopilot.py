@@ -29,7 +29,7 @@ class AutopilotTests(unittest.TestCase):
         profile = autopilot.zen5_9755_7d_profile()
         self.assertEqual(1, profile["selfplay_threads"])
         self.assertEqual(0, profile["selfplay_parallel_games"])
-        self.assertEqual(7, profile["teacher_relabel_depth"])
+        self.assertEqual(5, profile["teacher_relabel_depth"])
         self.assertEqual(8, profile["teacher_relabel_every"])
         self.assertGreaterEqual(profile["teacher_relabel_threads"], 32)
         self.assertGreaterEqual(profile["teacher_relabel_hash_mb"], 2048)
