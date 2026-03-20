@@ -95,7 +95,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_dirichlet_alpha": 0.30,
         "selfplay_dirichlet_epsilon": 0.25,
         "selfplay_dirichlet_plies": 12,
-        "teacher_relabel_depth": 9,
+        "teacher_relabel_depth": 7,
         "teacher_relabel_every": 8,
         "teacher_relabel_threads": 48,
         "teacher_relabel_hash_mb": 4096,
@@ -200,6 +200,17 @@ def _profile_defaults(name: str) -> Dict[str, Any]:
     raise ValueError(f"unknown profile: {name}")
 
 
+def _active_model_blend_percent(state: Dict[str, Any]) -> int:
+    accepted = state.get("accepted_models")
+    if not isinstance(accepted, list):
+        return 0
+    accepted_count = len(accepted)
+    if accepted_count <= 0:
+        return 0
+    ramp = (25, 50, 75, 100)
+    return int(ramp[min(accepted_count - 1, len(ramp) - 1)])
+
+
 def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> Dict[str, Any]:
     out = dict(defaults)
     mapping = {
@@ -242,9 +253,8 @@ def _path_if_exists(raw: Any) -> Optional[Path]:
 
 
 def _resolve_active_quant_path(state: Dict[str, Any]) -> Optional[Path]:
-    active = _path_if_exists(state.get("active_model_path"))
-    if active is not None:
-        return active
+    if "active_model_path" in state:
+        return _path_if_exists(state.get("active_model_path"))
     # Backward compatibility: older state schema used last_summary only.
     last_summary = state.get("last_summary")
     if isinstance(last_summary, dict):
@@ -290,7 +300,7 @@ def _run_model_gate(
     *,
     piebot_dir: Path,
     out_json: Path,
-    base_quant: Path,
+    base_quant: Optional[Path],
     candidate_quant: Path,
     games: int,
     movetime_ms: int,
@@ -323,23 +333,39 @@ def _run_model_gate(
         "--json-out",
         str(out_json),
         "--same-search",
-        "--base-eval",
-        "nnue",
         "--exp-eval",
         "nnue",
-        "--base-use-nnue",
-        "true",
         "--exp-use-nnue",
         "true",
-        "--base-blend",
-        "100",
         "--exp-blend",
         "100",
-        "--base-nnue-quant-file",
-        str(base_quant),
         "--exp-nnue-quant-file",
         str(candidate_quant),
     ]
+    if base_quant is None:
+        cmd.extend(
+            [
+                "--base-eval",
+                "pst",
+                "--base-use-nnue",
+                "false",
+                "--base-blend",
+                "0",
+            ]
+        )
+    else:
+        cmd.extend(
+            [
+                "--base-eval",
+                "nnue",
+                "--base-use-nnue",
+                "true",
+                "--base-blend",
+                "100",
+                "--base-nnue-quant-file",
+                str(base_quant),
+            ]
+        )
     subprocess.run(cmd, cwd=str(piebot_dir), check=True)
     payload = json.loads(out_json.read_text(encoding="utf-8"))
     points = payload.get("points", {}) if isinstance(payload, dict) else {}
@@ -442,6 +468,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         state,
                         int(defaults.get("teacher_lag_cycles", 0)),
                     )
+                    active_blend = _active_model_blend_percent(state)
                     replay_dirs = _collect_replay_jsonl_dirs(
                         state,
                         int(defaults.get("replay_window_cycles", 0)),
@@ -452,7 +479,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                             "piebot_dir": args.piebot_dir,
                             "resume": True,
                             "selfplay_nnue_quant_file": bootstrap_quant,
+                            "selfplay_nnue_blend_percent": active_blend,
                             "teacher_relabel_nnue_quant_file": teacher_quant,
+                            "teacher_relabel_nnue_blend_percent": active_blend,
                             "replay_jsonl_dirs": replay_dirs,
                         }
                     )
@@ -461,9 +490,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         _path_if_exists(summary.get("quant_path")) if isinstance(summary, dict) else None
                     )
                     gate_games = int(defaults.get("gate_games", 0))
-                    if bootstrap_quant is None:
-                        gate: Dict[str, Any] = {"accepted": True, "reason": "bootstrap-first-model"}
-                    elif gate_games <= 0:
+                    if gate_games <= 0:
                         gate = {"accepted": True, "reason": "gate-disabled"}
                     elif candidate_quant is None:
                         gate = {"accepted": False, "reason": "missing-candidate-model"}
