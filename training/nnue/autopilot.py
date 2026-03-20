@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import subprocess
@@ -382,6 +383,11 @@ def _resolve_bootstrap_quant_path(state: Dict[str, Any]) -> Optional[Path]:
     return _resolve_active_quant_path(state)
 
 
+def _filter_run_pipeline_kwargs(values: Dict[str, Any]) -> Dict[str, Any]:
+    allowed = set(inspect.signature(run_pipeline.run_pipeline).parameters)
+    return {key: value for key, value in values.items() if key in allowed}
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parse_args(argv)
     out_root = args.out_root
@@ -430,7 +436,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             attempt = 0
             while True:
                 try:
-                    kwargs = dict(defaults)
+                    kwargs = _filter_run_pipeline_kwargs(defaults)
                     bootstrap_quant = _resolve_bootstrap_quant_path(state)
                     teacher_quant = _resolve_teacher_quant_path(
                         state,

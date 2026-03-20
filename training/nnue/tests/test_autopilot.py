@@ -1,4 +1,5 @@
 import json
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -175,6 +176,44 @@ class AutopilotTests(unittest.TestCase):
                         pass
             with autopilot._single_instance_lock(lock_path, backend=backend):
                 self.assertTrue(lock_path.exists())
+
+    def test_main_filters_autopilot_only_kwargs_before_run_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            allowed = set(inspect.signature(autopilot.run_pipeline.run_pipeline).parameters)
+
+            def _strict_run_pipeline(**kwargs):
+                unexpected = sorted(set(kwargs) - allowed)
+                if unexpected:
+                    raise TypeError(f"unexpected kwargs: {unexpected}")
+                out_dir = Path(kwargs["out_dir"])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                quant_path = out_dir / "nnue_quant.nnue"
+                quant_path.write_bytes(b"PIENNQ01dummy")
+                return {"quant_path": str(quant_path)}
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_strict_run_pipeline,
+            ):
+                rc = autopilot.main(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--hours",
+                        "1",
+                        "--max-cycles",
+                        "1",
+                        "--retry-limit",
+                        "1",
+                        "--retry-backoff-sec",
+                        "0",
+                        "--gate-games",
+                        "0",
+                    ]
+                )
+
+            self.assertEqual(0, rc)
 
 
 if __name__ == "__main__":  # pragma: no cover
