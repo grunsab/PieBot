@@ -15,6 +15,7 @@ class TrainingRecord:
     fen: str
     result: int
     result_q: float = 0.0
+    outcome_valid: bool = True
     value_cp: Optional[float] = None
     ply: Optional[int] = None
     best_move: Optional[str] = None
@@ -82,6 +83,13 @@ def _coerce_result_q(record: dict, result: int) -> float:
     return float(result)
 
 
+def _coerce_outcome_valid(record: dict) -> bool:
+    value = record.get('outcome_valid')
+    if isinstance(value, bool):
+        return value
+    return True
+
+
 def _coerce_value_cp(record: dict) -> Optional[float]:
     for key in ('value_cp', 'eval_cp', 'score_cp'):
         v = record.get(key)
@@ -104,6 +112,7 @@ def jsonl_to_training_samples(records: Iterable[dict]) -> Iterator[TrainingRecor
             continue
         result = _coerce_result(record)
         result_q = _coerce_result_q(record, result)
+        outcome_valid = _coerce_outcome_valid(record)
         value_cp = _coerce_value_cp(record)
         ply = _coerce_ply(record)
         best_move = None
@@ -117,6 +126,7 @@ def jsonl_to_training_samples(records: Iterable[dict]) -> Iterator[TrainingRecor
             fen=fen,
             result=result,
             result_q=result_q,
+            outcome_valid=outcome_valid,
             value_cp=value_cp,
             ply=ply,
             best_move=best_move,

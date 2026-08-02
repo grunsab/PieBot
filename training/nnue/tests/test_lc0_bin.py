@@ -126,9 +126,98 @@ class SampleTests(unittest.TestCase):
         chunk = _make_chunk(probabilities=probs, planes=planes, best_idx=idx)
         record = binmod.parse_v6_record(chunk)
         sample = binmod.record_to_sample(record, top_policy=1)
-        self.assertEqual(sample['fen'], '8/8/8/8/8/8/P7/8 w - - 0 0')
+        self.assertEqual(sample['fen'], '8/8/8/8/8/8/P7/8 w - - 0 1')
         self.assertEqual(sample['best_move'], 'a2a3')
         self.assertEqual(sample['policy_top'][0][0], 'a2a3')
+
+    def test_canonical_white_sample_uses_absolute_white_perspective(self) -> None:
+        idx = binmod._load_policy_moves().index("e2e4")
+        probs = [-1.0] * 1858
+        probs[idx] = 1.0
+        planes = [0] * 104
+        planes[0] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(4, 1))
+        planes[5] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(4, 0))
+        planes[11] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(4, 7))
+        chunk = _make_chunk(
+            input_format=binmod.INPUT_112_WITH_CANONICALIZATION,
+            probabilities=probs,
+            planes=planes,
+            result_q=1.0,
+            best_q=0.75,
+            root_q=0.5,
+            best_idx=idx,
+            played_idx=idx,
+        )
+
+        sample = binmod.record_to_sample(binmod.parse_v6_record(chunk), top_policy=1)
+
+        self.assertEqual(sample['fen'], '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1')
+        self.assertEqual(sample['fen_side_to_move'], 'w')
+        self.assertEqual(sample['best_move'], 'e2e4')
+        self.assertEqual(sample['played_move'], 'e2e4')
+        self.assertEqual(sample['policy_top'], [('e2e4', 1.0)])
+        self.assertEqual(sample['result'], 1)
+        self.assertEqual(sample['result_q'], 1.0)
+        self.assertEqual(sample['best_q'], 0.75)
+        self.assertEqual(sample['root_q'], 0.5)
+
+    def test_canonical_black_sample_restores_absolute_board_move_and_value(self) -> None:
+        # LC0 stores both colors from the side-to-move perspective.  This is a
+        # black e7-e5 position encoded canonically as an "our" pawn on e2 and
+        # an e2-e4 policy move.  result_q is likewise side-to-move relative.
+        idx = binmod._load_policy_moves().index("e2e4")
+        probs = [-1.0] * 1858
+        probs[idx] = 1.0
+        planes = [0] * 104
+        planes[0] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(4, 1))
+        planes[3] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(7, 0))
+        planes[5] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(4, 0))
+        planes[6] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(4, 4))
+        planes[11] = binmod.reverse_bits_in_bytes(1 << binmod._bit_index(4, 7))
+        chunk = _make_chunk(
+            input_format=binmod.INPUT_112_WITH_CANONICALIZATION,
+            probabilities=probs,
+            planes=planes,
+            castling_us_oo=1 << 7,
+            side_to_move_or_enpassant=1 << 4,
+            invariance_info=1 << 7,
+            result_q=1.0,
+            best_q=0.75,
+            root_q=0.5,
+            best_idx=idx,
+            played_idx=idx,
+        )
+
+        sample = binmod.record_to_sample(binmod.parse_v6_record(chunk), top_policy=1)
+
+        self.assertEqual(sample['fen'], '4k2r/4p3/8/8/4P3/8/8/4K3 b k e3 0 1')
+        self.assertEqual(sample['fen_side_to_move'], 'b')
+        self.assertEqual(sample['original_side_to_move'], 'b')
+        self.assertEqual(sample['best_move'], 'e7e5')
+        self.assertEqual(sample['played_move'], 'e7e5')
+        self.assertEqual(sample['policy_top'], [('e7e5', 1.0)])
+        self.assertEqual(sample['result'], -1)
+        self.assertEqual(sample['result_q'], -1.0)
+        self.assertEqual(sample['best_q'], -0.75)
+        self.assertEqual(sample['root_q'], -0.5)
+        self.assertEqual(sample['result_q_side_to_move'], 1.0)
+
+    def test_unresolved_or_deleted_lc0_records_are_not_valid_outcomes(self) -> None:
+        for flag in (1 << 4, 1 << 6):
+            with self.subTest(flag=flag):
+                chunk = _make_chunk(
+                    input_format=binmod.INPUT_112_WITH_CANONICALIZATION,
+                    invariance_info=flag,
+                )
+                sample = binmod.record_to_sample(binmod.parse_v6_record(chunk))
+                self.assertFalse(sample['outcome_valid'])
+
+        adjudicated = _make_chunk(
+            input_format=binmod.INPUT_112_WITH_CANONICALIZATION,
+            invariance_info=1 << 5,
+        )
+        sample = binmod.record_to_sample(binmod.parse_v6_record(adjudicated))
+        self.assertTrue(sample['outcome_valid'])
 
 
 if __name__ == "__main__":  # pragma: no cover

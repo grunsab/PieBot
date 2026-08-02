@@ -1,4 +1,3 @@
-#![cfg(feature = "board-pleco")]
 use pleco::BitMove;
 use std::sync::Mutex;
 

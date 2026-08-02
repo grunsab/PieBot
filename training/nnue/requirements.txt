@@ -1,4 +1,6 @@
-python-chess
-requests
-zstandard
-tqdm
+# Keep ingestion/download environments reproducible. PyTorch is installed
+# separately because its wheel must match the target CPU/CUDA platform.
+python-chess==1.999
+requests==2.34.2
+zstandard==0.25.0
+tqdm==4.70.0

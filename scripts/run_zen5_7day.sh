@@ -21,7 +21,7 @@ EPOCHS="${EPOCHS:-2}"
 BATCH_SIZE="${BATCH_SIZE:-4096}"
 MAX_SAMPLES="${MAX_SAMPLES:-350000}"
 HIDDEN_DIM="${HIDDEN_DIM:-64}"
-TRAINER_BACKEND="${TRAINER_BACKEND:-auto}"
+TRAINER_BACKEND="${TRAINER_BACKEND:-torch}"
 TRAINER_DEVICE="${TRAINER_DEVICE:-cuda}"
 
 log() {
@@ -39,31 +39,57 @@ require_cmd python3
 require_cmd cargo
 require_cmd jq
 
+if [[ "$TRAINER_DEVICE" == "cuda" && "$TRAINER_BACKEND" == "auto" ]]; then
+  log "CUDA requested; resolving trainer backend auto to torch (no stub fallback)"
+  TRAINER_BACKEND="torch"
+fi
+
 if [[ "$TRAINER_DEVICE" == "cuda" ]]; then
   require_cmd nvidia-smi
 fi
 
 log "repo root: $ROOT_DIR"
 log "output root: $OUT_ROOT"
-mkdir -p "$OUT_ROOT"
+if ! mkdir -p "$OUT_ROOT"; then
+  echo "cannot create $OUT_ROOT; create /opt/piebot_runs and grant this user ownership first" >&2
+  exit 1
+fi
+if [[ ! -w "$OUT_ROOT" ]]; then
+  echo "output root is not writable: $OUT_ROOT" >&2
+  exit 1
+fi
+cd "$ROOT_DIR"
 
-if [[ "$TRAINER_BACKEND" == "torch" || "$TRAINER_BACKEND" == "auto" ]]; then
-  log "checking torch/cuda visibility"
-  python3 - <<'PY'
+log "checking trainer backend/device availability"
+python3 - "$TRAINER_BACKEND" "$TRAINER_DEVICE" <<'PY'
 import sys
+
+backend, device = sys.argv[1:]
+if backend == "stub":
+    if device == "cuda":
+        raise SystemExit("CUDA requested but trainer backend is explicitly stub")
+    print("trainer_backend", backend)
+    print("trainer_device", device)
+    raise SystemExit(0)
+
 try:
     import torch
 except Exception as exc:
-    print(f"torch import failed: {exc}", file=sys.stderr)
-    raise
+    if backend == "torch" or device == "cuda":
+        raise SystemExit(f"PyTorch is required for backend={backend}, device={device}: {exc}")
+    print(f"PyTorch unavailable; backend=auto will use the CPU stub: {exc}", file=sys.stderr)
+    raise SystemExit(0)
+
+cuda_available = bool(torch.cuda.is_available())
 print("torch_version", torch.__version__)
-print("cuda_available", torch.cuda.is_available())
+print("cuda_available", cuda_available)
 print("cuda_devices", torch.cuda.device_count())
+if device == "cuda" and not cuda_available:
+    raise SystemExit("CUDA requested but torch CUDA is unavailable; refusing CPU stub fallback")
 PY
-fi
 
 log "building required binaries"
-cargo build --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" \
+cargo build --locked --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" \
   --bin selfplay --bin relabel_jsonl --bin compare_play
 
 log "starting 7-day autopilot run"
@@ -107,4 +133,3 @@ log "completed cycles: $COMPLETED"
 log "active model: ${ACTIVE_MODEL:-<none>}"
 log "state file: $STATE_JSON"
 log "last summary: $SUMMARY_JSON"
-

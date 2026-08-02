@@ -31,6 +31,35 @@ fn selfplay_generates_games_deterministically() {
 }
 
 #[test]
+fn max_ply_cutoff_is_not_labeled_as_a_real_draw() {
+    let params = SelfPlayParams {
+        games: 1,
+        max_plies: 1,
+        threads: 1,
+        parallel_games: 1,
+        use_engine: false,
+        depth: 1,
+        movetime_ms: None,
+        seed: 7,
+        temperature_tau: 0.0,
+        temp_cp_scale: 200.0,
+        dirichlet_alpha: 0.3,
+        dirichlet_epsilon: 0.0,
+        dirichlet_plies: 0,
+        temperature_moves: 0,
+        openings_path: None,
+        temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
+    };
+
+    let games = generate_games(&params);
+    assert_eq!(1, games.len());
+    assert_eq!("max_plies", games[0].termination.as_str());
+    assert!(!games[0].outcome_valid);
+}
+
+#[test]
 fn selfplay_noise_changes_moves_with_different_seeds() {
     // With engine + noise, different seeds produce different sequences
     let mut p = SelfPlayParams {

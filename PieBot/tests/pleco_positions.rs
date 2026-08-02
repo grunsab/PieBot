@@ -15,7 +15,7 @@ fn load_positions() -> Vec<PosRec> {
             let rdr = BufReader::new(f);
             return rdr
                 .lines()
-                .filter_map(|l| l.ok())
+                .map_while(Result::ok)
                 .filter(|l| !l.trim().is_empty())
                 .filter_map(|l| serde_json::from_str(&l).ok())
                 .collect();
@@ -25,7 +25,7 @@ fn load_positions() -> Vec<PosRec> {
     let f = File::open(path).expect("open positions_sample.jsonl");
     let rdr = BufReader::new(f);
     rdr.lines()
-        .filter_map(|l| l.ok())
+        .map_while(Result::ok)
         .filter(|l| !l.trim().is_empty())
         .filter_map(|l| serde_json::from_str(&l).ok())
         .collect()

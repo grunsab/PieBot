@@ -1,7 +1,9 @@
 use clap::Parser;
 use cozy_chess::Board;
 use piebot::search::alphabeta::{EvalMode, Searcher};
+#[cfg(feature = "board-pleco")]
 use rand::rngs::SmallRng;
+#[cfg(feature = "board-pleco")]
 use rand::{Rng, SeedableRng};
 use std::time::Instant;
 
@@ -405,8 +407,8 @@ fn main() {
                         .num_threads(args.threads)
                         .build()
                         .unwrap();
-                    let (bm, sc_score, n) =
-                        pool.install(|| sc.search_movetime_lazy_smp(&board, args.movetime, args.depth));
+                    let (bm, sc_score, n) = pool
+                        .install(|| sc.search_movetime_lazy_smp(&board, args.movetime, args.depth));
                     (bm, sc_score, n, sc.last_depth())
                 } else {
                     let (bm, sc_score, n) = sc.search_movetime(&board, args.movetime, args.depth);

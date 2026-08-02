@@ -1,37 +1,51 @@
 use piebot::selfplay::{
-    generate_games, read_shard, write_jsonl_shards, write_shards, SelfPlayParams,
+    flatten_game_to_records, generate_games, read_shard, write_jsonl_shards, write_shards,
+    GameRecord, GameTermination, SelfPlayParams,
 };
 use std::fs::create_dir_all;
 
 #[test]
 fn write_and_read_shard() {
-    let params = SelfPlayParams {
-        games: 3,
-        max_plies: 8,
-        threads: 1,
-        parallel_games: 1,
-        use_engine: false,
-        depth: 2,
-        movetime_ms: None,
-        seed: 123,
-        temperature_tau: 0.0,
-        temp_cp_scale: 200.0,
-        dirichlet_alpha: 0.3,
-        dirichlet_epsilon: 0.0,
-        dirichlet_plies: 0,
-        temperature_moves: 0,
-        openings_path: None,
-        temperature_tau_final: 0.1,
-        nnue_quant_model: None,
-        nnue_blend_percent: 100,
-    };
-    let games = generate_games(&params);
+    let games = vec![GameRecord {
+        start_fen: cozy_chess::Board::default().to_string(),
+        moves: vec![
+            "f2f3".to_string(),
+            "e7e5".to_string(),
+            "g2g4".to_string(),
+            "d8h4".to_string(),
+        ],
+        move_target_best: vec![None; 4],
+        move_value_cp: vec![None; 4],
+        move_policy_top: vec![Vec::new(); 4],
+        result: -1,
+        outcome_valid: true,
+        termination: GameTermination::Checkmate,
+    }];
     let outdir = std::path::Path::new("target/selfplay_test");
     create_dir_all(outdir).unwrap();
     let shards = write_shards(&games, outdir, 10).unwrap();
     assert!(!shards.is_empty());
     let recs = read_shard(&shards[0]).unwrap();
     assert!(!recs.is_empty());
+}
+
+#[test]
+fn binary_records_omit_games_without_a_real_outcome() {
+    let invalid = GameRecord {
+        start_fen: cozy_chess::Board::default().to_string(),
+        moves: vec!["e2e4".to_string()],
+        move_target_best: vec![Some("e2e4".to_string())],
+        move_value_cp: vec![Some(12.0)],
+        move_policy_top: vec![Vec::new()],
+        result: 0,
+        outcome_valid: false,
+        termination: GameTermination::MaxPlies,
+    };
+
+    assert!(
+        flatten_game_to_records(&invalid).is_empty(),
+        "the v1 binary format cannot encode outcome validity, so truncated games must be omitted"
+    );
 }
 
 #[test]
@@ -70,6 +84,14 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
     assert!(v.get("target_best_move").and_then(|x| x.as_str()).is_some());
     assert!(v.get("result").and_then(|x| x.as_i64()).is_some());
     assert!(v.get("result_q").and_then(|x| x.as_f64()).is_some());
+    assert_eq!(
+        v.get("outcome_valid").and_then(|x| x.as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        v.get("termination").and_then(|x| x.as_str()),
+        Some("max_plies")
+    );
 }
 
 #[test]

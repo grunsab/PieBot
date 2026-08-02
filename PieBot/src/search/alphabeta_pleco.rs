@@ -1,4 +1,3 @@
-#![cfg(feature = "board-pleco")]
 use crate::search::eval::{DRAW_SCORE, MATE_SCORE};
 use crate::search::tt_pleco::{Bound as TtBound, Entry as TtEntry, TtPleco};
 use pleco::{BitMove as PMove, Board as PlecoBoard, Piece, PieceType, Player};

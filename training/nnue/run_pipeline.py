@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -176,6 +179,7 @@ def _ingest_bins_to_jsonl(
     top_policy: int,
     max_bin_records: int,
 ) -> int:
+    _reset_jsonl_stage(jsonl_dir)
     writer = process_bins.ShardWriter(jsonl_dir, shard_size)
     max_records = max_bin_records if max_bin_records > 0 else None
     try:
@@ -188,6 +192,7 @@ def _ingest_bins_to_jsonl(
         )
     finally:
         writer.close()
+    _write_jsonl_stage_manifest(jsonl_dir, "bin_ingest")
     return int(total)
 
 
@@ -218,6 +223,7 @@ def build_selfplay_command(
     cmd: List[str] = [
         "cargo",
         "run",
+        "--locked",
         "--release",
         "--bin",
         "selfplay",
@@ -287,6 +293,7 @@ def build_relabel_command(
     cmd: List[str] = [
         "cargo",
         "run",
+        "--locked",
         "--release",
         "--bin",
         "relabel_jsonl",
@@ -399,14 +406,490 @@ def _relabel_jsonl(
     return cmd
 
 
-def _count_jsonl_records(jsonl_dir: Path) -> int:
-    total = 0
-    for p in sorted(jsonl_dir.glob("*.jsonl")):
-        with p.open("r", encoding="utf-8") as f:
-            for line in f:
+_JSONL_STAGE_MANIFEST = ".piebot_stage_complete.json"
+_MERGED_STAGE_MANIFEST = ".piebot_merge_complete.json"
+_TRAIN_STAGE_MANIFEST = ".piebot_train_complete.json"
+_EXPORT_STAGE_MANIFEST = ".piebot_export_complete.json"
+
+
+def _atomic_write_json_file(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _artifact_snapshot(base_dir: Path, paths: Sequence[Path]) -> Dict[str, Any]:
+    base_resolved = base_dir.resolve()
+    files: List[Dict[str, Any]] = []
+    for raw_path in paths:
+        path = Path(raw_path)
+        if not path.is_file():
+            raise ValueError(f"missing artifact: {path}")
+        try:
+            name = path.resolve().relative_to(base_resolved).as_posix()
+        except ValueError:
+            name = path.name
+        files.append(
+            {
+                "name": name,
+                "size": path.stat().st_size,
+                "sha256": _sha256_file(path),
+            }
+        )
+    fingerprint_payload = json.dumps(files, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return {
+        "files": files,
+        "fingerprint": hashlib.sha256(fingerprint_payload).hexdigest(),
+    }
+
+
+def _normalized_path(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def _file_content_identity(path: Optional[Path]) -> Optional[Dict[str, Any]]:
+    if path is None:
+        return None
+    resolved = Path(path)
+    if not resolved.is_file():
+        raise ValueError(f"provenance input is not a file: {resolved}")
+    return {
+        "path": _normalized_path(resolved),
+        "size": resolved.stat().st_size,
+        "sha256": _sha256_file(resolved),
+    }
+
+
+def _selfplay_stage_provenance(
+    *,
+    piebot_dir: Path,
+    games: int,
+    max_plies: int,
+    threads: int,
+    parallel_games: int,
+    depth: int,
+    movetime_ms: Optional[int],
+    seed: int,
+    max_records_per_shard: int,
+    use_engine: bool,
+    openings: Optional[Path],
+    temperature_tau: float,
+    temp_cp_scale: float,
+    dirichlet_alpha: float,
+    dirichlet_epsilon: float,
+    dirichlet_plies: int,
+    temperature_moves: int,
+    temperature_tau_final: float,
+    nnue_quant_file: Optional[Path],
+    nnue_blend_percent: int,
+) -> Dict[str, Any]:
+    return {
+        "version": 1,
+        "generator": "selfplay",
+        "piebot_dir": _normalized_path(piebot_dir),
+        "args": {
+            "games": int(games),
+            "max_plies": int(max_plies),
+            "threads": int(threads),
+            "parallel_games": int(parallel_games),
+            "depth": int(depth),
+            "movetime_ms": None if movetime_ms is None else int(movetime_ms),
+            "seed": int(seed),
+            "max_records_per_shard": int(max_records_per_shard),
+            "use_engine": bool(use_engine),
+            "temperature_tau": float(temperature_tau),
+            "temp_cp_scale": float(temp_cp_scale),
+            "dirichlet_alpha": float(dirichlet_alpha),
+            "dirichlet_epsilon": float(dirichlet_epsilon),
+            "dirichlet_plies": int(dirichlet_plies),
+            "temperature_moves": int(temperature_moves),
+            "temperature_tau_final": float(temperature_tau_final),
+            "nnue_blend_percent": int(nnue_blend_percent),
+        },
+        "openings": _file_content_identity(openings),
+        "nnue_quant_file": _file_content_identity(nnue_quant_file),
+    }
+
+
+def _relabel_stage_provenance(
+    *,
+    piebot_dir: Path,
+    jsonl_in: Path,
+    depth: int,
+    every: int,
+    threads: int,
+    hash_mb: int,
+    max_records: int,
+    nnue_quant_file: Optional[Path],
+    nnue_blend_percent: int,
+) -> Dict[str, Any]:
+    input_snapshot = _jsonl_stage_snapshot(jsonl_in)
+    if not input_snapshot["files"] or int(input_snapshot["records"]) <= 0:
+        raise ValueError("relabel input contains no JSONL records")
+    return {
+        "version": 1,
+        "generator": "relabel",
+        "piebot_dir": _normalized_path(piebot_dir),
+        "input": {
+            "path": _normalized_path(jsonl_in),
+            **input_snapshot,
+        },
+        "args": {
+            "depth": int(depth),
+            "every": int(every),
+            "threads": int(threads),
+            "hash_mb": int(hash_mb),
+            "max_records": int(max_records),
+            "nnue_blend_percent": int(nnue_blend_percent),
+        },
+        "nnue_quant_file": _file_content_identity(nnue_quant_file),
+    }
+
+
+def _jsonl_stage_snapshot(jsonl_dir: Path) -> Dict[str, Any]:
+    files: List[Dict[str, Any]] = []
+    total_records = 0
+    for path in sorted(jsonl_dir.glob("*.jsonl")):
+        digest = hashlib.sha256()
+        records = 0
+        with path.open("rb") as handle:
+            for line in handle:
+                digest.update(line)
                 if line.strip():
-                    total += 1
-    return total
+                    records += 1
+        files.append(
+            {
+                "name": path.name,
+                "size": path.stat().st_size,
+                "records": records,
+                "sha256": digest.hexdigest(),
+            }
+        )
+        total_records += records
+    fingerprint_payload = json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "files": files,
+        "records": total_records,
+        "fingerprint": hashlib.sha256(fingerprint_payload).hexdigest(),
+    }
+
+
+def _write_jsonl_stage_manifest(
+    jsonl_dir: Path,
+    stage: str,
+    *,
+    provenance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    snapshot = _jsonl_stage_snapshot(jsonl_dir)
+    if not snapshot["files"] or int(snapshot["records"]) <= 0:
+        raise ValueError(f"{stage} stage produced no JSONL records")
+    manifest: Dict[str, Any] = {
+        "version": 2 if provenance is not None else 1,
+        "stage": str(stage),
+        **snapshot,
+    }
+    if provenance is not None:
+        manifest["provenance"] = provenance
+    path = jsonl_dir / _JSONL_STAGE_MANIFEST
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
+    return manifest
+
+
+def _validated_jsonl_stage_manifest(
+    jsonl_dir: Path,
+    stage: str,
+    *,
+    expected_provenance: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    path = jsonl_dir / _JSONL_STAGE_MANIFEST
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            return None
+        version = manifest.get("version")
+        if version not in (1, 2) or manifest.get("stage") != str(stage):
+            return None
+        if expected_provenance is not None:
+            if version != 2 or manifest.get("provenance") != expected_provenance:
+                return None
+        snapshot = _jsonl_stage_snapshot(jsonl_dir)
+        if not snapshot["files"] or int(snapshot["records"]) <= 0:
+            return None
+        for key in ("files", "records", "fingerprint"):
+            if manifest.get(key) != snapshot[key]:
+                return None
+        return manifest
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _jsonl_stage_is_complete(
+    jsonl_dir: Path,
+    stage: str,
+    *,
+    expected_provenance: Optional[Dict[str, Any]] = None,
+) -> bool:
+    return (
+        _validated_jsonl_stage_manifest(
+            jsonl_dir,
+            stage,
+            expected_provenance=expected_provenance,
+        )
+        is not None
+    )
+
+
+def _checkpoint_dimensions(checkpoint: Dict[str, Any]) -> Tuple[int, int, int]:
+    if not isinstance(checkpoint, dict):
+        raise ValueError("checkpoint must be a JSON object")
+    input_dim = int(checkpoint.get("input_dim", 0))
+    if input_dim <= 0:
+        raise ValueError("checkpoint has invalid input_dim")
+
+    direct_keys = ("w1", "b1", "w2", "b2", "hidden_dim")
+    if all(key in checkpoint for key in direct_keys):
+        hidden_dim = int(checkpoint.get("hidden_dim", 0))
+        if hidden_dim <= 0:
+            raise ValueError("checkpoint has invalid hidden_dim")
+        w1 = checkpoint.get("w1")
+        b1 = checkpoint.get("b1")
+        w2 = checkpoint.get("w2")
+        if not isinstance(w1, list) or len(w1) != input_dim * hidden_dim:
+            raise ValueError("checkpoint w1 size mismatch")
+        if not isinstance(b1, list) or len(b1) != hidden_dim:
+            raise ValueError("checkpoint b1 size mismatch")
+        if not isinstance(w2, list) or len(w2) != hidden_dim:
+            raise ValueError("checkpoint w2 size mismatch")
+        for label, values in (("w1", w1), ("b1", b1), ("w2", w2)):
+            try:
+                if not all(math.isfinite(float(value)) for value in values):
+                    raise ValueError(f"checkpoint {label} contains a non-finite value")
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"checkpoint {label} contains a non-numeric value") from exc
+        if not math.isfinite(float(checkpoint["b2"])):
+            raise ValueError("checkpoint b2 contains a non-finite value")
+        return input_dim, hidden_dim, 1
+
+    weights = checkpoint.get("weights")
+    bias = checkpoint.get("bias")
+    if not isinstance(weights, list) or len(weights) < 3:
+        raise ValueError("legacy checkpoint is missing class weights")
+    if not isinstance(bias, list) or len(bias) < 3:
+        raise ValueError("legacy checkpoint is missing class biases")
+    for row in (weights[0], weights[2]):
+        if not isinstance(row, list) or len(row) != input_dim:
+            raise ValueError("legacy checkpoint class weight size mismatch")
+        try:
+            if not all(math.isfinite(float(value)) for value in row):
+                raise ValueError("legacy checkpoint contains a non-finite class weight")
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("legacy checkpoint contains a non-numeric class weight") from exc
+    if not math.isfinite(float(bias[0])) or not math.isfinite(float(bias[2])):
+        raise ValueError("legacy checkpoint contains a non-finite class bias")
+    return input_dim, input_dim, 1
+
+
+def _load_training_artifacts(train_dir: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    checkpoint = json.loads((train_dir / "checkpoint.json").read_text(encoding="utf-8"))
+    metrics = json.loads((train_dir / "metrics.json").read_text(encoding="utf-8"))
+    _checkpoint_dimensions(checkpoint)
+    if not isinstance(metrics, dict):
+        raise ValueError("training metrics must be a JSON object")
+    train_samples = int(metrics.get("train_samples", -1))
+    val_samples = int(metrics.get("val_samples", -1))
+    if train_samples <= 0 or val_samples < 0:
+        raise ValueError("training metrics have invalid sample counts")
+    return checkpoint, metrics
+
+
+def _training_provenance(
+    *,
+    train_jsonl_dir: Path,
+    trainer_backend: str,
+    trainer_device: str,
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    data = _jsonl_stage_snapshot(train_jsonl_dir)
+    if not data["files"] or int(data["records"]) <= 0:
+        raise ValueError("training input contains no JSONL records")
+    return {
+        "version": 1,
+        "data": data,
+        "trainer_backend": str(trainer_backend),
+        "trainer_device": str(trainer_device) if trainer_backend == "torch" else None,
+        "config": config,
+    }
+
+
+def _write_training_stage_manifest(
+    train_dir: Path,
+    *,
+    provenance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    _load_training_artifacts(train_dir)
+    snapshot = _artifact_snapshot(
+        train_dir,
+        [train_dir / "checkpoint.json", train_dir / "metrics.json"],
+    )
+    manifest: Dict[str, Any] = {
+        "version": 1,
+        "stage": "train",
+        **snapshot,
+        "provenance": provenance,
+    }
+    _atomic_write_json_file(train_dir / _TRAIN_STAGE_MANIFEST, manifest)
+    return manifest
+
+
+def _validated_training_stage_manifest(
+    train_dir: Path,
+    *,
+    expected_provenance: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    try:
+        manifest = json.loads((train_dir / _TRAIN_STAGE_MANIFEST).read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            return None
+        if manifest.get("version") != 1 or manifest.get("stage") != "train":
+            return None
+        if expected_provenance is not None and manifest.get("provenance") != expected_provenance:
+            return None
+        _load_training_artifacts(train_dir)
+        snapshot = _artifact_snapshot(
+            train_dir,
+            [train_dir / "checkpoint.json", train_dir / "metrics.json"],
+        )
+        if manifest.get("files") != snapshot["files"]:
+            return None
+        if manifest.get("fingerprint") != snapshot["fingerprint"]:
+            return None
+        return manifest
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _validate_nnue_artifact(
+    path: Path,
+    *,
+    quantized: bool,
+    expected_dims: Tuple[int, int, int],
+) -> None:
+    expected_magic = exporter.Q_MAGIC if quantized else exporter.MAGIC
+    header_size = 32 if quantized else 24
+    with path.open("rb") as handle:
+        header = handle.read(header_size)
+    if len(header) != header_size or header[:8] != expected_magic:
+        raise ValueError(f"invalid NNUE header: {path}")
+    version, input_dim, hidden_dim, output_dim = struct.unpack("<IIII", header[8:24])
+    if version != 1 or (input_dim, hidden_dim, output_dim) != expected_dims:
+        raise ValueError(f"unexpected NNUE dimensions: {path}")
+    if quantized:
+        w1_scale, w2_scale = struct.unpack("<ff", header[24:32])
+        if not all(math.isfinite(v) and v > 0.0 for v in (w1_scale, w2_scale)):
+            raise ValueError(f"invalid NNUE quantization scale: {path}")
+        expected_size = (
+            32
+            + input_dim * hidden_dim
+            + 2 * hidden_dim
+            + output_dim * hidden_dim
+            + 2 * output_dim
+        )
+    else:
+        expected_size = 24 + 4 * (
+            input_dim * hidden_dim
+            + hidden_dim
+            + output_dim * hidden_dim
+            + output_dim
+        )
+    if path.stat().st_size != expected_size:
+        raise ValueError(f"truncated or oversized NNUE artifact: {path}")
+
+
+def _write_export_stage_manifest(
+    out_dir: Path,
+    *,
+    checkpoint_path: Path,
+    dense_path: Path,
+    quant_path: Path,
+    export_info: Dict[str, Any],
+) -> Dict[str, Any]:
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    expected_dims = _checkpoint_dimensions(checkpoint)
+    _validate_nnue_artifact(dense_path, quantized=False, expected_dims=expected_dims)
+    _validate_nnue_artifact(quant_path, quantized=True, expected_dims=expected_dims)
+    snapshot = _artifact_snapshot(out_dir, [dense_path, quant_path])
+    manifest: Dict[str, Any] = {
+        "version": 1,
+        "stage": "export",
+        **snapshot,
+        "checkpoint_sha256": _sha256_file(checkpoint_path),
+        "export_info": export_info,
+    }
+    _atomic_write_json_file(out_dir / _EXPORT_STAGE_MANIFEST, manifest)
+    return manifest
+
+
+def _validated_export_stage_manifest(
+    out_dir: Path,
+    *,
+    checkpoint_path: Path,
+    dense_path: Path,
+    quant_path: Path,
+    expected_cp_scale: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    try:
+        manifest = json.loads((out_dir / _EXPORT_STAGE_MANIFEST).read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            return None
+        if manifest.get("version") != 1 or manifest.get("stage") != "export":
+            return None
+        if not isinstance(manifest.get("export_info"), dict):
+            return None
+        if expected_cp_scale is not None:
+            if float(manifest["export_info"].get("cp_scale")) != float(expected_cp_scale):
+                return None
+        if manifest.get("checkpoint_sha256") != _sha256_file(checkpoint_path):
+            return None
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        expected_dims = _checkpoint_dimensions(checkpoint)
+        _validate_nnue_artifact(dense_path, quantized=False, expected_dims=expected_dims)
+        _validate_nnue_artifact(quant_path, quantized=True, expected_dims=expected_dims)
+        snapshot = _artifact_snapshot(out_dir, [dense_path, quant_path])
+        if manifest.get("files") != snapshot["files"]:
+            return None
+        if manifest.get("fingerprint") != snapshot["fingerprint"]:
+            return None
+        return manifest
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError, struct.error):
+        return None
+
+
+def _reset_jsonl_stage(jsonl_dir: Path) -> None:
+    jsonl_dir.mkdir(parents=True, exist_ok=True)
+    for path in jsonl_dir.glob("*.jsonl"):
+        path.unlink()
+    manifest = jsonl_dir / _JSONL_STAGE_MANIFEST
+    manifest.unlink(missing_ok=True)
+    manifest.with_suffix(manifest.suffix + ".tmp").unlink(missing_ok=True)
 
 
 def _has_jsonl_files(jsonl_dir: Path) -> bool:
@@ -418,6 +901,72 @@ def _is_same_path(a: Path, b: Path) -> bool:
         return a.resolve() == b.resolve()
     except Exception:
         return str(a) == str(b)
+
+
+def _merged_source_provenance(src_dirs: Sequence[Path]) -> List[Dict[str, Any]]:
+    sources: List[Dict[str, Any]] = []
+    for src_dir in src_dirs:
+        snapshot = _jsonl_stage_snapshot(src_dir)
+        if not snapshot["files"] or int(snapshot["records"]) <= 0:
+            raise ValueError(f"JSONL source contains no records: {src_dir}")
+        try:
+            source_path = str(src_dir.resolve())
+        except OSError:
+            source_path = str(src_dir)
+        sources.append({"path": source_path, **snapshot})
+    return sources
+
+
+def _write_merged_stage_manifest(
+    merged_dir: Path,
+    *,
+    src_dirs: Sequence[Path],
+) -> Dict[str, Any]:
+    output = _jsonl_stage_snapshot(merged_dir)
+    if not output["files"] or int(output["records"]) <= 0:
+        raise ValueError("replay merge produced no JSONL records")
+    manifest: Dict[str, Any] = {
+        "version": 1,
+        "stage": "merge",
+        "sources": _merged_source_provenance(src_dirs),
+        "output": output,
+    }
+    _atomic_write_json_file(merged_dir / _MERGED_STAGE_MANIFEST, manifest)
+    return manifest
+
+
+def _validated_merged_stage_manifest(
+    merged_dir: Path,
+    *,
+    src_dirs: Sequence[Path],
+) -> Optional[Dict[str, Any]]:
+    try:
+        manifest = json.loads(
+            (merged_dir / _MERGED_STAGE_MANIFEST).read_text(encoding="utf-8")
+        )
+        if not isinstance(manifest, dict):
+            return None
+        if manifest.get("version") != 1 or manifest.get("stage") != "merge":
+            return None
+        if manifest.get("sources") != _merged_source_provenance(src_dirs):
+            return None
+        output = _jsonl_stage_snapshot(merged_dir)
+        if not output["files"] or int(output["records"]) <= 0:
+            return None
+        if manifest.get("output") != output:
+            return None
+        return manifest
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _reset_merged_stage(merged_dir: Path) -> None:
+    merged_dir.mkdir(parents=True, exist_ok=True)
+    for path in merged_dir.glob("*.jsonl"):
+        path.unlink()
+    manifest = merged_dir / _MERGED_STAGE_MANIFEST
+    manifest.unlink(missing_ok=True)
+    manifest.with_suffix(manifest.suffix + ".tmp").unlink(missing_ok=True)
 
 
 def _build_training_jsonl_dir(
@@ -442,14 +991,11 @@ def _build_training_jsonl_dir(
         return primary_jsonl_dir
 
     merged_dir = out_dir / "jsonl_train"
-    if resume and _has_jsonl_files(merged_dir):
-        return merged_dir
-    if merged_dir.exists():
-        for old in merged_dir.glob("*.jsonl"):
-            old.unlink()
-    merged_dir.mkdir(parents=True, exist_ok=True)
-
     src_dirs = [primary_jsonl_dir] + unique_replay
+    if resume and _validated_merged_stage_manifest(merged_dir, src_dirs=src_dirs) is not None:
+        return merged_dir
+    _reset_merged_stage(merged_dir)
+
     total = 0
     for src_idx, src_dir in enumerate(src_dirs):
         for shard_idx, src in enumerate(sorted(src_dir.glob("*.jsonl"))):
@@ -461,6 +1007,7 @@ def _build_training_jsonl_dir(
             total += 1
     if total == 0:
         raise ValueError("no JSONL shards found after replay merge")
+    _write_merged_stage_manifest(merged_dir, src_dirs=src_dirs)
     return merged_dir
 
 
@@ -558,15 +1105,48 @@ def run_pipeline(
     ingested = 0
     selfplay_cmd: Optional[List[str]] = None
     relabel_cmd: Optional[List[str]] = None
+    selfplay_rebuilt = False
     if selfplay_games > 0:
         if jsonl_dir is not None or bin_inputs:
             raise ValueError("selfplay generation cannot be combined with jsonl_dir/bin_inputs")
         if piebot_dir is None:
             piebot_dir = Path(__file__).resolve().parents[2] / "PieBot"
         jsonl_dir = out_dir / "selfplay_jsonl"
-        if resume and _has_jsonl_files(jsonl_dir):
+        selfplay_provenance = _selfplay_stage_provenance(
+            piebot_dir=piebot_dir,
+            games=selfplay_games,
+            max_plies=selfplay_max_plies,
+            threads=selfplay_threads,
+            parallel_games=selfplay_parallel_games,
+            depth=selfplay_depth,
+            movetime_ms=selfplay_movetime_ms,
+            seed=selfplay_seed,
+            max_records_per_shard=shard_size,
+            use_engine=selfplay_use_engine,
+            openings=selfplay_openings,
+            temperature_tau=selfplay_temperature_tau,
+            temp_cp_scale=selfplay_temp_cp_scale,
+            dirichlet_alpha=selfplay_dirichlet_alpha,
+            dirichlet_epsilon=selfplay_dirichlet_epsilon,
+            dirichlet_plies=selfplay_dirichlet_plies,
+            temperature_moves=selfplay_temperature_moves,
+            temperature_tau_final=selfplay_temperature_tau_final,
+            nnue_quant_file=selfplay_nnue_quant_file,
+            nnue_blend_percent=selfplay_nnue_blend_percent,
+        )
+        selfplay_manifest = (
+            _validated_jsonl_stage_manifest(
+                jsonl_dir,
+                "selfplay",
+                expected_provenance=selfplay_provenance,
+            )
+            if resume
+            else None
+        )
+        if selfplay_manifest is not None:
             selfplay_cmd = None
         else:
+            _reset_jsonl_stage(jsonl_dir)
             selfplay_cmd = _generate_selfplay_jsonl(
                 piebot_dir=piebot_dir,
                 jsonl_out=jsonl_dir,
@@ -590,7 +1170,13 @@ def run_pipeline(
                 nnue_quant_file=selfplay_nnue_quant_file,
                 nnue_blend_percent=selfplay_nnue_blend_percent,
             )
-        ingested = _count_jsonl_records(jsonl_dir)
+            selfplay_manifest = _write_jsonl_stage_manifest(
+                jsonl_dir,
+                "selfplay",
+                provenance=selfplay_provenance,
+            )
+            selfplay_rebuilt = True
+        ingested = int(selfplay_manifest["records"])
     elif jsonl_dir is None:
         if not bin_inputs:
             raise ValueError("provide one of: jsonl_dir, bin_inputs, or selfplay_games>0")
@@ -608,9 +1194,30 @@ def run_pipeline(
         if piebot_dir is None:
             piebot_dir = Path(__file__).resolve().parents[2] / "PieBot"
         relabeled_dir = out_dir / "jsonl_relabel"
-        if resume and _has_jsonl_files(relabeled_dir):
+        relabel_provenance = _relabel_stage_provenance(
+            piebot_dir=piebot_dir,
+            jsonl_in=Path(jsonl_dir),
+            depth=teacher_relabel_depth,
+            every=teacher_relabel_every,
+            threads=teacher_relabel_threads,
+            hash_mb=teacher_relabel_hash_mb,
+            max_records=teacher_relabel_max_records,
+            nnue_quant_file=teacher_relabel_nnue_quant_file,
+            nnue_blend_percent=teacher_relabel_nnue_blend_percent,
+        )
+        relabel_manifest = (
+            _validated_jsonl_stage_manifest(
+                relabeled_dir,
+                "relabel",
+                expected_provenance=relabel_provenance,
+            )
+            if resume and not selfplay_rebuilt
+            else None
+        )
+        if relabel_manifest is not None:
             relabel_cmd = None
         else:
+            _reset_jsonl_stage(relabeled_dir)
             relabel_cmd = _relabel_jsonl(
                 piebot_dir=piebot_dir,
                 jsonl_in=Path(jsonl_dir),
@@ -623,8 +1230,13 @@ def run_pipeline(
                 nnue_quant_file=teacher_relabel_nnue_quant_file,
                 nnue_blend_percent=teacher_relabel_nnue_blend_percent,
             )
+            relabel_manifest = _write_jsonl_stage_manifest(
+                relabeled_dir,
+                "relabel",
+                provenance=relabel_provenance,
+            )
         jsonl_dir = relabeled_dir
-        ingested = _count_jsonl_records(jsonl_dir)
+        ingested = int(relabel_manifest["records"])
 
     train_jsonl_dir = _build_training_jsonl_dir(
         out_dir=out_dir,
@@ -637,63 +1249,115 @@ def run_pipeline(
     checkpoint_path = train_out / "checkpoint.json"
     metrics_path = train_out / "metrics.json"
     resolved_backend = _resolve_trainer_backend(trainer_backend, trainer_device=trainer_device)
-    if resume and checkpoint_path.exists() and metrics_path.exists():
-        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-    else:
-        train_kwargs = dict(
-            jsonl_dir=train_jsonl_dir,
-            batch_size=batch_size,
-            max_samples=max_samples,
-            epochs=epochs,
-            val_split=val_split,
-            learning_rate=learning_rate,
-            hidden_dim=hidden_dim,
-            target_cp=target_cp,
-            teacher_mix=teacher_mix,
-            max_teacher_cp=max_teacher_cp,
-            outcome_decay=outcome_decay,
-            adam_beta1=adam_beta1,
-            adam_beta2=adam_beta2,
-            adam_eps=adam_eps,
-            grad_clip=grad_clip,
-            seed=seed,
-            out_dir=train_out,
+    training_config: Dict[str, Any] = {
+        "batch_size": batch_size,
+        "max_samples": max_samples,
+        "epochs": epochs,
+        "val_split": val_split,
+        "learning_rate": learning_rate,
+        "hidden_dim": hidden_dim,
+        "target_cp": target_cp,
+        "teacher_mix": teacher_mix,
+        "max_teacher_cp": max_teacher_cp,
+        "outcome_decay": outcome_decay,
+        "adam_beta1": adam_beta1,
+        "adam_beta2": adam_beta2,
+        "adam_eps": adam_eps,
+        "grad_clip": grad_clip,
+        "seed": seed,
+    }
+    training_provenance = _training_provenance(
+        train_jsonl_dir=train_jsonl_dir,
+        trainer_backend=resolved_backend,
+        trainer_device=trainer_device,
+        config=training_config,
+    )
+    training_manifest = (
+        _validated_training_stage_manifest(
+            train_out,
+            expected_provenance=training_provenance,
         )
+        if resume
+        else None
+    )
+    if training_manifest is not None:
+        checkpoint, metrics = _load_training_artifacts(train_out)
+    else:
+        train_out.mkdir(parents=True, exist_ok=True)
+        train_manifest_path = train_out / _TRAIN_STAGE_MANIFEST
+        train_manifest_path.unlink(missing_ok=True)
+        train_manifest_path.with_suffix(train_manifest_path.suffix + ".tmp").unlink(
+            missing_ok=True
+        )
+        train_kwargs = {
+            "jsonl_dir": train_jsonl_dir,
+            **training_config,
+            "out_dir": train_out,
+        }
         if resolved_backend == "torch":
-            metrics = train_torch.train_model(  # type: ignore[union-attr]
+            train_torch.train_model(  # type: ignore[union-attr]
                 device=trainer_device,
                 **train_kwargs,
             )
         else:
-            metrics = train_stub.train_model(**train_kwargs)
-        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            train_stub.train_model(**train_kwargs)
+        checkpoint, metrics = _load_training_artifacts(train_out)
+        _write_training_stage_manifest(train_out, provenance=training_provenance)
 
     dense_path = out_dir / dense_name
     quant_path = out_dir / quant_name
-    if resume and dense_path.exists() and quant_path.exists():
-        old_summary_path = out_dir / "pipeline_summary.json"
-        export_info = {}
-        if old_summary_path.exists():
-            try:
-                old = json.loads(old_summary_path.read_text(encoding="utf-8"))
-                if isinstance(old.get("export"), dict):
-                    export_info = old["export"]
-            except Exception:
-                export_info = {}
-        if not export_info:
-            export_info = {
-                "input_dim": int(checkpoint.get("input_dim", 0)),
-                "hidden_dim": int(checkpoint.get("hidden_dim", 0)),
-                "cp_scale": cp_scale,
-                "mode": "existing",
-            }
-    else:
-        export_info = export_checkpoint_as_nnue(
-            checkpoint,
+    export_manifest = (
+        _validated_export_stage_manifest(
+            out_dir,
+            checkpoint_path=checkpoint_path,
             dense_path=dense_path,
             quant_path=quant_path,
-            cp_scale=cp_scale,
+            expected_cp_scale=cp_scale,
+        )
+        if resume
+        else None
+    )
+    if export_manifest is not None:
+        export_info = dict(export_manifest["export_info"])
+    else:
+        export_manifest_path = out_dir / _EXPORT_STAGE_MANIFEST
+        export_manifest_path.unlink(missing_ok=True)
+        export_manifest_path.with_suffix(export_manifest_path.suffix + ".tmp").unlink(
+            missing_ok=True
+        )
+        dense_tmp = dense_path.with_name(dense_path.name + ".tmp")
+        quant_tmp = quant_path.with_name(quant_path.name + ".tmp")
+        dense_tmp.unlink(missing_ok=True)
+        quant_tmp.unlink(missing_ok=True)
+        try:
+            export_info = export_checkpoint_as_nnue(
+                checkpoint,
+                dense_path=dense_tmp,
+                quant_path=quant_tmp,
+                cp_scale=cp_scale,
+            )
+            expected_dims = _checkpoint_dimensions(checkpoint)
+            _validate_nnue_artifact(
+                dense_tmp,
+                quantized=False,
+                expected_dims=expected_dims,
+            )
+            _validate_nnue_artifact(
+                quant_tmp,
+                quantized=True,
+                expected_dims=expected_dims,
+            )
+            os.replace(dense_tmp, dense_path)
+            os.replace(quant_tmp, quant_path)
+        finally:
+            dense_tmp.unlink(missing_ok=True)
+            quant_tmp.unlink(missing_ok=True)
+        _write_export_stage_manifest(
+            out_dir,
+            checkpoint_path=checkpoint_path,
+            dense_path=dense_path,
+            quant_path=quant_path,
+            export_info=export_info,
         )
 
     summary: Dict[str, Any] = {
@@ -715,10 +1379,7 @@ def run_pipeline(
         "export": export_info,
         "metrics": metrics,
     }
-    (out_dir / "pipeline_summary.json").write_text(
-        json.dumps(summary, indent=2),
-        encoding="utf-8",
-    )
+    _atomic_write_json_file(out_dir / "pipeline_summary.json", summary)
     return summary
 
 

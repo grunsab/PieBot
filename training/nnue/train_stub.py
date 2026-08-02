@@ -17,6 +17,7 @@ import argparse
 import json
 import math
 import random
+import re
 from pathlib import Path
 from typing import Dict, Iterator, List, Sequence, Tuple
 
@@ -91,14 +92,112 @@ def _active_halfkp_indices(fen: str) -> List[int]:
     return out
 
 
-def iterate_samples(jsonl_dir: Path, max_samples: int) -> Iterator[Tuple[List[int], TrainingRecord]]:
-    count = 0
-    for record in jsonl_to_training_samples(read_jsonl_dir(str(jsonl_dir))):
-        feats = _active_halfkp_indices(record.fen)
-        yield feats, record
-        count += 1
-        if max_samples and count >= max_samples:
+def _has_usable_target(record: TrainingRecord) -> bool:
+    if record.outcome_valid:
+        return True
+    return record.value_cp is not None and math.isfinite(float(record.value_cp))
+
+
+def _iter_usable_records(paths: Sequence[Path]) -> Iterator[TrainingRecord]:
+    for path in paths:
+        for record in jsonl_to_training_samples(read_jsonl_dir(str(path))):
+            if _has_usable_target(record):
+                yield record
+
+
+def _training_source_groups(path: Path) -> List[List[Path]]:
+    root = Path(path)
+    if root.is_file():
+        return [[root]]
+    files = sorted(root.glob("*.jsonl"))
+    if not files:
+        return []
+
+    grouped: Dict[int, List[Path]] = {}
+    unmatched: List[Path] = []
+    for file_path in files:
+        match = re.match(r"src(\d+)_", file_path.name)
+        if match is None:
+            unmatched.append(file_path)
+            continue
+        grouped.setdefault(int(match.group(1)), []).append(file_path)
+    if not grouped:
+        return [files]
+
+    groups = [grouped[key] for key in sorted(grouped)]
+    if unmatched:
+        groups.append(unmatched)
+    return groups
+
+
+def _balanced_sample_quotas(counts: Sequence[int], limit: int) -> List[int]:
+    quotas = [0 for _ in counts]
+    remaining = min(max(0, int(limit)), sum(max(0, int(v)) for v in counts))
+    active = [idx for idx, count in enumerate(counts) if count > 0]
+    while remaining > 0 and active:
+        share, extra = divmod(remaining, len(active))
+        progressed = 0
+        next_active: List[int] = []
+        for position, idx in enumerate(active):
+            requested = share + (1 if position < extra else 0)
+            available = counts[idx] - quotas[idx]
+            taken = min(requested, available)
+            quotas[idx] += taken
+            remaining -= taken
+            progressed += taken
+            if quotas[idx] < counts[idx]:
+                next_active.append(idx)
+        if progressed == 0:
             break
+        active = next_active
+    return quotas
+
+
+def _reservoir_sample_records(paths: Sequence[Path], limit: int, seed: int) -> List[TrainingRecord]:
+    if limit <= 0:
+        return []
+    rng = random.Random(seed)
+    reservoir: List[TrainingRecord] = []
+    seen = 0
+    for record in _iter_usable_records(paths):
+        seen += 1
+        if len(reservoir) < limit:
+            reservoir.append(record)
+            continue
+        replacement = rng.randrange(seen)
+        if replacement < limit:
+            reservoir[replacement] = record
+    return reservoir
+
+
+def iterate_samples(
+    jsonl_dir: Path,
+    max_samples: int,
+    seed: int = 1,
+) -> Iterator[Tuple[List[int], TrainingRecord]]:
+    groups = _training_source_groups(Path(jsonl_dir))
+    if max_samples <= 0:
+        for group in groups:
+            for record in _iter_usable_records(group):
+                yield _active_halfkp_indices(record.fen), record
+        return
+
+    counts = [sum(1 for _ in _iter_usable_records(group)) for group in groups]
+    quotas = _balanced_sample_quotas(counts, max_samples)
+    samples = [
+        _reservoir_sample_records(
+            group,
+            quota,
+            int(seed) + (group_idx + 1) * 1_000_003,
+        )
+        for group_idx, (group, quota) in enumerate(zip(groups, quotas))
+    ]
+    max_group_len = max((len(group) for group in samples), default=0)
+    for sample_idx in range(max_group_len):
+        for group in samples:
+            if sample_idx < len(group):
+                record = group[sample_idx]
+                yield _active_halfkp_indices(record.fen), record
 
 
 def _result_to_target_cp(result: int, target_cp: float) -> float:
@@ -125,6 +224,12 @@ def _target_cp_for_record(
     max_teacher_cp: float,
     outcome_decay: float = 1.0,
 ) -> float:
+    teacher_available = record.value_cp is not None and math.isfinite(float(record.value_cp))
+    if not record.outcome_valid:
+        if not teacher_available:
+            return 0.0
+        return _clamp(float(record.value_cp), -float(max_teacher_cp), float(max_teacher_cp))
+
     result_q = float(record.result_q)
     if not math.isfinite(result_q):
         result_q = float(record.result)
@@ -133,7 +238,7 @@ def _target_cp_for_record(
     if record.ply is not None and record.ply > 0 and outcome_decay < 0.999999:
         outcome_cp *= float(outcome_decay) ** int(record.ply)
 
-    if record.value_cp is None or not math.isfinite(float(record.value_cp)):
+    if not teacher_available:
         return outcome_cp
 
     teacher_cp = _clamp(float(record.value_cp), -float(max_teacher_cp), float(max_teacher_cp))
@@ -217,7 +322,7 @@ def train_model(
     ys: List[float] = []
     best_move_available = 0
     teacher_value_available = 0
-    for feats, record in iterate_samples(jsonl_dir, max_samples):
+    for feats, record in iterate_samples(jsonl_dir, max_samples, seed=seed):
         xs.append(feats)
         ys.append(
             _target_cp_for_record(

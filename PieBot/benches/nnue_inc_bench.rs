@@ -46,9 +46,8 @@ fn prepare_sequence(max_plies: usize) -> Vec<(Board, String, Board)> {
         // Pick the first legal move (if any)
         let mut chosen: Option<String> = None;
         b.generate_moves(|ml| {
-            for m in ml {
+            if let Some(m) = ml.into_iter().next() {
                 chosen = Some(format!("{}", m));
-                break;
             }
             chosen.is_some()
         });

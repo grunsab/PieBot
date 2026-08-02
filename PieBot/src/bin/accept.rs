@@ -10,32 +10,26 @@ struct Rec {
     best: String,
 }
 
-fn load_jsonl(path: &str) -> Vec<Rec> {
+fn load_jsonl(path: &str) -> anyhow::Result<Vec<Rec>> {
+    use anyhow::{bail, Context};
     use std::io::{BufRead, BufReader};
-    let f = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return Vec::new(),
-    };
+    let f = std::fs::File::open(path).with_context(|| format!("open acceptance suite {path}"))?;
     let rdr = BufReader::new(f);
     let mut out = Vec::new();
-    for line in rdr.lines().flatten() {
+    for (line_idx, line) in rdr.lines().enumerate() {
+        let line = line.with_context(|| format!("read {path}:{}", line_idx + 1))?;
         let l = line.trim();
         if l.is_empty() {
             continue;
         }
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(l) {
-            if let (Some(fen), Some(best)) = (
-                v.get("fen").and_then(|x| x.as_str()),
-                v.get("best").and_then(|x| x.as_str()),
-            ) {
-                out.push(Rec {
-                    fen: fen.to_string(),
-                    best: best.to_string(),
-                });
-            }
-        }
+        let rec = serde_json::from_str::<Rec>(l)
+            .with_context(|| format!("parse {path}:{} as a suite record", line_idx + 1))?;
+        out.push(rec);
     }
-    out
+    if out.is_empty() {
+        bail!("acceptance suite {path} contains no cases");
+    }
+    Ok(out)
 }
 
 fn env_parse_usize(name: &str) -> Option<usize> {
@@ -128,7 +122,10 @@ fn main() {
     let path = std::env::var("PIEBOT_SUITE_FILE")
         .ok()
         .unwrap_or_else(|| format!("{}/matein3.txt", base));
-    let cases = load_jsonl(&path);
+    let cases = load_jsonl(&path).unwrap_or_else(|error| {
+        eprintln!("acceptance suite error: {error:#}");
+        std::process::exit(2);
+    });
     let threads = env_parse_usize("PIEBOT_TEST_THREADS").unwrap_or(1).max(1);
     let max_nodes = env_parse_u64("PIEBOT_TEST_MAX_NODES");
     let start_depth = env_parse_usize("PIEBOT_TEST_START_DEPTH").unwrap_or(7) as u32;
@@ -234,5 +231,15 @@ fn main() {
     if !failures.is_empty() {
         eprintln!("failures ({}):\n{}", failures.len(), failures.join("\n"));
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_jsonl;
+
+    #[test]
+    fn missing_acceptance_suite_is_an_error() {
+        assert!(load_jsonl("/definitely/missing/piebot-suite.jsonl").is_err());
     }
 }

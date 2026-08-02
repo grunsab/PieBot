@@ -6,6 +6,7 @@ import argparse
 import concurrent.futures as cf
 import datetime as _dt
 import json
+import os
 import re
 import sys
 import time
@@ -43,6 +44,37 @@ class DownloadJob:
 
     url: str
     dest: Path
+
+
+def _part_path(path: Path) -> Path:
+    """Return the same-directory staging path used for atomic replacement."""
+
+    return Path(f"{path}.part")
+
+
+def is_complete_download(path: Path) -> bool:
+    """Return whether ``path`` is a non-empty, atomically completed download."""
+
+    try:
+        return path.is_file() and path.stat().st_size > 0 and not _part_path(path).exists()
+    except OSError:
+        return False
+
+
+def write_json_atomic(path: Path, payload: dict) -> None:
+    """Write JSON without exposing a truncated manifest to later runs."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = _part_path(path)
+    try:
+        with open(part, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(part, path)
+    finally:
+        part.unlink(missing_ok=True)
 
 
 def list_dir(url: str) -> List[str]:
@@ -121,11 +153,12 @@ def plan_suite_downloads(
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "threshold": threshold.isoformat(),
         "suites": {},
+        "failures": [],
     }
     jobs: List[DownloadJob] = []
 
     for suite in suites:
-        suite = suite if suite.endswith('/') else suite + '/'
+        suite = suite if suite.endswith("/") else suite + "/"
         suite_url = TRAINING_DATA_BASE + suite
         try:
             hrefs = list_func(suite_url)
@@ -135,18 +168,37 @@ def plan_suite_downloads(
                 "files": [],
             }
             continue
+        def tracked_head(url: str) -> Optional[_dt.datetime]:
+            try:
+                value = head_func(url)
+            except Exception as exc:
+                manifest["failures"].append(
+                    {"stage": "head", "suite": suite, "url": url, "error": str(exc)}
+                )
+                return None
+            if value is None:
+                manifest["failures"].append(
+                    {
+                        "stage": "head",
+                        "suite": suite,
+                        "url": url,
+                        "error": "missing or unavailable Last-Modified metadata",
+                    }
+                )
+            return value
+
         candidates = choose_recent_files(
             suite_url,
             hrefs,
             limit=limit_per_suite,
             threshold=threshold,
-            head_func=head_func,
+            head_func=tracked_head,
         )
         suite_entries: List[dict] = []
         for cand in candidates:
-            dest = out_dir / suite.strip('/') / cand.name
+            dest = out_dir / suite.strip("/") / cand.name
             status = "queued"
-            if skip_existing and dest.exists():
+            if skip_existing and is_complete_download(dest):
                 status = "exists"
             else:
                 jobs.append(DownloadJob(url=cand.url, dest=dest))
@@ -165,21 +217,43 @@ def plan_suite_downloads(
 
 
 def download(job: DownloadJob) -> dict:
-    """Download a single BIN file."""
+    """Download a single BIN file and atomically publish it on success."""
 
     requests = _require_requests()
     job.dest.parent.mkdir(parents=True, exist_ok=True)
+    part = _part_path(job.dest)
     start = time.time()
-    with requests.get(job.url, stream=True, timeout=120) as response:
-        response.raise_for_status()
-        with open(job.dest, "wb") as fh:
-            for chunk in response.iter_content(chunk_size=1 << 20):
-                if chunk:
-                    fh.write(chunk)
+    written = 0
+    try:
+        with requests.get(
+            job.url,
+            stream=True,
+            timeout=120,
+            headers={"Accept-Encoding": "identity"},
+        ) as response:
+            response.raise_for_status()
+            raw_expected = getattr(response, "headers", {}).get("Content-Length")
+            expected = int(raw_expected) if raw_expected is not None else None
+            with open(part, "wb") as fh:
+                for chunk in response.iter_content(chunk_size=1 << 20):
+                    if chunk:
+                        fh.write(chunk)
+                        written += len(chunk)
+                fh.flush()
+                os.fsync(fh.fileno())
+        if written == 0:
+            raise RuntimeError(f"downloaded an empty file from {job.url}")
+        if expected is not None and written != expected:
+            raise RuntimeError(
+                f"downloaded {written} bytes from {job.url}; expected {expected} bytes"
+            )
+        os.replace(part, job.dest)
+    finally:
+        part.unlink(missing_ok=True)
     return {
         "url": job.url,
         "path": str(job.dest),
-        "size": job.dest.stat().st_size,
+        "size": written,
         "elapsed": time.time() - start,
     }
 
@@ -191,7 +265,7 @@ def maybe_decompress_zst(path: Path, overwrite: bool = False) -> Optional[Path]:
     if lowered not in {".zst", ".zstd"}:
         return None
     out_path = path.with_suffix("")
-    if out_path.exists() and not overwrite:
+    if is_complete_download(out_path) and not overwrite:
         return out_path
     try:
         import zstandard as zstd
@@ -199,9 +273,18 @@ def maybe_decompress_zst(path: Path, overwrite: bool = False) -> Optional[Path]:
         print("zstandard not installed; skipping decompression for", path, file=sys.stderr)
         return None
     start = time.time()
-    with open(path, "rb") as src, open(out_path, "wb") as dst:
-        dctx = zstd.ZstdDecompressor()
-        dctx.copy_stream(src, dst)
+    part = _part_path(out_path)
+    try:
+        with open(path, "rb") as src, open(part, "wb") as dst:
+            dctx = zstd.ZstdDecompressor()
+            dctx.copy_stream(src, dst)
+            dst.flush()
+            os.fsync(dst.fileno())
+        if part.stat().st_size == 0:
+            raise RuntimeError(f"decompressed output is empty for {path}")
+        os.replace(part, out_path)
+    finally:
+        part.unlink(missing_ok=True)
     print(f"decompressed {path.name} -> {out_path.name} in {time.time() - start:.1f}s")
     return out_path
 
@@ -234,7 +317,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> int:
     args = parse_args()
     threshold = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=max(0, args.days))
     manifest, jobs = plan_suite_downloads(
@@ -254,6 +337,41 @@ def main() -> None:
 
     downloads: List[dict] = []
     decompressed: List[str] = []
+    failures: List[dict] = list(manifest.get("failures", []))
+
+    for suite, entries in manifest.get("suites", {}).items():
+        if isinstance(entries, dict) and entries.get("error"):
+            failures.append(
+                {"stage": "list", "suite": suite, "error": str(entries["error"])}
+            )
+
+    def decompress_requested(path: Path, entry: Optional[dict] = None) -> None:
+        if path.suffix.lower() not in {".zst", ".zstd"}:
+            return
+        try:
+            out_path = maybe_decompress_zst(path)
+            if out_path is None:
+                raise RuntimeError("zstandard support is unavailable")
+            decompressed.append(str(out_path))
+        except Exception as exc:
+            if entry is not None:
+                entry["status"] = f"decompress error: {exc}"
+            failures.append(
+                {
+                    "stage": "decompress",
+                    "url": str(path),
+                    "error": str(exc),
+                }
+            )
+            print(f"decompression failed for {path}: {exc}", file=sys.stderr)
+
+    if args.decompress:
+        for entries in manifest.get("suites", {}).values():
+            if isinstance(entries, dict):
+                continue
+            for entry in entries:
+                if entry.get("status") == "exists":
+                    decompress_requested(Path(entry["dest"]), entry)
 
     if jobs:
         args.out.mkdir(parents=True, exist_ok=True)
@@ -268,27 +386,31 @@ def main() -> None:
                     if entry:
                         entry["status"] = "downloaded"
                     if args.decompress:
-                        out_path = maybe_decompress_zst(Path(info["path"]))
-                        if out_path:
-                            decompressed.append(str(out_path))
+                        decompress_requested(Path(info["path"]), entry)
                 except Exception as exc:
                     entry = dest_index.get(str(job.dest))
                     if entry:
                         entry["status"] = f"error: {exc}"
+                    failures.append(
+                        {"stage": "download", "url": job.url, "error": str(exc)}
+                    )
                     print(f"download failed for {job.url}: {exc}", file=sys.stderr)
     else:
-        print("No new BIN files to download within the requested window.")
+        if failures:
+            print("No BIN downloads started; see manifest failures.", file=sys.stderr)
+        else:
+            print("No new BIN files to download within the requested window.")
 
     manifest["downloaded"] = downloads
     if args.decompress:
         manifest["decompressed"] = decompressed
+    manifest["failures"] = failures
 
     manifest_path = args.manifest or (args.out / "manifest.json")
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(manifest_path, "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, indent=2)
+    write_json_atomic(manifest_path, manifest)
     print(f"wrote manifest {manifest_path}")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

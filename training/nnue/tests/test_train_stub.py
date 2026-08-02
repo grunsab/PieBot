@@ -49,6 +49,86 @@ class TrainStubTests(unittest.TestCase):
         )
         self.assertAlmostEqual(t, -40.0, places=5)
 
+    def test_invalid_outcome_uses_unmixed_teacher_target(self) -> None:
+        rec = TrainingRecord(
+            fen="8/8/8/8/8/8/4K3/7k w - - 0 1",
+            result=0,
+            result_q=0.0,
+            value_cp=75.0,
+            outcome_valid=False,
+        )
+        target = train_stub._target_cp_for_record(
+            rec,
+            target_cp=100.0,
+            teacher_mix=0.2,
+            max_teacher_cp=1500.0,
+        )
+        self.assertAlmostEqual(75.0, target)
+
+    def test_iterate_samples_skips_invalid_outcome_without_teacher(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            records = [
+                {
+                    "id": "invalid-no-teacher",
+                    "fen": "8/8/8/8/8/8/4K3/7k w - - 0 1",
+                    "result": 0,
+                    "outcome_valid": False,
+                },
+                {
+                    "id": "invalid-with-teacher",
+                    "fen": "8/8/8/8/8/8/4K3/7k w - - 0 1",
+                    "result": 0,
+                    "outcome_valid": False,
+                    "value_cp": 25.0,
+                },
+                {
+                    "id": "valid-outcome",
+                    "fen": "8/8/8/8/8/8/4K3/7k w - - 0 1",
+                    "result": 0,
+                },
+            ]
+            with (data_dir / "shard_000000.jsonl").open("w", encoding="utf-8") as handle:
+                for record in records:
+                    handle.write(json.dumps(record) + "\n")
+
+            loaded = list(train_stub.iterate_samples(data_dir, max_samples=0))
+
+        self.assertEqual(
+            ["invalid-with-teacher", "valid-outcome"],
+            [record.raw["id"] for _features, record in loaded],
+        )
+
+    def test_replay_sources_are_balanced_before_max_samples_and_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+            for source_idx, count in ((0, 40), (1, 10)):
+                path = data_dir / f"src{source_idx:02d}_shard000000.jsonl"
+                with path.open("w", encoding="utf-8") as handle:
+                    for record_idx in range(count):
+                        handle.write(
+                            json.dumps(
+                                {
+                                    "id": f"s{source_idx}-{record_idx}",
+                                    "source": source_idx,
+                                    "fen": fen,
+                                    "result": 0,
+                                }
+                            )
+                            + "\n"
+                        )
+
+            first = list(train_stub.iterate_samples(data_dir, max_samples=10, seed=9))
+            second = list(train_stub.iterate_samples(data_dir, max_samples=10, seed=9))
+
+        first_ids = [record.raw["id"] for _features, record in first]
+        self.assertEqual(first_ids, [record.raw["id"] for _features, record in second])
+        source_counts = {0: 0, 1: 0}
+        for _features, record in first:
+            source_counts[int(record.raw["source"])] += 1
+        self.assertEqual({0: 5, 1: 5}, source_counts)
+
     def test_train_model_writes_metrics_and_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

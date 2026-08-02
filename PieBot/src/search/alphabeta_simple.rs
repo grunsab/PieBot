@@ -274,9 +274,8 @@ impl Searcher {
         if best.is_none() {
             let mut mv: Option<Move> = None;
             board.generate_moves(|ml| {
-                for m in ml {
+                if let Some(m) = ml.into_iter().next() {
                     mv = Some(m);
-                    break;
                 }
                 mv.is_some()
             });

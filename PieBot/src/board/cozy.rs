@@ -61,4 +61,12 @@ impl Position {
         }
         Ok(pos)
     }
+
+    pub fn set_from_fen_and_moves(fen: &str, moves: &[String]) -> Result<Self, String> {
+        let mut pos = Self::from_fen(fen)?;
+        for m in moves {
+            pos.make_move_uci(m)?;
+        }
+        Ok(pos)
+    }
 }

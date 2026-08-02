@@ -44,32 +44,59 @@ require_cmd python3
 require_cmd cargo
 require_cmd jq
 
+if [[ "$TRAINER_DEVICE" == "cuda" && "$TRAINER_BACKEND" == "auto" ]]; then
+  log "CUDA requested; resolving trainer backend auto to torch (no stub fallback)"
+  TRAINER_BACKEND="torch"
+fi
+
 if [[ "$TRAINER_DEVICE" == "cuda" ]]; then
   require_cmd nvidia-smi
 fi
 
 log "repo root: $ROOT_DIR"
 log "output root: $OUT_ROOT"
-mkdir -p "$OUT_ROOT"
+if ! mkdir -p "$OUT_ROOT"; then
+  echo "cannot create $OUT_ROOT; create /opt/piebot_runs and grant this user ownership first" >&2
+  exit 1
+fi
+if [[ ! -w "$OUT_ROOT" ]]; then
+  echo "output root is not writable: $OUT_ROOT" >&2
+  exit 1
+fi
+cd "$ROOT_DIR"
 
-if [[ "$TRAINER_BACKEND" == "torch" || "$TRAINER_BACKEND" == "auto" ]]; then
-  log "checking torch/cuda visibility"
-  python3 - <<'PY'
+log "checking trainer backend/device availability"
+python3 - "$TRAINER_BACKEND" "$TRAINER_DEVICE" <<'PY'
 import sys
+
+backend, device = sys.argv[1:]
+if backend == "stub":
+    if device == "cuda":
+        raise SystemExit("CUDA requested but trainer backend is explicitly stub")
+    print("trainer_backend", backend)
+    print("trainer_device", device)
+    raise SystemExit(0)
+
 try:
     import torch
 except Exception as exc:
-    print(f"torch import failed: {exc}", file=sys.stderr)
-    raise
+    if backend == "torch" or device == "cuda":
+        raise SystemExit(f"PyTorch is required for backend={backend}, device={device}: {exc}")
+    print(f"PyTorch unavailable; backend=auto will use the CPU stub: {exc}", file=sys.stderr)
+    raise SystemExit(0)
+
+cuda_available = bool(torch.cuda.is_available())
 print("torch_version", torch.__version__)
-print("cuda_available", torch.cuda.is_available())
+print("cuda_available", cuda_available)
 print("cuda_devices", torch.cuda.device_count())
+if device == "cuda" and not cuda_available:
+    raise SystemExit("CUDA requested but torch CUDA is unavailable; refusing CPU stub fallback")
 PY
-fi
 
 log "building required binaries"
-cargo build --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" \
-  --bin selfplay --bin relabel_jsonl --bin accept --bin compare_play
+cargo build --locked --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" \
+  --bin selfplay --bin relabel_jsonl --bin compare_play \
+  --bin accept --bin accept_temp
 
 log "starting 24h autopilot run"
 python3 -m training.nnue.autopilot \
@@ -122,15 +149,30 @@ PIEBOT_SUITE_FILE="$ROOT_DIR/PieBot/src/suites/matein3.txt" \
 PIEBOT_TEST_THREADS=1 \
 PIEBOT_TEST_START_DEPTH=7 \
 PIEBOT_TEST_MAX_DEPTH=7 \
-cargo run --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" --bin accept
+cargo run --locked --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" --bin accept
 
-log "running post-run compare_play sanity check"
-cargo run --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" --bin compare_play -- \
+log "running experimental-search acceptance sanity suite (matein3 depth7)"
+PIEBOT_SUITE_FILE="$ROOT_DIR/PieBot/src/suites/matein3.txt" \
+PIEBOT_TEST_THREADS=1 \
+PIEBOT_TEST_START_DEPTH=7 \
+PIEBOT_TEST_MAX_DEPTH=7 \
+cargo run --locked --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" --bin accept_temp
+
+log "comparing trained NNUE against the PST baseline with identical search"
+cargo run --locked --release --manifest-path "$ROOT_DIR/PieBot/Cargo.toml" --bin compare_play -- \
+  --same-search \
   --games "$COMPARE_GAMES" \
   --movetime "$COMPARE_MOVETIME_MS" \
   --noise-plies 12 \
   --noise-topk 5 \
   --threads "$COMPARE_THREADS" \
+  --base-eval pst \
+  --base-use-nnue false \
+  --base-blend 0 \
+  --exp-eval nnue \
+  --exp-use-nnue true \
+  --exp-blend 100 \
+  --exp-nnue-quant-file "$NNUE_QUANT" \
   --json-out "$OUT_ROOT/post_compare.json" \
   --csv-out "$OUT_ROOT/post_compare.csv" \
   --pgn-out "$OUT_ROOT/post_compare.pgn"

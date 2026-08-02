@@ -68,9 +68,6 @@ def _pack_batch(
         offsets.append(ofs)
         flat.extend(int(x) for x in feats)
         ofs += len(feats)
-    if not flat:
-        flat = [0]
-        offsets = [0]
     flat_t = torch.tensor(flat, dtype=torch.long, device=device)
     offsets_t = torch.tensor(offsets, dtype=torch.long, device=device)
     targets_t = torch.tensor(batch_targets, dtype=torch.float32, device=device)
@@ -144,7 +141,7 @@ def train_model(
     ys: List[float] = []
     best_move_available = 0
     teacher_value_available = 0
-    for feats, record in train_stub.iterate_samples(jsonl_dir, max_samples):
+    for feats, record in train_stub.iterate_samples(jsonl_dir, max_samples, seed=seed):
         xs.append(feats)
         ys.append(
             train_stub._target_cp_for_record(

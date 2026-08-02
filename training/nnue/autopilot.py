@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import math
 import os
 import subprocess
 import sys
@@ -95,6 +96,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_dirichlet_alpha": 0.30,
         "selfplay_dirichlet_epsilon": 0.25,
         "selfplay_dirichlet_plies": 12,
+        "selfplay_seed": 42,
         "teacher_relabel_depth": 5,
         "teacher_relabel_every": 8,
         "teacher_relabel_threads": 48,
@@ -109,6 +111,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "max_teacher_cp": 1200.0,
         "learning_rate": 0.03,
         "val_split": 0.1,
+        "seed": 1,
         "trainer_backend": "auto",
         "trainer_device": "cuda",
         "resume": True,
@@ -200,6 +203,19 @@ def _profile_defaults(name: str) -> Dict[str, Any]:
     raise ValueError(f"unknown profile: {name}")
 
 
+def _derive_cycle_seed(base_seed: int, cycle_idx: int, *, stream: int = 0) -> int:
+    """Derive a stable, independent u64 seed for one autopilot cycle."""
+    mask = (1 << 64) - 1
+    x = int(base_seed) & mask
+    x ^= (int(cycle_idx) * 0x9E3779B97F4A7C15) & mask
+    x ^= (int(stream) * 0xD1B54A32D192ED03) & mask
+    x = (x + 0x9E3779B97F4A7C15) & mask
+    x = ((x ^ (x >> 30)) * 0xBF58476D1CE4E5B9) & mask
+    x = ((x ^ (x >> 27)) * 0x94D049BB133111EB) & mask
+    x ^= x >> 31
+    return int(x & mask) or 1
+
+
 def _active_model_blend_percent(state: Dict[str, Any]) -> int:
     accepted = state.get("accepted_models")
     if not isinstance(accepted, list):
@@ -285,7 +301,9 @@ def _collect_replay_jsonl_dirs(state: Dict[str, Any], window_cycles: int) -> lis
     for c in reversed(completed):
         if not isinstance(c, dict):
             continue
-        p = _path_if_exists(c.get("train_jsonl_dir")) or _path_if_exists(c.get("jsonl_dir"))
+        # Replay a cycle's fresh/relabelled shards. Its train_jsonl_dir may already
+        # contain older replay windows, which would recursively duplicate history.
+        p = _path_if_exists(c.get("jsonl_dir")) or _path_if_exists(c.get("train_jsonl_dir"))
         if p is None:
             continue
         if any(x.resolve() == p.resolve() for x in out):
@@ -311,15 +329,18 @@ def _run_model_gate(
     min_score_delta: float,
 ) -> Dict[str, Any]:
     out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.unlink(missing_ok=True)
+    expected_games = max(2, int(games))
     cmd = [
         "cargo",
         "run",
+        "--locked",
         "--release",
         "--bin",
         "compare_play",
         "--",
         "--games",
-        str(max(2, int(games))),
+        str(expected_games),
         "--movetime",
         str(max(1, int(movetime_ms))),
         "--noise-plies",
@@ -368,9 +389,20 @@ def _run_model_gate(
         )
     subprocess.run(cmd, cwd=str(piebot_dir), check=True)
     payload = json.loads(out_json.read_text(encoding="utf-8"))
-    points = payload.get("points", {}) if isinstance(payload, dict) else {}
-    baseline = float(points.get("baseline", 0.0))
-    experimental = float(points.get("experimental", 0.0))
+    if not isinstance(payload, dict):
+        raise ValueError("model gate JSON must be an object")
+    points = payload.get("points")
+    if not isinstance(points, dict) or "baseline" not in points or "experimental" not in points:
+        raise ValueError("model gate JSON is missing baseline/experimental points")
+    baseline = float(points["baseline"])
+    experimental = float(points["experimental"])
+    if not math.isfinite(baseline) or not math.isfinite(experimental):
+        raise ValueError("model gate JSON contains non-finite points")
+    reported_games = int(payload.get("games", -1))
+    if reported_games != expected_games:
+        raise ValueError(
+            f"model gate JSON reports {reported_games} games, expected {expected_games}"
+        )
     delta = experimental - baseline
     accepted = delta >= float(min_score_delta)
     return {
@@ -378,7 +410,7 @@ def _run_model_gate(
         "baseline_points": baseline,
         "experimental_points": experimental,
         "delta_points": delta,
-        "games": int(payload.get("games", max(2, int(games)))) if isinstance(payload, dict) else max(2, int(games)),
+        "games": reported_games,
         "json_path": str(out_json),
     }
 
@@ -450,10 +482,22 @@ def main(argv: Optional[list[str]] = None) -> int:
 
             cycle_idx = int(state["next_cycle"])
             cycle_dir = out_root / "cycles" / f"cycle_{cycle_idx:06d}"
+            cycle_selfplay_seed = _derive_cycle_seed(
+                int(defaults.get("selfplay_seed", 42)),
+                cycle_idx,
+                stream=0,
+            )
+            cycle_training_seed = _derive_cycle_seed(
+                int(defaults.get("seed", 1)),
+                cycle_idx,
+                stream=1,
+            )
             cycle_state = {
                 "cycle": cycle_idx,
                 "started_at": now,
                 "out_dir": str(cycle_dir),
+                "selfplay_seed": cycle_selfplay_seed,
+                "training_seed": cycle_training_seed,
                 "status": "running",
             }
             state["current_cycle"] = cycle_state
@@ -478,6 +522,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                             "out_dir": cycle_dir,
                             "piebot_dir": args.piebot_dir,
                             "resume": True,
+                            "selfplay_seed": cycle_selfplay_seed,
+                            "seed": cycle_training_seed,
                             "selfplay_nnue_quant_file": bootstrap_quant,
                             "selfplay_nnue_blend_percent": active_blend,
                             "teacher_relabel_nnue_quant_file": teacher_quant,

@@ -1,4 +1,3 @@
-#![cfg(feature = "board-pleco")]
 use pleco::{Board as PlecoBoard, MoveList};
 
 pub struct RevBoard {

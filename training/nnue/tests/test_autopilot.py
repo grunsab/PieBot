@@ -25,6 +25,14 @@ class _FakeLockBackend:
 
 
 class AutopilotTests(unittest.TestCase):
+    def test_cycle_seed_is_deterministic_but_varies_by_cycle_and_stream(self) -> None:
+        first = autopilot._derive_cycle_seed(42, 1, stream=0)
+        self.assertEqual(first, autopilot._derive_cycle_seed(42, 1, stream=0))
+        self.assertNotEqual(first, autopilot._derive_cycle_seed(42, 2, stream=0))
+        self.assertNotEqual(first, autopilot._derive_cycle_seed(42, 1, stream=1))
+        self.assertGreater(first, 0)
+        self.assertLessEqual(first, (1 << 64) - 1)
+
     def test_zen5_9755_profile_has_expected_relabel_defaults(self) -> None:
         profile = autopilot.zen5_9755_7d_profile()
         self.assertEqual(1, profile["selfplay_threads"])
@@ -137,6 +145,35 @@ class AutopilotTests(unittest.TestCase):
             got = autopilot._collect_replay_jsonl_dirs(state, 2)
             self.assertEqual([p3, p2], got)
 
+    def test_replay_uses_each_cycles_fresh_jsonl_not_its_prior_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fresh1 = root / "cycle1" / "jsonl_relabel"
+            merged1 = root / "cycle1" / "jsonl_train"
+            fresh2 = root / "cycle2" / "jsonl_relabel"
+            merged2 = root / "cycle2" / "jsonl_train"
+            for path in (fresh1, merged1, fresh2, merged2):
+                path.mkdir(parents=True, exist_ok=True)
+            state = {
+                "completed_cycles": [
+                    {
+                        "cycle": 1,
+                        "jsonl_dir": str(fresh1),
+                        "train_jsonl_dir": str(merged1),
+                    },
+                    {
+                        "cycle": 2,
+                        "jsonl_dir": str(fresh2),
+                        "train_jsonl_dir": str(merged2),
+                    },
+                ]
+            }
+
+            self.assertEqual(
+                [fresh2, fresh1],
+                autopilot._collect_replay_jsonl_dirs(state, 2),
+            )
+
     def test_teacher_lag_selects_older_accepted_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             m1 = Path(tmp) / "m1.nnue"
@@ -214,9 +251,124 @@ class AutopilotTests(unittest.TestCase):
             self.assertIsNone(gate_calls[1][0])
             self.assertIsNone(created[0][0]["selfplay_nnue_quant_file"])
             self.assertIsNone(created[1][0]["selfplay_nnue_quant_file"])
+            self.assertNotEqual(created[0][0]["selfplay_seed"], created[1][0]["selfplay_seed"])
+            self.assertNotEqual(created[0][0]["seed"], created[1][0]["seed"])
+            self.assertEqual(
+                autopilot._derive_cycle_seed(42, 1, stream=0),
+                created[0][0]["selfplay_seed"],
+            )
+            self.assertEqual(
+                autopilot._derive_cycle_seed(42, 2, stream=0),
+                created[1][0]["selfplay_seed"],
+            )
 
             state = json.loads((out_root / "autopilot_state.json").read_text(encoding="utf-8"))
             self.assertIsNone(state["active_model_path"])
+
+    def test_model_gate_command_has_one_cargo_separator_and_forwards_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_json = root / "gate.json"
+            candidate = root / "candidate.nnue"
+            candidate.write_bytes(b"PIENNQ01dummy")
+            commands = []
+
+            def _fake_run(cmd, **kwargs):
+                commands.append((cmd, kwargs))
+                out_json.write_text(
+                    json.dumps(
+                        {
+                            "games": 6,
+                            "points": {"baseline": 2.0, "experimental": 4.0},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            with mock.patch("training.nnue.autopilot.subprocess.run", side_effect=_fake_run):
+                gate = autopilot._run_model_gate(
+                    piebot_dir=root,
+                    out_json=out_json,
+                    base_quant=None,
+                    candidate_quant=candidate,
+                    games=6,
+                    movetime_ms=25,
+                    noise_plies=4,
+                    noise_topk=3,
+                    threads=1,
+                    seed=9,
+                    min_score_delta=0.0,
+                )
+
+            self.assertTrue(gate["accepted"])
+            self.assertEqual(1, len(commands))
+            cmd, kwargs = commands[0]
+            self.assertEqual(1, cmd.count("--"))
+            separator = cmd.index("--")
+            self.assertEqual(
+                ["cargo", "run", "--locked", "--release", "--bin", "compare_play"],
+                cmd[:separator],
+            )
+            self.assertEqual("--games", cmd[separator + 1])
+            self.assertEqual("6", cmd[cmd.index("--games") + 1])
+            self.assertEqual(str(root), kwargs["cwd"])
+            self.assertTrue(kwargs["check"])
+
+    def test_model_gate_cannot_reuse_stale_json_when_runner_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_json = root / "gate.json"
+            out_json.write_text(
+                json.dumps({"games": 2, "points": {"baseline": 0.0, "experimental": 2.0}}),
+                encoding="utf-8",
+            )
+            candidate = root / "candidate.nnue"
+            candidate.write_bytes(b"PIENNQ01dummy")
+
+            with mock.patch("training.nnue.autopilot.subprocess.run", return_value=None):
+                with self.assertRaises(FileNotFoundError):
+                    autopilot._run_model_gate(
+                        piebot_dir=root,
+                        out_json=out_json,
+                        base_quant=None,
+                        candidate_quant=candidate,
+                        games=2,
+                        movetime_ms=1,
+                        noise_plies=0,
+                        noise_topk=1,
+                        threads=1,
+                        seed=1,
+                        min_score_delta=0.0,
+                    )
+
+    def test_model_gate_rejects_incomplete_runner_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_json = root / "gate.json"
+            candidate = root / "candidate.nnue"
+            candidate.write_bytes(b"PIENNQ01dummy")
+
+            def _write_incomplete(_cmd, **_kwargs):
+                out_json.write_text(json.dumps({"games": 2}), encoding="utf-8")
+
+            with mock.patch(
+                "training.nnue.autopilot.subprocess.run",
+                side_effect=_write_incomplete,
+            ):
+                with self.assertRaisesRegex(ValueError, "points"):
+                    autopilot._run_model_gate(
+                        piebot_dir=root,
+                        out_json=out_json,
+                        base_quant=None,
+                        candidate_quant=candidate,
+                        games=2,
+                        movetime_ms=1,
+                        noise_plies=0,
+                        noise_topk=1,
+                        threads=1,
+                        seed=1,
+                        min_score_delta=0.0,
+                    )
 
     def test_gate_reject_after_accept_keeps_previous_active_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

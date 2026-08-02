@@ -331,7 +331,7 @@ mod tests {
         let hidden_dim = 1usize;
         let output_dim = 1usize;
         // White king e1 => 4, white pawn e2 => 12, pawn piece slot => 0
-        let e2_idx = (((0usize * 64 + 4usize) * 5usize + 0usize) * 64usize) + 12usize;
+        let e2_idx = (4usize * 5usize * 64usize) + 12usize;
 
         let path = tmp_path("dense_halfkp");
         let mut f = File::create(&path).unwrap();
@@ -386,8 +386,8 @@ mod tests {
         let hidden_dim = 1usize;
         let output_dim = 1usize;
         // White king e1 => 4. Pawn squares: e2 => 12, e4 => 28
-        let e2_idx = (((0usize * 64 + 4usize) * 5usize + 0usize) * 64usize) + 12usize;
-        let e4_idx = (((0usize * 64 + 4usize) * 5usize + 0usize) * 64usize) + 28usize;
+        let e2_idx = (4usize * 5usize * 64usize) + 12usize;
+        let e4_idx = (4usize * 5usize * 64usize) + 28usize;
 
         let path = tmp_path("dense_halfkp_incremental");
         let mut f = File::create(&path).unwrap();

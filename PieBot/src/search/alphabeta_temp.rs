@@ -222,6 +222,59 @@ impl Searcher {
         (key as usize) & ((1 << 18) - 1)
     }
 
+    fn guard_root_moves(board: &Board, moves: Vec<Move>) -> Vec<Move> {
+        let quiet_loss_thresh = 200;
+        let capture_loss_thresh = 300;
+        let severe_capture_loss = 500;
+        let mut safe = Vec::with_capacity(moves.len());
+        let mut blunders = Vec::new();
+        let mut severe = Vec::new();
+        let opponent = if board.side_to_move() == cozy_chess::Color::White {
+            cozy_chess::Color::Black
+        } else {
+            cozy_chess::Color::White
+        };
+        let mut opponent_occupancy = 0u64;
+        for square in board.colors(opponent) {
+            opponent_occupancy |= 1u64 << (square as usize);
+        }
+
+        for m in moves {
+            let is_capture = (opponent_occupancy & (1u64 << (m.to as usize))) != 0;
+            let mut child = board.clone();
+            child.play_unchecked(m);
+            let gives_check = !child.checkers().is_empty();
+
+            // Forcing checks must be searched even when SEE considers the move
+            // a losing sacrifice. The search, not a static root filter, decides
+            // whether the continuation justifies the material investment.
+            if gives_check {
+                safe.push(m);
+            } else if !is_capture
+                && crate::search::safety::is_hanging_after_move(board, m, quiet_loss_thresh)
+            {
+                blunders.push(m);
+            } else if is_capture {
+                let see = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                if see <= -severe_capture_loss {
+                    severe.push(m);
+                } else if see <= -capture_loss_thresh {
+                    blunders.push(m);
+                } else {
+                    safe.push(m);
+                }
+            } else {
+                safe.push(m);
+            }
+        }
+
+        // This is an ordering guard, not a pruning rule. Even a very negative
+        // static exchange can be a sound tactical sacrifice at the root.
+        safe.extend(blunders);
+        safe.extend(severe);
+        safe
+    }
+
     #[inline]
     fn order_moves_internal(
         &self,
@@ -730,61 +783,8 @@ impl Searcher {
             }
             false
         });
-        // Root blunder guard: push obviously hanging quiet moves and clearly losing captures to the end
         if depth >= 1 {
-            let quiet_loss_thresh = 200; // roughly a minor piece
-            let capture_loss_thresh = 300; // avoid large losing captures (e.g., queen sac blunders)
-            let severe_capture_loss = 500; // discard extremely losing captures entirely when alternatives exist
-            let mut safe: Vec<Move> = Vec::with_capacity(moves.len());
-            let mut blunders: Vec<Move> = Vec::new();
-            let mut severe: Vec<Move> = Vec::new();
-            // Precompute opponent occupancy for capture detection
-            let opp = if board.side_to_move() == cozy_chess::Color::White {
-                cozy_chess::Color::Black
-            } else {
-                cozy_chess::Color::White
-            };
-            let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0;
-            for sq in opp_bb {
-                occ_mask |= 1u64 << (sq as usize);
-            }
-            for m in moves.drain(..) {
-                let to_sq: Square = m.to;
-                let to_bit = 1u64 << (to_sq as usize);
-                let is_cap_fast = (occ_mask & to_bit) != 0; // exclude EP; acceptable for root guard
-                let mut tmp = board.clone();
-                tmp.play_unchecked(m);
-                let gives_check = !(tmp.checkers()).is_empty();
-                if !is_cap_fast
-                    && !gives_check
-                    && crate::search::safety::is_hanging_after_move(board, m, quiet_loss_thresh)
-                {
-                    blunders.push(m);
-                } else if is_cap_fast {
-                    // Losing capture by SEE? Push to tail
-                    let see = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    if see <= -severe_capture_loss {
-                        severe.push(m);
-                    } else if see <= -capture_loss_thresh {
-                        blunders.push(m);
-                    } else {
-                        safe.push(m);
-                    }
-                } else {
-                    safe.push(m);
-                }
-            }
-            if !safe.is_empty() {
-                safe.extend(blunders.into_iter());
-                // Discard severe losers if we have alternatives
-                moves = safe;
-            } else {
-                // No safe alternatives; include everything
-                safe.extend(blunders.into_iter());
-                safe.extend(severe.into_iter());
-                moves = safe;
-            }
+            moves = Self::guard_root_moves(board, moves);
         }
         if moves.is_empty() {
             return SearchResult {
@@ -792,58 +792,6 @@ impl Searcher {
                 score_cp: self.eval_terminal(board, 0),
                 nodes: self.nodes,
             };
-        }
-        // Apply the same root guard in the windowed variant to keep behavior consistent
-        if depth >= 1 {
-            let quiet_loss_thresh = 200;
-            let capture_loss_thresh = 300;
-            let severe_capture_loss = 500;
-            let mut safe: Vec<Move> = Vec::with_capacity(moves.len());
-            let mut blunders: Vec<Move> = Vec::new();
-            let mut severe: Vec<Move> = Vec::new();
-            let opp = if board.side_to_move() == cozy_chess::Color::White {
-                cozy_chess::Color::Black
-            } else {
-                cozy_chess::Color::White
-            };
-            let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0;
-            for sq in opp_bb {
-                occ_mask |= 1u64 << (sq as usize);
-            }
-            for m in moves.drain(..) {
-                let to_sq: Square = m.to;
-                let to_bit = 1u64 << (to_sq as usize);
-                let is_cap_fast = (occ_mask & to_bit) != 0;
-                let mut tmp = board.clone();
-                tmp.play_unchecked(m);
-                let gives_check = !(tmp.checkers()).is_empty();
-                if !is_cap_fast
-                    && !gives_check
-                    && crate::search::safety::is_hanging_after_move(board, m, quiet_loss_thresh)
-                {
-                    blunders.push(m);
-                } else if is_cap_fast {
-                    let see = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    if see <= -severe_capture_loss {
-                        severe.push(m);
-                    } else if see <= -capture_loss_thresh {
-                        blunders.push(m);
-                    } else {
-                        safe.push(m);
-                    }
-                } else {
-                    safe.push(m);
-                }
-            }
-            if !safe.is_empty() {
-                safe.extend(blunders.into_iter());
-                moves = safe;
-            } else {
-                safe.extend(blunders.into_iter());
-                safe.extend(severe.into_iter());
-                moves = safe;
-            }
         }
         // TT-first (Exact-only trust)
         if self.tt_first {
@@ -941,9 +889,7 @@ impl Searcher {
                 let mut refined: Vec<Move> = caps.into_iter().map(|(m, _)| m).collect();
                 refined.extend(quiets.into_iter());
                 // Copy back refined prefix
-                for i in 0..k {
-                    moves[i] = refined[i];
-                }
+                moves[..k].copy_from_slice(&refined[..k]);
             }
         }
         for m in moves.into_iter() {
@@ -1854,9 +1800,7 @@ impl Searcher {
                 caps.sort_by_key(|&(_, see)| -see);
                 let mut refined: Vec<Move> = caps.into_iter().map(|(m, _)| m).collect();
                 refined.extend(quiets.into_iter());
-                for i in 0..k {
-                    moves[i] = refined[i];
-                }
+                moves[..k].copy_from_slice(&refined[..k]);
             }
         }
         for m in moves.into_iter() {
@@ -2153,9 +2097,7 @@ impl Searcher {
                 caps.sort_by_key(|&(_, see)| -see);
                 let mut refined: Vec<Move> = caps.into_iter().map(|(m, _)| m).collect();
                 refined.extend(quiets.into_iter());
-                for i in 0..k {
-                    moves[i] = refined[i];
-                }
+                moves[..k].copy_from_slice(&refined[..k]);
             }
         }
         moves
@@ -2205,6 +2147,32 @@ pub enum EvalMode {
     Material,
     Pst,
     Nnue,
+}
+
+#[cfg(test)]
+mod root_guard_tests {
+    use super::Searcher;
+    use cozy_chess::{Board, Move};
+
+    fn legal_moves(board: &Board) -> Vec<Move> {
+        let mut moves = Vec::new();
+        board.generate_moves(|list| {
+            moves.extend(list);
+            false
+        });
+        moves
+    }
+
+    #[test]
+    fn root_guard_only_orders_and_never_removes_legal_moves() {
+        let board =
+            Board::from_fen("3r2k1/3p4/8/8/8/8/8/3Q2K1 w - - 0 1", false).expect("valid FEN");
+        let legal = legal_moves(&board);
+        let guarded = Searcher::guard_root_moves(&board, legal.clone());
+
+        assert_eq!(guarded.len(), legal.len());
+        assert!(legal.iter().all(|mv| guarded.contains(mv)));
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -12,7 +12,7 @@ Scripts
 - fetch_lc0_pgns.py: downloads LCZero self-play PGNs (latest per suite).
 - fetch_lc0_bins.py: downloads recent LCZero training BIN archives with date filtering.
 - process_bins.py: converts BIN/BIN.ZST files (and tar bundles) into JSONL NNUE shards.
-- process_pgns.py: converts PGNs to JSONL shards with {fen, result}.
+- process_pgns.py: converts PGNs to JSONL shards with {fen, result, ply}.
 - dataloader.py: reads self-play shards and JSONL; LCZero JSONL helpers.
 - exporter.py: writes PIENNUE1 dense and PIENNQ01 quantized NNUE files.
 
@@ -44,7 +44,16 @@ End-to-end pipeline
     - self-play: `--selfplay-nnue-quant-file <path>` and `--selfplay-nnue-blend-percent <0..100>`
     - relabel: `--teacher-relabel-nnue-quant-file <path>` and `--teacher-relabel-nnue-blend-percent <0..100>`
   - Optional resume:
-    - `--resume` reuses existing self-play/relabel/train/export artifacts if present (fault-tolerant reruns)
+    - `--resume` reuses self-play/relabel JSONL only when a stage-completion manifest and
+      SHA-256 hashes verify every shard. The manifest also binds every generator/relabel
+      argument, self-play seed, relabel input snapshot, openings, and NNUE model content;
+      partial outputs or changed provenance are rebuilt. Older output-only manifests rebuild
+      once under this stricter format.
+    - Replay merges record the exact source set and shard hashes. Changed fresh/replay data
+      invalidates both the merge and its dependent training checkpoint.
+    - Checkpoint/metrics and dense/quant exports are reused only when completion manifests,
+      checksums, dimensions, file sizes, and training provenance validate. Partial or corrupt
+      artifacts are rebuilt; export files are replaced atomically after validation.
   - Optional trainer backend:
     - `--trainer-backend stub|torch|auto`
     - `--trainer-device auto|cuda|cpu`
@@ -78,20 +87,35 @@ python -m training.nnue.run_pipeline \
 BIN workflow
 -----------
 - Use `fetch_lc0_bins.py` to download recent self-play archives (optionally filtered by suite/date).
+- The BIN and PGN fetchers stage downloads as same-directory `.part` files and publish them with an atomic replace. `--skip-existing` accepts only non-empty files with no partial marker, so an interrupted transfer is retried safely.
+- Fetch manifests are also replaced atomically. Listing, download, or requested decompression failures are recorded in `failures` and make the fetch command exit nonzero.
 - Convert the downloaded BIN/BIN.ZST files into JSONL shards with `python -m training.nnue.process_bins --inputs <paths> --out <dir>`.
   - The converter understands raw `.bin`, `.bin.gz`, `.bin.zst`, and `.tar` bundles containing BIN files.
-  - Each JSONL entry captures the canonical FEN, best move, WDL target, policy top moves, and metadata required by training.
+  - Primary `fen`, move/policy, and Q-value fields are restored from LC0's side-to-move/canonical encoding to absolute board coordinates and white-relative values. Diagnostic `*_canonical` and `*_side_to_move` fields retain the source representation.
+  - LC0 records flagged as max-length outcomes or marked for deletion emit `outcome_valid=false`, so unresolved/bad data is not trained as a real draw.
+- Pipeline BIN ingestion clears its owned JSONL stage before rebuilding, so a shorter rerun
+  cannot leave stale high-numbered shards in the training set.
 - Training utilities (`dataloader.py`, `train_stub.py`) consume the new JSON schema while remaining backwards-compatible with legacy PGN-derived shards.
+
+PGN workflow
+------------
+- `process_pgns.py` uses each game's `SetUp`/`FEN` headers through python-chess, preserving the starting side to move and writing the absolute game `ply` from that position.
+- All matched input PGNs use collision-free shard numbering. Existing shards are preserved and new output starts at the next available shard number.
+- `.piebot_pgn_ingest.json` records each completed source SHA-256 plus normalized conversion options and verifies the hashes of its output shards. Rerunning an unchanged source with identical options skips it without duplicating records.
+- Each source is written to a staging directory first. A pending transaction is persisted before shards are published, and the completion manifest is atomically replaced only after every shard is durable; interrupted transactions are rolled back on retry.
+- Changed source content or conversion options are intentionally treated as a new dataset version and appended. Use a fresh output directory when the old version should be replaced instead of retained.
 
 Self-play JSONL labels
 ----------------------
 - Current self-play JSONL includes:
-  - `fen`, `ply`, `result`, `result_q`
+  - `fen`, `ply`, `result`, `result_q`, `outcome_valid`, `termination`
   - `played_move` (actual sampled move used in game)
   - `target_best_move` (teacher move target)
   - `best_move` (compatibility alias for `target_best_move`)
   - `value_cp` (white-perspective teacher value from search, when available)
   - `policy_top` (top root moves with probabilities, when available)
+- Truncated games use `outcome_valid=false`. Records without a teacher value are skipped;
+  records with a teacher value train on that value without blending in the placeholder draw.
 
 Set-and-forget autopilot
 ------------------------
@@ -100,10 +124,15 @@ Set-and-forget autopilot
   - single-instance lock (`autopilot.lock`)
   - automatic retry on transient failures
   - resume-safe cycle execution (`run_pipeline --resume`)
+  - deterministic per-cycle self-play and trainer seeds, with independent streams; rejected
+    cycles therefore advance to different game generation while a retry remains reproducible
   - bootstrap gate: until a candidate NNUE beats the default non-NNUE eval in same-search head-to-head, self-play and relabel stay on the default engine
   - automatic NNUE handoff after acceptance: once a candidate is accepted, later cycles use the accepted `nnue_quant.nnue` for self-play + relabel teacher search
   - gradual NNUE ramp after acceptance: accepted model generations are used at 25%, 50%, 75%, then 100% blend for later cycles
   - replay-window training: each cycle can merge JSONL from recent prior cycles
+    - capped training sets are sampled deterministically and balanced across fresh/replay sources
+    - replay references each prior cycle's fresh/relabelled shards, not its already-merged
+      training directory, so older history is not recursively duplicated
   - game-level parallel self-play: defaults to 1 search thread/game and auto fan-out to available cores (`--selfplay-parallel-games 0`)
   - lagged teacher option: relabel can use an older accepted model (reduces tight student-teacher coupling)
   - automatic model gate: candidate NNUE is promoted only after head-to-head `compare_play` passes
@@ -123,7 +152,8 @@ Notes:
 - Profile defaults favor throughput with periodic stronger-teacher relabeling.
 - Current default relabel depth in autopilot is 5.
 - For high-core machines, leave `--selfplay-parallel-games 0` (auto) and keep `--selfplay-threads 1` unless you intentionally trade game count for deeper per-move search.
-- If CUDA is unavailable, `trainer-backend=auto` falls back to the CPU stub trainer.
+- Generic `--trainer-backend auto` runs still fall back to the CPU stub when PyTorch or the requested accelerator is unavailable.
+- The Zen5 + RTX 3090 production launchers under `scripts/` default to `torch` + `cuda` and fail before a long run if CUDA is unavailable. Set `TRAINER_BACKEND=auto TRAINER_DEVICE=auto` explicitly only when a CPU-stub fallback is intentional.
 - For quick validation runs, you can disable promotion gating by setting `--gate-games 0`.
 
 Windows 11 quick start
@@ -146,9 +176,11 @@ Two supported ways to run
     - `python -m training.nnue.run_pipeline --jsonl-dir data\nnue_jsonl\test80 --out out\nnue_pipeline --trainer-backend auto --trainer-device cuda --epochs 8 --batch-size 4096 --val-split 0.1 --learning-rate 0.05`
 - Full pipeline with self-play and/or teacher relabel:
   - This path invokes PieBot Rust binaries via `cargo run`.
+  - Pipeline and autopilot Cargo invocations use `--locked`, so dependency-lock drift fails
+    before production data generation or model gating.
   - Install Rust and ensure `cargo` is on `PATH`.
   - Build the training-related binaries first:
-    - `cargo build --release --manifest-path PieBot\Cargo.toml --bin selfplay --bin relabel_jsonl --bin compare_play`
+    - `cargo build --locked --release --manifest-path PieBot\Cargo.toml --bin selfplay --bin relabel_jsonl --bin compare_play`
   - Example:
     - `python -m training.nnue.run_pipeline --out out\nnue_selfplay_pipeline --selfplay-games 200 --selfplay-depth 4 --selfplay-threads 1 --selfplay-parallel-games 0 --teacher-relabel-depth 8 --teacher-relabel-every 4 --trainer-backend auto --trainer-device cuda --teacher-mix 0.8 --max-teacher-cp 1200 --epochs 8 --batch-size 4096 --val-split 0.1 --learning-rate 0.05`
 
@@ -157,12 +189,12 @@ Windows verification steps
 - Verify Python imports:
   - `python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"`
 - Verify the Rust side only when you need self-play/relabel/autopilot:
-  - `cargo run --release --manifest-path PieBot\Cargo.toml --bin selfplay -- --help`
-  - `cargo run --release --manifest-path PieBot\Cargo.toml --bin relabel_jsonl -- --help`
-  - `cargo run --release --manifest-path PieBot\Cargo.toml --bin compare_play -- --help`
+  - `cargo run --locked --release --manifest-path PieBot\Cargo.toml --bin selfplay -- --help`
+  - `cargo run --locked --release --manifest-path PieBot\Cargo.toml --bin relabel_jsonl -- --help`
+  - `cargo run --locked --release --manifest-path PieBot\Cargo.toml --bin compare_play -- --help`
 - Verify the NNUE Python tests:
   - `python -m unittest discover training/nnue/tests`
 
-Current caveat
---------------
-- The top-level repository-wide `cargo test -q` is not the right validation command for this workflow right now because `PieBot/src/bin/bench.rs` still has unrelated compile drift. The training pipeline itself uses the targeted binaries above.
+Repository-wide Rust verification
+---------------------------------
+- Run the complete Rust gate from the repository root with `cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml` and repeat with `--all-features`.

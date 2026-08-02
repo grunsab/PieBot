@@ -1,7 +1,7 @@
 use crate::eval::nnue::loader::QuantNnue;
 use crate::search::alphabeta::{EvalMode, SearchParams, Searcher};
 use crate::search::zobrist;
-use cozy_chess::{Board, Color, Move};
+use cozy_chess::{Board, Color, GameStatus, Move, Piece};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Gamma};
@@ -39,6 +39,34 @@ pub struct GameRecord {
     pub move_value_cp: Vec<Option<f32>>,          // white-perspective teacher value for each ply
     pub move_policy_top: Vec<Vec<(String, f32)>>, // optional root policy samples
     pub result: i8,                               // 1 white win, 0 draw, -1 black win
+    pub outcome_valid: bool, // false when generation stopped without a chess result
+    pub termination: GameTermination,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameTermination {
+    Checkmate,
+    Stalemate,
+    FiftyMove,
+    InsufficientMaterial,
+    ThreefoldRepetition,
+    MaxPlies,
+    NoMove,
+}
+
+impl GameTermination {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Checkmate => "checkmate",
+            Self::Stalemate => "stalemate",
+            Self::FiftyMove => "fifty_move",
+            Self::InsufficientMaterial => "insufficient_material",
+            Self::ThreefoldRepetition => "threefold_repetition",
+            Self::MaxPlies => "max_plies",
+            Self::NoMove => "no_move",
+        }
+    }
 }
 
 struct MoveChoice {
@@ -117,30 +145,19 @@ fn generate_single_game(
         move_value_cp: Vec::new(),
         move_policy_top: Vec::new(),
         result: 0,
+        outcome_valid: false,
+        termination: GameTermination::MaxPlies,
     };
+    let mut position_history = vec![board.clone()];
     let mut plies = 0usize;
     loop {
-        if plies >= params.max_plies {
+        if let Some((result, termination)) = adjudicate_position(&board, &position_history) {
+            record.result = result;
+            record.outcome_valid = true;
+            record.termination = termination;
             break;
         }
-        // Determine end conditions
-        let mut has_move = false;
-        board.generate_moves(|ml| {
-            if !ml.is_empty() {
-                has_move = true;
-            }
-            false
-        });
-        if !has_move {
-            if (board.checkers()).is_empty() {
-                record.result = 0;
-            } else {
-                record.result = if board.side_to_move() == Color::White {
-                    -1
-                } else {
-                    1
-                };
-            }
+        if plies >= params.max_plies {
             break;
         }
         // choose move
@@ -164,12 +181,74 @@ fn generate_single_game(
             record.move_value_cp.push(m.value_cp);
             record.move_policy_top.push(m.policy_top);
             board.play_unchecked(m.played_mv);
+            position_history.push(board.clone());
             plies += 1;
         } else {
+            record.termination = GameTermination::NoMove;
             break;
         }
     }
     record
+}
+
+pub fn adjudicate_position(
+    board: &Board,
+    position_history: &[Board],
+) -> Option<(i8, GameTermination)> {
+    match board.status() {
+        GameStatus::Won => {
+            let result = if board.side_to_move() == Color::White {
+                -1
+            } else {
+                1
+            };
+            return Some((result, GameTermination::Checkmate));
+        }
+        GameStatus::Drawn => {
+            let termination = if board.halfmove_clock() >= 100 {
+                GameTermination::FiftyMove
+            } else {
+                GameTermination::Stalemate
+            };
+            return Some((0, termination));
+        }
+        GameStatus::Ongoing => {}
+    }
+
+    if has_insufficient_material(board) {
+        return Some((0, GameTermination::InsufficientMaterial));
+    }
+    if position_history
+        .iter()
+        .filter(|previous| previous.same_position(board))
+        .take(3)
+        .count()
+        >= 3
+    {
+        return Some((0, GameTermination::ThreefoldRepetition));
+    }
+    None
+}
+
+fn has_insufficient_material(board: &Board) -> bool {
+    if !(board.pieces(Piece::Pawn) | board.pieces(Piece::Rook) | board.pieces(Piece::Queen))
+        .is_empty()
+    {
+        return false;
+    }
+
+    let knights = board.pieces(Piece::Knight).len();
+    let bishops: Vec<_> = board.pieces(Piece::Bishop).into_iter().collect();
+    if knights == 0 {
+        if bishops.len() <= 1 {
+            return true;
+        }
+        let first_color = ((bishops[0] as usize / 8) + (bishops[0] as usize % 8)) % 2;
+        return bishops
+            .iter()
+            .all(|sq| (((*sq as usize) / 8) + ((*sq as usize) % 8)) % 2 == first_color);
+    }
+    bishops.is_empty() && knights == 1
 }
 
 fn game_seed(base_seed: u64, game_idx: usize) -> u64 {
@@ -448,6 +527,11 @@ pub const SHARD_MAGIC: &[u8; 8] = b"PIESP001"; // Pie Self-Play v1
 pub const RECORD_SIZE: usize = 8 + 1 + 1 + 2;
 
 pub fn flatten_game_to_records(game: &GameRecord) -> Vec<RecordBin> {
+    // PIESP001 has no field for outcome validity. Emitting an unfinished game
+    // would turn its placeholder result=0 into a false training draw.
+    if !game.outcome_valid {
+        return Vec::new();
+    }
     let mut recs = Vec::new();
     let mut board = Board::from_fen(&game.start_fen, false).unwrap_or_default();
     for mv_str in &game.moves {
@@ -489,6 +573,8 @@ struct JsonlSelfPlayRecord<'a> {
     ply: usize,
     result: i8,
     result_q: f32,
+    outcome_valid: bool,
+    termination: GameTermination,
     #[serde(skip_serializing_if = "Option::is_none")]
     value_cp: Option<f32>,
     played_move: &'a str,
@@ -553,6 +639,8 @@ pub fn write_jsonl_shards<P: AsRef<Path>>(
                 ply,
                 result: g.result,
                 result_q: g.result as f32,
+                outcome_valid: g.outcome_valid,
+                termination: g.termination,
                 value_cp,
                 played_move: mv_str.as_str(),
                 target_best_move: target_best,
@@ -662,4 +750,42 @@ pub fn read_shard<P: AsRef<Path>>(path: P) -> std::io::Result<Vec<RecordBin>> {
         }
     }
     Ok(recs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{adjudicate_position, has_insufficient_material, GameTermination};
+    use cozy_chess::Board;
+
+    #[test]
+    fn adjudicates_fifty_move_rule() {
+        let board = Board::from_fen("4k3/8/8/8/8/8/R7/4K3 w - - 100 51", false).expect("valid FEN");
+        assert_eq!(
+            adjudicate_position(&board, &[board.clone()]),
+            Some((0, GameTermination::FiftyMove))
+        );
+    }
+
+    #[test]
+    fn adjudicates_threefold_repetition() {
+        let board = Board::default();
+        let history = vec![board.clone(), board.clone(), board.clone()];
+        assert_eq!(
+            adjudicate_position(&board, &history),
+            Some((0, GameTermination::ThreefoldRepetition))
+        );
+    }
+
+    #[test]
+    fn detects_only_strict_insufficient_material_cases() {
+        let bare_kings =
+            Board::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1", false).expect("valid FEN");
+        let bishop = Board::from_fen("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1", false).expect("valid FEN");
+        let mating_material =
+            Board::from_fen("4k3/8/8/8/8/8/8/2BNK3 w - - 0 1", false).expect("valid FEN");
+
+        assert!(has_insufficient_material(&bare_kings));
+        assert!(has_insufficient_material(&bishop));
+        assert!(!has_insufficient_material(&mating_material));
+    }
 }

@@ -4,17 +4,17 @@ set -euo pipefail
 # Fetch and prepare Lichess puzzle dataset, then build Mate-in-N suite files.
 #
 # Outputs:
-# - piebot/data/lichess_db_puzzle.csv.zst (download)
-# - piebot/data/lichess_db_puzzle.csv (decompressed)
-# - piebot/src/suites/matein7.txt (JSONL: {"fen":"...","best":"..."})
-# - piebot/src/suites/matein6.txt, matein5.txt, ... as needed to total 1000 positions
+# - PieBot/data/lichess_db_puzzle.csv.zst (download)
+# - PieBot/data/lichess_db_puzzle.csv (decompressed)
+# - PieBot/src/suites/matein7.txt (JSONL: {"fen":"...","best":"..."})
+# - PieBot/src/suites/matein6.txt, matein5.txt, ... as needed to total 1000 positions
 #
 # Usage:
 #   scripts/fetch_mate_suite.sh
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DATA_DIR="$ROOT_DIR/piebot/data"
-OUT_DIR="$ROOT_DIR/piebot/src/suites"
+DATA_DIR="$ROOT_DIR/PieBot/data"
+OUT_DIR="$ROOT_DIR/PieBot/src/suites"
 URL="https://database.lichess.org/lichess_db_puzzle.csv.zst"
 ZST_FILE="$DATA_DIR/lichess_db_puzzle.csv.zst"
 CSV_FILE="$DATA_DIR/lichess_db_puzzle.csv"
@@ -43,12 +43,11 @@ fi
 
 echo "[build] Generating Mate-in-N suite files (total=1000, prefer mateIn7)..."
 (
-  cd "$ROOT_DIR/piebot"
-  cargo run --release --bin build_mate_suite -- \
+  cd "$ROOT_DIR/PieBot"
+  cargo run --locked --release --bin build_mate_suite -- \
     --input "$CSV_FILE" \
     --out "$OUT_DIR" \
     --total 1000
 )
 
 echo "[done] Suite files written under $OUT_DIR"
-

@@ -92,13 +92,13 @@ class CastlingInfo:
     def mirror(self) -> 'CastlingInfo':
         return CastlingInfo(
             white_kingside=self.black_kingside,
-            white_kingside_file=7 - self.black_kingside_file,
+            white_kingside_file=self.black_kingside_file,
             white_queenside=self.black_queenside,
-            white_queenside_file=7 - self.black_queenside_file,
+            white_queenside_file=self.black_queenside_file,
             black_kingside=self.white_kingside,
-            black_kingside_file=7 - self.white_kingside_file,
+            black_kingside_file=self.white_kingside_file,
             black_queenside=self.white_queenside,
-            black_queenside_file=7 - self.white_queenside_file,
+            black_queenside_file=self.white_queenside_file,
         )
 
     def to_fen(self) -> str:
@@ -447,13 +447,16 @@ def move_from_nn_index(index: int, transform: int) -> str:
 
 
 def flip_move_uci(move: str) -> str:
+    """Restore an LC0 side-to-move move to absolute black coordinates.
+
+    LC0's ``Move::Flip`` mirrors ranks while preserving files.  Its training
+    writer applies that operation to black moves before indexing the policy.
+    """
     file_from = ord(move[0]) - ord("a")
     rank_from = int(move[1]) - 1
     file_to = ord(move[2]) - ord("a")
     rank_to = int(move[3]) - 1
     promo = move[4:] if len(move) > 4 else ""
-    file_from = 7 - file_from
-    file_to = 7 - file_to
     rank_from = 7 - rank_from
     rank_to = 7 - rank_to
     result = f"{chr(file_from + ord('a'))}{rank_from + 1}{chr(file_to + ord('a'))}{rank_to + 1}"
@@ -559,7 +562,10 @@ def build_fen_from_planes(record: V6Record, planes: Sequence[Plane]) -> dict:
         'kings_them': planes[11].mask & FULL_MASK,
     }
     castlings = _decode_castlings(fmt, planes)
-    black_to_move_flag = (not is_canonical) and bool(planes[K_AUX_PLANE_BASE + 4].mask)
+    if is_canonical:
+        black_to_move_flag = bool(record.invariance_info & (1 << 7))
+    else:
+        black_to_move_flag = bool(planes[K_AUX_PLANE_BASE + 4].mask)
     if black_to_move_flag:
         masks['pawns_us'], masks['pawns_them'] = masks['pawns_them'], masks['pawns_us']
         masks['knights_us'], masks['knights_them'] = masks['knights_them'], masks['knights_us']
@@ -596,7 +602,8 @@ def build_fen_from_planes(record: V6Record, planes: Sequence[Plane]) -> dict:
             en_passant = '-'
         else:
             file_idx = _lowest_bit_index(((mask >> 56) & 0xFF) or mask)
-            en_passant = _square_name(file_idx, 5)
+            target_rank = 2 if black_to_move_flag else 5
+            en_passant = _square_name(file_idx, target_rank)
     else:
         en_passant = '-'
         if len(planes) > K_PLANES_PER_BOARD + 6:
@@ -611,7 +618,9 @@ def build_fen_from_planes(record: V6Record, planes: Sequence[Plane]) -> dict:
                     target_rank = 2 if planes[K_AUX_PLANE_BASE + 4].mask else 5
                     en_passant = _square_name(to_file, target_rank)
     rule50 = int(record.rule50_count)
-    fen = f"{board_part} {side_char} {castling_str} {en_passant} {rule50} {rule50}"
+    # V6 records do not contain the game ply/fullmove number.  It has no
+    # evaluation meaning, so use the smallest valid FEN fullmove value.
+    fen = f"{board_part} {side_char} {castling_str} {en_passant} {rule50} 1"
     return {
         'fen': fen,
         'black_to_move': black_to_move_flag,
@@ -628,7 +637,7 @@ def record_to_sample(record: V6Record, top_policy: int = 8) -> dict:
     transform = record.invariance_info & 0x7 if is_canonical else 0
     canonical_best = move_from_nn_index(record.best_idx, transform)
     canonical_played = move_from_nn_index(record.played_idx, transform)
-    actual_black = bool(record.invariance_info & (1 << 7)) if is_canonical else fen_info['black_to_move']
+    actual_black = fen_info['black_to_move']
     best_move = canonical_best if not actual_black else flip_move_uci(canonical_best)
     played_move = canonical_played if not actual_black else flip_move_uci(canonical_played)
     policy_top_canonical = extract_policy_top(record, top_policy, transform)
@@ -636,9 +645,13 @@ def record_to_sample(record: V6Record, top_policy: int = 8) -> dict:
         policy_top = [(flip_move_uci(move), prob) for move, prob in policy_top_canonical]
     else:
         policy_top = policy_top_canonical
-    if record.result_q > 1e-6:
+    perspective = -1.0 if actual_black else 1.0
+    result_q = perspective * record.result_q
+    best_q = perspective * record.best_q
+    root_q = perspective * record.root_q
+    if result_q > 1e-6:
         result = 1
-    elif record.result_q < -1e-6:
+    elif result_q < -1e-6:
         result = -1
     else:
         result = 0
@@ -654,10 +667,16 @@ def record_to_sample(record: V6Record, top_policy: int = 8) -> dict:
         'policy_top': policy_top,
         'policy_top_canonical': policy_top_canonical,
         'result': result,
-        'result_q': record.result_q,
+        'result_q': result_q,
+        'result_q_side_to_move': record.result_q,
         'result_d': record.result_d,
-        'best_q': record.best_q,
-        'root_q': record.root_q,
+        'best_q': best_q,
+        'best_q_side_to_move': record.best_q,
+        'root_q': root_q,
+        'root_q_side_to_move': record.root_q,
+        'value_perspective': 'white',
+        'outcome_valid': not bool(record.invariance_info & ((1 << 4) | (1 << 6))),
+        'marked_for_deletion': bool(record.invariance_info & (1 << 6)),
         'visits': record.visits,
         'best_idx': record.best_idx,
         'played_idx': record.played_idx,

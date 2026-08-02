@@ -31,7 +31,7 @@ struct Args {
     /// Relabel worker threads (parallel positions/files).
     #[arg(long, default_value_t = 1)]
     threads: usize,
-    /// Teacher TT hash size in MB.
+    /// Aggregate teacher TT hash budget in MB, shared across relabel workers.
     #[arg(long, default_value_t = 64)]
     hash_mb: usize,
     /// Optional cap on number of records relabeled across all shards.
@@ -90,6 +90,10 @@ fn build_teacher_search_params(depth: u32) -> SearchParams {
     p.use_killers = true;
     p.use_nullmove = true;
     p
+}
+
+fn per_worker_hash_mb(total_hash_mb: usize, workers: usize) -> usize {
+    (total_hash_mb.max(1) / workers.max(1)).max(1)
 }
 
 fn build_teacher_searcher(
@@ -155,7 +159,8 @@ fn process_batch(
         .collect();
 
     let processed: Vec<(String, usize)> = pool.install(|| {
-        tasks.into_par_iter()
+        tasks
+            .into_par_iter()
             .map_init(
                 || build_teacher_searcher(hash_mb, nnue_quant_model, nnue_blend_percent),
                 |teacher, task| {
@@ -166,8 +171,13 @@ fn process_batch(
                         let fen = map.get("fen").and_then(|x| x.as_str());
                         if let Some(fen_str) = fen {
                             if let Ok(board) = Board::from_fen(fen_str, false) {
-                                if let Some((best, cpw)) = teacher_label(teacher, &board, teacher_params) {
-                                    map.insert("target_best_move".to_string(), Value::String(best.clone()));
+                                if let Some((best, cpw)) =
+                                    teacher_label(teacher, &board, teacher_params)
+                                {
+                                    map.insert(
+                                        "target_best_move".to_string(),
+                                        Value::String(best.clone()),
+                                    );
                                     map.insert("best_move".to_string(), Value::String(best));
                                     map.insert("value_cp".to_string(), Value::from(cpw));
                                     map.insert("target_value_cp".to_string(), Value::from(cpw));
@@ -223,9 +233,18 @@ fn main() -> anyhow::Result<()> {
     };
     let period = args.every.max(1);
     let teacher_params = build_teacher_search_params(args.depth);
+    let worker_count = args.threads.max(1);
+    let worker_hash_mb = per_worker_hash_mb(args.hash_mb, worker_count);
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(args.threads.max(1))
+        .num_threads(worker_count)
         .build()?;
+
+    eprintln!(
+        "Relabel workers: {}, aggregate hash: {} MB, hash per worker: {} MB",
+        worker_count,
+        args.hash_mb.max(1),
+        worker_hash_mb
+    );
 
     for in_path in inputs {
         let out_path = args.output.join(
@@ -251,7 +270,7 @@ fn main() -> anyhow::Result<()> {
                     remaining_limit,
                     teacher_params,
                     args.depth,
-                    args.hash_mb,
+                    worker_hash_mb,
                     nnue_quant_model.as_ref(),
                     args.nnue_blend_percent,
                 );
@@ -271,7 +290,7 @@ fn main() -> anyhow::Result<()> {
                 remaining_limit,
                 teacher_params,
                 args.depth,
-                args.hash_mb,
+                worker_hash_mb,
                 nnue_quant_model.as_ref(),
                 args.nnue_blend_percent,
             );
@@ -290,7 +309,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::build_teacher_search_params;
+    use super::{build_teacher_search_params, per_worker_hash_mb};
 
     #[test]
     fn teacher_search_params_clamp_depth_and_use_single_search_thread() {
@@ -303,5 +322,12 @@ mod tests {
         assert!(p.use_lmr);
         assert!(p.use_killers);
         assert!(p.use_nullmove);
+    }
+
+    #[test]
+    fn teacher_hash_budget_is_shared_across_workers() {
+        assert_eq!(85, per_worker_hash_mb(4096, 48));
+        assert_eq!(1, per_worker_hash_mb(1, 48));
+        assert_eq!(64, per_worker_hash_mb(64, 0));
     }
 }

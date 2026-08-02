@@ -119,9 +119,7 @@ def process_single_path(path: Path, writer: ShardWriter, top_policy: int,
         if zstd is None:
             raise RuntimeError('zstandard package is required to decode compressed BIN files')
         with path.open('rb') as fh:
-            reader = zstd.ZstdDecompressor().stream_reader(fh)
-            buffered = io.BufferedReader(reader)
-            return process_bin_stream(buffered, path.name, writer, top_policy, remaining)
+            return process_bin_stream(fh, path.name, writer, top_policy, remaining)
     if suffixes.endswith('.bin') or suffixes.endswith('.bin.gz'):
         count = 0
         for record in lc0_bin.make_record_stream(path):

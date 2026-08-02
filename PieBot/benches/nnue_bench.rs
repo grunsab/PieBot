@@ -17,7 +17,7 @@ fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
     for _ in 0..w1_len {
         w1.push(next_i8());
     }
-    let mut b1 = vec![0i16; hidden_dim];
+    let b1 = vec![0i16; hidden_dim];
     let mut w2 = Vec::with_capacity(hidden_dim);
     for _ in 0..hidden_dim {
         w2.push(next_i8());

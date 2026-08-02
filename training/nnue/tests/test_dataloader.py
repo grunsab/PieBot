@@ -38,6 +38,20 @@ class DataloaderTests(unittest.TestCase):
         self.assertEqual(sample.ply, 7)
         self.assertEqual(sample.best_move, 'a2a3')
         self.assertEqual(sample.policy_top[0][0], 'a2a3')
+        self.assertTrue(sample.outcome_valid)
+
+    def test_outcome_valid_is_backward_compatible_and_can_be_false(self) -> None:
+        records = [
+            {'fen': '8/8/8/8/8/8/4K3/7k w - - 0 1', 'result': 0},
+            {
+                'fen': '8/8/8/8/8/8/4K3/7k w - - 0 1',
+                'result': 0,
+                'outcome_valid': False,
+            },
+        ]
+        samples = list(dataloader.jsonl_to_training_samples(records))
+        self.assertTrue(samples[0].outcome_valid)
+        self.assertFalse(samples[1].outcome_valid)
 
 
 if __name__ == '__main__':  # pragma: no cover

@@ -2,8 +2,10 @@
 name = "piebot"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.88"
 authors = ["PieBot Team"]
 description = "A Rust chess engine with CPU-only NNUE and optimized alpha-beta search"
+license = "AGPL-3.0-only"
 
 [dependencies]
 # Fast board/movegen for new engine path
@@ -38,7 +40,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = "0.4"
 
 [features]
-default = ["board-pleco"]
+default = []
 # CPU SIMD optimization toggles (used later in NNUE/eval paths)
 simd-neon = []
 simd-avx2 = []

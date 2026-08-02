@@ -25,7 +25,7 @@ fn load_jsonl(path: &str) -> Vec<Rec> {
     };
     let rdr = BufReader::new(f);
     let mut out = Vec::new();
-    for line in rdr.lines().flatten() {
+    for line in rdr.lines().map_while(Result::ok) {
         let l = line.trim();
         if l.is_empty() {
             continue;
@@ -86,7 +86,7 @@ fn load_pgn_results(path: &str) -> BTreeMap<usize, String> {
     let rdr = BufReader::new(f);
     let mut results = BTreeMap::new();
     let mut cur_round: Option<usize> = None;
-    for line in rdr.lines().flatten() {
+    for line in rdr.lines().map_while(Result::ok) {
         let l = line.trim();
         if l.starts_with("[Round \"") {
             if let Some(idx) = l.find('"') {
