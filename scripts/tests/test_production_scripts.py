@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import unittest
 from pathlib import Path
@@ -16,6 +17,15 @@ def read(relative: str) -> str:
 
 
 class ProductionScriptContractTests(unittest.TestCase):
+    def test_documented_launchers_are_executable(self) -> None:
+        for relative in (
+            "scripts/fetch_mate_suite.sh",
+            "scripts/run_zen5_7day.sh",
+            "scripts/run_zen5_day1_validation.sh",
+        ):
+            with self.subTest(script=relative):
+                self.assertTrue(os.access(ROOT / relative, os.X_OK))
+
     def test_mate_suite_uses_case_sensitive_crate_path(self) -> None:
         script = read("scripts/fetch_mate_suite.sh")
         self.assertIn('$ROOT_DIR/PieBot/data', script)
