@@ -568,6 +568,78 @@ class RunPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(len(shards), 2)
             self.assertEqual(str(replay_dir), summary["replay_jsonl_dirs"][0])
 
+    @unittest.skipUnless(
+        run_pipeline.train_torch is not None
+        and run_pipeline.train_torch.torch_available(),
+        "torch is not installed",
+    )
+    def test_initial_checkpoint_is_forwarded_and_bound_to_resume_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=12)
+
+            parent_summary = run_pipeline.run_pipeline(
+                jsonl_dir=data_dir,
+                out_dir=root / "parent",
+                batch_size=4,
+                max_samples=12,
+                epochs=1,
+                val_split=0.25,
+                learning_rate=0.01,
+                hidden_dim=2,
+                seed=3,
+                trainer_backend="torch",
+                trainer_device="cpu",
+            )
+            parent_path = Path(parent_summary["checkpoint_path"])
+            child_kwargs = {
+                "jsonl_dir": data_dir,
+                "out_dir": root / "child",
+                "batch_size": 4,
+                "max_samples": 12,
+                "epochs": 1,
+                "val_split": 0.25,
+                "learning_rate": 0.0,
+                "hidden_dim": 2,
+                "seed": 5,
+                "trainer_backend": "torch",
+                "trainer_device": "cpu",
+                "initial_checkpoint": parent_path,
+                "resume": True,
+            }
+            first = run_pipeline.run_pipeline(**child_kwargs)
+            self.assertEqual(parent_path.resolve().as_posix(), first["initial_checkpoint"]["path"])
+            child_checkpoint = json.loads(Path(first["checkpoint_path"]).read_text())
+            self.assertEqual(
+                first["initial_checkpoint"]["sha256"],
+                child_checkpoint["initialized_from"]["sha256"],
+            )
+
+            with mock.patch(
+                "training.nnue.train_torch.train_model",
+                side_effect=AssertionError("matching warm-start provenance should resume"),
+            ):
+                resumed = run_pipeline.run_pipeline(**child_kwargs)
+            self.assertEqual(first["checkpoint_path"], resumed["checkpoint_path"])
+
+            parent = json.loads(parent_path.read_text(encoding="utf-8"))
+            parent["b2"] = float(parent["b2"]) + 1.0
+            replacement = parent_path.with_suffix(".replacement")
+            replacement.write_text(json.dumps(parent), encoding="utf-8")
+            replacement.replace(parent_path)
+            with mock.patch(
+                "training.nnue.train_torch.train_model",
+                wraps=run_pipeline.train_torch.train_model,
+            ) as train:
+                changed = run_pipeline.run_pipeline(**child_kwargs)
+            self.assertEqual(1, train.call_count)
+            self.assertNotEqual(
+                first["initial_checkpoint"]["sha256"],
+                changed["initial_checkpoint"]["sha256"],
+            )
+
     def test_resume_rebuilds_corrupt_training_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

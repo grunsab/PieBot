@@ -21,6 +21,7 @@ EPOCHS="${EPOCHS:-2}"
 BATCH_SIZE="${BATCH_SIZE:-4096}"
 MAX_SAMPLES="${MAX_SAMPLES:-350000}"
 HIDDEN_DIM="${HIDDEN_DIM:-64}"
+WARM_START_LEARNING_RATE="${WARM_START_LEARNING_RATE:-0.001}"
 RETAIN_FULL_CYCLES="${RETAIN_FULL_CYCLES:-8}"
 TRAINER_BACKEND="${TRAINER_BACKEND:-torch}"
 TRAINER_DEVICE="${TRAINER_DEVICE:-cuda}"
@@ -110,6 +111,8 @@ python3 -m training.nnue.autopilot \
   --batch-size "$BATCH_SIZE" \
   --max-samples "$MAX_SAMPLES" \
   --hidden-dim "$HIDDEN_DIM" \
+  --warm-start \
+  --warm-start-learning-rate "$WARM_START_LEARNING_RATE" \
   --retain-full-cycles "$RETAIN_FULL_CYCLES" \
   --trainer-backend "$TRAINER_BACKEND" \
   --trainer-device "$TRAINER_DEVICE"

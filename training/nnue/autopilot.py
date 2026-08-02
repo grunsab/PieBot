@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 import inspect
 import json
 import math
@@ -111,6 +113,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "teacher_mix": 0.8,
         "max_teacher_cp": 1200.0,
         "learning_rate": 0.03,
+        "warm_start_learning_rate": 0.001,
         "val_split": 0.1,
         "seed": 1,
         "trainer_backend": "auto",
@@ -126,6 +129,8 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "gate_threads": 1,
         "gate_seed": 1,
         "gate_min_score_delta": 0.0,
+        "warm_start": True,
+        "initial_checkpoint": None,
     }
 
 
@@ -185,6 +190,20 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--max-samples", type=int, default=None)
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--hidden-dim", type=int, default=None)
+    ap.add_argument("--learning-rate", type=float, default=None)
+    ap.add_argument("--warm-start-learning-rate", type=float, default=None)
+    ap.add_argument(
+        "--warm-start",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Initialize each training cycle from the latest completed float checkpoint",
+    )
+    ap.add_argument(
+        "--initial-checkpoint",
+        type=Path,
+        default=None,
+        help="Bootstrap checkpoint for the first cumulative training cycle",
+    )
     ap.add_argument("--trainer-backend", choices=["stub", "torch", "auto"], default=None)
     ap.add_argument("--trainer-device", choices=["auto", "cpu", "cuda"], default=None)
     ap.add_argument(
@@ -235,6 +254,13 @@ def _active_model_blend_percent(state: Dict[str, Any]) -> int:
     return int(ramp[min(accepted_count - 1, len(ramp) - 1)])
 
 
+def _candidate_model_blend_percent(state: Dict[str, Any]) -> int:
+    accepted = state.get("accepted_models")
+    accepted_count = len(accepted) if isinstance(accepted, list) else 0
+    ramp = (25, 50, 75, 100)
+    return int(ramp[min(accepted_count, len(ramp) - 1)])
+
+
 def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> Dict[str, Any]:
     out = dict(defaults)
     mapping = {
@@ -250,6 +276,10 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "max_samples": args.max_samples,
         "epochs": args.epochs,
         "hidden_dim": args.hidden_dim,
+        "learning_rate": args.learning_rate,
+        "warm_start_learning_rate": args.warm_start_learning_rate,
+        "warm_start": args.warm_start,
+        "initial_checkpoint": args.initial_checkpoint,
         "trainer_backend": args.trainer_backend,
         "trainer_device": args.trainer_device,
         "retain_full_cycles": args.retain_full_cycles,
@@ -277,13 +307,60 @@ def _path_if_exists(raw: Any) -> Optional[Path]:
     return None
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verified_quant_path(
+    raw: Any,
+    *,
+    expected_sha256: Any = None,
+    label: str,
+) -> Path:
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"{label} path is missing")
+    path = Path(raw)
+    if not path.is_file():
+        raise ValueError(f"{label} is missing: {path}")
+    if expected_sha256 and _sha256_file(path) != expected_sha256:
+        raise ValueError(f"{label} SHA-256 mismatch")
+    return path
+
+
 def _resolve_active_quant_path(state: Dict[str, Any]) -> Optional[Path]:
     if "active_model_path" in state:
-        return _path_if_exists(state.get("active_model_path"))
+        raw = state.get("active_model_path")
+        if not raw:
+            return None
+        expected_sha = None
+        accepted = state.get("accepted_models")
+        if isinstance(accepted, list):
+            for model in reversed(accepted):
+                if isinstance(model, dict) and model.get("quant_path") == raw:
+                    expected_sha = model.get("quant_sha256")
+                    break
+        return _verified_quant_path(
+            raw,
+            expected_sha256=expected_sha,
+            label="active model",
+        )
     # Backward compatibility: older state schema used last_summary only.
     last_summary = state.get("last_summary")
     if isinstance(last_summary, dict):
-        return _path_if_exists(last_summary.get("quant_path"))
+        raw = last_summary.get("quant_path")
+        if raw:
+            return _verified_quant_path(
+                raw,
+                expected_sha256=last_summary.get("quant_sha256"),
+                label="legacy active model",
+            )
     return None
 
 
@@ -293,9 +370,11 @@ def _resolve_teacher_quant_path(state: Dict[str, Any], lag_cycles: int) -> Optio
     if isinstance(accepted, list) and accepted:
         idx = len(accepted) - 1 - lag
         if idx >= 0 and isinstance(accepted[idx], dict):
-            teacher = _path_if_exists(accepted[idx].get("quant_path"))
-            if teacher is not None:
-                return teacher
+            return _verified_quant_path(
+                accepted[idx].get("quant_path"),
+                expected_sha256=accepted[idx].get("quant_sha256"),
+                label="teacher model",
+            )
     return _resolve_active_quant_path(state)
 
 
@@ -321,6 +400,61 @@ def _collect_replay_jsonl_dirs(state: Dict[str, Any], window_cycles: int) -> lis
         if len(out) >= window:
             break
     return out
+
+
+def _resolve_training_checkpoint_path(
+    state: Dict[str, Any],
+    bootstrap_checkpoint: Optional[Path],
+) -> Optional[Path]:
+    if "training_checkpoint_path" in state:
+        raw = state.get("training_checkpoint_path")
+        if raw:
+            checkpoint = _path_if_exists(raw)
+            if checkpoint is None:
+                raise ValueError(f"latest training checkpoint is missing: {raw}")
+            expected_sha = state.get("training_checkpoint_sha256")
+            if expected_sha and _sha256_file(checkpoint) != expected_sha:
+                raise ValueError("latest training checkpoint SHA-256 mismatch")
+            return checkpoint
+
+    completed = state.get("completed_cycles")
+    if isinstance(completed, list) and completed:
+        latest = next((item for item in reversed(completed) if isinstance(item, dict)), None)
+        candidates = []
+        if latest is not None:
+            candidates.append(
+                (latest.get("checkpoint_path"), latest.get("checkpoint_sha256"))
+            )
+            out_dir = latest.get("out_dir")
+            if isinstance(out_dir, str) and out_dir:
+                candidates.append(
+                    (
+                        str(Path(out_dir) / "train" / "checkpoint.json"),
+                        latest.get("checkpoint_sha256"),
+                    )
+                )
+        last_summary = state.get("last_summary")
+        if isinstance(last_summary, dict):
+            candidates.append(
+                (
+                    last_summary.get("checkpoint_path"),
+                    last_summary.get("checkpoint_sha256"),
+                )
+            )
+        for raw, expected_sha in candidates:
+            checkpoint = _path_if_exists(raw)
+            if checkpoint is not None:
+                if expected_sha and _sha256_file(checkpoint) != expected_sha:
+                    raise ValueError("latest completed checkpoint SHA-256 mismatch")
+                return checkpoint
+        raise ValueError("latest completed cycle has no usable training checkpoint")
+
+    if bootstrap_checkpoint is None:
+        return None
+    checkpoint = Path(bootstrap_checkpoint)
+    if not checkpoint.is_file():
+        raise ValueError(f"initial checkpoint does not exist: {checkpoint}")
+    return checkpoint
 
 
 def _retention_path(raw: Any, *, label: str) -> Path:
@@ -478,7 +612,14 @@ def _apply_cycle_retention(
             if entry.get("retention") != "deleted":
                 entry["retention"] = "deleted"
                 report["state_changed"] = True
-            for key in ("jsonl_dir", "train_jsonl_dir", "quant_path", "summary_path"):
+            for key in (
+                "jsonl_dir",
+                "train_jsonl_dir",
+                "checkpoint_path",
+                "checkpoint_sha256",
+                "quant_path",
+                "summary_path",
+            ):
                 if entry.get(key) is not None:
                     entry[key] = None
                     report["state_changed"] = True
@@ -489,7 +630,12 @@ def _apply_cycle_retention(
         if entry.get("retention") != "model_only":
             entry["retention"] = "model_only"
             report["state_changed"] = True
-        for key in ("jsonl_dir", "train_jsonl_dir"):
+        for key in (
+            "jsonl_dir",
+            "train_jsonl_dir",
+            "checkpoint_path",
+            "checkpoint_sha256",
+        ):
             if entry.get(key) is not None:
                 entry[key] = None
                 report["state_changed"] = True
@@ -558,6 +704,8 @@ def _run_model_gate(
     threads: int,
     seed: int,
     min_score_delta: float,
+    base_blend_percent: int = 100,
+    candidate_blend_percent: int = 100,
 ) -> Dict[str, Any]:
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.unlink(missing_ok=True)
@@ -590,7 +738,7 @@ def _run_model_gate(
         "--exp-use-nnue",
         "true",
         "--exp-blend",
-        "100",
+        str(max(0, min(100, int(candidate_blend_percent)))),
         "--exp-nnue-quant-file",
         str(candidate_quant),
     ]
@@ -613,7 +761,7 @@ def _run_model_gate(
                 "--base-use-nnue",
                 "true",
                 "--base-blend",
-                "100",
+                str(max(0, min(100, int(base_blend_percent)))),
                 "--base-nnue-quant-file",
                 str(base_quant),
             ]
@@ -643,6 +791,12 @@ def _run_model_gate(
         "delta_points": delta,
         "games": reported_games,
         "json_path": str(out_json),
+        "baseline_blend_percent": 0
+        if base_quant is None
+        else max(0, min(100, int(base_blend_percent))),
+        "experimental_blend_percent": max(
+            0, min(100, int(candidate_blend_percent))
+        ),
     }
 
 
@@ -651,6 +805,7 @@ def _record_acceptance(
     state: Dict[str, Any],
     cycle_idx: int,
     quant_path: Path,
+    quant_sha256: Optional[str],
     gate: Dict[str, Any],
 ) -> None:
     state["active_model_path"] = str(quant_path)
@@ -662,6 +817,7 @@ def _record_acceptance(
         {
             "cycle": int(cycle_idx),
             "quant_path": str(quant_path),
+            "quant_sha256": quant_sha256,
             "accepted_at": time.time(),
             "gate": gate,
         }
@@ -761,10 +917,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                         int(defaults.get("teacher_lag_cycles", 0)),
                     )
                     active_blend = _active_model_blend_percent(state)
+                    candidate_blend = _candidate_model_blend_percent(state)
                     replay_dirs = _collect_replay_jsonl_dirs(
                         state,
                         int(defaults.get("replay_window_cycles", 0)),
                     )
+                    initial_checkpoint = None
+                    if bool(defaults.get("warm_start", True)):
+                        initial_checkpoint = _resolve_training_checkpoint_path(
+                            state,
+                            defaults.get("initial_checkpoint"),
+                        )
+                    cycle_state["initial_checkpoint_path"] = (
+                        str(initial_checkpoint) if initial_checkpoint is not None else None
+                    )
+                    cycle_learning_rate = float(defaults.get("learning_rate", 0.03))
+                    if initial_checkpoint is not None:
+                        cycle_learning_rate = float(
+                            defaults.get("warm_start_learning_rate", cycle_learning_rate)
+                        )
                     kwargs.update(
                         {
                             "out_dir": cycle_dir,
@@ -777,18 +948,94 @@ def main(argv: Optional[list[str]] = None) -> int:
                             "teacher_relabel_nnue_quant_file": teacher_quant,
                             "teacher_relabel_nnue_blend_percent": active_blend,
                             "replay_jsonl_dirs": replay_dirs,
+                            "initial_checkpoint": initial_checkpoint,
+                            "learning_rate": cycle_learning_rate,
                         }
                     )
                     summary = run_pipeline.run_pipeline(**kwargs)
+                    candidate_checkpoint = (
+                        _path_if_exists(summary.get("checkpoint_path"))
+                        if isinstance(summary, dict)
+                        else None
+                    )
+                    if candidate_checkpoint is None:
+                        raise ValueError("pipeline summary is missing the training checkpoint")
+                    candidate_checkpoint_sha = _sha256_file(candidate_checkpoint)
+                    reported_checkpoint_sha = (
+                        summary.get("checkpoint_sha256")
+                        if isinstance(summary, dict)
+                        else None
+                    )
+                    if (
+                        reported_checkpoint_sha
+                        and reported_checkpoint_sha != candidate_checkpoint_sha
+                    ):
+                        raise ValueError("candidate training checkpoint SHA-256 mismatch")
                     candidate_quant = (
                         _path_if_exists(summary.get("quant_path")) if isinstance(summary, dict) else None
                     )
+                    candidate_quant_sha = None
+                    if candidate_quant is not None:
+                        candidate_quant_sha = _sha256_file(candidate_quant)
+                        reported_quant_sha = (
+                            summary.get("quant_sha256")
+                            if isinstance(summary, dict)
+                            else None
+                        )
+                        if reported_quant_sha and reported_quant_sha != candidate_quant_sha:
+                            raise ValueError("candidate quantized model SHA-256 mismatch")
+                    baseline_quant_sha = (
+                        _sha256_file(bootstrap_quant)
+                        if bootstrap_quant is not None
+                        else None
+                    )
+                    gate_identity = {
+                        "quant_sha256": candidate_quant_sha,
+                        "baseline_quant_sha256": baseline_quant_sha,
+                        "baseline_blend_percent": active_blend,
+                        "experimental_blend_percent": candidate_blend,
+                        "games": int(defaults.get("gate_games", 0)),
+                        "movetime_ms": int(defaults.get("gate_movetime_ms", 150)),
+                        "noise_plies": int(defaults.get("gate_noise_plies", 12)),
+                        "noise_topk": int(defaults.get("gate_noise_topk", 5)),
+                        "threads": int(defaults.get("gate_threads", 1)),
+                        "min_score_delta": float(
+                            defaults.get("gate_min_score_delta", 0.0)
+                        ),
+                    }
                     gate_games = int(defaults.get("gate_games", 0))
+                    gate_was_run = False
                     if gate_games <= 0:
                         gate = {"accepted": True, "reason": "gate-disabled"}
                     elif candidate_quant is None:
                         gate = {"accepted": False, "reason": "missing-candidate-model"}
+                    elif (
+                        baseline_quant_sha
+                        and candidate_quant_sha == baseline_quant_sha
+                        and candidate_blend == active_blend
+                    ):
+                        gate = {
+                            "accepted": False,
+                            "reason": "candidate-identical-to-active-model",
+                            "games": 0,
+                            "quant_sha256": candidate_quant_sha,
+                            "baseline_blend_percent": active_blend,
+                            "experimental_blend_percent": candidate_blend,
+                        }
+                    elif (
+                        candidate_quant_sha
+                        and state.get("last_gate_identity") == gate_identity
+                    ):
+                        gate = {
+                            "accepted": False,
+                            "reason": "unchanged-training-checkpoint",
+                            "games": 0,
+                            "quant_sha256": candidate_quant_sha,
+                            "baseline_blend_percent": active_blend,
+                            "experimental_blend_percent": candidate_blend,
+                        }
                     else:
+                        gate_was_run = True
                         gate = _run_model_gate(
                             piebot_dir=args.piebot_dir,
                             out_json=cycle_dir / "gate_compare.json",
@@ -801,30 +1048,56 @@ def main(argv: Optional[list[str]] = None) -> int:
                             threads=int(defaults.get("gate_threads", 1)),
                             seed=int(defaults.get("gate_seed", 1)) + cycle_idx,
                             min_score_delta=float(defaults.get("gate_min_score_delta", 0.0)),
+                            base_blend_percent=active_blend,
+                            candidate_blend_percent=candidate_blend,
                         )
+                    next_state = copy.deepcopy(state)
+                    if gate_was_run and candidate_quant_sha:
+                        next_state["last_gate_identity"] = gate_identity
+                        next_state["last_gated_quant_sha256"] = candidate_quant_sha
                     if gate.get("accepted") and candidate_quant is not None:
                         _record_acceptance(
-                            state=state,
+                            state=next_state,
                             cycle_idx=cycle_idx,
                             quant_path=candidate_quant,
+                            quant_sha256=candidate_quant_sha,
                             gate=gate,
                         )
-                    cycle_state["status"] = "completed"
-                    cycle_state["completed_at"] = time.time()
-                    cycle_state["summary_path"] = str(cycle_dir / "pipeline_summary.json")
-                    cycle_state["jsonl_dir"] = summary.get("jsonl_dir") if isinstance(summary, dict) else None
-                    cycle_state["train_jsonl_dir"] = (
+                    completed_cycle_state = dict(cycle_state)
+                    completed_cycle_state["status"] = "completed"
+                    completed_cycle_state["completed_at"] = time.time()
+                    completed_cycle_state["summary_path"] = str(
+                        cycle_dir / "pipeline_summary.json"
+                    )
+                    completed_cycle_state["jsonl_dir"] = (
+                        summary.get("jsonl_dir") if isinstance(summary, dict) else None
+                    )
+                    completed_cycle_state["train_jsonl_dir"] = (
                         summary.get("train_jsonl_dir") if isinstance(summary, dict) else None
                     )
-                    cycle_state["quant_path"] = summary.get("quant_path") if isinstance(summary, dict) else None
-                    cycle_state["gate"] = gate
-                    state.setdefault("completed_cycles", []).append(cycle_state)
-                    state["next_cycle"] = cycle_idx + 1
-                    state["last_error"] = None
-                    state["last_summary"] = summary
-                    state["last_gate"] = gate
+                    completed_cycle_state["checkpoint_path"] = str(
+                        candidate_checkpoint
+                    )
+                    completed_cycle_state["checkpoint_sha256"] = (
+                        candidate_checkpoint_sha
+                    )
+                    completed_cycle_state["quant_path"] = (
+                        summary.get("quant_path") if isinstance(summary, dict) else None
+                    )
+                    completed_cycle_state["gate"] = gate
+                    next_state["current_cycle"] = completed_cycle_state
+                    next_state.setdefault("completed_cycles", []).append(
+                        completed_cycle_state
+                    )
+                    next_state["next_cycle"] = cycle_idx + 1
+                    next_state["last_error"] = None
+                    next_state["last_summary"] = summary
+                    next_state["last_gate"] = gate
+                    next_state["training_checkpoint_path"] = str(candidate_checkpoint)
+                    next_state["training_checkpoint_sha256"] = candidate_checkpoint_sha
+                    _atomic_write_json(state_path, next_state)
+                    state = next_state
                     completed += 1
-                    _atomic_write_json(state_path, state)
                     break
                 except Exception as exc:
                     attempt += 1

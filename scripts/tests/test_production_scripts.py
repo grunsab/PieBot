@@ -52,6 +52,12 @@ class ProductionScriptContractTests(unittest.TestCase):
         script = read("scripts/run_zen5_7day.sh")
         self.assertIn('TRAINER_BACKEND="${TRAINER_BACKEND:-torch}"', script)
 
+    def test_seven_day_launcher_enables_cumulative_warm_start(self) -> None:
+        script = read("scripts/run_zen5_7day.sh")
+        self.assertIn('WARM_START_LEARNING_RATE="${WARM_START_LEARNING_RATE:-0.001}"', script)
+        self.assertIn("--warm-start", script)
+        self.assertIn('--warm-start-learning-rate "$WARM_START_LEARNING_RATE"', script)
+
     def test_production_launchers_forward_cycle_retention(self) -> None:
         for relative in (
             "scripts/run_zen5_7day.sh",

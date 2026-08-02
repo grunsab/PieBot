@@ -14,9 +14,15 @@ PieBot combines a Rust chess engine (`PieBot/`) with a Python NNUE data/training
 
 - Closed-loop model handoff is active: cycle `N+1` self-play/relabel uses the accepted model from cycle `N`.
 - Replay-window training is active: each cycle can train on fresh + recent-cycle JSONL shards.
+- Float checkpoint warm-start is active: every completed candidate seeds the next trainer even
+  when its quantized model is not promoted, while accepted models remain a separate playing head.
+- Warm-start cycles preserve the inherited network as epoch zero, use a lower continuation
+  learning rate, and cannot regress the current validation split when both new epochs are worse.
 - Lagged teacher support is active: relabel can use an older accepted model to reduce coupling.
 - Self-play now supports game-level parallel fan-out (`--parallel-games`, with `0` = auto by available cores / per-game threads).
 - Autopilot now gates promotion via engine A/B; candidate model is promoted only if `compare_play` passes in `--same-search` mode.
+- Promotion gates test the exact staged NNUE blend (25%, 50%, 75%, then 100%) that acceptance
+  would activate, and identical quantized candidates are not repeatedly re-gated.
 - `compare_play` now applies per-side configs correctly (eval mode, blend, NNUE files, hash, threads).
 - Noise opening sampling now uses engine-ordered top-K, not raw legal-move order.
 - Self-play distinguishes real chess outcomes from truncation, and invalid outcomes are excluded

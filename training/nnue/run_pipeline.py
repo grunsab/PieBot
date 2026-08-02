@@ -740,6 +740,30 @@ def _training_provenance(
     }
 
 
+def _initial_checkpoint_provenance(
+    checkpoint_path: Optional[Path],
+) -> Optional[Dict[str, Any]]:
+    if checkpoint_path is None:
+        return None
+    path = Path(checkpoint_path)
+    if not path.is_file():
+        raise ValueError(f"initial checkpoint does not exist: {path}")
+    try:
+        checkpoint = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
+    input_dim, hidden_dim, output_dim = _checkpoint_dimensions(checkpoint)
+    return {
+        "path": path.resolve().as_posix(),
+        "size": path.stat().st_size,
+        "sha256": _sha256_file(path),
+        "format": checkpoint.get("format"),
+        "input_dim": input_dim,
+        "hidden_dim": hidden_dim,
+        "output_dim": output_dim,
+    }
+
+
 def _write_training_stage_manifest(
     train_dir: Path,
     *,
@@ -1098,6 +1122,7 @@ def run_pipeline(
     resume: bool = False,
     trainer_backend: str = "stub",
     trainer_device: str = "auto",
+    initial_checkpoint: Optional[Path] = None,
 ) -> Dict[str, Any]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1266,11 +1291,16 @@ def run_pipeline(
         "grad_clip": grad_clip,
         "seed": seed,
     }
+    initial_checkpoint_info = _initial_checkpoint_provenance(initial_checkpoint)
+    training_provenance_config = {
+        **training_config,
+        "initial_checkpoint": initial_checkpoint_info,
+    }
     training_provenance = _training_provenance(
         train_jsonl_dir=train_jsonl_dir,
         trainer_backend=resolved_backend,
         trainer_device=trainer_device,
-        config=training_config,
+        config=training_provenance_config,
     )
     training_manifest = (
         _validated_training_stage_manifest(
@@ -1297,12 +1327,25 @@ def run_pipeline(
         if resolved_backend == "torch":
             train_torch.train_model(  # type: ignore[union-attr]
                 device=trainer_device,
+                initial_checkpoint=initial_checkpoint,
                 **train_kwargs,
             )
         else:
-            train_stub.train_model(**train_kwargs)
+            train_stub.train_model(
+                initial_checkpoint=initial_checkpoint,
+                **train_kwargs,
+            )
         checkpoint, metrics = _load_training_artifacts(train_out)
         _write_training_stage_manifest(train_out, provenance=training_provenance)
+
+    if initial_checkpoint_info is not None:
+        initialized_from = metrics.get("initialized_from")
+        if not isinstance(initialized_from, dict):
+            raise ValueError("trainer did not record warm-start checkpoint provenance")
+        if initialized_from.get("sha256") != initial_checkpoint_info["sha256"]:
+            raise ValueError("trainer warm-start checkpoint SHA-256 mismatch")
+        if initialized_from.get("path") != initial_checkpoint_info["path"]:
+            raise ValueError("trainer warm-start checkpoint path mismatch")
 
     dense_path = out_dir / dense_name
     quant_path = out_dir / quant_name
@@ -1372,9 +1415,12 @@ def run_pipeline(
         if teacher_relabel_nnue_quant_file
         else None,
         "checkpoint_path": str(checkpoint_path),
+        "checkpoint_sha256": _sha256_file(checkpoint_path),
+        "initial_checkpoint": initial_checkpoint_info,
         "metrics_path": str(metrics_path),
         "dense_path": str(dense_path),
         "quant_path": str(quant_path),
+        "quant_sha256": _sha256_file(quant_path),
         "trainer_backend": resolved_backend,
         "export": export_info,
         "metrics": metrics,
@@ -1435,6 +1481,12 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--epochs", type=int, default=8)
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--learning-rate", type=float, default=0.05)
+    ap.add_argument(
+        "--initial-checkpoint",
+        type=Path,
+        default=None,
+        help="Compatible float checkpoint used to initialize Torch training",
+    )
     ap.add_argument("--hidden-dim", type=int, default=16)
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
@@ -1522,6 +1574,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         seed=args.seed,
         trainer_backend=args.trainer_backend,
         trainer_device=args.trainer_device,
+        initial_checkpoint=args.initial_checkpoint,
         resume=args.resume,
         cp_scale=args.cp_scale,
         dense_name=args.dense_name,

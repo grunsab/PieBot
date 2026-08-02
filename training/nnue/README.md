@@ -57,6 +57,12 @@ End-to-end pipeline
   - Optional trainer backend:
     - `--trainer-backend stub|torch|auto`
     - `--trainer-device auto|cuda|cpu`
+  - Optional cumulative Torch initialization:
+    - `--initial-checkpoint <train/checkpoint.json>` loads compatible float HalfKP weights
+      before creating a fresh optimizer.
+    - The checkpoint path, SHA-256, format, and dimensions are part of resume provenance;
+      a missing, changed, corrupt, or incompatible parent fails closed instead of silently
+      restarting from random weights.
 
 Example:
 ```bash
@@ -130,6 +136,13 @@ Set-and-forget autopilot
     (`0` keeps the historical unlimited behavior)
   - deterministic per-cycle self-play and trainer seeds, with independent streams; rejected
     cycles therefore advance to different game generation while a retry remains reproducible
+  - cumulative float training lineage: every completed candidate checkpoint initializes the
+    next trainer even if its quantized model fails the chess gate; this training checkpoint is
+    deliberately separate from the gate-accepted model used for play and teacher search
+  - epoch-zero protection: a warm-start parent is evaluated on the current validation split
+    before updates and remains the output if neither new epoch improves validation loss
+  - fresh Adam state per cycle, with a lower continuation rate (`0.001` by default) than the
+    random-bootstrap rate (`0.03`); use `--warm-start-learning-rate` to tune it explicitly
   - bootstrap gate: until a candidate NNUE beats the default non-NNUE eval in same-search head-to-head, self-play and relabel stay on the default engine
   - automatic NNUE handoff after acceptance: once a candidate is accepted, later cycles use the accepted `nnue_quant.nnue` for self-play + relabel teacher search
   - gradual NNUE ramp after acceptance: accepted model generations are used at 25%, 50%, 75%, then 100% blend for later cycles
@@ -142,6 +155,10 @@ Set-and-forget autopilot
   - automatic model gate: candidate NNUE is promoted only after head-to-head `compare_play` passes
     - before the first acceptance, the candidate is compared against the default PST eval
     - after the first acceptance, the candidate is compared against the active accepted NNUE
+    - baseline and candidate blends match the configuration that is active before and after
+      promotion (0% vs 25% for bootstrap, then 25% vs 50%, 50% vs 75%, and 75% vs 100%)
+    - an unchanged quantized candidate is not repeatedly gated under an identical baseline and
+      blend configuration, preventing noisy re-tests from promoting unchanged weights
     - gate runs in model-only mode (`compare_play --same-search`) to avoid search-code confounding
 
 Zen5 9755 (7-day) profile:

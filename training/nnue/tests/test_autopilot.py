@@ -1,4 +1,5 @@
 import json
+import hashlib
 import inspect
 import tempfile
 import unittest
@@ -6,6 +7,13 @@ from pathlib import Path
 from unittest import mock
 
 from training.nnue import autopilot
+
+
+def _write_fake_checkpoint(out_dir: Path) -> Path:
+    checkpoint = out_dir / "train" / "checkpoint.json"
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint.write_text(json.dumps({"fake": out_dir.name}), encoding="utf-8")
+    return checkpoint
 
 
 class _FakeLockBackend:
@@ -42,6 +50,8 @@ class AutopilotTests(unittest.TestCase):
         self.assertGreaterEqual(profile["teacher_relabel_threads"], 32)
         self.assertGreaterEqual(profile["teacher_relabel_hash_mb"], 2048)
         self.assertEqual(0, profile["retain_full_cycles"])
+        self.assertTrue(profile["warm_start"])
+        self.assertEqual(0.001, profile["warm_start_learning_rate"])
 
     def test_cycle_retention_prunes_old_cycles_and_preserves_accepted_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,6 +83,7 @@ class AutopilotTests(unittest.TestCase):
                         "out_dir": str(cycle_dir),
                         "jsonl_dir": str(cycle_dir / "jsonl_relabel"),
                         "train_jsonl_dir": str(cycle_dir / "jsonl_relabel"),
+                        "checkpoint_path": str(cycle_dir / "train" / "checkpoint.json"),
                         "quant_path": str(quant),
                         "summary_path": str(cycle_dir / "pipeline_summary.json"),
                         "gate": {"accepted": cycle in (2, 4)},
@@ -104,6 +115,7 @@ class AutopilotTests(unittest.TestCase):
             self.assertFalse((accepted_old / "selfplay_jsonl").exists())
             self.assertFalse((accepted_old / "jsonl_relabel").exists())
             self.assertFalse((accepted_old / "train").exists())
+            self.assertIsNone(completed[1]["checkpoint_path"])
             self.assertFalse((accepted_old / "nnue_dense.nnue").exists())
             self.assertTrue((cycles_root / "cycle_000003" / "selfplay_jsonl").is_dir())
             self.assertTrue((cycles_root / "cycle_000004" / "selfplay_jsonl").is_dir())
@@ -111,6 +123,7 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual("deleted", completed[0]["retention"])
             self.assertEqual("model_only", completed[1]["retention"])
             self.assertEqual("full", completed[2]["retention"])
+            self.assertTrue(Path(completed[2]["checkpoint_path"]).is_file())
 
             # A crash/restart may repeat cleanup; it must be harmless.
             second = autopilot._apply_cycle_retention(
@@ -286,6 +299,25 @@ class AutopilotTests(unittest.TestCase):
                 }
             ),
         )
+        self.assertEqual(25, autopilot._candidate_model_blend_percent({}))
+        self.assertEqual(
+            50,
+            autopilot._candidate_model_blend_percent(
+                {"accepted_models": [{"quant_path": "a.nnue"}]}
+            ),
+        )
+        self.assertEqual(
+            100,
+            autopilot._candidate_model_blend_percent(
+                {
+                    "accepted_models": [
+                        {"quant_path": "a.nnue"},
+                        {"quant_path": "b.nnue"},
+                        {"quant_path": "c.nnue"},
+                    ]
+                }
+            ),
+        )
 
     def test_cycle_uses_previous_quant_for_bootstrap_after_first_accept(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -299,7 +331,11 @@ class AutopilotTests(unittest.TestCase):
                 out_dir.mkdir(parents=True, exist_ok=True)
                 quant_path = out_dir / "nnue_quant.nnue"
                 quant_path.write_bytes(b"PIENNQ01dummy")
-                return {"quant_path": str(quant_path)}
+                checkpoint = _write_fake_checkpoint(out_dir)
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant_path),
+                }
 
             def _fake_gate(*, base_quant, candidate_quant, **_kwargs):
                 gate_calls.append((base_quant, candidate_quant))
@@ -351,6 +387,41 @@ class AutopilotTests(unittest.TestCase):
             }
             got = autopilot._collect_replay_jsonl_dirs(state, 2)
             self.assertEqual([p3, p2], got)
+
+    def test_training_checkpoint_resolver_migrates_legacy_state_and_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = root / "cycle" / "train" / "checkpoint.json"
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_text("{}", encoding="utf-8")
+            checkpoint_sha = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+            legacy_state = {
+                "completed_cycles": [{"cycle": 1, "out_dir": str(root / "missing")}],
+                "last_summary": {"checkpoint_path": str(checkpoint)},
+            }
+            self.assertEqual(
+                checkpoint,
+                autopilot._resolve_training_checkpoint_path(legacy_state, None),
+            )
+
+            verified_state = {
+                "training_checkpoint_path": str(checkpoint),
+                "training_checkpoint_sha256": checkpoint_sha,
+            }
+            self.assertEqual(
+                checkpoint,
+                autopilot._resolve_training_checkpoint_path(verified_state, None),
+            )
+            checkpoint.write_text('{"changed":true}', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                autopilot._resolve_training_checkpoint_path(verified_state, None)
+
+            missing = root / "gone" / "checkpoint.json"
+            with self.assertRaisesRegex(ValueError, "missing"):
+                autopilot._resolve_training_checkpoint_path(
+                    {"training_checkpoint_path": str(missing)},
+                    None,
+                )
 
     def test_replay_uses_each_cycles_fresh_jsonl_not_its_prior_merge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -409,6 +480,29 @@ class AutopilotTests(unittest.TestCase):
             }
             self.assertIsNone(autopilot._resolve_active_quant_path(state))
 
+    def test_active_model_resolution_fails_closed_on_missing_or_changed_quant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            missing = root / "missing.nnue"
+            with self.assertRaisesRegex(ValueError, "active model is missing"):
+                autopilot._resolve_active_quant_path(
+                    {"active_model_path": str(missing), "accepted_models": []}
+                )
+
+            active = root / "active.nnue"
+            active.write_bytes(b"PIENNQ01original")
+            expected_sha = hashlib.sha256(active.read_bytes()).hexdigest()
+            state = {
+                "active_model_path": str(active),
+                "accepted_models": [
+                    {"quant_path": str(active), "quant_sha256": expected_sha}
+                ],
+            }
+            self.assertEqual(active, autopilot._resolve_active_quant_path(state))
+            active.write_bytes(b"PIENNQ01changed")
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                autopilot._resolve_active_quant_path(state)
+
     def test_bootstrap_reject_keeps_default_engine_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out_root = Path(tmp) / "runs"
@@ -418,9 +512,14 @@ class AutopilotTests(unittest.TestCase):
                 out_dir = Path(kwargs["out_dir"])
                 out_dir.mkdir(parents=True, exist_ok=True)
                 quant_path = out_dir / "nnue_quant.nnue"
-                quant_path.write_bytes(b"PIENNQ01dummy")
+                quant_path.write_bytes(f"PIENNQ01dummy-{len(created)}".encode())
                 created.append((kwargs, quant_path))
-                return {"quant_path": str(quant_path), "jsonl_dir": str(out_dir / "jsonl_relabel")}
+                checkpoint = _write_fake_checkpoint(out_dir)
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant_path),
+                    "jsonl_dir": str(out_dir / "jsonl_relabel"),
+                }
 
             gate_calls = []
 
@@ -472,6 +571,328 @@ class AutopilotTests(unittest.TestCase):
             state = json.loads((out_root / "autopilot_state.json").read_text(encoding="utf-8"))
             self.assertIsNone(state["active_model_path"])
 
+    def test_rejected_candidate_warm_starts_the_next_training_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            calls = []
+            gate_bases = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                train_dir = out_dir / "train"
+                train_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint_path = train_dir / "checkpoint.json"
+                checkpoint_path.write_text(
+                    json.dumps({"cycle": len(calls)}),
+                    encoding="utf-8",
+                )
+                quant_path = out_dir / "nnue_quant.nnue"
+                quant_path.write_bytes(f"PIENNQ01dummy-{len(calls)}".encode())
+                return {
+                    "checkpoint_path": str(checkpoint_path),
+                    "quant_path": str(quant_path),
+                    "jsonl_dir": str(out_dir / "jsonl_relabel"),
+                }
+
+            def _reject_gate(*, base_quant, **_kwargs):
+                gate_bases.append(base_quant)
+                return {
+                    "accepted": False,
+                    "baseline_points": 7.0,
+                    "experimental_points": 5.0,
+                    "delta_points": -2.0,
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    side_effect=_reject_gate,
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "2",
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(2, len(calls))
+            first_checkpoint = Path(calls[0]["out_dir"]) / "train" / "checkpoint.json"
+            second_checkpoint = Path(calls[1]["out_dir"]) / "train" / "checkpoint.json"
+            self.assertIsNone(calls[0]["initial_checkpoint"])
+            self.assertEqual(first_checkpoint, calls[1]["initial_checkpoint"])
+            self.assertEqual(0.03, calls[0]["learning_rate"])
+            self.assertEqual(0.001, calls[1]["learning_rate"])
+            self.assertEqual([None, None], gate_bases)
+            self.assertIsNone(calls[1]["selfplay_nnue_quant_file"])
+            self.assertIsNone(calls[1]["teacher_relabel_nnue_quant_file"])
+
+            state = json.loads((out_root / "autopilot_state.json").read_text(encoding="utf-8"))
+            self.assertIsNone(state["active_model_path"])
+            self.assertEqual(str(second_checkpoint), state["training_checkpoint_path"])
+
+    def test_explicit_initial_checkpoint_bootstraps_first_training_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            initial_checkpoint = root / "bootstrap-checkpoint.json"
+            initial_checkpoint.write_text(json.dumps({"bootstrap": True}), encoding="utf-8")
+            calls = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                train_dir = out_dir / "train"
+                train_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint_path = train_dir / "checkpoint.json"
+                checkpoint_path.write_text(json.dumps({"cycle": 1}), encoding="utf-8")
+                quant_path = out_dir / "nnue_quant.nnue"
+                quant_path.write_bytes(b"PIENNQ01dummy")
+                return {
+                    "checkpoint_path": str(checkpoint_path),
+                    "quant_path": str(quant_path),
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    return_value={"accepted": False},
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "1",
+                            "--initial-checkpoint",
+                            str(initial_checkpoint),
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(initial_checkpoint, calls[0]["initial_checkpoint"])
+
+    def test_unchanged_training_checkpoint_is_not_repeatedly_gated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            gate_calls = []
+            quant_bytes = b"PIENNQ01same"
+            quant_sha = hashlib.sha256(quant_bytes).hexdigest()
+
+            def _fake_run_pipeline(**kwargs):
+                out_dir = Path(kwargs["out_dir"])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint = _write_fake_checkpoint(out_dir)
+                checkpoint.write_text(json.dumps({"same": True}), encoding="utf-8")
+                checkpoint_sha = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+                quant = out_dir / "nnue_quant.nnue"
+                quant.write_bytes(quant_bytes)
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "checkpoint_sha256": checkpoint_sha,
+                    "quant_path": str(quant),
+                    "quant_sha256": quant_sha,
+                }
+
+            def _fake_gate(**kwargs):
+                gate_calls.append(kwargs)
+                return {
+                    "accepted": False,
+                    "baseline_points": 7.0,
+                    "experimental_points": 5.0,
+                    "delta_points": -2.0,
+                    "games": 12,
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    side_effect=_fake_gate,
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "2",
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(1, len(gate_calls))
+            state = json.loads((out_root / "autopilot_state.json").read_text())
+            self.assertEqual(quant_sha, state["last_gated_quant_sha256"])
+            self.assertEqual("unchanged-training-checkpoint", state["last_gate"]["reason"])
+
+    def test_saturated_active_model_is_not_reaccepted_when_candidate_is_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            out_root.mkdir()
+            parent_checkpoint = root / "parent-checkpoint.json"
+            parent_checkpoint.write_text(json.dumps({"parent": True}), encoding="utf-8")
+            active_quant = root / "active.nnue"
+            active_quant.write_bytes(b"PIENNQ01identical-model")
+            quant_sha = hashlib.sha256(active_quant.read_bytes()).hexdigest()
+            completed = [
+                {
+                    "cycle": cycle,
+                    "out_dir": str(root / f"old-cycle-{cycle}"),
+                    "checkpoint_path": str(parent_checkpoint) if cycle == 4 else None,
+                    "gate": {"accepted": True},
+                }
+                for cycle in range(1, 5)
+            ]
+            state = {
+                "version": 1,
+                "profile": "zen5_9755_7d",
+                "started_at": 0.0,
+                "deadline_ts": 10**12,
+                "next_cycle": 5,
+                "completed_cycles": completed,
+                "accepted_models": [
+                    {
+                        "cycle": cycle,
+                        "quant_path": str(active_quant),
+                        "quant_sha256": quant_sha,
+                    }
+                    for cycle in range(1, 5)
+                ],
+                "active_model_path": str(active_quant),
+                "training_checkpoint_path": str(parent_checkpoint),
+                "last_error": None,
+            }
+            (out_root / "autopilot_state.json").write_text(json.dumps(state), encoding="utf-8")
+
+            def _fake_run_pipeline(**kwargs):
+                out_dir = Path(kwargs["out_dir"])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint = _write_fake_checkpoint(out_dir)
+                checkpoint_sha = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+                quant = out_dir / "nnue_quant.nnue"
+                quant.write_bytes(active_quant.read_bytes())
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "checkpoint_sha256": checkpoint_sha,
+                    "quant_path": str(quant),
+                    "quant_sha256": quant_sha,
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    side_effect=AssertionError("identical active model must not be re-gated"),
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--max-cycles",
+                            "5",
+                            "--retry-limit",
+                            "1",
+                            "--retry-backoff-sec",
+                            "0",
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            loaded = json.loads((out_root / "autopilot_state.json").read_text())
+            self.assertEqual(4, len(loaded["accepted_models"]))
+            self.assertEqual("candidate-identical-to-active-model", loaded["last_gate"]["reason"])
+
+    def test_failed_completion_commit_retries_without_duplicate_or_self_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            calls = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint = _write_fake_checkpoint(out_dir)
+                checkpoint_sha = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+                quant = out_dir / "nnue_quant.nnue"
+                quant.write_bytes(b"PIENNQ01transaction")
+                quant_sha = hashlib.sha256(quant.read_bytes()).hexdigest()
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "checkpoint_sha256": checkpoint_sha,
+                    "quant_path": str(quant),
+                    "quant_sha256": quant_sha,
+                }
+
+            real_atomic_write = autopilot._atomic_write_json
+            failed_once = False
+
+            def _fail_first_completion(path, payload):
+                nonlocal failed_once
+                if (
+                    not failed_once
+                    and len(payload.get("completed_cycles", [])) == 1
+                    and payload.get("last_error") is None
+                ):
+                    failed_once = True
+                    raise OSError("simulated completion commit failure")
+                return real_atomic_write(path, payload)
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._atomic_write_json",
+                    side_effect=_fail_first_completion,
+                ):
+                    with mock.patch("training.nnue.autopilot.time.sleep"):
+                        rc = autopilot.main(
+                            [
+                                "--out-root",
+                                str(out_root),
+                                "--hours",
+                                "1",
+                                "--max-cycles",
+                                "1",
+                                "--gate-games",
+                                "0",
+                                "--retry-limit",
+                                "2",
+                                "--retry-backoff-sec",
+                                "0",
+                            ]
+                        )
+
+            self.assertEqual(0, rc)
+            self.assertTrue(failed_once)
+            self.assertEqual(2, len(calls))
+            self.assertIsNone(calls[0]["initial_checkpoint"])
+            self.assertIsNone(calls[1]["initial_checkpoint"])
+            state = json.loads((out_root / "autopilot_state.json").read_text())
+            self.assertEqual([1], [cycle["cycle"] for cycle in state["completed_cycles"]])
+            self.assertEqual([1], [model["cycle"] for model in state["accepted_models"]])
+            self.assertEqual(2, state["next_cycle"])
+
     def test_model_gate_command_has_one_cargo_separator_and_forwards_flags(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -496,7 +917,7 @@ class AutopilotTests(unittest.TestCase):
                 gate = autopilot._run_model_gate(
                     piebot_dir=root,
                     out_json=out_json,
-                    base_quant=None,
+                    base_quant=candidate,
                     candidate_quant=candidate,
                     games=6,
                     movetime_ms=25,
@@ -505,6 +926,8 @@ class AutopilotTests(unittest.TestCase):
                     threads=1,
                     seed=9,
                     min_score_delta=0.0,
+                    base_blend_percent=25,
+                    candidate_blend_percent=50,
                 )
 
             self.assertTrue(gate["accepted"])
@@ -518,6 +941,8 @@ class AutopilotTests(unittest.TestCase):
             )
             self.assertEqual("--games", cmd[separator + 1])
             self.assertEqual("6", cmd[cmd.index("--games") + 1])
+            self.assertEqual("25", cmd[cmd.index("--base-blend") + 1])
+            self.assertEqual("50", cmd[cmd.index("--exp-blend") + 1])
             self.assertEqual(str(root), kwargs["cwd"])
             self.assertTrue(kwargs["check"])
 
@@ -588,7 +1013,12 @@ class AutopilotTests(unittest.TestCase):
                 quant_path = out_dir / "nnue_quant.nnue"
                 quant_path.write_bytes(b"PIENNQ01dummy")
                 created.append((kwargs, quant_path))
-                return {"quant_path": str(quant_path), "jsonl_dir": str(out_dir / "jsonl_relabel")}
+                checkpoint = _write_fake_checkpoint(out_dir)
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant_path),
+                    "jsonl_dir": str(out_dir / "jsonl_relabel"),
+                }
 
             gate_calls = []
             gate_results = iter(
@@ -655,7 +1085,12 @@ class AutopilotTests(unittest.TestCase):
                 quant_path = out_dir / "nnue_quant.nnue"
                 quant_path.write_bytes(b"PIENNQ01dummy")
                 created.append((kwargs, quant_path))
-                return {"quant_path": str(quant_path), "jsonl_dir": str(out_dir / "jsonl_relabel")}
+                checkpoint = _write_fake_checkpoint(out_dir)
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant_path),
+                    "jsonl_dir": str(out_dir / "jsonl_relabel"),
+                }
 
             def _fake_gate(**_kwargs):
                 return {
@@ -719,9 +1154,13 @@ class AutopilotTests(unittest.TestCase):
                     raise TypeError(f"unexpected kwargs: {unexpected}")
                 out_dir = Path(kwargs["out_dir"])
                 out_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint = _write_fake_checkpoint(out_dir)
                 quant_path = out_dir / "nnue_quant.nnue"
                 quant_path.write_bytes(b"PIENNQ01dummy")
-                return {"quant_path": str(quant_path)}
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant_path),
+                }
 
             with mock.patch(
                 "training.nnue.autopilot.run_pipeline.run_pipeline",

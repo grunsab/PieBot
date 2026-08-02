@@ -14,12 +14,13 @@ Usage:
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import math
 import random
 import re
 from pathlib import Path
-from typing import Dict, Iterator, List, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 try:
     from .dataloader import TrainingRecord, jsonl_to_training_samples, read_jsonl_dir
@@ -29,6 +30,76 @@ except Exception:
 
 PIECE_ORDER = "PNBRQ"
 COUNT_ORDER = "PNBRQKpnbrqk"
+_DIRECT_CHECKPOINT_FORMATS = {
+    "piebot-halfkp-mse-v2",
+    "piebot-halfkp-mse-v2-torch",
+}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_initial_checkpoint(
+    checkpoint_path: Path,
+    *,
+    input_dim: int,
+    hidden_dim: int,
+) -> Tuple[List[float], List[float], List[float], float, Dict[str, Any]]:
+    path = Path(checkpoint_path)
+    if not path.is_file():
+        raise ValueError(f"initial checkpoint does not exist: {path}")
+    try:
+        checkpoint = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
+    if not isinstance(checkpoint, dict):
+        raise ValueError("initial checkpoint must be a JSON object")
+    checkpoint_format = checkpoint.get("format")
+    if checkpoint_format not in _DIRECT_CHECKPOINT_FORMATS:
+        raise ValueError(f"unsupported initial checkpoint format: {checkpoint_format!r}")
+    if int(checkpoint.get("input_dim", 0)) != input_dim:
+        raise ValueError("initial checkpoint input_dim mismatch")
+    if int(checkpoint.get("hidden_dim", 0)) != hidden_dim:
+        raise ValueError("initial checkpoint hidden_dim mismatch")
+
+    values: Dict[str, List[float]] = {}
+    for key, expected_len in (
+        ("w1", input_dim * hidden_dim),
+        ("b1", hidden_dim),
+        ("w2", hidden_dim),
+    ):
+        raw = checkpoint.get(key)
+        if not isinstance(raw, list) or len(raw) != expected_len:
+            raise ValueError(f"initial checkpoint {key} size mismatch")
+        try:
+            converted = [float(value) for value in raw]
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"initial checkpoint {key} contains non-numeric values") from exc
+        if not all(math.isfinite(value) for value in converted):
+            raise ValueError(f"initial checkpoint {key} contains non-finite values")
+        values[key] = converted
+    try:
+        b2 = float(checkpoint["b2"])
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("initial checkpoint b2 is missing or non-numeric") from exc
+    if not math.isfinite(b2):
+        raise ValueError("initial checkpoint b2 contains a non-finite value")
+    metadata = {
+        "path": path.resolve().as_posix(),
+        "sha256": _sha256_file(path),
+        "format": str(checkpoint_format),
+        "input_dim": input_dim,
+        "hidden_dim": hidden_dim,
+    }
+    return values["w1"], values["b1"], values["w2"], b2, metadata
 
 
 def _parse_board_fen(fen: str) -> Tuple[List[Tuple[str, int]], int | None, int | None]:
@@ -303,11 +374,12 @@ def train_model(
     grad_clip: float = 5.0,
     seed: int = 1,
     out_dir: Path,
+    initial_checkpoint: Optional[Path] = None,
 ) -> Dict[str, object]:
     batch_size = max(1, int(batch_size))
     epochs = max(1, int(epochs))
     val_split = min(0.9, max(0.0, float(val_split)))
-    lr = max(1e-6, float(learning_rate))
+    lr = max(0.0, float(learning_rate))
     hidden_dim = max(1, int(hidden_dim))
     target_cp = max(1.0, float(target_cp))
     teacher_mix = _clamp(float(teacher_mix), 0.0, 1.0)
@@ -366,6 +438,13 @@ def train_model(
     b1 = [0.0 for _ in range(hidden_dim)]
     w2 = [(rng.random() - 0.5) * 0.01 for _ in range(hidden_dim)]
     b2 = 0.0
+    initialized_from = None
+    if initial_checkpoint is not None:
+        w1, b1, w2, b2, initialized_from = _load_initial_checkpoint(
+            Path(initial_checkpoint),
+            input_dim=dim,
+            hidden_dim=hidden_dim,
+        )
     best_w1 = list(w1)
     best_b1 = list(b1)
     best_w2 = list(w2)
@@ -388,6 +467,21 @@ def train_model(
     val_acc_history: List[float] = []
     best_val_loss = float("inf")
     best_epoch = 0
+    initial_train_loss = None
+    initial_train_acc = None
+    initial_val_loss = None
+    initial_val_acc = None
+    if initialized_from is not None:
+        initial_train_loss, initial_train_acc = _eval_split(
+            w1, b1, w2, b2, dim, train_x, train_y
+        )
+        if val_count > 0:
+            initial_val_loss, initial_val_acc = _eval_split(
+                w1, b1, w2, b2, dim, val_x, val_y
+            )
+        else:
+            initial_val_loss, initial_val_acc = initial_train_loss, initial_train_acc
+        best_val_loss = float(initial_val_loss)
 
     for epoch in range(epochs):
         idx = list(range(train_count))
@@ -524,6 +618,8 @@ def train_model(
         "seed": seed,
         "epochs": epochs,
         "best_epoch": best_epoch,
+        "initialized_from": initialized_from,
+        "optimizer_state_restored": False,
     }
     metrics = {
         "train_samples": train_count,
@@ -544,6 +640,12 @@ def train_model(
         "seed": seed,
         "best_epoch": best_epoch,
         "best_val_loss": best_val_loss,
+        "initial_train_loss": initial_train_loss,
+        "initial_train_acc": initial_train_acc,
+        "initial_val_loss": initial_val_loss,
+        "initial_val_acc": initial_val_acc,
+        "initialized_from": initialized_from,
+        "optimizer_state_restored": False,
         "train_loss_history": train_loss_history,
         "val_loss_history": val_loss_history,
         "train_acc_history": train_acc_history,
@@ -565,6 +667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--epochs", type=int, default=8)
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--learning-rate", type=float, default=0.05)
+    ap.add_argument("--initial-checkpoint", type=Path, default=None)
     ap.add_argument("--hidden-dim", type=int, default=16)
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
@@ -596,6 +699,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         grad_clip=args.grad_clip,
         seed=args.seed,
         out_dir=args.out,
+        initial_checkpoint=args.initial_checkpoint,
     )
     print(f"Train samples: {metrics['train_samples']}")
     print(f"Val samples: {metrics['val_samples']}")

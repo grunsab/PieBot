@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 try:
     import torch  # type: ignore
@@ -54,6 +56,104 @@ class TorchNnue(torch.nn.Module):  # type: ignore[misc]
         h = self.embed(flat_idx, offsets) + self.b1
         h = torch.relu(h)
         return self.out(h).squeeze(1)
+
+
+_DIRECT_CHECKPOINT_FORMATS = {
+    "piebot-halfkp-mse-v2",
+    "piebot-halfkp-mse-v2-torch",
+}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_initial_checkpoint(
+    model: TorchNnue,
+    checkpoint_path: Path,
+    *,
+    input_dim: int,
+    hidden_dim: int,
+    device: "torch.device",
+) -> Dict[str, Any]:
+    path = Path(checkpoint_path)
+    if not path.is_file():
+        raise ValueError(f"initial checkpoint does not exist: {path}")
+    try:
+        checkpoint = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
+    if not isinstance(checkpoint, dict):
+        raise ValueError("initial checkpoint must be a JSON object")
+    checkpoint_format = checkpoint.get("format")
+    if checkpoint_format not in _DIRECT_CHECKPOINT_FORMATS:
+        raise ValueError(f"unsupported initial checkpoint format: {checkpoint_format!r}")
+    if int(checkpoint.get("input_dim", 0)) != int(input_dim):
+        raise ValueError(
+            f"initial checkpoint input_dim mismatch: expected {input_dim}, "
+            f"got {checkpoint.get('input_dim')}"
+        )
+    if int(checkpoint.get("hidden_dim", 0)) != int(hidden_dim):
+        raise ValueError(
+            f"initial checkpoint hidden_dim mismatch: expected {hidden_dim}, "
+            f"got {checkpoint.get('hidden_dim')}"
+        )
+
+    expected_lengths = {
+        "w1": input_dim * hidden_dim,
+        "b1": hidden_dim,
+        "w2": hidden_dim,
+    }
+    values: Dict[str, List[float]] = {}
+    for key, expected_len in expected_lengths.items():
+        raw = checkpoint.get(key)
+        if not isinstance(raw, list) or len(raw) != expected_len:
+            raise ValueError(
+                f"initial checkpoint {key} size mismatch: expected {expected_len}"
+            )
+        try:
+            converted = [float(value) for value in raw]
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"initial checkpoint {key} contains non-numeric values") from exc
+        if not all(math.isfinite(value) for value in converted):
+            raise ValueError(f"initial checkpoint {key} contains non-finite values")
+        values[key] = converted
+    try:
+        b2 = float(checkpoint["b2"])
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("initial checkpoint b2 is missing or non-numeric") from exc
+    if not math.isfinite(b2):
+        raise ValueError("initial checkpoint b2 contains a non-finite value")
+
+    with torch.no_grad():
+        # Serialized w1 is row-major [hidden][input], while EmbeddingBag stores
+        # [input][hidden]. The transpose is required for an exact warm start.
+        w1 = torch.tensor(values["w1"], dtype=model.embed.weight.dtype, device=device)
+        model.embed.weight.copy_(w1.view(hidden_dim, input_dim).transpose(0, 1))
+        model.b1.copy_(torch.tensor(values["b1"], dtype=model.b1.dtype, device=device))
+        model.out.weight.copy_(
+            torch.tensor(values["w2"], dtype=model.out.weight.dtype, device=device).view(
+                1, hidden_dim
+            )
+        )
+        model.out.bias.copy_(
+            torch.tensor([b2], dtype=model.out.bias.dtype, device=device)
+        )
+
+    return {
+        "path": path.resolve().as_posix(),
+        "sha256": _sha256_file(path),
+        "format": str(checkpoint_format),
+        "input_dim": int(input_dim),
+        "hidden_dim": int(hidden_dim),
+    }
 
 
 def _pack_batch(
@@ -124,6 +224,7 @@ def train_model(
     seed: int = 1,
     out_dir: Path = Path("out/nnue_torch_train"),
     device: str = "auto",
+    initial_checkpoint: Optional[Path] = None,
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
@@ -179,6 +280,15 @@ def train_model(
 
     input_dim = train_stub.HALFKP_DIM
     model = TorchNnue(input_dim=input_dim, hidden_dim=hidden_dim).to(dev)
+    initialized_from = None
+    if initial_checkpoint is not None:
+        initialized_from = _load_initial_checkpoint(
+            model,
+            Path(initial_checkpoint),
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            device=dev,
+        )
     opt = torch.optim.Adam(
         model.parameters(),
         lr=float(learning_rate),
@@ -190,6 +300,24 @@ def train_model(
     best_state = None
     best_val = float("inf")
     best_epoch = 0
+    initial_train_loss = None
+    initial_train_acc = None
+    initial_val_loss = None
+    initial_val_acc = None
+    if initialized_from is not None:
+        initial_train_loss, initial_train_acc = _eval_split(
+            model, train_x, train_y, batch_size, dev
+        )
+        if val_count > 0:
+            initial_val_loss, initial_val_acc = _eval_split(
+                model, val_x, val_y, batch_size, dev
+            )
+        else:
+            initial_val_loss, initial_val_acc = initial_train_loss, initial_train_acc
+        best_val = float(initial_val_loss)
+        best_state = {
+            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+        }
     train_loss_history: List[float] = []
     val_loss_history: List[float] = []
     train_acc_history: List[float] = []
@@ -254,6 +382,8 @@ def train_model(
         "epochs": epochs,
         "best_epoch": best_epoch,
         "device": str(dev),
+        "initialized_from": initialized_from,
+        "optimizer_state_restored": False,
     }
     metrics = {
         "train_samples": train_count,
@@ -274,6 +404,12 @@ def train_model(
         "seed": seed,
         "best_epoch": best_epoch,
         "best_val_loss": best_val,
+        "initial_train_loss": initial_train_loss,
+        "initial_train_acc": initial_train_acc,
+        "initial_val_loss": initial_val_loss,
+        "initial_val_acc": initial_val_acc,
+        "initialized_from": initialized_from,
+        "optimizer_state_restored": False,
         "train_loss_history": train_loss_history,
         "val_loss_history": val_loss_history,
         "train_acc_history": train_acc_history,
@@ -297,6 +433,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--epochs", type=int, default=8)
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--learning-rate", type=float, default=0.05)
+    ap.add_argument("--initial-checkpoint", type=Path, default=None)
     ap.add_argument("--hidden-dim", type=int, default=64)
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
@@ -330,6 +467,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         seed=args.seed,
         out_dir=args.out,
         device=args.device,
+        initial_checkpoint=args.initial_checkpoint,
     )
     print(f"Train samples: {metrics['train_samples']}")
     print(f"Val samples: {metrics['val_samples']}")

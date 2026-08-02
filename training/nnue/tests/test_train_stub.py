@@ -1,4 +1,5 @@
 import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -182,6 +183,50 @@ class TrainStubTests(unittest.TestCase):
             first = metrics["train_loss_history"][0]
             best = min(metrics["train_loss_history"])
             self.assertLessEqual(best, first, "training loss never improved")
+
+    def test_stub_warm_start_preserves_parent_when_zero_lr_cannot_improve(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=3)
+            w1 = [0.0] * train_stub.HALFKP_DIM
+            w1[0] = 1.0
+            w1[-1] = 2.0
+            parent = {
+                "format": "piebot-halfkp-mse-v2",
+                "input_dim": train_stub.HALFKP_DIM,
+                "hidden_dim": 1,
+                "w1": w1,
+                "b1": [0.5],
+                "w2": [1.5],
+                "b2": 2.0,
+            }
+            parent_path = root / "parent.json"
+            parent_path.write_text(json.dumps(parent), encoding="utf-8")
+            parent_sha = hashlib.sha256(parent_path.read_bytes()).hexdigest()
+
+            metrics = train_stub.train_model(
+                jsonl_dir=data_dir,
+                batch_size=2,
+                max_samples=3,
+                epochs=1,
+                val_split=0.34,
+                learning_rate=0.0,
+                hidden_dim=1,
+                seed=5,
+                out_dir=root / "out",
+                initial_checkpoint=parent_path,
+            )
+
+            checkpoint = json.loads((root / "out" / "checkpoint.json").read_text())
+            self.assertEqual(parent["w1"], checkpoint["w1"])
+            self.assertEqual(parent["b1"], checkpoint["b1"])
+            self.assertEqual(parent["w2"], checkpoint["w2"])
+            self.assertEqual(parent["b2"], checkpoint["b2"])
+            self.assertEqual(0, checkpoint["best_epoch"])
+            self.assertEqual(parent_sha, metrics["initialized_from"]["sha256"])
+            self.assertFalse(metrics["optimizer_state_restored"])
 
 
 if __name__ == "__main__":  # pragma: no cover

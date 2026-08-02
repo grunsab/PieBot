@@ -88,7 +88,7 @@ python -m training.nnue.autopilot --out-root /opt/piebot_runs/smoke --max-cycles
 ```bash
 cd /opt/piebot_rust
 source .venv/bin/activate
-python -m training.nnue.autopilot --out-root /opt/piebot_runs/zen5_7d --profile zen5_9755_7d --hours 168 --trainer-backend torch --trainer-device cuda
+python -m training.nnue.autopilot --out-root /opt/piebot_runs/zen5_7d --profile zen5_9755_7d --hours 168 --warm-start --warm-start-learning-rate 0.001 --trainer-backend torch --trainer-device cuda
 ```
 
 ## 10) Set-and-forget via systemd
@@ -102,7 +102,7 @@ Type=simple
 User=YOUR_USER
 WorkingDirectory=/opt/piebot_rust
 Environment=PATH=/opt/piebot_rust/.venv/bin:/home/YOUR_USER/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/opt/piebot_rust/.venv/bin/python -m training.nnue.autopilot --out-root /opt/piebot_runs/zen5_7d --profile zen5_9755_7d --hours 168 --trainer-backend torch --trainer-device cuda
+ExecStart=/opt/piebot_rust/.venv/bin/python -m training.nnue.autopilot --out-root /opt/piebot_runs/zen5_7d --profile zen5_9755_7d --hours 168 --warm-start --warm-start-learning-rate 0.001 --trainer-backend torch --trainer-device cuda
 Restart=on-failure
 RestartSec=15
 [Install]
