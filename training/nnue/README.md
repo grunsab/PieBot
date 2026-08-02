@@ -124,6 +124,10 @@ Set-and-forget autopilot
   - single-instance lock (`autopilot.lock`)
   - automatic retry on transient failures
   - resume-safe cycle execution (`run_pipeline --resume`)
+  - optional bounded disk retention (`--retain-full-cycles N`, or launcher environment
+    `RETAIN_FULL_CYCLES=N`; production launchers default to `8`): newest N cycles remain complete; older rejected cycles are
+    deleted, while older accepted cycles retain their quantized model and audit metadata
+    (`0` keeps the historical unlimited behavior)
   - deterministic per-cycle self-play and trainer seeds, with independent streams; rejected
     cycles therefore advance to different game generation while a retry remains reproducible
   - bootstrap gate: until a candidate NNUE beats the default non-NNUE eval in same-search head-to-head, self-play and relabel stay on the default engine

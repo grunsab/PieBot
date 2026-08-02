@@ -41,6 +41,213 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(8, profile["teacher_relabel_every"])
         self.assertGreaterEqual(profile["teacher_relabel_threads"], 32)
         self.assertGreaterEqual(profile["teacher_relabel_hash_mb"], 2048)
+        self.assertEqual(0, profile["retain_full_cycles"])
+
+    def test_cycle_retention_prunes_old_cycles_and_preserves_accepted_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            cycles_root = out_root / "cycles"
+            completed = []
+            quant_paths = {}
+            for cycle in range(1, 5):
+                cycle_dir = cycles_root / f"cycle_{cycle:06d}"
+                (cycle_dir / "selfplay_jsonl").mkdir(parents=True)
+                (cycle_dir / "jsonl_relabel").mkdir()
+                (cycle_dir / "train").mkdir()
+                (cycle_dir / "selfplay_jsonl" / "data.jsonl").write_text("bulk\n")
+                (cycle_dir / "jsonl_relabel" / "data.jsonl").write_text("bulk\n")
+                (cycle_dir / "train" / "checkpoint.json").write_text("bulk")
+                (cycle_dir / "nnue_dense.nnue").write_bytes(b"dense")
+                quant = cycle_dir / "nnue_quant.nnue"
+                quant.write_bytes(f"quant-{cycle}".encode())
+                quant_paths[cycle] = quant
+                (cycle_dir / "pipeline_summary.json").write_text(
+                    json.dumps({"cycle": cycle}), encoding="utf-8"
+                )
+                (cycle_dir / "gate_compare.json").write_text(
+                    json.dumps({"cycle": cycle}), encoding="utf-8"
+                )
+                completed.append(
+                    {
+                        "cycle": cycle,
+                        "out_dir": str(cycle_dir),
+                        "jsonl_dir": str(cycle_dir / "jsonl_relabel"),
+                        "train_jsonl_dir": str(cycle_dir / "jsonl_relabel"),
+                        "quant_path": str(quant),
+                        "summary_path": str(cycle_dir / "pipeline_summary.json"),
+                        "gate": {"accepted": cycle in (2, 4)},
+                    }
+                )
+            state = {
+                "completed_cycles": completed,
+                "accepted_models": [
+                    {"cycle": 2, "quant_path": str(quant_paths[2])},
+                    {"cycle": 4, "quant_path": str(quant_paths[4])},
+                ],
+                "active_model_path": str(quant_paths[4]),
+            }
+
+            report = autopilot._apply_cycle_retention(
+                out_root=out_root,
+                state=state,
+                retain_full_cycles=2,
+            )
+
+            self.assertEqual([1], report["deleted_cycles"])
+            self.assertEqual([2], report["pruned_cycles"])
+            self.assertFalse((cycles_root / "cycle_000001").exists())
+            accepted_old = cycles_root / "cycle_000002"
+            self.assertTrue(quant_paths[2].is_file())
+            self.assertTrue((accepted_old / "pipeline_summary.json").is_file())
+            self.assertTrue((accepted_old / "gate_compare.json").is_file())
+            self.assertTrue((accepted_old / "retained_cycle.json").is_file())
+            self.assertFalse((accepted_old / "selfplay_jsonl").exists())
+            self.assertFalse((accepted_old / "jsonl_relabel").exists())
+            self.assertFalse((accepted_old / "train").exists())
+            self.assertFalse((accepted_old / "nnue_dense.nnue").exists())
+            self.assertTrue((cycles_root / "cycle_000003" / "selfplay_jsonl").is_dir())
+            self.assertTrue((cycles_root / "cycle_000004" / "selfplay_jsonl").is_dir())
+            self.assertTrue(Path(state["active_model_path"]).is_file())
+            self.assertEqual("deleted", completed[0]["retention"])
+            self.assertEqual("model_only", completed[1]["retention"])
+            self.assertEqual("full", completed[2]["retention"])
+
+            # A crash/restart may repeat cleanup; it must be harmless.
+            second = autopilot._apply_cycle_retention(
+                out_root=out_root,
+                state=state,
+                retain_full_cycles=2,
+            )
+            self.assertEqual([], second["deleted_cycles"])
+            self.assertEqual([], second["pruned_cycles"])
+            self.assertTrue(quant_paths[2].is_file())
+
+    def test_cycle_retention_zero_is_noop_and_unsafe_paths_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            cycle1 = out_root / "cycles" / "cycle_000001"
+            cycle2 = out_root / "cycles" / "cycle_000002"
+            cycle1.mkdir(parents=True)
+            cycle2.mkdir(parents=True)
+            (cycle1 / "sentinel").write_text("keep")
+            (cycle2 / "sentinel").write_text("keep")
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "sentinel").write_text("outside")
+            state = {
+                "completed_cycles": [
+                    {"cycle": 1, "out_dir": str(outside), "gate": {"accepted": False}},
+                    {"cycle": 2, "out_dir": str(cycle2), "gate": {"accepted": False}},
+                ],
+                "accepted_models": [],
+                "active_model_path": None,
+            }
+
+            noop = autopilot._apply_cycle_retention(
+                out_root=out_root,
+                state=state,
+                retain_full_cycles=0,
+            )
+            self.assertEqual([], noop["deleted_cycles"])
+            self.assertTrue((outside / "sentinel").is_file())
+
+            with self.assertRaisesRegex(ValueError, "outside"):
+                autopilot._apply_cycle_retention(
+                    out_root=out_root,
+                    state=state,
+                    retain_full_cycles=1,
+                )
+            self.assertTrue((outside / "sentinel").is_file())
+            self.assertTrue((cycle1 / "sentinel").is_file())
+            self.assertTrue((cycle2 / "sentinel").is_file())
+
+    def test_cycle_retention_refuses_accepted_quant_outside_cycles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            cycles_root = out_root / "cycles"
+            cycle1 = cycles_root / "cycle_000001"
+            cycle2 = cycles_root / "cycle_000002"
+            cycle1.mkdir(parents=True)
+            cycle2.mkdir(parents=True)
+            outside_quant = root / "outside.nnue"
+            outside_quant.write_bytes(b"do-not-touch")
+            state = {
+                "completed_cycles": [
+                    {
+                        "cycle": 1,
+                        "out_dir": str(cycle1),
+                        "quant_path": str(outside_quant),
+                        "gate": {"accepted": True},
+                    },
+                    {"cycle": 2, "out_dir": str(cycle2), "gate": {"accepted": False}},
+                ],
+                "accepted_models": [{"cycle": 1, "quant_path": str(outside_quant)}],
+                "active_model_path": str(outside_quant),
+            }
+
+            with self.assertRaisesRegex(ValueError, "outside"):
+                autopilot._apply_cycle_retention(
+                    out_root=out_root,
+                    state=state,
+                    retain_full_cycles=1,
+                )
+            self.assertEqual(b"do-not-touch", outside_quant.read_bytes())
+            self.assertTrue(cycle1.is_dir())
+
+    def test_main_retries_retention_on_restart_before_starting_another_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            cycle1 = out_root / "cycles" / "cycle_000001"
+            cycle2 = out_root / "cycles" / "cycle_000002"
+            cycle1.mkdir(parents=True)
+            cycle2.mkdir(parents=True)
+            (cycle1 / "bulk").write_text("old")
+            (cycle2 / "bulk").write_text("new")
+            state = {
+                "version": 1,
+                "profile": "zen5_9755_7d",
+                "started_at": 0.0,
+                "deadline_ts": 0.0,
+                "next_cycle": 3,
+                "completed_cycles": [
+                    {
+                        "cycle": 1,
+                        "out_dir": str(cycle1),
+                        "gate": {"accepted": False},
+                    },
+                    {
+                        "cycle": 2,
+                        "out_dir": str(cycle2),
+                        "gate": {"accepted": False},
+                    },
+                ],
+                "accepted_models": [],
+                "active_model_path": None,
+                "last_error": None,
+            }
+            (out_root / "autopilot_state.json").write_text(json.dumps(state), encoding="utf-8")
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=AssertionError("expired restart must not start a new cycle"),
+            ):
+                rc = autopilot.main(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--retain-full-cycles",
+                        "1",
+                    ]
+                )
+
+            self.assertEqual(0, rc)
+            self.assertFalse(cycle1.exists())
+            self.assertTrue((cycle2 / "bulk").is_file())
+            loaded = json.loads((out_root / "autopilot_state.json").read_text(encoding="utf-8"))
+            self.assertEqual("deleted", loaded["completed_cycles"][0]["retention"])
+            self.assertEqual("full", loaded["completed_cycles"][1]["retention"])
 
     def test_blend_percent_ramps_with_number_of_accepted_models(self) -> None:
         self.assertEqual(0, autopilot._active_model_blend_percent({}))

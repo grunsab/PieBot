@@ -101,7 +101,7 @@ After=network-online.target
 Type=simple
 User=YOUR_USER
 WorkingDirectory=/opt/piebot_rust
-Environment=PATH=/opt/piebot_rust/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/opt/piebot_rust/.venv/bin:/home/YOUR_USER/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/piebot_rust/.venv/bin/python -m training.nnue.autopilot --out-root /opt/piebot_runs/zen5_7d --profile zen5_9755_7d --hours 168 --trainer-backend torch --trainer-device cuda
 Restart=on-failure
 RestartSec=15
@@ -111,6 +111,9 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now piebot-autopilot.service
 ```
+
+Replace both `YOUR_USER` placeholders with the account that installed Rust and
+owns `/opt/piebot_rust` and `/opt/piebot_runs`.
 
 ## 11) Operate and monitor
 ```bash

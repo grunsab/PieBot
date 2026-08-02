@@ -52,6 +52,16 @@ class ProductionScriptContractTests(unittest.TestCase):
         script = read("scripts/run_zen5_7day.sh")
         self.assertIn('TRAINER_BACKEND="${TRAINER_BACKEND:-torch}"', script)
 
+    def test_production_launchers_forward_cycle_retention(self) -> None:
+        for relative in (
+            "scripts/run_zen5_7day.sh",
+            "scripts/run_zen5_day1_validation.sh",
+        ):
+            with self.subTest(script=relative):
+                script = read(relative)
+                self.assertIn('RETAIN_FULL_CYCLES="${RETAIN_FULL_CYCLES:-8}"', script)
+                self.assertIn('--retain-full-cycles "$RETAIN_FULL_CYCLES"', script)
+
     def test_day_one_validates_both_searches_and_candidate_model(self) -> None:
         script = read("scripts/run_zen5_day1_validation.sh")
         self.assertRegex(script, r"--bin accept\s+--bin accept_temp")
@@ -68,6 +78,14 @@ class ProductionScriptContractTests(unittest.TestCase):
         setup = read("documents/ZEN5_3090_NNUE_SETUP.md")
         self.assertIn("Restart=on-failure", setup)
         self.assertNotIn("Restart=always", setup)
+
+    def test_systemd_path_includes_service_users_cargo_bin(self) -> None:
+        setup = read("documents/ZEN5_3090_NNUE_SETUP.md")
+        self.assertIn("User=YOUR_USER", setup)
+        self.assertRegex(
+            setup,
+            r"Environment=PATH=[^\n]*/home/YOUR_USER/\.cargo/bin(?:[:\n])",
+        )
 
     def test_run_directory_ownership_is_documented(self) -> None:
         setup = read("documents/ZEN5_3090_NNUE_SETUP.md")

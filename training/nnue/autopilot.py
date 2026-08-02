@@ -8,6 +8,7 @@ import inspect
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -115,6 +116,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "trainer_backend": "auto",
         "trainer_device": "cuda",
         "resume": True,
+        "retain_full_cycles": 0,
         "replay_window_cycles": 6,
         "teacher_lag_cycles": 1,
         "gate_games": 24,
@@ -185,6 +187,12 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--hidden-dim", type=int, default=None)
     ap.add_argument("--trainer-backend", choices=["stub", "torch", "auto"], default=None)
     ap.add_argument("--trainer-device", choices=["auto", "cpu", "cuda"], default=None)
+    ap.add_argument(
+        "--retain-full-cycles",
+        type=int,
+        default=None,
+        help="Keep newest N cycle directories in full (0 = unlimited)",
+    )
     ap.add_argument("--replay-window-cycles", type=int, default=None)
     ap.add_argument("--teacher-lag-cycles", type=int, default=None)
     ap.add_argument("--gate-games", type=int, default=None)
@@ -244,6 +252,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "hidden_dim": args.hidden_dim,
         "trainer_backend": args.trainer_backend,
         "trainer_device": args.trainer_device,
+        "retain_full_cycles": args.retain_full_cycles,
         "replay_window_cycles": args.replay_window_cycles,
         "teacher_lag_cycles": args.teacher_lag_cycles,
         "gate_games": args.gate_games,
@@ -312,6 +321,228 @@ def _collect_replay_jsonl_dirs(state: Dict[str, Any], window_cycles: int) -> lis
         if len(out) >= window:
             break
     return out
+
+
+def _retention_path(raw: Any, *, label: str) -> Path:
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"retention {label} path is missing")
+    return Path(raw).resolve()
+
+
+def _require_within(path: Path, root: Path, *, label: str) -> None:
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"retention refuses {label} outside {root}: {path}") from exc
+
+
+def _prune_cycle_directory(cycle_dir: Path, keep_files: set[Path]) -> bool:
+    removed = False
+
+    def prune(directory: Path) -> None:
+        nonlocal removed
+        for child in list(directory.iterdir()):
+            resolved = child.resolve()
+            if child.is_symlink():
+                if resolved not in keep_files:
+                    child.unlink()
+                    removed = True
+                continue
+            if child.is_dir():
+                prune(child)
+                if not any(child.iterdir()):
+                    child.rmdir()
+                    removed = True
+                continue
+            if resolved not in keep_files:
+                child.unlink()
+                removed = True
+
+    prune(cycle_dir)
+    return removed
+
+
+def _apply_cycle_retention(
+    *,
+    out_root: Path,
+    state: Dict[str, Any],
+    retain_full_cycles: int,
+) -> Dict[str, Any]:
+    """Prune completed cycles only after validating every destructive target."""
+    retain = int(retain_full_cycles)
+    if retain < 0:
+        raise ValueError("retain_full_cycles must be >= 0")
+    report: Dict[str, Any] = {
+        "deleted_cycles": [],
+        "pruned_cycles": [],
+        "state_changed": False,
+    }
+    if retain == 0:
+        return report
+
+    completed = state.get("completed_cycles")
+    if not isinstance(completed, list) or len(completed) <= retain:
+        return report
+
+    out_root_resolved = Path(out_root).resolve()
+    cycles_root = out_root_resolved / "cycles"
+    configured_cycles = Path(out_root) / "cycles"
+    if configured_cycles.is_symlink() or configured_cycles.resolve() != cycles_root:
+        raise ValueError(f"retention refuses cycles root outside {cycles_root}")
+
+    entries: Dict[int, Dict[str, Any]] = {}
+    cycle_dirs: Dict[int, Path] = {}
+    ordered_cycles: list[int] = []
+    for raw_entry in completed:
+        if not isinstance(raw_entry, dict):
+            raise ValueError("retention completed cycle entry is not an object")
+        cycle = int(raw_entry.get("cycle", 0))
+        if cycle <= 0 or cycle in entries:
+            raise ValueError(f"retention invalid or duplicate cycle: {cycle}")
+        expected = cycles_root / f"cycle_{cycle:06d}"
+        recorded = raw_entry.get("out_dir")
+        if recorded is not None:
+            recorded_path = _retention_path(recorded, label=f"cycle {cycle}")
+            _require_within(recorded_path, cycles_root, label=f"cycle {cycle}")
+            if recorded_path != expected:
+                raise ValueError(
+                    f"retention refuses cycle {cycle} path outside expected directory: {recorded_path}"
+                )
+        if expected.is_symlink():
+            raise ValueError(f"retention refuses symlinked cycle directory: {expected}")
+        entries[cycle] = raw_entry
+        cycle_dirs[cycle] = expected
+        ordered_cycles.append(cycle)
+
+    protected_quant: Dict[int, set[Path]] = {}
+    accepted_cycles: set[int] = set()
+
+    def protect_quant(cycle: int, raw_path: Any, *, label: str) -> None:
+        if cycle not in entries:
+            raise ValueError(f"retention {label} references unknown cycle {cycle}")
+        path = _retention_path(raw_path, label=label)
+        _require_within(path, cycles_root, label=label)
+        _require_within(path, cycle_dirs[cycle], label=label)
+        if not path.is_file():
+            raise ValueError(f"retention cannot preserve missing {label}: {path}")
+        protected_quant.setdefault(cycle, set()).add(path)
+        accepted_cycles.add(cycle)
+
+    accepted_models = state.get("accepted_models")
+    if accepted_models is not None and not isinstance(accepted_models, list):
+        raise ValueError("retention accepted_models is not a list")
+    for model in accepted_models or []:
+        if not isinstance(model, dict):
+            raise ValueError("retention accepted model entry is not an object")
+        protect_quant(
+            int(model.get("cycle", 0)),
+            model.get("quant_path"),
+            label="accepted quant model",
+        )
+
+    for cycle, entry in entries.items():
+        gate = entry.get("gate")
+        if isinstance(gate, dict) and gate.get("accepted") and cycle not in accepted_cycles:
+            protect_quant(cycle, entry.get("quant_path"), label="accepted cycle quant model")
+
+    active_raw = state.get("active_model_path")
+    if active_raw:
+        active_path = _retention_path(active_raw, label="active model")
+        _require_within(active_path, cycles_root, label="active model")
+        relative = active_path.relative_to(cycles_root)
+        try:
+            active_cycle = int(relative.parts[0].removeprefix("cycle_"))
+        except (IndexError, ValueError) as exc:
+            raise ValueError(f"retention cannot identify active model cycle: {active_path}") from exc
+        protect_quant(active_cycle, active_raw, label="active model")
+
+    full_cycles = set(ordered_cycles[-retain:])
+    old_cycles = ordered_cycles[:-retain]
+
+    # Every path is validated before the first removal. Filesystem failures may
+    # leave a partial prune, which is safe to repeat on the next startup.
+    for cycle in full_cycles:
+        entry = entries[cycle]
+        if entry.get("retention") not in {"deleted", "model_only"}:
+            if entry.get("retention") != "full":
+                entry["retention"] = "full"
+                report["state_changed"] = True
+
+    for cycle in old_cycles:
+        entry = entries[cycle]
+        cycle_dir = cycle_dirs[cycle]
+        if cycle not in accepted_cycles:
+            if cycle_dir.exists():
+                shutil.rmtree(cycle_dir)
+                report["deleted_cycles"].append(cycle)
+            if entry.get("retention") != "deleted":
+                entry["retention"] = "deleted"
+                report["state_changed"] = True
+            for key in ("jsonl_dir", "train_jsonl_dir", "quant_path", "summary_path"):
+                if entry.get(key) is not None:
+                    entry[key] = None
+                    report["state_changed"] = True
+            continue
+
+        if not cycle_dir.is_dir():
+            raise ValueError(f"retention accepted cycle directory is missing: {cycle_dir}")
+        if entry.get("retention") != "model_only":
+            entry["retention"] = "model_only"
+            report["state_changed"] = True
+        for key in ("jsonl_dir", "train_jsonl_dir"):
+            if entry.get(key) is not None:
+                entry[key] = None
+                report["state_changed"] = True
+
+        cycle_acceptances = [
+            model
+            for model in (accepted_models or [])
+            if isinstance(model, dict) and int(model.get("cycle", 0)) == cycle
+        ]
+        retained_metadata = {
+            "version": 1,
+            "cycle": entry,
+            "accepted_models": cycle_acceptances,
+            "active_model": str(state.get("active_model_path") or "")
+            in {str(path) for path in protected_quant.get(cycle, set())},
+        }
+        retained_path = cycle_dir / "retained_cycle.json"
+        _atomic_write_json(retained_path, retained_metadata)
+        keep_files = set(protected_quant.get(cycle, set()))
+        keep_files.update(
+            {
+                retained_path.resolve(),
+                (cycle_dir / "pipeline_summary.json").resolve(),
+                (cycle_dir / "gate_compare.json").resolve(),
+            }
+        )
+        if _prune_cycle_directory(cycle_dir, keep_files):
+            report["pruned_cycles"].append(cycle)
+
+    return report
+
+
+def _enforce_cycle_retention(
+    *,
+    out_root: Path,
+    state: Dict[str, Any],
+    state_path: Path,
+    retain_full_cycles: int,
+) -> Dict[str, Any]:
+    report = _apply_cycle_retention(
+        out_root=out_root,
+        state=state,
+        retain_full_cycles=retain_full_cycles,
+    )
+    if report["state_changed"] or report["deleted_cycles"] or report["pruned_cycles"]:
+        state["last_retention"] = {
+            "retain_full_cycles": int(retain_full_cycles),
+            "deleted_cycles": report["deleted_cycles"],
+            "pruned_cycles": report["pruned_cycles"],
+            "ts": time.time(),
+        }
+        _atomic_write_json(state_path, state)
+    return report
 
 
 def _run_model_gate(
@@ -471,6 +702,23 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         defaults = _profile_defaults(str(state.get("profile", args.profile)))
         defaults = _apply_cli_overrides(defaults, args)
+        retain_full_cycles = int(defaults.get("retain_full_cycles", 0))
+        try:
+            _enforce_cycle_retention(
+                out_root=out_root,
+                state=state,
+                state_path=state_path,
+                retain_full_cycles=retain_full_cycles,
+            )
+        except Exception as exc:
+            state["last_error"] = {
+                "stage": "retention",
+                "error": str(exc),
+                "ts": time.time(),
+            }
+            _atomic_write_json(state_path, state)
+            print(f"autopilot aborting during retention cleanup: {exc}", file=sys.stderr)
+            return 2
         completed = int(len(state.get("completed_cycles", [])))
 
         while True:
@@ -594,6 +842,26 @@ def main(argv: Optional[list[str]] = None) -> int:
                         )
                         return 2
                     time.sleep(max(1.0, args.retry_backoff_sec))
+
+            # Cycle completion is durably recorded before any artifact removal.
+            # A crash during cleanup is reconciled by the startup pass above.
+            try:
+                _enforce_cycle_retention(
+                    out_root=out_root,
+                    state=state,
+                    state_path=state_path,
+                    retain_full_cycles=retain_full_cycles,
+                )
+            except Exception as exc:
+                state["last_error"] = {
+                    "cycle": cycle_idx,
+                    "stage": "retention",
+                    "error": str(exc),
+                    "ts": time.time(),
+                }
+                _atomic_write_json(state_path, state)
+                print(f"autopilot aborting during retention cleanup: {exc}", file=sys.stderr)
+                return 2
 
         state["finished_at"] = time.time()
         state["status"] = "complete"
