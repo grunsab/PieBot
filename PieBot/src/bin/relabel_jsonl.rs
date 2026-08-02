@@ -118,6 +118,71 @@ struct BatchLine {
     should_relabel: bool,
 }
 
+fn worker_batches<T, F>(items: Vec<T>, max_workers: usize, is_expensive: F) -> Vec<Vec<(usize, T)>>
+where
+    F: Fn(&T) -> bool,
+{
+    if items.is_empty() {
+        return Vec::new();
+    }
+
+    let expensive_count = items.iter().filter(|item| is_expensive(item)).count();
+    let worker_count = max_workers
+        .max(1)
+        .min(expensive_count.max(1))
+        .min(items.len());
+    let mut batches: Vec<Vec<(usize, T)>> = (0..worker_count).map(|_| Vec::new()).collect();
+    let mut next_expensive = 0usize;
+    let mut next_inexpensive = 0usize;
+
+    for (index, item) in items.into_iter().enumerate() {
+        let target = if is_expensive(&item) {
+            let target = next_expensive % worker_count;
+            next_expensive += 1;
+            target
+        } else {
+            let target = next_inexpensive % worker_count;
+            next_inexpensive += 1;
+            target
+        };
+        batches[target].push((index, item));
+    }
+
+    batches
+}
+
+fn process_batch_line(
+    task: BatchLine,
+    teacher: &mut Searcher,
+    teacher_params: SearchParams,
+    teacher_depth: u32,
+) -> (String, usize) {
+    let Some(mut map) = task.parsed else {
+        return (task.original, 0usize);
+    };
+    if task.should_relabel {
+        let fen = map.get("fen").and_then(|x| x.as_str());
+        if let Some(fen_str) = fen {
+            if let Ok(board) = Board::from_fen(fen_str, false) {
+                if let Some((best, cpw)) = teacher_label(teacher, &board, teacher_params) {
+                    map.insert("target_best_move".to_string(), Value::String(best.clone()));
+                    map.insert("best_move".to_string(), Value::String(best));
+                    map.insert("value_cp".to_string(), Value::from(cpw));
+                    map.insert("target_value_cp".to_string(), Value::from(cpw));
+                    map.insert(
+                        "teacher_depth".to_string(),
+                        Value::from(teacher_depth as u64),
+                    );
+                    let out = serde_json::to_string(&map).unwrap_or(task.original);
+                    return (out, 1usize);
+                }
+            }
+        }
+    }
+    let out = serde_json::to_string(&map).unwrap_or(task.original);
+    (out, 0usize)
+}
+
 fn process_batch(
     pool: &rayon::ThreadPool,
     lines: Vec<String>,
@@ -158,48 +223,32 @@ fn process_batch(
         })
         .collect();
 
-    let processed: Vec<(String, usize)> = pool.install(|| {
-        tasks
+    let batches = worker_batches(tasks, pool.current_num_threads(), |task| {
+        task.should_relabel
+    });
+    let grouped: Vec<Vec<(usize, String, usize)>> = pool.install(|| {
+        batches
             .into_par_iter()
-            .map_init(
-                || build_teacher_searcher(hash_mb, nnue_quant_model, nnue_blend_percent),
-                |teacher, task| {
-                    let Some(mut map) = task.parsed else {
-                        return (task.original, 0usize);
-                    };
-                    if task.should_relabel {
-                        let fen = map.get("fen").and_then(|x| x.as_str());
-                        if let Some(fen_str) = fen {
-                            if let Ok(board) = Board::from_fen(fen_str, false) {
-                                if let Some((best, cpw)) =
-                                    teacher_label(teacher, &board, teacher_params)
-                                {
-                                    map.insert(
-                                        "target_best_move".to_string(),
-                                        Value::String(best.clone()),
-                                    );
-                                    map.insert("best_move".to_string(), Value::String(best));
-                                    map.insert("value_cp".to_string(), Value::from(cpw));
-                                    map.insert("target_value_cp".to_string(), Value::from(cpw));
-                                    map.insert(
-                                        "teacher_depth".to_string(),
-                                        Value::from(teacher_depth as u64),
-                                    );
-                                    let out = serde_json::to_string(&map).unwrap_or(task.original);
-                                    return (out, 1usize);
-                                }
-                            }
-                        }
-                    }
-                    let out = serde_json::to_string(&map).unwrap_or(task.original);
-                    (out, 0usize)
-                },
-            )
+            .map(|batch| {
+                let mut teacher =
+                    build_teacher_searcher(hash_mb, nnue_quant_model, nnue_blend_percent);
+                batch
+                    .into_iter()
+                    .map(|(index, task)| {
+                        let (line, relabeled) =
+                            process_batch_line(task, &mut teacher, teacher_params, teacher_depth);
+                        (index, line, relabeled)
+                    })
+                    .collect()
+            })
             .collect()
     });
 
-    let relabeled = processed.iter().map(|(_, n)| *n).sum();
-    let out_lines = processed.into_iter().map(|(line, _)| line).collect();
+    let mut processed: Vec<(usize, String, usize)> = grouped.into_iter().flatten().collect();
+    processed.sort_unstable_by_key(|(index, _, _)| *index);
+
+    let relabeled = processed.iter().map(|(_, _, n)| *n).sum();
+    let out_lines = processed.into_iter().map(|(_, line, _)| line).collect();
     (out_lines, relabeled)
 }
 
@@ -309,7 +358,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_teacher_search_params, per_worker_hash_mb};
+    use super::{build_teacher_search_params, per_worker_hash_mb, worker_batches};
 
     #[test]
     fn teacher_search_params_clamp_depth_and_use_single_search_thread() {
@@ -329,5 +378,27 @@ mod tests {
         assert_eq!(85, per_worker_hash_mb(4096, 48));
         assert_eq!(1, per_worker_hash_mb(1, 48));
         assert_eq!(64, per_worker_hash_mb(64, 0));
+    }
+
+    #[test]
+    fn expensive_relabel_tasks_are_balanced_across_reusable_workers() {
+        let batches = worker_batches((0usize..24).collect(), 4, |item| item % 4 == 0);
+        assert_eq!(4, batches.len());
+
+        let expensive_counts: Vec<usize> = batches
+            .iter()
+            .map(|batch| batch.iter().filter(|(_, item)| *item % 4 == 0).count())
+            .collect();
+        assert_eq!(6, expensive_counts.iter().sum::<usize>());
+        assert!(
+            expensive_counts.iter().max().unwrap() - expensive_counts.iter().min().unwrap() <= 1
+        );
+
+        let mut indexed: Vec<(usize, usize)> = batches.into_iter().flatten().collect();
+        indexed.sort_unstable_by_key(|(index, _)| *index);
+        assert_eq!(
+            (0usize..24).map(|index| (index, index)).collect::<Vec<_>>(),
+            indexed
+        );
     }
 }
