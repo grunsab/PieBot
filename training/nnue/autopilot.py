@@ -108,7 +108,9 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "batch_size": 4096,
         "max_samples": 700_000,
         "epochs": 2,
-        "hidden_dim": 128,
+        # The production scalar evaluator benchmarks materially faster at 64;
+        # v2 gains capacity from its all-piece HalfKP inputs instead of width.
+        "hidden_dim": 64,
         "target_cp": 100.0,
         "teacher_mix": 0.8,
         "max_teacher_cp": 1200.0,

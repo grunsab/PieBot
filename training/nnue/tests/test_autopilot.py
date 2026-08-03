@@ -61,7 +61,10 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(100_000, profile["max_validation_samples"])
         self.assertEqual(20_260_802, profile["validation_seed"])
         self.assertTrue(profile["continue_optimizer_state"])
-        self.assertGreaterEqual(profile["hidden_dim"], 128)
+        # The production VM's scalar x86 path loses 23% search throughput at
+        # 96 units and 40% at 128 versus 64.  The all-piece v2 feature set
+        # supplies the added capacity while keeping the search usable.
+        self.assertEqual(profile["hidden_dim"], 64)
         self.assertGreaterEqual(profile["max_samples"], 700_000)
         self.assertEqual(0, profile["teacher_lag_cycles"])
 
