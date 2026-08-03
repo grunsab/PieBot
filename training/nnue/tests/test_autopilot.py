@@ -45,13 +45,65 @@ class AutopilotTests(unittest.TestCase):
         profile = autopilot.zen5_9755_7d_profile()
         self.assertEqual(1, profile["selfplay_threads"])
         self.assertEqual(0, profile["selfplay_parallel_games"])
-        self.assertEqual(5, profile["teacher_relabel_depth"])
-        self.assertEqual(8, profile["teacher_relabel_every"])
+        self.assertEqual(6, profile["teacher_relabel_depth"])
+        self.assertEqual(4, profile["teacher_relabel_every"])
         self.assertGreaterEqual(profile["teacher_relabel_threads"], 32)
         self.assertGreaterEqual(profile["teacher_relabel_hash_mb"], 2048)
         self.assertEqual(0, profile["retain_full_cycles"])
         self.assertTrue(profile["warm_start"])
         self.assertEqual(0.001, profile["warm_start_learning_rate"])
+        self.assertEqual(0.5, profile["primary_sample_fraction"])
+        self.assertEqual(6, profile["min_teacher_depth"])
+        self.assertEqual("wdl", profile["loss_kind"])
+        self.assertEqual(100.0, profile["huber_delta_cp"])
+        self.assertEqual(400.0, profile["wdl_scale_cp"])
+        self.assertIsNone(profile["validation_jsonl_dir"])
+        self.assertEqual(100_000, profile["max_validation_samples"])
+        self.assertEqual(20_260_802, profile["validation_seed"])
+        self.assertTrue(profile["continue_optimizer_state"])
+        self.assertGreaterEqual(profile["hidden_dim"], 128)
+        self.assertGreaterEqual(profile["max_samples"], 700_000)
+        self.assertEqual(0, profile["teacher_lag_cycles"])
+
+    def test_control_loop_cli_overrides_profile_values(self) -> None:
+        validation_dir = Path("fixed-validation")
+        args = autopilot._parse_args(
+            [
+                "--out-root",
+                "runs",
+                "--primary-sample-fraction",
+                "0.7",
+                "--min-teacher-depth",
+                "8",
+                "--loss-kind",
+                "mse",
+                "--huber-delta-cp",
+                "75",
+                "--wdl-scale-cp",
+                "300",
+                "--validation-jsonl-dir",
+                str(validation_dir),
+                "--max-validation-samples",
+                "12345",
+                "--validation-seed",
+                "99",
+                "--no-continue-optimizer-state",
+            ]
+        )
+
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+
+        self.assertEqual(0.7, resolved["primary_sample_fraction"])
+        self.assertEqual(8, resolved["min_teacher_depth"])
+        self.assertEqual("mse", resolved["loss_kind"])
+        self.assertEqual(75.0, resolved["huber_delta_cp"])
+        self.assertEqual(300.0, resolved["wdl_scale_cp"])
+        self.assertEqual(validation_dir, resolved["validation_jsonl_dir"])
+        self.assertEqual(12_345, resolved["max_validation_samples"])
+        self.assertEqual(99, resolved["validation_seed"])
+        self.assertFalse(resolved["continue_optimizer_state"])
 
     def test_cycle_retention_prunes_old_cycles_and_preserves_accepted_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -423,6 +475,29 @@ class AutopilotTests(unittest.TestCase):
                     None,
                 )
 
+    def test_explicit_null_training_checkpoint_starts_fresh_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy_checkpoint = Path(tmp) / "old" / "train" / "checkpoint.json"
+            legacy_checkpoint.parent.mkdir(parents=True)
+            legacy_checkpoint.write_text("{}", encoding="utf-8")
+            state = {
+                "training_checkpoint_path": None,
+                "completed_cycles": [
+                    {
+                        "cycle": 1,
+                        "checkpoint_path": str(legacy_checkpoint),
+                    }
+                ],
+                "last_summary": {"checkpoint_path": str(legacy_checkpoint)},
+            }
+
+            self.assertIsNone(
+                autopilot._resolve_training_checkpoint_path(
+                    state,
+                    legacy_checkpoint,
+                )
+            )
+
     def test_replay_uses_each_cycles_fresh_jsonl_not_its_prior_merge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -452,7 +527,7 @@ class AutopilotTests(unittest.TestCase):
                 autopilot._collect_replay_jsonl_dirs(state, 2),
             )
 
-    def test_teacher_lag_selects_older_accepted_model(self) -> None:
+    def test_teacher_lag_selects_older_model_and_its_promoted_blend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             m1 = Path(tmp) / "m1.nnue"
             m2 = Path(tmp) / "m2.nnue"
@@ -462,13 +537,32 @@ class AutopilotTests(unittest.TestCase):
             m3.write_bytes(b"PIENNQ01dummy")
             state = {
                 "accepted_models": [
-                    {"cycle": 1, "quant_path": str(m1)},
-                    {"cycle": 2, "quant_path": str(m2)},
-                    {"cycle": 3, "quant_path": str(m3)},
+                    {
+                        "cycle": 1,
+                        "quant_path": str(m1),
+                        "gate": {"experimental_blend_percent": 25},
+                    },
+                    {
+                        "cycle": 2,
+                        "quant_path": str(m2),
+                        "gate": {"experimental_blend_percent": 50},
+                    },
+                    {
+                        "cycle": 3,
+                        "quant_path": str(m3),
+                        "gate": {"experimental_blend_percent": 75},
+                    },
                 ]
             }
+            self.assertEqual(
+                (m2, 50),
+                autopilot._resolve_teacher_quant_and_blend(state, 1),
+            )
+            self.assertEqual(
+                (m1, 25),
+                autopilot._resolve_teacher_quant_and_blend(state, 2),
+            )
             self.assertEqual(m2, autopilot._resolve_teacher_quant_path(state, 1))
-            self.assertEqual(m1, autopilot._resolve_teacher_quant_path(state, 2))
 
     def test_current_state_schema_does_not_fallback_to_last_summary_when_no_active_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -629,7 +723,7 @@ class AutopilotTests(unittest.TestCase):
             second_checkpoint = Path(calls[1]["out_dir"]) / "train" / "checkpoint.json"
             self.assertIsNone(calls[0]["initial_checkpoint"])
             self.assertEqual(first_checkpoint, calls[1]["initial_checkpoint"])
-            self.assertEqual(0.03, calls[0]["learning_rate"])
+            self.assertEqual(0.003, calls[0]["learning_rate"])
             self.assertEqual(0.001, calls[1]["learning_rate"])
             self.assertEqual([None, None], gate_bases)
             self.assertIsNone(calls[1]["selfplay_nnue_quant_file"])
@@ -1116,6 +1210,8 @@ class AutopilotTests(unittest.TestCase):
                             "1",
                             "--max-cycles",
                             "3",
+                            "--teacher-lag-cycles",
+                            "1",
                         ]
                     )
 
@@ -1123,7 +1219,103 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual(3, len(created))
             self.assertEqual(25, created[1][0]["selfplay_nnue_blend_percent"])
             self.assertEqual(50, created[2][0]["selfplay_nnue_blend_percent"])
-            self.assertEqual(50, created[2][0]["teacher_relabel_nnue_blend_percent"])
+            self.assertEqual(25, created[2][0]["teacher_relabel_nnue_blend_percent"])
+
+    def test_main_passes_control_loop_options_to_run_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            validation_dir = Path(tmp) / "validation"
+            validation_dir.mkdir()
+            calls = []
+
+            def _control_aware_run_pipeline(
+                *,
+                out_dir,
+                primary_sample_fraction,
+                min_teacher_depth,
+                loss_kind,
+                huber_delta_cp,
+                wdl_scale_cp,
+                validation_jsonl_dir,
+                max_validation_samples,
+                validation_seed,
+                continue_optimizer_state,
+                **_kwargs,
+            ):
+                calls.append(
+                    {
+                        "primary_sample_fraction": primary_sample_fraction,
+                        "min_teacher_depth": min_teacher_depth,
+                        "loss_kind": loss_kind,
+                        "huber_delta_cp": huber_delta_cp,
+                        "wdl_scale_cp": wdl_scale_cp,
+                        "validation_jsonl_dir": validation_jsonl_dir,
+                        "max_validation_samples": max_validation_samples,
+                        "validation_seed": validation_seed,
+                        "continue_optimizer_state": continue_optimizer_state,
+                    }
+                )
+                out_dir = Path(out_dir)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant_path = out_dir / "nnue_quant.nnue"
+                quant_path.write_bytes(b"PIENNQ01control-options")
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant_path),
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                new=_control_aware_run_pipeline,
+            ):
+                rc = autopilot.main(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--hours",
+                        "1",
+                        "--max-cycles",
+                        "1",
+                        "--gate-games",
+                        "0",
+                        "--primary-sample-fraction",
+                        "0.6",
+                        "--min-teacher-depth",
+                        "7",
+                        "--loss-kind",
+                        "huber",
+                        "--huber-delta-cp",
+                        "80",
+                        "--wdl-scale-cp",
+                        "350",
+                        "--validation-jsonl-dir",
+                        str(validation_dir),
+                        "--max-validation-samples",
+                        "54321",
+                        "--validation-seed",
+                        "123",
+                        "--continue-optimizer-state",
+                    ]
+                )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(
+                [
+                    {
+                        "primary_sample_fraction": 0.6,
+                        "min_teacher_depth": 7,
+                        "loss_kind": "huber",
+                        "huber_delta_cp": 80.0,
+                        "wdl_scale_cp": 350.0,
+                        "validation_jsonl_dir": validation_dir,
+                        "max_validation_samples": 54_321,
+                        "validation_seed": 123,
+                        "continue_optimizer_state": True,
+                    }
+                ],
+                calls,
+            )
 
     def test_select_lock_backend_prefers_msvcrt_when_fcntl_missing(self) -> None:
         fake_msvcrt = object()

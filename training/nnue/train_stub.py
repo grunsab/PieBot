@@ -29,6 +29,7 @@ except Exception:
 
 
 PIECE_ORDER = "PNBRQ"
+FEATURE_PIECE_ORDER = "PNBRQpnbrq"
 COUNT_ORDER = "PNBRQKpnbrqk"
 _DIRECT_CHECKPOINT_FORMATS = {
     "piebot-halfkp-mse-v2",
@@ -144,7 +145,9 @@ def featureize_fen_counts(fen: str) -> List[int]:
     return [counts[ch] for ch in COUNT_ORDER]
 
 
-HALFKP_DIM = 2 * 64 * len(PIECE_ORDER) * 64
+LEGACY_HALFKP_DIM = 2 * 64 * len(PIECE_ORDER) * 64
+HALFKP_DIM = 2 * 64 * len(FEATURE_PIECE_ORDER) * 64
+FEATURE_SET = "halfkp-all-pieces-v2"
 
 
 def _active_halfkp_indices(fen: str) -> List[int]:
@@ -152,27 +155,47 @@ def _active_halfkp_indices(fen: str) -> List[int]:
     if wk is None or bk is None:
         return []
     out: List[int] = []
-    for side_off, (is_white, ksq) in enumerate(((True, wk), (False, bk))):
-        for piece_idx, piece in enumerate(PIECE_ORDER):
-            want = piece if is_white else piece.lower()
-            for actual, sq in pieces:
-                if actual != want:
-                    continue
-                idx = (((side_off * 64 + ksq) * len(PIECE_ORDER) + piece_idx) * 64) + sq
-                out.append(idx)
+    for perspective_off, ksq in enumerate((wk, bk)):
+        for actual, sq in pieces:
+            if actual in ("K", "k"):
+                continue
+            try:
+                piece_plane = FEATURE_PIECE_ORDER.index(actual)
+            except ValueError:
+                continue
+            idx = (
+                (
+                    (perspective_off * 64 + ksq) * len(FEATURE_PIECE_ORDER)
+                    + piece_plane
+                )
+                * 64
+            ) + sq
+            out.append(idx)
     return out
 
 
-def _has_usable_target(record: TrainingRecord) -> bool:
+def _teacher_available(record: TrainingRecord, min_teacher_depth: int = 0) -> bool:
+    if record.value_cp is None or not math.isfinite(float(record.value_cp)):
+        return False
+    minimum = max(0, int(min_teacher_depth))
+    if minimum <= 0:
+        return True
+    return record.teacher_depth is not None and int(record.teacher_depth) >= minimum
+
+
+def _has_usable_target(record: TrainingRecord, min_teacher_depth: int = 0) -> bool:
     if record.outcome_valid:
         return True
-    return record.value_cp is not None and math.isfinite(float(record.value_cp))
+    return _teacher_available(record, min_teacher_depth)
 
 
-def _iter_usable_records(paths: Sequence[Path]) -> Iterator[TrainingRecord]:
+def _iter_usable_records(
+    paths: Sequence[Path],
+    min_teacher_depth: int = 0,
+) -> Iterator[TrainingRecord]:
     for path in paths:
         for record in jsonl_to_training_samples(read_jsonl_dir(str(path))):
-            if _has_usable_target(record):
+            if _has_usable_target(record, min_teacher_depth):
                 yield record
 
 
@@ -224,13 +247,47 @@ def _balanced_sample_quotas(counts: Sequence[int], limit: int) -> List[int]:
     return quotas
 
 
-def _reservoir_sample_records(paths: Sequence[Path], limit: int, seed: int) -> List[TrainingRecord]:
+def _primary_weighted_sample_quotas(
+    counts: Sequence[int],
+    limit: int,
+    primary_sample_fraction: float,
+) -> List[int]:
+    total = min(max(0, int(limit)), sum(max(0, int(value)) for value in counts))
+    if not counts or total <= 0:
+        return [0 for _ in counts]
+    if len(counts) == 1:
+        return [min(max(0, int(counts[0])), total)]
+
+    fraction = _clamp(float(primary_sample_fraction), 0.0, 1.0)
+    primary_target = int(round(total * fraction))
+    quotas = [0 for _ in counts]
+    quotas[0] = min(max(0, int(counts[0])), primary_target)
+
+    replay_target = total - primary_target
+    replay_quotas = _balanced_sample_quotas(counts[1:], replay_target)
+    for idx, quota in enumerate(replay_quotas, start=1):
+        quotas[idx] = quota
+
+    remaining = total - sum(quotas)
+    if remaining > 0:
+        capacities = [max(0, int(count)) - quotas[idx] for idx, count in enumerate(counts)]
+        extra = _balanced_sample_quotas(capacities, remaining)
+        quotas = [quota + extra[idx] for idx, quota in enumerate(quotas)]
+    return quotas
+
+
+def _reservoir_sample_records(
+    paths: Sequence[Path],
+    limit: int,
+    seed: int,
+    min_teacher_depth: int = 0,
+) -> List[TrainingRecord]:
     if limit <= 0:
         return []
     rng = random.Random(seed)
     reservoir: List[TrainingRecord] = []
     seen = 0
-    for record in _iter_usable_records(paths):
+    for record in _iter_usable_records(paths, min_teacher_depth):
         seen += 1
         if len(reservoir) < limit:
             reservoir.append(record)
@@ -245,21 +302,31 @@ def iterate_samples(
     jsonl_dir: Path,
     max_samples: int,
     seed: int = 1,
+    primary_sample_fraction: float = 0.5,
+    min_teacher_depth: int = 0,
 ) -> Iterator[Tuple[List[int], TrainingRecord]]:
     groups = _training_source_groups(Path(jsonl_dir))
     if max_samples <= 0:
         for group in groups:
-            for record in _iter_usable_records(group):
+            for record in _iter_usable_records(group, min_teacher_depth):
                 yield _active_halfkp_indices(record.fen), record
         return
 
-    counts = [sum(1 for _ in _iter_usable_records(group)) for group in groups]
-    quotas = _balanced_sample_quotas(counts, max_samples)
+    counts = [
+        sum(1 for _ in _iter_usable_records(group, min_teacher_depth))
+        for group in groups
+    ]
+    quotas = _primary_weighted_sample_quotas(
+        counts,
+        max_samples,
+        primary_sample_fraction,
+    )
     samples = [
         _reservoir_sample_records(
             group,
             quota,
             int(seed) + (group_idx + 1) * 1_000_003,
+            min_teacher_depth,
         )
         for group_idx, (group, quota) in enumerate(zip(groups, quotas))
     ]
@@ -294,8 +361,9 @@ def _target_cp_for_record(
     teacher_mix: float,
     max_teacher_cp: float,
     outcome_decay: float = 1.0,
+    min_teacher_depth: int = 0,
 ) -> float:
-    teacher_available = record.value_cp is not None and math.isfinite(float(record.value_cp))
+    teacher_available = _teacher_available(record, min_teacher_depth)
     if not record.outcome_valid:
         if not teacher_available:
             return 0.0
@@ -317,6 +385,57 @@ def _target_cp_for_record(
     return mix * teacher_cp + (1.0 - mix) * outcome_cp
 
 
+def _sigmoid(value: float) -> float:
+    if value >= 0.0:
+        z = math.exp(-value)
+        return 1.0 / (1.0 + z)
+    z = math.exp(value)
+    return z / (1.0 + z)
+
+
+def _target_wdl_probability_for_record(
+    record: TrainingRecord,
+    *,
+    teacher_mix: float,
+    max_teacher_cp: float,
+    wdl_scale_cp: float,
+    min_teacher_depth: int = 0,
+    outcome_decay: float = 1.0,
+    target_cp: float = 100.0,
+) -> float:
+    del target_cp  # Kept in the shared trainer API for configuration compatibility.
+    teacher_available = _teacher_available(record, min_teacher_depth)
+    scale = max(1e-6, float(wdl_scale_cp))
+    if not record.outcome_valid:
+        if not teacher_available:
+            return 0.5
+        teacher_cp = _clamp(
+            float(record.value_cp),
+            -float(max_teacher_cp),
+            float(max_teacher_cp),
+        )
+        return _sigmoid(teacher_cp / scale)
+
+    result_q = float(record.result_q)
+    if not math.isfinite(result_q):
+        result_q = float(record.result)
+    result_q = _clamp(result_q, -1.0, 1.0)
+    if record.ply is not None and record.ply > 0 and outcome_decay < 0.999999:
+        result_q *= float(outcome_decay) ** int(record.ply)
+    outcome_probability = 0.5 * (result_q + 1.0)
+    if not teacher_available:
+        return outcome_probability
+
+    teacher_cp = _clamp(
+        float(record.value_cp),
+        -float(max_teacher_cp),
+        float(max_teacher_cp),
+    )
+    teacher_probability = _sigmoid(teacher_cp / scale)
+    mix = _clamp(float(teacher_mix), 0.0, 1.0)
+    return mix * teacher_probability + (1.0 - mix) * outcome_probability
+
+
 def _eval_split(
     w1: List[float],
     b1: List[float],
@@ -324,16 +443,22 @@ def _eval_split(
     b2: float,
     input_dim: int,
     xs: Sequence[Sequence[int]],
-    ys: Sequence[float],
-) -> Tuple[float, float]:
+    cp_targets: Sequence[float],
+    wdl_targets: Sequence[float],
+    *,
+    loss_kind: str = "mse",
+    huber_delta_cp: float = 100.0,
+    wdl_scale_cp: float = 400.0,
+) -> Tuple[float, float, float]:
     if not xs:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
     loss_sum = 0.0
+    cp_mse_sum = 0.0
     correct = 0
     hidden_dim = len(b1)
     for i in range(len(xs)):
         act = xs[i]
-        y = ys[i]
+        y = cp_targets[i]
         hpre = [0.0] * hidden_dim
         for j in range(hidden_dim):
             off = j * input_dim
@@ -346,13 +471,28 @@ def _eval_split(
         for j in range(hidden_dim):
             pred += w2[j] * h[j]
         diff = pred - y
-        loss_sum += diff * diff
+        cp_mse_sum += diff * diff
+        if loss_kind == "mse":
+            loss_sum += diff * diff
+        elif loss_kind == "huber":
+            delta = max(1e-6, float(huber_delta_cp))
+            abs_diff = abs(diff)
+            if abs_diff <= delta:
+                loss_sum += 0.5 * diff * diff
+            else:
+                loss_sum += delta * (abs_diff - 0.5 * delta)
+        else:
+            probability = _clamp(float(wdl_targets[i]), 0.0, 1.0)
+            logit = pred / max(1e-6, float(wdl_scale_cp))
+            loss_sum += max(logit, 0.0) - logit * probability + math.log1p(
+                math.exp(-abs(logit))
+            )
         pred_label = 1 if pred > 1e-6 else (-1 if pred < -1e-6 else 0)
         true_label = 1 if y > 1e-6 else (-1 if y < -1e-6 else 0)
         if pred_label == true_label:
             correct += 1
     n = float(len(xs))
-    return loss_sum / n, correct / n
+    return loss_sum / n, cp_mse_sum / n, correct / n
 
 
 def train_model(
@@ -372,6 +512,14 @@ def train_model(
     adam_beta2: float = 0.999,
     adam_eps: float = 1e-8,
     grad_clip: float = 5.0,
+    primary_sample_fraction: float = 0.5,
+    min_teacher_depth: int = 0,
+    loss_kind: str = "mse",
+    huber_delta_cp: float = 100.0,
+    wdl_scale_cp: float = 400.0,
+    validation_jsonl_dir: Optional[Path] = None,
+    max_validation_samples: int = 100_000,
+    validation_seed: int = 20_260_802,
     seed: int = 1,
     out_dir: Path,
     initial_checkpoint: Optional[Path] = None,
@@ -389,25 +537,61 @@ def train_model(
     adam_beta2 = _clamp(float(adam_beta2), 0.0, 0.99999)
     adam_eps = max(1e-12, float(adam_eps))
     grad_clip = max(0.0, float(grad_clip))
+    primary_sample_fraction = _clamp(float(primary_sample_fraction), 0.0, 1.0)
+    min_teacher_depth = max(0, int(min_teacher_depth))
+    loss_kind = str(loss_kind).strip().lower()
+    if loss_kind not in {"mse", "huber", "wdl"}:
+        raise ValueError("loss_kind must be one of: mse, huber, wdl")
+    huber_delta_cp = max(1e-6, float(huber_delta_cp))
+    wdl_scale_cp = max(1e-6, float(wdl_scale_cp))
+    max_validation_samples = max(0, int(max_validation_samples))
 
     xs: List[List[int]] = []
-    ys: List[float] = []
+    cp_targets: List[float] = []
+    wdl_targets: List[float] = []
     best_move_available = 0
     teacher_value_available = 0
-    for feats, record in iterate_samples(jsonl_dir, max_samples, seed=seed):
+    raw_teacher_value_available = 0
+    for feats, record in iterate_samples(
+        jsonl_dir,
+        max_samples,
+        seed=seed,
+        primary_sample_fraction=primary_sample_fraction,
+        min_teacher_depth=min_teacher_depth,
+    ):
         xs.append(feats)
-        ys.append(
-            _target_cp_for_record(
-                record,
-                target_cp=target_cp,
-                teacher_mix=teacher_mix,
-                max_teacher_cp=max_teacher_cp,
-                outcome_decay=outcome_decay,
-            )
+        probability = _target_wdl_probability_for_record(
+            record,
+            target_cp=target_cp,
+            teacher_mix=teacher_mix,
+            max_teacher_cp=max_teacher_cp,
+            outcome_decay=outcome_decay,
+            min_teacher_depth=min_teacher_depth,
+            wdl_scale_cp=wdl_scale_cp,
         )
+        wdl_targets.append(probability)
+        if loss_kind == "wdl":
+            bounded_probability = _clamp(probability, 1e-6, 1.0 - 1e-6)
+            cp_targets.append(
+                wdl_scale_cp
+                * math.log(bounded_probability / (1.0 - bounded_probability))
+            )
+        else:
+            cp_targets.append(
+                _target_cp_for_record(
+                    record,
+                    target_cp=target_cp,
+                    teacher_mix=teacher_mix,
+                    max_teacher_cp=max_teacher_cp,
+                    outcome_decay=outcome_decay,
+                    min_teacher_depth=min_teacher_depth,
+                )
+            )
         if record.best_move:
             best_move_available += 1
         if record.value_cp is not None:
+            raw_teacher_value_available += 1
+        if _teacher_available(record, min_teacher_depth):
             teacher_value_available += 1
 
     if not xs:
@@ -418,20 +602,67 @@ def train_model(
     order = list(range(len(xs)))
     rng.shuffle(order)
     xs = [xs[i] for i in order]
-    ys = [ys[i] for i in order]
+    cp_targets = [cp_targets[i] for i in order]
+    wdl_targets = [wdl_targets[i] for i in order]
 
-    val_count = int(len(xs) * val_split)
-    if val_split > 0.0:
-        val_count = max(1, val_count)
-        val_count = min(val_count, len(xs) - 1)
+    if validation_jsonl_dir is not None:
+        train_x = xs
+        train_cp = cp_targets
+        train_wdl = wdl_targets
+        val_x: List[List[int]] = []
+        val_cp: List[float] = []
+        val_wdl: List[float] = []
+        for feats, record in iterate_samples(
+            Path(validation_jsonl_dir),
+            max_validation_samples,
+            seed=validation_seed,
+            primary_sample_fraction=primary_sample_fraction,
+            min_teacher_depth=min_teacher_depth,
+        ):
+            probability = _target_wdl_probability_for_record(
+                record,
+                target_cp=target_cp,
+                teacher_mix=teacher_mix,
+                max_teacher_cp=max_teacher_cp,
+                outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+                wdl_scale_cp=wdl_scale_cp,
+            )
+            val_x.append(feats)
+            val_wdl.append(probability)
+            if loss_kind == "wdl":
+                bounded_probability = _clamp(probability, 1e-6, 1.0 - 1e-6)
+                val_cp.append(
+                    wdl_scale_cp
+                    * math.log(bounded_probability / (1.0 - bounded_probability))
+                )
+            else:
+                val_cp.append(_target_cp_for_record(
+                    record,
+                    target_cp=target_cp,
+                    teacher_mix=teacher_mix,
+                    max_teacher_cp=max_teacher_cp,
+                    outcome_decay=outcome_decay,
+                    min_teacher_depth=min_teacher_depth,
+                ))
+        if not val_x:
+            raise ValueError("external validation dataset contains no usable samples")
     else:
-        val_count = 0
-    train_count = len(xs) - val_count
-
-    train_x = xs[:train_count]
-    train_y = ys[:train_count]
-    val_x = xs[train_count:]
-    val_y = ys[train_count:]
+        val_count = int(len(xs) * val_split)
+        if val_split > 0.0:
+            val_count = max(1, val_count)
+            val_count = min(val_count, len(xs) - 1)
+        else:
+            val_count = 0
+        train_count = len(xs) - val_count
+        train_x = xs[:train_count]
+        train_cp = cp_targets[:train_count]
+        train_wdl = wdl_targets[:train_count]
+        val_x = xs[train_count:]
+        val_cp = cp_targets[train_count:]
+        val_wdl = wdl_targets[train_count:]
+    train_count = len(train_x)
+    val_count = len(val_x)
 
     # Small random init.
     w1 = [(rng.random() - 0.5) * 0.01 for _ in range(hidden_dim * dim)]
@@ -463,6 +694,8 @@ def train_model(
 
     train_loss_history: List[float] = []
     val_loss_history: List[float] = []
+    train_cp_mse_history: List[float] = []
+    val_cp_mse_history: List[float] = []
     train_acc_history: List[float] = []
     val_acc_history: List[float] = []
     best_val_loss = float("inf")
@@ -471,16 +704,39 @@ def train_model(
     initial_train_acc = None
     initial_val_loss = None
     initial_val_acc = None
+    initial_train_cp_mse = None
+    initial_val_cp_mse = None
     if initialized_from is not None:
-        initial_train_loss, initial_train_acc = _eval_split(
-            w1, b1, w2, b2, dim, train_x, train_y
+        initial_train_loss, initial_train_cp_mse, initial_train_acc = _eval_split(
+            w1,
+            b1,
+            w2,
+            b2,
+            dim,
+            train_x,
+            train_cp,
+            train_wdl,
+            loss_kind=loss_kind,
+            huber_delta_cp=huber_delta_cp,
+            wdl_scale_cp=wdl_scale_cp,
         )
         if val_count > 0:
-            initial_val_loss, initial_val_acc = _eval_split(
-                w1, b1, w2, b2, dim, val_x, val_y
+            initial_val_loss, initial_val_cp_mse, initial_val_acc = _eval_split(
+                w1,
+                b1,
+                w2,
+                b2,
+                dim,
+                val_x,
+                val_cp,
+                val_wdl,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
             )
         else:
             initial_val_loss, initial_val_acc = initial_train_loss, initial_train_acc
+            initial_val_cp_mse = initial_train_cp_mse
         best_val_loss = float(initial_val_loss)
 
     for epoch in range(epochs):
@@ -499,7 +755,7 @@ def train_model(
 
             for i in batch_idx:
                 act = train_x[i]
-                target = train_y[i]
+                target = train_cp[i]
                 hpre = [0.0 for _ in range(hidden_dim)]
                 for j in range(hidden_dim):
                     off = j * dim
@@ -512,7 +768,17 @@ def train_model(
                 for j in range(hidden_dim):
                     pred += w2[j] * h[j]
                 diff = pred - target
-                dloss_dpred = 2.0 * diff
+                if loss_kind == "mse":
+                    dloss_dpred = 2.0 * diff
+                elif loss_kind == "huber":
+                    if abs(diff) <= huber_delta_cp:
+                        dloss_dpred = diff
+                    else:
+                        dloss_dpred = math.copysign(huber_delta_cp, diff)
+                else:
+                    # Optimize BCE * wdl_scale_cp. The scale cancels the
+                    # d(logit)/d(cp) factor and leaves a stable bounded gradient.
+                    dloss_dpred = _sigmoid(pred / wdl_scale_cp) - train_wdl[i]
 
                 gb2 += dloss_dpred
                 for j in range(hidden_dim):
@@ -583,14 +849,41 @@ def train_model(
             v_b2 = adam_beta2 * v_b2 + (1.0 - adam_beta2) * gb2 * gb2
             b2 -= lr * (m_b2 / bc1) / (math.sqrt(v_b2 / bc2) + adam_eps)
 
-        train_loss, train_acc = _eval_split(w1, b1, w2, b2, dim, train_x, train_y)
+        train_loss, train_cp_mse, train_acc = _eval_split(
+            w1,
+            b1,
+            w2,
+            b2,
+            dim,
+            train_x,
+            train_cp,
+            train_wdl,
+            loss_kind=loss_kind,
+            huber_delta_cp=huber_delta_cp,
+            wdl_scale_cp=wdl_scale_cp,
+        )
         if val_count > 0:
-            val_loss, val_acc = _eval_split(w1, b1, w2, b2, dim, val_x, val_y)
+            val_loss, val_cp_mse, val_acc = _eval_split(
+                w1,
+                b1,
+                w2,
+                b2,
+                dim,
+                val_x,
+                val_cp,
+                val_wdl,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
         else:
             val_loss, val_acc = train_loss, train_acc
+            val_cp_mse = train_cp_mse
 
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
+        train_cp_mse_history.append(train_cp_mse)
+        val_cp_mse_history.append(val_cp_mse)
         train_acc_history.append(train_acc)
         val_acc_history.append(val_acc)
 
@@ -615,6 +908,11 @@ def train_model(
         "teacher_mix": teacher_mix,
         "max_teacher_cp": max_teacher_cp,
         "outcome_decay": outcome_decay,
+        "feature_set": FEATURE_SET,
+        "loss_kind": loss_kind,
+        "huber_delta_cp": huber_delta_cp,
+        "wdl_scale_cp": wdl_scale_cp,
+        "min_teacher_depth": min_teacher_depth,
         "seed": seed,
         "epochs": epochs,
         "best_epoch": best_epoch,
@@ -633,6 +931,19 @@ def train_model(
         "teacher_mix": teacher_mix,
         "max_teacher_cp": max_teacher_cp,
         "outcome_decay": outcome_decay,
+        "feature_set": FEATURE_SET,
+        "primary_sample_fraction": primary_sample_fraction,
+        "min_teacher_depth": min_teacher_depth,
+        "loss_kind": loss_kind,
+        "huber_delta_cp": huber_delta_cp,
+        "wdl_scale_cp": wdl_scale_cp,
+        "validation_jsonl_dir": (
+            Path(validation_jsonl_dir).resolve().as_posix()
+            if validation_jsonl_dir is not None
+            else None
+        ),
+        "max_validation_samples": max_validation_samples,
+        "validation_seed": int(validation_seed),
         "adam_beta1": adam_beta1,
         "adam_beta2": adam_beta2,
         "adam_eps": adam_eps,
@@ -644,14 +955,19 @@ def train_model(
         "initial_train_acc": initial_train_acc,
         "initial_val_loss": initial_val_loss,
         "initial_val_acc": initial_val_acc,
+        "initial_train_cp_mse": initial_train_cp_mse,
+        "initial_val_cp_mse": initial_val_cp_mse,
         "initialized_from": initialized_from,
         "optimizer_state_restored": False,
         "train_loss_history": train_loss_history,
         "val_loss_history": val_loss_history,
+        "train_cp_mse_history": train_cp_mse_history,
+        "val_cp_mse_history": val_cp_mse_history,
         "train_acc_history": train_acc_history,
         "val_acc_history": val_acc_history,
         "records_with_best_move": best_move_available,
         "records_with_teacher_value": teacher_value_available,
+        "records_with_raw_teacher_value": raw_teacher_value_available,
         "records_total": len(xs),
     }
     (out_dir / "checkpoint.json").write_text(json.dumps(checkpoint), encoding="utf-8")
@@ -677,6 +993,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--adam-beta2", type=float, default=0.999)
     ap.add_argument("--adam-eps", type=float, default=1e-8)
     ap.add_argument("--grad-clip", type=float, default=5.0)
+    ap.add_argument("--primary-sample-fraction", type=float, default=0.5)
+    ap.add_argument("--min-teacher-depth", type=int, default=0)
+    ap.add_argument("--loss-kind", choices=["mse", "huber", "wdl"], default="mse")
+    ap.add_argument("--huber-delta-cp", type=float, default=100.0)
+    ap.add_argument("--wdl-scale-cp", type=float, default=400.0)
+    ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
+    ap.add_argument("--max-validation-samples", type=int, default=100_000)
+    ap.add_argument("--validation-seed", type=int, default=20_260_802)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", type=Path, default=Path("out/nnue_stub_train"))
     args = ap.parse_args(argv)
@@ -697,6 +1021,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         adam_beta2=args.adam_beta2,
         adam_eps=args.adam_eps,
         grad_clip=args.grad_clip,
+        primary_sample_fraction=args.primary_sample_fraction,
+        min_teacher_depth=args.min_teacher_depth,
+        loss_kind=args.loss_kind,
+        huber_delta_cp=args.huber_delta_cp,
+        wdl_scale_cp=args.wdl_scale_cp,
+        validation_jsonl_dir=args.validation_jsonl_dir,
+        max_validation_samples=args.max_validation_samples,
+        validation_seed=args.validation_seed,
         seed=args.seed,
         out_dir=args.out,
         initial_checkpoint=args.initial_checkpoint,

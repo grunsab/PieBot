@@ -1,4 +1,4 @@
-use crate::eval::nnue::features::{HalfKpA, HALFKP_PIECE_ORDER};
+use crate::eval::nnue::features::HalfKpSchema;
 use crate::eval::nnue::loader::QuantNnue;
 use cozy_chess::{Board, Color, Move, Piece};
 use std::collections::HashSet;
@@ -6,7 +6,7 @@ use std::collections::HashSet;
 /// Quantized NNUE wrapper with full refresh + incremental apply/revert support.
 pub struct QuantNetwork {
     pub model: QuantNnue,
-    pub feats: HalfKpA,
+    pub schema: HalfKpSchema,
     // Incremental state
     acc: Vec<i32>,
     active: HashSet<usize>,
@@ -29,16 +29,16 @@ pub enum ChangeSet {
 
 impl QuantNetwork {
     pub fn new(model: QuantNnue) -> Self {
-        let feats = HalfKpA;
-        let dim = feats.dim();
-        assert_eq!(
-            model.meta.input_dim, dim,
-            "Quant model input_dim must equal HalfKP dim"
-        );
+        let schema = HalfKpSchema::from_input_dim(model.meta.input_dim).unwrap_or_else(|| {
+            panic!(
+                "Quant model input_dim {} must match a supported HalfKP schema",
+                model.meta.input_dim
+            )
+        });
         let acc = vec![0i32; model.meta.hidden_dim];
         Self {
             model,
-            feats,
+            schema,
             acc,
             active: HashSet::new(),
             wk_idx: 0,
@@ -48,7 +48,7 @@ impl QuantNetwork {
 
     pub fn refresh(&mut self, board: &Board) {
         // Recompute active set and accumulators from scratch
-        let act = self.feats.active_indices(board);
+        let act = self.schema.active_indices(board);
         self.active.clear();
         self.active.extend(act.iter().copied());
         self.wk_idx = square_index(board, Color::White, Piece::King);
@@ -74,7 +74,7 @@ impl QuantNetwork {
 
     pub fn eval_full(&self, board: &Board) -> i32 {
         // Full recompute path; used for parity testing
-        let act = self.feats.active_indices(board);
+        let act = self.schema.active_indices(board);
         let h = self.model.meta.hidden_dim;
         let n = self.model.meta.input_dim;
         let mut y = vec![0i32; h];
@@ -116,21 +116,7 @@ impl QuantNetwork {
         let n = self.model.meta.input_dim;
 
         let before_set = self.active.clone();
-        let mut after_set: HashSet<usize> = HashSet::new();
-        for (side, k_idx) in [(Color::White, wk_after), (Color::Black, bk_after)] {
-            for (pi, p) in HALFKP_PIECE_ORDER.iter().enumerate() {
-                let bb = after.colors(side) & after.pieces(*p);
-                for sq in bb {
-                    let sq_idx = sq as usize;
-                    let idx = (((if side == Color::White { 0 } else { 1 }) * 64 + k_idx)
-                        * HALFKP_PIECE_ORDER.len()
-                        + pi)
-                        * 64
-                        + sq_idx;
-                    after_set.insert(idx);
-                }
-            }
-        }
+        let after_set: HashSet<usize> = self.schema.active_indices(after).into_iter().collect();
         let removed: Vec<usize> = before_set.difference(&after_set).copied().collect();
         let added: Vec<usize> = after_set.difference(&before_set).copied().collect();
         // Apply removals

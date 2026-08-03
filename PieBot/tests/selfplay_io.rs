@@ -7,6 +7,8 @@ use std::fs::create_dir_all;
 #[test]
 fn write_and_read_shard() {
     let games = vec![GameRecord {
+        run_id: "test-run".to_string(),
+        game_id: "test-game".to_string(),
         start_fen: cozy_chess::Board::default().to_string(),
         moves: vec![
             "f2f3".to_string(),
@@ -16,6 +18,7 @@ fn write_and_read_shard() {
         ],
         move_target_best: vec![None; 4],
         move_value_cp: vec![None; 4],
+        move_teacher_depth: vec![None; 4],
         move_policy_top: vec![Vec::new(); 4],
         result: -1,
         outcome_valid: true,
@@ -32,10 +35,13 @@ fn write_and_read_shard() {
 #[test]
 fn binary_records_omit_games_without_a_real_outcome() {
     let invalid = GameRecord {
+        run_id: "test-run".to_string(),
+        game_id: "test-invalid-game".to_string(),
         start_fen: cozy_chess::Board::default().to_string(),
         moves: vec!["e2e4".to_string()],
         move_target_best: vec![Some("e2e4".to_string())],
         move_value_cp: vec![Some(12.0)],
+        move_teacher_depth: vec![Some(2)],
         move_policy_top: vec![Vec::new()],
         result: 0,
         outcome_valid: false,
@@ -79,6 +85,8 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
     let first = content.lines().next().expect("jsonl line");
     let v: serde_json::Value = serde_json::from_str(first).unwrap();
     assert!(v.get("fen").and_then(|x| x.as_str()).is_some());
+    assert!(v.get("run_id").and_then(|x| x.as_str()).is_some());
+    assert!(v.get("game_id").and_then(|x| x.as_str()).is_some());
     assert!(v.get("played_move").and_then(|x| x.as_str()).is_some());
     assert!(v.get("best_move").and_then(|x| x.as_str()).is_some());
     assert!(v.get("target_best_move").and_then(|x| x.as_str()).is_some());
@@ -92,6 +100,7 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
         v.get("termination").and_then(|x| x.as_str()),
         Some("max_plies")
     );
+    assert!(v.get("teacher_depth").is_none());
 }
 
 #[test]
@@ -126,6 +135,9 @@ fn write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games() {
     let v: serde_json::Value = serde_json::from_str(first).unwrap();
     assert!(v.get("ply").and_then(|x| x.as_u64()).is_some());
     assert!(v.get("value_cp").and_then(|x| x.as_f64()).is_some());
+    assert_eq!(v.get("teacher_depth").and_then(|x| x.as_u64()), Some(1));
+    assert!(v.get("run_id").and_then(|x| x.as_str()).is_some());
+    assert!(v.get("game_id").and_then(|x| x.as_str()).is_some());
     assert!(v.get("target_best_move").and_then(|x| x.as_str()).is_some());
     assert!(v.get("played_move").and_then(|x| x.as_str()).is_some());
     let policy = v.get("policy_top").and_then(|x| x.as_array()).unwrap();

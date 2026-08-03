@@ -358,7 +358,11 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_teacher_search_params, per_worker_hash_mb, worker_batches};
+    use super::{
+        build_teacher_search_params, build_teacher_searcher, per_worker_hash_mb,
+        process_batch_line, worker_batches, BatchLine,
+    };
+    use serde_json::{json, Value};
 
     #[test]
     fn teacher_search_params_clamp_depth_and_use_single_search_thread() {
@@ -400,5 +404,60 @@ mod tests {
             (0usize..24).map(|index| (index, index)).collect::<Vec<_>>(),
             indexed
         );
+    }
+
+    #[test]
+    fn selected_relabel_preserves_provenance_and_overwrites_teacher_depth() {
+        let original = json!({
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "ply": 0,
+            "run_id": "run-abc",
+            "game_id": "game-xyz",
+            "teacher_depth": 2,
+            "custom": {"kept": true}
+        });
+        let task = BatchLine {
+            original: original.to_string(),
+            parsed: original.as_object().cloned(),
+            should_relabel: true,
+        };
+        let mut teacher = build_teacher_searcher(1, None, 100);
+        let (line, relabeled) =
+            process_batch_line(task, &mut teacher, build_teacher_search_params(1), 6);
+        let output: Value = serde_json::from_str(&line).expect("valid relabeled JSON");
+
+        assert_eq!(relabeled, 1);
+        assert_eq!(output["run_id"], "run-abc");
+        assert_eq!(output["game_id"], "game-xyz");
+        assert_eq!(output["custom"]["kept"], true);
+        assert_eq!(output["teacher_depth"], 6);
+        assert!(output.get("value_cp").is_some());
+    }
+
+    #[test]
+    fn unselected_legacy_record_remains_readable_and_keeps_its_teacher_depth() {
+        let original = json!({
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "ply": 1,
+            "best_move": "e2e4",
+            "teacher_depth": 2,
+            "legacy_extra": 17
+        });
+        let task = BatchLine {
+            original: original.to_string(),
+            parsed: original.as_object().cloned(),
+            should_relabel: false,
+        };
+        let mut teacher = build_teacher_searcher(1, None, 100);
+        let (line, relabeled) =
+            process_batch_line(task, &mut teacher, build_teacher_search_params(1), 6);
+        let output: Value = serde_json::from_str(&line).expect("valid preserved JSON");
+
+        assert_eq!(relabeled, 0);
+        assert_eq!(output["teacher_depth"], 2);
+        assert_eq!(output["legacy_extra"], 17);
+        assert_eq!(output["best_move"], "e2e4");
+        assert!(output.get("run_id").is_none());
+        assert!(output.get("game_id").is_none());
     }
 }

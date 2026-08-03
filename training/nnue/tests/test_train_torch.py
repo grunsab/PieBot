@@ -15,6 +15,13 @@ except Exception:  # pragma: no cover - exercised on environments without torch
     "torch is not installed",
 )
 class TorchBatchPackingTests(unittest.TestCase):
+    @staticmethod
+    def _write_records(path: Path, records: list[dict]) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        with (path / "shard_000000.jsonl").open("w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record) + "\n")
+
     def test_all_empty_feature_bags_preserve_batch_shape(self) -> None:
         device = train_torch.torch.device("cpu")
         flat, offsets, targets = train_torch._pack_batch(
@@ -89,6 +96,9 @@ class TorchBatchPackingTests(unittest.TestCase):
             self.assertEqual(0, metrics["best_epoch"])
             self.assertEqual(parent_sha, checkpoint["initialized_from"]["sha256"])
             self.assertEqual(parent_path.resolve().as_posix(), result["initialized_from"]["path"])
+            self.assertEqual(train_torch.train_stub.FEATURE_SET, checkpoint["feature_set"])
+            self.assertEqual(400.0, metrics["wdl_scale_cp"])
+            self.assertEqual(20_260_802, metrics["validation_seed"])
             self.assertFalse(metrics["optimizer_state_restored"])
 
     def test_warm_start_rejects_incompatible_hidden_dimension(self) -> None:
@@ -129,6 +139,219 @@ class TorchBatchPackingTests(unittest.TestCase):
                     device="cpu",
                     initial_checkpoint=parent_path,
                 )
+
+    def test_objective_loss_supports_mse_huber_and_soft_wdl(self) -> None:
+        pred_cp = train_torch.torch.tensor([0.0, 100.0])
+        target_cp = train_torch.torch.tensor([0.0, 0.0])
+        target_wdl = train_torch.torch.tensor([0.5, 0.75])
+
+        mse = train_torch._objective_loss(
+            pred_cp,
+            target_cp,
+            target_wdl,
+            loss_kind="mse",
+            huber_delta_cp=20.0,
+            wdl_scale_cp=100.0,
+        )
+        huber = train_torch._objective_loss(
+            pred_cp,
+            target_cp,
+            target_wdl,
+            loss_kind="huber",
+            huber_delta_cp=20.0,
+            wdl_scale_cp=100.0,
+        )
+        wdl = train_torch._objective_loss(
+            pred_cp,
+            target_cp,
+            target_wdl,
+            loss_kind="wdl",
+            huber_delta_cp=20.0,
+            wdl_scale_cp=100.0,
+        )
+        expected_wdl = train_torch.torch.nn.functional.binary_cross_entropy_with_logits(
+            pred_cp / 100.0,
+            target_wdl,
+        )
+
+        self.assertAlmostEqual(5000.0, float(mse.item()), places=5)
+        self.assertAlmostEqual(900.0, float(huber.item()), places=5)
+        self.assertAlmostEqual(float(expected_wdl.item()), float(wdl.item()), places=7)
+
+    def test_fixed_validation_is_separate_from_training_and_reports_cp_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            training = [
+                {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "k7/8/8/8/8/8/8/KR6 w - - 0 1", "result": 1},
+                {"fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+                {"fen": "kr6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            validation = [
+                {"fen": "k7/8/8/8/8/8/8/KN6 w - - 0 1", "result": 1},
+                {"fen": "kn6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            self._write_records(root / "train", training)
+            self._write_records(root / "validation", validation)
+
+            metrics = train_torch.train_model(
+                jsonl_dir=root / "train",
+                batch_size=2,
+                max_samples=4,
+                epochs=1,
+                val_split=0.5,
+                learning_rate=0.0,
+                hidden_dim=2,
+                seed=17,
+                out_dir=root / "out",
+                device="cpu",
+                loss_kind="wdl",
+                wdl_scale_cp=200.0,
+                min_teacher_depth=6,
+                primary_sample_fraction=0.75,
+                validation_jsonl_dir=root / "validation",
+                max_validation_samples=2,
+                validation_seed=91,
+            )
+
+            self.assertEqual(4, metrics["train_samples"])
+            self.assertEqual(2, metrics["val_samples"])
+            self.assertEqual(4, metrics["records_total"])
+            self.assertEqual("wdl", metrics["loss_kind"])
+            self.assertEqual(0.75, metrics["primary_sample_fraction"])
+            self.assertEqual(6, metrics["min_teacher_depth"])
+            self.assertTrue(metrics["fixed_validation"])
+            self.assertEqual(
+                (root / "validation").resolve().as_posix(),
+                metrics["validation_jsonl_dir"],
+            )
+            self.assertEqual(1, len(metrics["val_loss_history"]))
+            self.assertEqual(1, len(metrics["val_cp_mse_history"]))
+            self.assertEqual(1, len(metrics["val_acc_history"]))
+
+    def test_fixed_validation_rejects_the_training_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = root / "data"
+            self._write_records(
+                data,
+                [{"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1}],
+            )
+
+            with self.assertRaisesRegex(ValueError, "validation.*training"):
+                train_torch.train_model(
+                    jsonl_dir=data,
+                    max_samples=1,
+                    epochs=1,
+                    val_split=0.0,
+                    hidden_dim=1,
+                    out_dir=root / "out",
+                    device="cpu",
+                    validation_jsonl_dir=data,
+                    max_validation_samples=1,
+                )
+
+    def test_teacher_metrics_distinguish_raw_from_depth_eligible_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(root / "data", [
+                {
+                    "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "result": 1,
+                    "value_cp": 50.0,
+                    "teacher_depth": 2,
+                },
+                {
+                    "fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1",
+                    "result": -1,
+                    "value_cp": -50.0,
+                    "teacher_depth": 6,
+                },
+            ])
+            metrics = train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=2,
+                epochs=1,
+                val_split=0.0,
+                learning_rate=0.0,
+                hidden_dim=1,
+                min_teacher_depth=6,
+                out_dir=root / "out",
+                device="cpu",
+            )
+
+            self.assertEqual(2, metrics["records_with_raw_teacher_value"])
+            self.assertEqual(1, metrics["records_with_teacher_value"])
+
+    def test_best_optimizer_state_round_trips_with_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = [
+                {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "k7/8/8/8/8/8/8/KR6 w - - 0 1", "result": 1},
+                {"fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+                {"fen": "kr6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            self._write_records(root / "data", records)
+
+            first = train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=4,
+                epochs=1,
+                val_split=0.25,
+                learning_rate=0.001,
+                hidden_dim=2,
+                seed=31,
+                out_dir=root / "first",
+                device="cpu",
+            )
+            first_optimizer = root / "first" / "optimizer.pt"
+            self.assertTrue(first_optimizer.is_file())
+            self.assertEqual(
+                hashlib.sha256(first_optimizer.read_bytes()).hexdigest(),
+                first["optimizer_state"]["sha256"],
+            )
+            self.assertFalse(first["optimizer_state_restored"])
+
+            second = train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=4,
+                epochs=1,
+                val_split=0.25,
+                learning_rate=0.004,
+                adam_beta1=0.8,
+                adam_beta2=0.95,
+                adam_eps=1e-6,
+                hidden_dim=2,
+                seed=31,
+                out_dir=root / "second",
+                device="cpu",
+                initial_checkpoint=root / "first" / "checkpoint.json",
+                initial_optimizer_state=first_optimizer,
+            )
+
+            self.assertTrue(second["optimizer_state_restored"])
+            self.assertEqual(
+                first_optimizer.resolve().as_posix(),
+                second["optimizer_initialized_from"]["path"],
+            )
+            self.assertEqual(
+                second["optimizer_initialized_from"],
+                second["initialized_optimizer_state"],
+            )
+            self.assertEqual(
+                hashlib.sha256(first_optimizer.read_bytes()).hexdigest(),
+                second["optimizer_initialized_from"]["sha256"],
+            )
+            self.assertTrue((root / "second" / "optimizer.pt").is_file())
+            resumed_payload = train_torch._torch_load(root / "second" / "optimizer.pt")
+            resumed_group = resumed_payload["state_dict"]["param_groups"][0]
+            self.assertEqual(0.004, resumed_group["lr"])
+            self.assertEqual((0.8, 0.95), tuple(resumed_group["betas"]))
+            self.assertEqual(1e-6, resumed_group["eps"])
 
 
 if __name__ == "__main__":  # pragma: no cover

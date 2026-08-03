@@ -568,6 +568,60 @@ class RunPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(len(shards), 2)
             self.assertEqual(str(replay_dir), summary["replay_jsonl_dirs"][0])
 
+    def test_pipeline_binds_depth_loss_weighting_and_fixed_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            validation_dir = root / "validation"
+            out_dir = root / "out"
+            data_dir.mkdir()
+            validation_dir.mkdir()
+            _write_dataset(data_dir, n=12)
+            _write_dataset(validation_dir, n=6)
+            kwargs = {
+                "jsonl_dir": data_dir,
+                "out_dir": out_dir,
+                "batch_size": 4,
+                "max_samples": 12,
+                "epochs": 1,
+                "hidden_dim": 1,
+                "primary_sample_fraction": 0.5,
+                "min_teacher_depth": 6,
+                "loss_kind": "wdl",
+                "huber_delta_cp": 80.0,
+                "wdl_scale_cp": 400.0,
+                "validation_jsonl_dir": validation_dir,
+                "max_validation_samples": 4,
+                "validation_seed": 123,
+                "trainer_backend": "stub",
+                "resume": True,
+            }
+
+            first = run_pipeline.run_pipeline(**kwargs)
+            self.assertEqual("wdl", first["metrics"]["loss_kind"])
+            self.assertEqual(12, first["metrics"]["train_samples"])
+            self.assertEqual(4, first["metrics"]["val_samples"])
+            self.assertEqual(
+                validation_dir.resolve().as_posix(),
+                first["validation_dataset"]["path"],
+            )
+
+            with (validation_dir / "shard_000000.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({
+                    "fen": "8/8/8/8/8/8/4K3/7k w - - 0 1",
+                    "result": 0,
+                }) + "\n")
+            with mock.patch(
+                "training.nnue.train_stub.train_model",
+                wraps=run_pipeline.train_stub.train_model,
+            ) as train:
+                changed = run_pipeline.run_pipeline(**kwargs)
+            self.assertEqual(1, train.call_count)
+            self.assertNotEqual(
+                first["validation_dataset"]["fingerprint"],
+                changed["validation_dataset"]["fingerprint"],
+            )
+
     @unittest.skipUnless(
         run_pipeline.train_torch is not None
         and run_pipeline.train_torch.torch_available(),
@@ -594,6 +648,7 @@ class RunPipelineTests(unittest.TestCase):
                 trainer_device="cpu",
             )
             parent_path = Path(parent_summary["checkpoint_path"])
+            self.assertTrue(Path(parent_summary["optimizer_path"]).is_file())
             child_kwargs = {
                 "jsonl_dir": data_dir,
                 "out_dir": root / "child",
@@ -607,10 +662,16 @@ class RunPipelineTests(unittest.TestCase):
                 "trainer_backend": "torch",
                 "trainer_device": "cpu",
                 "initial_checkpoint": parent_path,
+                "continue_optimizer_state": True,
                 "resume": True,
             }
             first = run_pipeline.run_pipeline(**child_kwargs)
             self.assertEqual(parent_path.resolve().as_posix(), first["initial_checkpoint"]["path"])
+            self.assertTrue(first["metrics"]["optimizer_state_restored"])
+            self.assertEqual(
+                Path(parent_summary["optimizer_path"]).resolve().as_posix(),
+                first["initial_optimizer_state"]["path"],
+            )
             child_checkpoint = json.loads(Path(first["checkpoint_path"]).read_text())
             self.assertEqual(
                 first["initial_checkpoint"]["sha256"],

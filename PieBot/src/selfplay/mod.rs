@@ -33,10 +33,13 @@ pub struct SelfPlayParams {
 }
 
 pub struct GameRecord {
+    pub run_id: String,  // stable identifier shared by all games for one seeded run
+    pub game_id: String, // stable identifier derived from run_id + game index
     pub start_fen: String,
     pub moves: Vec<String>,                       // played moves
     pub move_target_best: Vec<Option<String>>,    // teacher best move for each ply
     pub move_value_cp: Vec<Option<f32>>,          // white-perspective teacher value for each ply
+    pub move_teacher_depth: Vec<Option<u32>>,     // configured teacher depth for each value
     pub move_policy_top: Vec<Vec<(String, f32)>>, // optional root policy samples
     pub result: i8,                               // 1 white win, 0 draw, -1 black win
     pub outcome_valid: bool, // false when generation stopped without a chess result
@@ -73,6 +76,7 @@ struct MoveChoice {
     played_mv: Move,
     target_best_mv: Option<Move>,
     value_cp: Option<f32>,
+    teacher_depth: Option<u32>,
     policy_top: Vec<(String, f32)>,
 }
 
@@ -126,6 +130,7 @@ fn generate_single_game(
     game_idx: usize,
 ) -> GameRecord {
     let game_seed = game_seed(params.seed, game_idx);
+    let run_id = run_id(params.seed);
     let mut rng = SmallRng::seed_from_u64(game_seed);
     let mut searcher = if params.use_engine {
         Some(build_selfplay_searcher(params))
@@ -139,10 +144,13 @@ fn generate_single_game(
         Board::default()
     };
     let mut record = GameRecord {
+        game_id: game_id(&run_id, game_idx),
+        run_id,
         start_fen: format!("{}", board),
         moves: Vec::new(),
         move_target_best: Vec::new(),
         move_value_cp: Vec::new(),
+        move_teacher_depth: Vec::new(),
         move_policy_top: Vec::new(),
         result: 0,
         outcome_valid: false,
@@ -179,6 +187,7 @@ fn generate_single_game(
                 .move_target_best
                 .push(m.target_best_mv.map(|x| format!("{}", x)));
             record.move_value_cp.push(m.value_cp);
+            record.move_teacher_depth.push(m.teacher_depth);
             record.move_policy_top.push(m.policy_top);
             board.play_unchecked(m.played_mv);
             position_history.push(board.clone());
@@ -255,6 +264,15 @@ fn game_seed(base_seed: u64, game_idx: usize) -> u64 {
     mix_u64(base_seed ^ ((game_idx as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)))
 }
 
+fn run_id(base_seed: u64) -> String {
+    const RUN_ID_DOMAIN: u64 = 0x5049_4542_4f54_5255;
+    format!("run-{:016x}", mix_u64(base_seed ^ RUN_ID_DOMAIN))
+}
+
+fn game_id(run_id: &str, game_idx: usize) -> String {
+    format!("{}-game-{:016x}", run_id, game_idx as u64)
+}
+
 fn mix_u64(mut x: u64) -> u64 {
     x ^= x >> 30;
     x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -290,6 +308,7 @@ fn select_random_move(board: &Board, rng: &mut SmallRng) -> Option<MoveChoice> {
         played_mv: mv,
         target_best_mv: None,
         value_cp: None,
+        teacher_depth: None,
         policy_top: Vec::new(),
     })
 }
@@ -436,6 +455,7 @@ fn select_engine_move(
             played_mv: moves[picked_idx],
             target_best_mv: Some(moves[best_idx]),
             value_cp: Some(best_cp_white),
+            teacher_depth: Some(params.depth.max(1)),
             policy_top,
         });
     }
@@ -476,6 +496,7 @@ fn select_engine_move(
             played_mv: mv,
             target_best_mv: Some(mv),
             value_cp: Some(score_white),
+            teacher_depth: Some(params.depth.max(1)),
             policy_top: Vec::new(),
         })
     })
@@ -569,6 +590,8 @@ pub fn flatten_game_to_records(game: &GameRecord) -> Vec<RecordBin> {
 
 #[derive(serde::Serialize)]
 struct JsonlSelfPlayRecord<'a> {
+    run_id: &'a str,
+    game_id: &'a str,
     fen: String,
     ply: usize,
     result: i8,
@@ -577,6 +600,8 @@ struct JsonlSelfPlayRecord<'a> {
     termination: GameTermination,
     #[serde(skip_serializing_if = "Option::is_none")]
     value_cp: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    teacher_depth: Option<u32>,
     played_move: &'a str,
     target_best_move: &'a str,
     best_move: &'a str,
@@ -619,6 +644,11 @@ pub fn write_jsonl_shards<P: AsRef<Path>>(
             }
             let w = writer.as_mut().unwrap();
             let value_cp = g.move_value_cp.get(ply).copied().flatten();
+            let teacher_depth = if value_cp.is_some() {
+                g.move_teacher_depth.get(ply).copied().flatten()
+            } else {
+                None
+            };
             let target_best = g
                 .move_target_best
                 .get(ply)
@@ -635,6 +665,8 @@ pub fn write_jsonl_shards<P: AsRef<Path>>(
                 }
             }
             let rec = JsonlSelfPlayRecord {
+                run_id: g.run_id.as_str(),
+                game_id: g.game_id.as_str(),
                 fen: format!("{}", board),
                 ply,
                 result: g.result,
@@ -642,6 +674,7 @@ pub fn write_jsonl_shards<P: AsRef<Path>>(
                 outcome_valid: g.outcome_valid,
                 termination: g.termination,
                 value_cp,
+                teacher_depth,
                 played_move: mv_str.as_str(),
                 target_best_move: target_best,
                 best_move: target_best,

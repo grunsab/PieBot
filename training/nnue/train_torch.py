@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
 import random
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -75,6 +77,25 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_jsonl_source(path: Path) -> str:
+    """Hash a fixed validation source, including stable relative file names."""
+    root = Path(path)
+    files = [root] if root.is_file() else sorted(root.glob("*.jsonl"))
+    digest = hashlib.sha256()
+    for file_path in files:
+        name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        with file_path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def _load_initial_checkpoint(
     model: TorchNnue,
     checkpoint_path: Path,
@@ -104,6 +125,15 @@ def _load_initial_checkpoint(
         raise ValueError(
             f"initial checkpoint hidden_dim mismatch: expected {hidden_dim}, "
             f"got {checkpoint.get('hidden_dim')}"
+        )
+    checkpoint_feature_set = checkpoint.get("feature_set")
+    if (
+        checkpoint_feature_set is not None
+        and checkpoint_feature_set != train_stub.FEATURE_SET
+    ):
+        raise ValueError(
+            f"initial checkpoint feature_set mismatch: expected {train_stub.FEATURE_SET!r}, "
+            f"got {checkpoint_feature_set!r}"
         )
 
     expected_lengths = {
@@ -153,6 +183,145 @@ def _load_initial_checkpoint(
         "format": str(checkpoint_format),
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
+        "feature_set": checkpoint_feature_set,
+    }
+
+
+_OPTIMIZER_FORMAT = "piebot-torch-adam-v1"
+
+
+def _parameter_shapes(model: TorchNnue) -> Dict[str, List[int]]:
+    return {name: list(parameter.shape) for name, parameter in model.named_parameters()}
+
+
+def _to_cpu_tree(value: Any) -> Any:
+    if torch.is_tensor(value):
+        return value.detach().cpu().clone()
+    if isinstance(value, dict):
+        return {key: _to_cpu_tree(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_cpu_tree(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_to_cpu_tree(item) for item in value)
+    return copy.deepcopy(value)
+
+
+def _atomic_torch_save(value: Any, path: Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+            delete=False,
+        ) as handle:
+            tmp_path = Path(handle.name)
+        torch.save(value, tmp_path)
+        tmp_path.replace(path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink()
+
+
+def _torch_load(path: Path) -> Any:
+    try:
+        return torch.load(path, map_location="cpu", weights_only=True)
+    except TypeError:  # pragma: no cover - compatibility with older torch releases
+        return torch.load(path, map_location="cpu")
+
+
+def _load_initial_optimizer_state(
+    optimizer: "torch.optim.Optimizer",
+    model: TorchNnue,
+    optimizer_path: Path,
+    *,
+    input_dim: int,
+    hidden_dim: int,
+    device: "torch.device",
+) -> Dict[str, Any]:
+    path = Path(optimizer_path)
+    if not path.is_file():
+        raise ValueError(f"initial optimizer state does not exist: {path}")
+    try:
+        payload = _torch_load(path)
+    except Exception as exc:
+        raise ValueError(f"invalid initial optimizer state: {path}") from exc
+    if not isinstance(payload, dict) or payload.get("format") != _OPTIMIZER_FORMAT:
+        raise ValueError("unsupported initial optimizer state format")
+    if int(payload.get("input_dim", 0)) != int(input_dim):
+        raise ValueError(
+            f"initial optimizer input_dim mismatch: expected {input_dim}, "
+            f"got {payload.get('input_dim')}"
+        )
+    if int(payload.get("hidden_dim", 0)) != int(hidden_dim):
+        raise ValueError(
+            f"initial optimizer hidden_dim mismatch: expected {hidden_dim}, "
+            f"got {payload.get('hidden_dim')}"
+        )
+    if payload.get("feature_set") != train_stub.FEATURE_SET:
+        raise ValueError("initial optimizer feature_set does not match the model")
+    expected_shapes = _parameter_shapes(model)
+    if payload.get("parameter_shapes") != expected_shapes:
+        raise ValueError("initial optimizer parameter shapes do not match the model")
+    state_dict = payload.get("state_dict")
+    if not isinstance(state_dict, dict):
+        raise ValueError("initial optimizer state_dict is missing")
+    try:
+        optimizer.load_state_dict(state_dict)
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise ValueError("initial optimizer state_dict is incompatible") from exc
+
+    # load_state_dict normally follows the parameters' device, but make that
+    # guarantee explicit so resumed CUDA training never retains CPU moments.
+    for parameter, state in optimizer.state.items():
+        for key, value in list(state.items()):
+            if not torch.is_tensor(value):
+                continue
+            if value.ndim > 0 and tuple(value.shape) != tuple(parameter.shape):
+                raise ValueError(
+                    f"initial optimizer tensor {key!r} shape does not match parameter"
+                )
+            state[key] = value.to(device=device)
+
+    return {
+        "path": path.resolve().as_posix(),
+        "sha256": _sha256_file(path),
+        "format": _OPTIMIZER_FORMAT,
+        "input_dim": int(input_dim),
+        "hidden_dim": int(hidden_dim),
+        "feature_set": train_stub.FEATURE_SET,
+    }
+
+
+def _save_optimizer_state(
+    state_dict: Dict[str, Any],
+    model: TorchNnue,
+    path: Path,
+    *,
+    input_dim: int,
+    hidden_dim: int,
+    best_epoch: int,
+) -> Dict[str, Any]:
+    payload = {
+        "format": _OPTIMIZER_FORMAT,
+        "input_dim": int(input_dim),
+        "hidden_dim": int(hidden_dim),
+        "feature_set": train_stub.FEATURE_SET,
+        "parameter_shapes": _parameter_shapes(model),
+        "best_epoch": int(best_epoch),
+        "state_dict": _to_cpu_tree(state_dict),
+    }
+    _atomic_torch_save(payload, path)
+    return {
+        "path": path.resolve().as_posix(),
+        "sha256": _sha256_file(path),
+        "format": _OPTIMIZER_FORMAT,
+        "input_dim": int(input_dim),
+        "hidden_dim": int(hidden_dim),
+        "feature_set": train_stub.FEATURE_SET,
+        "best_epoch": int(best_epoch),
     }
 
 
@@ -174,34 +343,83 @@ def _pack_batch(
     return flat_t, offsets_t, targets_t
 
 
+def _objective_loss(
+    pred_cp: "torch.Tensor",
+    target_cp: "torch.Tensor",
+    target_wdl: "torch.Tensor",
+    *,
+    loss_kind: str,
+    huber_delta_cp: float,
+    wdl_scale_cp: float,
+) -> "torch.Tensor":
+    if loss_kind == "mse":
+        return torch.nn.functional.mse_loss(pred_cp, target_cp, reduction="mean")
+    if loss_kind == "huber":
+        return torch.nn.functional.huber_loss(
+            pred_cp,
+            target_cp,
+            reduction="mean",
+            delta=float(huber_delta_cp),
+        )
+    if loss_kind == "wdl":
+        return torch.nn.functional.binary_cross_entropy_with_logits(
+            pred_cp / float(wdl_scale_cp),
+            target_wdl,
+            reduction="mean",
+        )
+    raise ValueError(f"unsupported loss_kind: {loss_kind!r}")
+
+
 def _eval_split(
     model: TorchNnue,
     xs: Sequence[Sequence[int]],
-    ys: Sequence[float],
+    ys_cp: Sequence[float],
+    ys_wdl: Sequence[float],
     batch_size: int,
     device: "torch.device",
-) -> Tuple[float, float]:
+    *,
+    loss_kind: str,
+    huber_delta_cp: float,
+    wdl_scale_cp: float,
+) -> Tuple[float, float, float]:
     if not xs:
-        return 0.0, 0.0
-    mse = torch.nn.MSELoss(reduction="mean")
+        return 0.0, 0.0, 0.0
     model.eval()
-    loss_sum = 0.0
+    objective_sum = 0.0
+    cp_squared_error_sum = 0.0
     n = 0
     correct = 0
     with torch.no_grad():
         for start in range(0, len(xs), batch_size):
             bx = xs[start:start + batch_size]
-            by = ys[start:start + batch_size]
-            flat, offs, tgt = _pack_batch(bx, by, device)
+            by_cp = ys_cp[start:start + batch_size]
+            by_wdl = ys_wdl[start:start + batch_size]
+            flat, offs, tgt_cp = _pack_batch(bx, by_cp, device)
+            tgt_wdl = torch.tensor(by_wdl, dtype=torch.float32, device=device)
             pred = model(flat, offs)
-            loss = mse(pred, tgt)
-            bs = len(by)
-            loss_sum += float(loss.item()) * bs
+            objective = _objective_loss(
+                pred,
+                tgt_cp,
+                tgt_wdl,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
+            bs = len(by_cp)
+            objective_sum += float(objective.item()) * bs
+            cp_squared_error_sum += float(
+                torch.sum(torch.square(pred - tgt_cp)).item()
+            )
             n += bs
             pred_lbl = torch.sign(pred).to(torch.int32)
-            tgt_lbl = torch.sign(tgt).to(torch.int32)
+            tgt_lbl = torch.sign(tgt_cp).to(torch.int32)
             correct += int((pred_lbl == tgt_lbl).sum().item())
-    return loss_sum / float(max(1, n)), float(correct) / float(max(1, n))
+    denominator = float(max(1, n))
+    return (
+        objective_sum / denominator,
+        cp_squared_error_sum / denominator,
+        float(correct) / denominator,
+    )
 
 
 def train_model(
@@ -225,6 +443,15 @@ def train_model(
     out_dir: Path = Path("out/nnue_torch_train"),
     device: str = "auto",
     initial_checkpoint: Optional[Path] = None,
+    loss_kind: str = "mse",
+    huber_delta_cp: float = 100.0,
+    wdl_scale_cp: float = 400.0,
+    min_teacher_depth: int = 0,
+    primary_sample_fraction: float = 0.5,
+    validation_jsonl_dir: Optional[Path] = None,
+    max_validation_samples: int = 100000,
+    validation_seed: int = 20_260_802,
+    initial_optimizer_state: Optional[Path] = None,
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
@@ -233,29 +460,70 @@ def train_model(
     batch_size = max(1, int(batch_size))
     epochs = max(1, int(epochs))
     hidden_dim = max(1, int(hidden_dim))
+    val_split = min(0.9, max(0.0, float(val_split)))
+    loss_kind = str(loss_kind).lower()
+    if loss_kind not in {"mse", "huber", "wdl"}:
+        raise ValueError("loss_kind must be one of: mse, huber, wdl")
+    huber_delta_cp = float(huber_delta_cp)
+    if not math.isfinite(huber_delta_cp) or huber_delta_cp <= 0.0:
+        raise ValueError("huber_delta_cp must be finite and positive")
+    wdl_scale_cp = float(wdl_scale_cp)
+    if not math.isfinite(wdl_scale_cp) or wdl_scale_cp <= 0.0:
+        raise ValueError("wdl_scale_cp must be finite and positive")
+    min_teacher_depth = max(0, int(min_teacher_depth))
+    primary_sample_fraction = min(1.0, max(0.0, float(primary_sample_fraction)))
+    max_validation_samples = int(max_validation_samples)
+    validation_seed = int(validation_seed)
+    if (
+        validation_jsonl_dir is not None
+        and Path(validation_jsonl_dir).resolve() == Path(jsonl_dir).resolve()
+    ):
+        raise ValueError("fixed validation source must be separate from training data")
     rng = random.Random(seed)
     torch.manual_seed(seed)
     if dev.type == "cuda":
         torch.cuda.manual_seed_all(seed)
 
     xs: List[List[int]] = []
-    ys: List[float] = []
+    ys_cp: List[float] = []
+    ys_wdl: List[float] = []
     best_move_available = 0
     teacher_value_available = 0
-    for feats, record in train_stub.iterate_samples(jsonl_dir, max_samples, seed=seed):
+    raw_teacher_value_available = 0
+    for feats, record in train_stub.iterate_samples(
+        jsonl_dir,
+        max_samples,
+        seed=seed,
+        primary_sample_fraction=primary_sample_fraction,
+        min_teacher_depth=min_teacher_depth,
+    ):
         xs.append(feats)
-        ys.append(
+        ys_cp.append(
             train_stub._target_cp_for_record(
                 record,
                 target_cp=target_cp,
                 teacher_mix=teacher_mix,
                 max_teacher_cp=max_teacher_cp,
                 outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+            )
+        )
+        ys_wdl.append(
+            train_stub._target_wdl_probability_for_record(
+                record,
+                target_cp=target_cp,
+                teacher_mix=teacher_mix,
+                max_teacher_cp=max_teacher_cp,
+                outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+                wdl_scale_cp=wdl_scale_cp,
             )
         )
         if record.best_move:
             best_move_available += 1
         if record.value_cp is not None:
+            raw_teacher_value_available += 1
+        if train_stub._teacher_available(record, min_teacher_depth):
             teacher_value_available += 1
     if not xs:
         raise ValueError("no training samples were loaded")
@@ -263,20 +531,72 @@ def train_model(
     order = list(range(len(xs)))
     rng.shuffle(order)
     xs = [xs[i] for i in order]
-    ys = [ys[i] for i in order]
+    ys_cp = [ys_cp[i] for i in order]
+    ys_wdl = [ys_wdl[i] for i in order]
 
-    val_count = int(len(xs) * val_split)
-    if val_split > 0.0:
-        val_count = max(1, val_count)
-        val_count = min(val_count, len(xs) - 1)
+    fixed_validation = validation_jsonl_dir is not None
+    validation_source = None
+    if fixed_validation:
+        validation_path = Path(validation_jsonl_dir)  # type: ignore[arg-type]
+        val_x: List[List[int]] = []
+        val_y_cp: List[float] = []
+        val_y_wdl: List[float] = []
+        for feats, record in train_stub.iterate_samples(
+            validation_path,
+            max_validation_samples,
+            seed=validation_seed,
+            primary_sample_fraction=primary_sample_fraction,
+            min_teacher_depth=min_teacher_depth,
+        ):
+            val_x.append(feats)
+            val_y_cp.append(
+                train_stub._target_cp_for_record(
+                    record,
+                    target_cp=target_cp,
+                    teacher_mix=teacher_mix,
+                    max_teacher_cp=max_teacher_cp,
+                    outcome_decay=outcome_decay,
+                    min_teacher_depth=min_teacher_depth,
+                )
+            )
+            val_y_wdl.append(
+                train_stub._target_wdl_probability_for_record(
+                    record,
+                    target_cp=target_cp,
+                    teacher_mix=teacher_mix,
+                    max_teacher_cp=max_teacher_cp,
+                    outcome_decay=outcome_decay,
+                    min_teacher_depth=min_teacher_depth,
+                    wdl_scale_cp=wdl_scale_cp,
+                )
+            )
+        if not val_x:
+            raise ValueError("no fixed validation samples were loaded")
+        train_x = xs
+        train_y_cp = ys_cp
+        train_y_wdl = ys_wdl
+        train_count = len(train_x)
+        val_count = len(val_x)
+        validation_source = {
+            "path": validation_path.resolve().as_posix(),
+            "sha256": _sha256_jsonl_source(validation_path),
+            "max_samples": max_validation_samples,
+            "seed": validation_seed,
+        }
     else:
-        val_count = 0
-    train_count = len(xs) - val_count
-
-    train_x = xs[:train_count]
-    train_y = ys[:train_count]
-    val_x = xs[train_count:]
-    val_y = ys[train_count:]
+        val_count = int(len(xs) * val_split)
+        if val_split > 0.0:
+            val_count = max(1, val_count)
+            val_count = min(val_count, len(xs) - 1)
+        else:
+            val_count = 0
+        train_count = len(xs) - val_count
+        train_x = xs[:train_count]
+        train_y_cp = ys_cp[:train_count]
+        train_y_wdl = ys_wdl[:train_count]
+        val_x = xs[train_count:]
+        val_y_cp = ys_cp[train_count:]
+        val_y_wdl = ys_wdl[train_count:]
 
     input_dim = train_stub.HALFKP_DIM
     model = TorchNnue(input_dim=input_dim, hidden_dim=hidden_dim).to(dev)
@@ -295,31 +615,71 @@ def train_model(
         betas=(float(adam_beta1), float(adam_beta2)),
         eps=float(adam_eps),
     )
-    mse = torch.nn.MSELoss(reduction="mean")
+    optimizer_initialized_from = None
+    if initial_optimizer_state is not None:
+        optimizer_initialized_from = _load_initial_optimizer_state(
+            opt,
+            model,
+            Path(initial_optimizer_state),
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            device=dev,
+        )
+        # Retain the parent's moments and step counters, but honor this cycle's
+        # explicitly requested schedule instead of the serialized param-group
+        # hyperparameters restored by Optimizer.load_state_dict().
+        for param_group in opt.param_groups:
+            param_group["lr"] = float(learning_rate)
+            param_group["betas"] = (float(adam_beta1), float(adam_beta2))
+            param_group["eps"] = float(adam_eps)
 
     best_state = None
+    best_optimizer_state = None
     best_val = float("inf")
     best_epoch = 0
     initial_train_loss = None
+    initial_train_cp_mse = None
     initial_train_acc = None
     initial_val_loss = None
+    initial_val_cp_mse = None
     initial_val_acc = None
     if initialized_from is not None:
-        initial_train_loss, initial_train_acc = _eval_split(
-            model, train_x, train_y, batch_size, dev
+        initial_train_loss, initial_train_cp_mse, initial_train_acc = _eval_split(
+            model,
+            train_x,
+            train_y_cp,
+            train_y_wdl,
+            batch_size,
+            dev,
+            loss_kind=loss_kind,
+            huber_delta_cp=huber_delta_cp,
+            wdl_scale_cp=wdl_scale_cp,
         )
         if val_count > 0:
-            initial_val_loss, initial_val_acc = _eval_split(
-                model, val_x, val_y, batch_size, dev
+            initial_val_loss, initial_val_cp_mse, initial_val_acc = _eval_split(
+                model,
+                val_x,
+                val_y_cp,
+                val_y_wdl,
+                batch_size,
+                dev,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
             )
         else:
-            initial_val_loss, initial_val_acc = initial_train_loss, initial_train_acc
+            initial_val_loss = initial_train_loss
+            initial_val_cp_mse = initial_train_cp_mse
+            initial_val_acc = initial_train_acc
         best_val = float(initial_val_loss)
         best_state = {
             key: value.detach().cpu().clone() for key, value in model.state_dict().items()
         }
+        best_optimizer_state = _to_cpu_tree(opt.state_dict())
     train_loss_history: List[float] = []
     val_loss_history: List[float] = []
+    train_cp_mse_history: List[float] = []
+    val_cp_mse_history: List[float] = []
     train_acc_history: List[float] = []
     val_acc_history: List[float] = []
 
@@ -332,34 +692,77 @@ def train_model(
             if not bidx:
                 continue
             bx = [train_x[i] for i in bidx]
-            by = [train_y[i] for i in bidx]
-            flat, offs, tgt = _pack_batch(bx, by, dev)
+            by_cp = [train_y_cp[i] for i in bidx]
+            by_wdl = [train_y_wdl[i] for i in bidx]
+            flat, offs, tgt_cp = _pack_batch(bx, by_cp, dev)
+            tgt_wdl = torch.tensor(by_wdl, dtype=torch.float32, device=dev)
             pred = model(flat, offs)
-            loss = mse(pred, tgt)
+            loss = _objective_loss(
+                pred,
+                tgt_cp,
+                tgt_wdl,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
             opt.zero_grad(set_to_none=True)
             loss.backward()
             if grad_clip > 0.0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), float(grad_clip))
             opt.step()
 
-        tr_loss, tr_acc = _eval_split(model, train_x, train_y, batch_size, dev)
+        tr_loss, tr_cp_mse, tr_acc = _eval_split(
+            model,
+            train_x,
+            train_y_cp,
+            train_y_wdl,
+            batch_size,
+            dev,
+            loss_kind=loss_kind,
+            huber_delta_cp=huber_delta_cp,
+            wdl_scale_cp=wdl_scale_cp,
+        )
         if val_count > 0:
-            va_loss, va_acc = _eval_split(model, val_x, val_y, batch_size, dev)
+            va_loss, va_cp_mse, va_acc = _eval_split(
+                model,
+                val_x,
+                val_y_cp,
+                val_y_wdl,
+                batch_size,
+                dev,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
         else:
-            va_loss, va_acc = tr_loss, tr_acc
+            va_loss, va_cp_mse, va_acc = tr_loss, tr_cp_mse, tr_acc
         train_loss_history.append(tr_loss)
         val_loss_history.append(va_loss)
+        train_cp_mse_history.append(tr_cp_mse)
+        val_cp_mse_history.append(va_cp_mse)
         train_acc_history.append(tr_acc)
         val_acc_history.append(va_acc)
         if va_loss < best_val:
             best_val = va_loss
             best_epoch = ep + 1
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_optimizer_state = _to_cpu_tree(opt.state_dict())
 
     if best_state is not None:
         model.load_state_dict(best_state)
 
+    if best_optimizer_state is None:
+        best_optimizer_state = _to_cpu_tree(opt.state_dict())
+
     out_dir.mkdir(parents=True, exist_ok=True)
+    optimizer_state = _save_optimizer_state(
+        best_optimizer_state,
+        model,
+        out_dir / "optimizer.pt",
+        input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        best_epoch=best_epoch,
+    )
     emb = model.embed.weight.detach().cpu()  # [input, hidden]
     w1 = emb.transpose(0, 1).contiguous().view(-1).tolist()  # row-major [hidden][input]
     b1 = model.b1.detach().cpu().view(-1).tolist()
@@ -368,6 +771,7 @@ def train_model(
 
     checkpoint = {
         "format": "piebot-halfkp-mse-v2-torch",
+        "feature_set": train_stub.FEATURE_SET,
         "input_dim": input_dim,
         "hidden_dim": hidden_dim,
         "w1": w1,
@@ -383,12 +787,22 @@ def train_model(
         "best_epoch": best_epoch,
         "device": str(dev),
         "initialized_from": initialized_from,
-        "optimizer_state_restored": False,
+        "loss_kind": loss_kind,
+        "huber_delta_cp": huber_delta_cp,
+        "wdl_scale_cp": wdl_scale_cp,
+        "min_teacher_depth": min_teacher_depth,
+        "primary_sample_fraction": primary_sample_fraction,
+        "validation_source": validation_source,
+        "optimizer_state": optimizer_state,
+        "optimizer_initialized_from": optimizer_initialized_from,
+        "initialized_optimizer_state": optimizer_initialized_from,
+        "optimizer_state_restored": optimizer_initialized_from is not None,
     }
     metrics = {
         "train_samples": train_count,
         "val_samples": val_count,
         "input_dim": input_dim,
+        "feature_set": train_stub.FEATURE_SET,
         "batch_size": batch_size,
         "epochs": epochs,
         "learning_rate": float(learning_rate),
@@ -402,20 +816,42 @@ def train_model(
         "adam_eps": adam_eps,
         "grad_clip": grad_clip,
         "seed": seed,
+        "loss_kind": loss_kind,
+        "huber_delta_cp": huber_delta_cp,
+        "wdl_scale_cp": wdl_scale_cp,
+        "min_teacher_depth": min_teacher_depth,
+        "primary_sample_fraction": primary_sample_fraction,
+        "fixed_validation": fixed_validation,
+        "validation_jsonl_dir": (
+            Path(validation_jsonl_dir).resolve().as_posix()
+            if validation_jsonl_dir is not None
+            else None
+        ),
+        "max_validation_samples": max_validation_samples,
+        "validation_seed": validation_seed,
+        "validation_source": validation_source,
         "best_epoch": best_epoch,
         "best_val_loss": best_val,
         "initial_train_loss": initial_train_loss,
+        "initial_train_cp_mse": initial_train_cp_mse,
         "initial_train_acc": initial_train_acc,
         "initial_val_loss": initial_val_loss,
+        "initial_val_cp_mse": initial_val_cp_mse,
         "initial_val_acc": initial_val_acc,
         "initialized_from": initialized_from,
-        "optimizer_state_restored": False,
+        "optimizer_state": optimizer_state,
+        "optimizer_initialized_from": optimizer_initialized_from,
+        "initialized_optimizer_state": optimizer_initialized_from,
+        "optimizer_state_restored": optimizer_initialized_from is not None,
         "train_loss_history": train_loss_history,
         "val_loss_history": val_loss_history,
+        "train_cp_mse_history": train_cp_mse_history,
+        "val_cp_mse_history": val_cp_mse_history,
         "train_acc_history": train_acc_history,
         "val_acc_history": val_acc_history,
         "records_with_best_move": best_move_available,
         "records_with_teacher_value": teacher_value_available,
+        "records_with_raw_teacher_value": raw_teacher_value_available,
         "records_total": len(xs),
         "backend": "torch",
         "device": str(dev),
@@ -434,6 +870,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--learning-rate", type=float, default=0.05)
     ap.add_argument("--initial-checkpoint", type=Path, default=None)
+    ap.add_argument("--initial-optimizer-state", type=Path, default=None)
     ap.add_argument("--hidden-dim", type=int, default=64)
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
@@ -443,6 +880,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--adam-beta2", type=float, default=0.999)
     ap.add_argument("--adam-eps", type=float, default=1e-8)
     ap.add_argument("--grad-clip", type=float, default=5.0)
+    ap.add_argument("--loss-kind", choices=("mse", "huber", "wdl"), default="mse")
+    ap.add_argument("--huber-delta-cp", type=float, default=100.0)
+    ap.add_argument("--wdl-scale-cp", type=float, default=400.0)
+    ap.add_argument("--min-teacher-depth", type=int, default=0)
+    ap.add_argument("--primary-sample-fraction", type=float, default=0.5)
+    ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
+    ap.add_argument("--max-validation-samples", type=int, default=100000)
+    ap.add_argument("--validation-seed", type=int, default=20_260_802)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--device", default="auto")
     ap.add_argument("--out", type=Path, default=Path("out/nnue_torch_train"))
@@ -464,10 +909,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         adam_beta2=args.adam_beta2,
         adam_eps=args.adam_eps,
         grad_clip=args.grad_clip,
+        loss_kind=args.loss_kind,
+        huber_delta_cp=args.huber_delta_cp,
+        wdl_scale_cp=args.wdl_scale_cp,
+        min_teacher_depth=args.min_teacher_depth,
+        primary_sample_fraction=args.primary_sample_fraction,
+        validation_jsonl_dir=args.validation_jsonl_dir,
+        max_validation_samples=args.max_validation_samples,
+        validation_seed=args.validation_seed,
         seed=args.seed,
         out_dir=args.out,
         device=args.device,
         initial_checkpoint=args.initial_checkpoint,
+        initial_optimizer_state=args.initial_optimizer_state,
     )
     print(f"Train samples: {metrics['train_samples']}")
     print(f"Val samples: {metrics['val_samples']}")
@@ -475,6 +929,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"Best val loss: {metrics['best_val_loss']:.6f}")
     print(f"Wrote: {(args.out / 'checkpoint.json').as_posix()}")
     print(f"Wrote: {(args.out / 'metrics.json').as_posix()}")
+    print(f"Wrote: {(args.out / 'optimizer.pt').as_posix()}")
     return 0
 
 

@@ -28,6 +28,10 @@ fn selfplay_generates_games_deterministically() {
     assert_eq!(g2.len(), 2);
     // Deterministic by seed
     assert_eq!(g1[0].moves, g2[0].moves);
+    assert_eq!(g1[0].run_id, g2[0].run_id);
+    assert_eq!(g1[0].game_id, g2[0].game_id);
+    assert_eq!(g1[0].run_id, g1[1].run_id);
+    assert_ne!(g1[0].game_id, g1[1].game_id);
 }
 
 #[test]
@@ -121,6 +125,8 @@ fn selfplay_parallel_random_matches_serial_by_seed() {
         assert_eq!(serial[i].start_fen, parallel[i].start_fen);
         assert_eq!(serial[i].moves, parallel[i].moves);
         assert_eq!(serial[i].result, parallel[i].result);
+        assert_eq!(serial[i].run_id, parallel[i].run_id);
+        assert_eq!(serial[i].game_id, parallel[i].game_id);
     }
 }
 
@@ -154,5 +160,7 @@ fn selfplay_parallel_engine_matches_serial_by_seed() {
         assert_eq!(serial[i].start_fen, parallel[i].start_fen);
         assert_eq!(serial[i].moves, parallel[i].moves);
         assert_eq!(serial[i].result, parallel[i].result);
+        assert_eq!(serial[i].run_id, parallel[i].run_id);
+        assert_eq!(serial[i].game_id, parallel[i].game_id);
     }
 }

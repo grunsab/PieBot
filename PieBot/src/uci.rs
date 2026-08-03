@@ -448,10 +448,15 @@ impl UciEngine {
                 // Attempt to load the dense-f32 dev format (PIENNUE1)
                 match Nnue::load(value) {
                     Ok(nn) => {
-                        let expected = crate::eval::nnue::features::halfkp_dim();
-                        if nn.meta.input_dim != expected {
+                        if crate::eval::nnue::features::HalfKpSchema::from_input_dim(
+                            nn.meta.input_dim,
+                        )
+                        .is_none()
+                        {
+                            let legacy = crate::eval::nnue::features::halfkp_dim();
+                            let full = crate::eval::nnue::features::halfkp_v2_dim();
                             return Some(format!(
-                                "info string failed to load NNUEFile: incompatible input_dim {}; expected HalfKP input_dim {expected}",
+                                "info string failed to load NNUEFile: incompatible input_dim {}; expected supported HalfKP input_dim {legacy} or {full}",
                                 nn.meta.input_dim
                             ));
                         }
@@ -466,10 +471,15 @@ impl UciEngine {
             }
             "nnuequantfile" => match QuantNnue::load_quantized(value) {
                 Ok(model) => {
-                    let expected = crate::eval::nnue::features::halfkp_dim();
-                    if model.meta.input_dim != expected {
+                    if crate::eval::nnue::features::HalfKpSchema::from_input_dim(
+                        model.meta.input_dim,
+                    )
+                    .is_none()
+                    {
+                        let legacy = crate::eval::nnue::features::halfkp_dim();
+                        let full = crate::eval::nnue::features::halfkp_v2_dim();
                         return Some(format!(
-                            "info string failed to load NNUEQuantFile: incompatible input_dim {}; expected HalfKP input_dim {expected}",
+                            "info string failed to load NNUEQuantFile: incompatible input_dim {}; expected supported HalfKP input_dim {legacy} or {full}",
                             model.meta.input_dim
                         ));
                     }
@@ -621,7 +631,7 @@ impl UciEngine {
 #[cfg(all(test, not(feature = "board-pleco")))]
 mod tests {
     use super::*;
-    use crate::eval::nnue::features::halfkp_dim;
+    use crate::eval::nnue::features::{halfkp_dim, halfkp_v2_dim};
     use cozy_chess::{Color, Piece, Square};
     use std::fs::File;
     use std::io::Write;
@@ -797,6 +807,31 @@ mod tests {
             score_after_dense_load, -29,
             "new dense model must replace the old quantized model"
         );
+    }
+
+    #[test]
+    fn uci_accepts_full_perspective_nnue_models() {
+        let quant_path = quant_model_path("full_perspective_quant");
+        let dense_path = quant_model_path("full_perspective_dense");
+        write_quant_model(&quant_path, halfkp_v2_dim(), 37);
+        write_dense_model(&dense_path, halfkp_v2_dim(), -19.0);
+
+        let mut engine = UciEngine::new();
+        assert_eq!(
+            engine.apply_setoption("NNUEQuantFile", quant_path.to_str().unwrap()),
+            None
+        );
+        engine.apply_setoption("UseNNUE", "true");
+        assert_eq!(engine.searcher.qsearch_eval_cp(engine.pos.board()), 37);
+
+        assert_eq!(
+            engine.apply_setoption("NNUEFile", dense_path.to_str().unwrap()),
+            None
+        );
+        assert_eq!(engine.searcher.qsearch_eval_cp(engine.pos.board()), -19);
+
+        let _ = std::fs::remove_file(quant_path);
+        let _ = std::fs::remove_file(dense_path);
     }
 
     #[test]

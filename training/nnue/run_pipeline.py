@@ -770,10 +770,11 @@ def _write_training_stage_manifest(
     provenance: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     _load_training_artifacts(train_dir)
-    snapshot = _artifact_snapshot(
-        train_dir,
-        [train_dir / "checkpoint.json", train_dir / "metrics.json"],
-    )
+    artifacts = [train_dir / "checkpoint.json", train_dir / "metrics.json"]
+    optimizer_path = train_dir / "optimizer.pt"
+    if optimizer_path.is_file():
+        artifacts.append(optimizer_path)
+    snapshot = _artifact_snapshot(train_dir, artifacts)
     manifest: Dict[str, Any] = {
         "version": 1,
         "stage": "train",
@@ -798,10 +799,11 @@ def _validated_training_stage_manifest(
         if expected_provenance is not None and manifest.get("provenance") != expected_provenance:
             return None
         _load_training_artifacts(train_dir)
-        snapshot = _artifact_snapshot(
-            train_dir,
-            [train_dir / "checkpoint.json", train_dir / "metrics.json"],
-        )
+        artifacts = [train_dir / "checkpoint.json", train_dir / "metrics.json"]
+        optimizer_path = train_dir / "optimizer.pt"
+        if optimizer_path.is_file():
+            artifacts.append(optimizer_path)
+        snapshot = _artifact_snapshot(train_dir, artifacts)
         if manifest.get("files") != snapshot["files"]:
             return None
         if manifest.get("fingerprint") != snapshot["fingerprint"]:
@@ -1115,6 +1117,14 @@ def run_pipeline(
     adam_beta2: float = 0.999,
     adam_eps: float = 1e-8,
     grad_clip: float = 5.0,
+    primary_sample_fraction: float = 0.5,
+    min_teacher_depth: int = 0,
+    loss_kind: str = "mse",
+    huber_delta_cp: float = 100.0,
+    wdl_scale_cp: float = 400.0,
+    validation_jsonl_dir: Optional[Path] = None,
+    max_validation_samples: int = 100_000,
+    validation_seed: int = 20_260_802,
     seed: int = 1,
     cp_scale: float = 100.0,
     dense_name: str = "nnue_dense.nnue",
@@ -1123,6 +1133,8 @@ def run_pipeline(
     trainer_backend: str = "stub",
     trainer_device: str = "auto",
     initial_checkpoint: Optional[Path] = None,
+    initial_optimizer_state: Optional[Path] = None,
+    continue_optimizer_state: bool = False,
 ) -> Dict[str, Any]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1274,6 +1286,25 @@ def run_pipeline(
     checkpoint_path = train_out / "checkpoint.json"
     metrics_path = train_out / "metrics.json"
     resolved_backend = _resolve_trainer_backend(trainer_backend, trainer_device=trainer_device)
+    validation_dataset = None
+    if validation_jsonl_dir is not None:
+        validation_dataset = _merged_source_provenance(
+            [Path(validation_jsonl_dir)]
+        )[0]
+
+    resolved_initial_optimizer: Optional[Path] = None
+    if resolved_backend == "torch":
+        if initial_optimizer_state is not None:
+            resolved_initial_optimizer = Path(initial_optimizer_state)
+            if not resolved_initial_optimizer.is_file():
+                raise ValueError(
+                    f"initial optimizer state does not exist: {resolved_initial_optimizer}"
+                )
+        elif continue_optimizer_state and initial_checkpoint is not None:
+            sibling = Path(initial_checkpoint).parent / "optimizer.pt"
+            if sibling.is_file():
+                resolved_initial_optimizer = sibling
+    initial_optimizer_info = _file_content_identity(resolved_initial_optimizer)
     training_config: Dict[str, Any] = {
         "batch_size": batch_size,
         "max_samples": max_samples,
@@ -1289,12 +1320,26 @@ def run_pipeline(
         "adam_beta2": adam_beta2,
         "adam_eps": adam_eps,
         "grad_clip": grad_clip,
+        "primary_sample_fraction": primary_sample_fraction,
+        "min_teacher_depth": min_teacher_depth,
+        "loss_kind": loss_kind,
+        "huber_delta_cp": huber_delta_cp,
+        "wdl_scale_cp": wdl_scale_cp,
+        "validation_jsonl_dir": (
+            _normalized_path(Path(validation_jsonl_dir))
+            if validation_jsonl_dir is not None
+            else None
+        ),
+        "max_validation_samples": max_validation_samples,
+        "validation_seed": validation_seed,
         "seed": seed,
     }
     initial_checkpoint_info = _initial_checkpoint_provenance(initial_checkpoint)
     training_provenance_config = {
         **training_config,
         "initial_checkpoint": initial_checkpoint_info,
+        "initial_optimizer_state": initial_optimizer_info,
+        "validation_dataset": validation_dataset,
     }
     training_provenance = _training_provenance(
         train_jsonl_dir=train_jsonl_dir,
@@ -1328,6 +1373,7 @@ def run_pipeline(
             train_torch.train_model(  # type: ignore[union-attr]
                 device=trainer_device,
                 initial_checkpoint=initial_checkpoint,
+                initial_optimizer_state=resolved_initial_optimizer,
                 **train_kwargs,
             )
         else:
@@ -1346,6 +1392,16 @@ def run_pipeline(
             raise ValueError("trainer warm-start checkpoint SHA-256 mismatch")
         if initialized_from.get("path") != initial_checkpoint_info["path"]:
             raise ValueError("trainer warm-start checkpoint path mismatch")
+    if initial_optimizer_info is not None:
+        initialized_optimizer = metrics.get("initialized_optimizer_state")
+        if not isinstance(initialized_optimizer, dict):
+            raise ValueError("trainer did not record optimizer-state provenance")
+        if initialized_optimizer.get("sha256") != initial_optimizer_info["sha256"]:
+            raise ValueError("trainer optimizer-state SHA-256 mismatch")
+        if initialized_optimizer.get("path") != initial_optimizer_info["path"]:
+            raise ValueError("trainer optimizer-state path mismatch")
+        if not bool(metrics.get("optimizer_state_restored")):
+            raise ValueError("trainer did not restore the requested optimizer state")
 
     dense_path = out_dir / dense_name
     quant_path = out_dir / quant_name
@@ -1417,7 +1473,19 @@ def run_pipeline(
         "checkpoint_path": str(checkpoint_path),
         "checkpoint_sha256": _sha256_file(checkpoint_path),
         "initial_checkpoint": initial_checkpoint_info,
+        "initial_optimizer_state": initial_optimizer_info,
+        "validation_dataset": validation_dataset,
         "metrics_path": str(metrics_path),
+        "optimizer_path": (
+            str(train_out / "optimizer.pt")
+            if (train_out / "optimizer.pt").is_file()
+            else None
+        ),
+        "optimizer_sha256": (
+            _sha256_file(train_out / "optimizer.pt")
+            if (train_out / "optimizer.pt").is_file()
+            else None
+        ),
         "dense_path": str(dense_path),
         "quant_path": str(quant_path),
         "quant_sha256": _sha256_file(quant_path),
@@ -1496,6 +1564,26 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--adam-beta2", type=float, default=0.999)
     ap.add_argument("--adam-eps", type=float, default=1e-8)
     ap.add_argument("--grad-clip", type=float, default=5.0)
+    ap.add_argument("--primary-sample-fraction", type=float, default=0.5)
+    ap.add_argument("--min-teacher-depth", type=int, default=0)
+    ap.add_argument("--loss-kind", choices=["mse", "huber", "wdl"], default="mse")
+    ap.add_argument("--huber-delta-cp", type=float, default=100.0)
+    ap.add_argument("--wdl-scale-cp", type=float, default=400.0)
+    ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
+    ap.add_argument("--max-validation-samples", type=int, default=100_000)
+    ap.add_argument("--validation-seed", type=int, default=20_260_802)
+    ap.add_argument(
+        "--initial-optimizer-state",
+        type=Path,
+        default=None,
+        help="Compatible Torch optimizer.pt used to continue Adam moments",
+    )
+    ap.add_argument(
+        "--continue-optimizer-state",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use optimizer.pt beside --initial-checkpoint when available",
+    )
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument(
         "--trainer-backend",
@@ -1571,10 +1659,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         adam_beta2=args.adam_beta2,
         adam_eps=args.adam_eps,
         grad_clip=args.grad_clip,
+        primary_sample_fraction=args.primary_sample_fraction,
+        min_teacher_depth=args.min_teacher_depth,
+        loss_kind=args.loss_kind,
+        huber_delta_cp=args.huber_delta_cp,
+        wdl_scale_cp=args.wdl_scale_cp,
+        validation_jsonl_dir=args.validation_jsonl_dir,
+        max_validation_samples=args.max_validation_samples,
+        validation_seed=args.validation_seed,
         seed=args.seed,
         trainer_backend=args.trainer_backend,
         trainer_device=args.trainer_device,
         initial_checkpoint=args.initial_checkpoint,
+        initial_optimizer_state=args.initial_optimizer_state,
+        continue_optimizer_state=args.continue_optimizer_state,
         resume=args.resume,
         cp_scale=args.cp_scale,
         dense_name=args.dense_name,

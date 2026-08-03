@@ -86,9 +86,9 @@ def _select_lock_backend() -> _FileLockBackend:
 
 
 def zen5_9755_7d_profile() -> Dict[str, Any]:
-    """Defaults tuned for a 7-day unattended run on Zen5 9755."""
+    """Defaults tuned for sustained NNUE-v2 training on a Zen5 9755 VM."""
     return {
-        "selfplay_games": 12_000,
+        "selfplay_games": 8_000,
         "selfplay_max_plies": 160,
         "selfplay_threads": 1,
         "selfplay_parallel_games": 0,
@@ -100,19 +100,19 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_dirichlet_epsilon": 0.25,
         "selfplay_dirichlet_plies": 12,
         "selfplay_seed": 42,
-        "teacher_relabel_depth": 5,
-        "teacher_relabel_every": 8,
+        "teacher_relabel_depth": 6,
+        "teacher_relabel_every": 4,
         "teacher_relabel_threads": 48,
         "teacher_relabel_hash_mb": 4096,
         "teacher_relabel_max_records": 0,
         "batch_size": 4096,
-        "max_samples": 350_000,
+        "max_samples": 700_000,
         "epochs": 2,
-        "hidden_dim": 64,
+        "hidden_dim": 128,
         "target_cp": 100.0,
         "teacher_mix": 0.8,
         "max_teacher_cp": 1200.0,
-        "learning_rate": 0.03,
+        "learning_rate": 0.003,
         "warm_start_learning_rate": 0.001,
         "val_split": 0.1,
         "seed": 1,
@@ -121,7 +121,16 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "resume": True,
         "retain_full_cycles": 0,
         "replay_window_cycles": 6,
-        "teacher_lag_cycles": 1,
+        "primary_sample_fraction": 0.5,
+        "teacher_lag_cycles": 0,
+        "min_teacher_depth": 6,
+        "loss_kind": "wdl",
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+        "validation_jsonl_dir": None,
+        "max_validation_samples": 100_000,
+        "validation_seed": 20_260_802,
+        "continue_optimizer_state": True,
         "gate_games": 24,
         "gate_movetime_ms": 150,
         "gate_noise_plies": 12,
@@ -188,8 +197,27 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--teacher-relabel-hash-mb", type=int, default=None)
     ap.add_argument("--batch-size", type=int, default=None)
     ap.add_argument("--max-samples", type=int, default=None)
+    ap.add_argument(
+        "--primary-sample-fraction",
+        type=float,
+        default=None,
+        help="Minimum fraction of a capped training sample reserved for the current cycle",
+    )
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--hidden-dim", type=int, default=None)
+    ap.add_argument("--min-teacher-depth", type=int, default=None)
+    ap.add_argument("--loss-kind", default=None)
+    ap.add_argument("--huber-delta-cp", type=float, default=None)
+    ap.add_argument("--wdl-scale-cp", type=float, default=None)
+    ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
+    ap.add_argument("--max-validation-samples", type=int, default=None)
+    ap.add_argument("--validation-seed", type=int, default=None)
+    ap.add_argument(
+        "--continue-optimizer-state",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Continue optimizer moments alongside a warm-started model checkpoint",
+    )
     ap.add_argument("--learning-rate", type=float, default=None)
     ap.add_argument("--warm-start-learning-rate", type=float, default=None)
     ap.add_argument(
@@ -274,8 +302,17 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "teacher_relabel_hash_mb": args.teacher_relabel_hash_mb,
         "batch_size": args.batch_size,
         "max_samples": args.max_samples,
+        "primary_sample_fraction": args.primary_sample_fraction,
         "epochs": args.epochs,
         "hidden_dim": args.hidden_dim,
+        "min_teacher_depth": args.min_teacher_depth,
+        "loss_kind": args.loss_kind,
+        "huber_delta_cp": args.huber_delta_cp,
+        "wdl_scale_cp": args.wdl_scale_cp,
+        "validation_jsonl_dir": args.validation_jsonl_dir,
+        "max_validation_samples": args.max_validation_samples,
+        "validation_seed": args.validation_seed,
+        "continue_optimizer_state": args.continue_optimizer_state,
         "learning_rate": args.learning_rate,
         "warm_start_learning_rate": args.warm_start_learning_rate,
         "warm_start": args.warm_start,
@@ -364,18 +401,47 @@ def _resolve_active_quant_path(state: Dict[str, Any]) -> Optional[Path]:
     return None
 
 
-def _resolve_teacher_quant_path(state: Dict[str, Any], lag_cycles: int) -> Optional[Path]:
+def _accepted_model_promoted_blend(model: Dict[str, Any], accepted_index: int) -> int:
+    gate = model.get("gate")
+    raw_blend = (
+        gate.get("experimental_blend_percent")
+        if isinstance(gate, dict)
+        else None
+    )
+    if raw_blend is None:
+        raw_blend = model.get("blend_percent")
+    if isinstance(raw_blend, (int, float)) and math.isfinite(float(raw_blend)):
+        return max(0, min(100, int(raw_blend)))
+
+    # Older state did not persist a promoted blend. Reconstruct the historical
+    # 25/50/75/100 ramp from the acceptance's position in the list.
+    ramp = (25, 50, 75, 100)
+    return int(ramp[min(max(0, int(accepted_index)), len(ramp) - 1)])
+
+
+def _resolve_teacher_quant_and_blend(
+    state: Dict[str, Any], lag_cycles: int
+) -> tuple[Optional[Path], int]:
     lag = max(0, int(lag_cycles))
     accepted = state.get("accepted_models")
     if isinstance(accepted, list) and accepted:
         idx = len(accepted) - 1 - lag
         if idx >= 0 and isinstance(accepted[idx], dict):
-            return _verified_quant_path(
-                accepted[idx].get("quant_path"),
-                expected_sha256=accepted[idx].get("quant_sha256"),
-                label="teacher model",
+            model = accepted[idx]
+            return (
+                _verified_quant_path(
+                    model.get("quant_path"),
+                    expected_sha256=model.get("quant_sha256"),
+                    label="teacher model",
+                ),
+                _accepted_model_promoted_blend(model, idx),
             )
-    return _resolve_active_quant_path(state)
+    return _resolve_active_quant_path(state), _active_model_blend_percent(state)
+
+
+def _resolve_teacher_quant_path(state: Dict[str, Any], lag_cycles: int) -> Optional[Path]:
+    teacher_quant, _ = _resolve_teacher_quant_and_blend(state, lag_cycles)
+    return teacher_quant
 
 
 def _collect_replay_jsonl_dirs(state: Dict[str, Any], window_cycles: int) -> list[Path]:
@@ -408,6 +474,10 @@ def _resolve_training_checkpoint_path(
 ) -> Optional[Path]:
     if "training_checkpoint_path" in state:
         raw = state.get("training_checkpoint_path")
+        if raw is None:
+            # Current-schema null is an explicit lineage reset. Do not revive an
+            # older checkpoint through the legacy completed-cycle fallback.
+            return None
         if raw:
             checkpoint = _path_if_exists(raw)
             if checkpoint is None:
@@ -912,7 +982,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 try:
                     kwargs = _filter_run_pipeline_kwargs(defaults)
                     bootstrap_quant = _resolve_bootstrap_quant_path(state)
-                    teacher_quant = _resolve_teacher_quant_path(
+                    teacher_quant, teacher_blend = _resolve_teacher_quant_and_blend(
                         state,
                         int(defaults.get("teacher_lag_cycles", 0)),
                     )
@@ -946,7 +1016,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                             "selfplay_nnue_quant_file": bootstrap_quant,
                             "selfplay_nnue_blend_percent": active_blend,
                             "teacher_relabel_nnue_quant_file": teacher_quant,
-                            "teacher_relabel_nnue_blend_percent": active_blend,
+                            "teacher_relabel_nnue_blend_percent": teacher_blend,
                             "replay_jsonl_dirs": replay_dirs,
                             "initial_checkpoint": initial_checkpoint,
                             "learning_rate": cycle_learning_rate,

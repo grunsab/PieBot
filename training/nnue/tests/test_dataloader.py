@@ -22,6 +22,9 @@ class DataloaderTests(unittest.TestCase):
             'fen': '8/8/8/8/8/8/P7/8 w - - 0 0',
             'result_q': 0.75,
             'value_cp': 123.5,
+            'teacher_depth': 6,
+            'run_id': 'run-42',
+            'game_id': 'run-42-game-7',
             'ply': 7,
             'played_move': 'a2a4',
             'target_best_move': 'a2a3',
@@ -35,10 +38,26 @@ class DataloaderTests(unittest.TestCase):
         self.assertEqual(sample.result, 1)
         self.assertAlmostEqual(sample.result_q, 0.75)
         self.assertAlmostEqual(sample.value_cp, 123.5)
+        self.assertEqual(sample.teacher_depth, 6)
+        self.assertEqual(sample.run_id, 'run-42')
+        self.assertEqual(sample.game_id, 'run-42-game-7')
         self.assertEqual(sample.ply, 7)
         self.assertEqual(sample.best_move, 'a2a3')
         self.assertEqual(sample.policy_top[0][0], 'a2a3')
         self.assertTrue(sample.outcome_valid)
+
+    def test_teacher_depth_and_ids_are_optional_and_strictly_typed(self) -> None:
+        record = {
+            'fen': '8/8/8/8/8/8/4K3/7k w - - 0 1',
+            'result': 0,
+            'teacher_depth': '6',
+            'run_id': 42,
+            'game_id': None,
+        }
+        sample = next(dataloader.jsonl_to_training_samples([record]))
+        self.assertIsNone(sample.teacher_depth)
+        self.assertIsNone(sample.run_id)
+        self.assertIsNone(sample.game_id)
 
     def test_outcome_valid_is_backward_compatible_and_can_be_false(self) -> None:
         records = [

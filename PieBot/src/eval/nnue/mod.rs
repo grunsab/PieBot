@@ -26,7 +26,7 @@ pub struct Nnue {
     b2: Vec<f32>, // output_dim
     // Cached incremental state for callers that use refresh/update APIs.
     acc: Vec<f32>,          // pre-ReLU hidden sums
-    active: HashSet<usize>, // active HalfKP indices when input_dim == halfkp_dim()
+    active: HashSet<usize>, // active indices for the HalfKP schema selected by input_dim
     current_board: Option<Board>,
 }
 
@@ -100,7 +100,7 @@ impl Nnue {
         if self.current_board.as_ref() == Some(board) && self.acc.len() == self.meta.hidden_dim {
             return self.eval_from_acc();
         }
-        if self.meta.input_dim == features::halfkp_dim() {
+        if self.halfkp_schema().is_some() {
             return self.eval_halfkp_sparse(board);
         }
         let x = self.features(board);
@@ -110,7 +110,7 @@ impl Nnue {
     pub fn refresh_accumulator(&mut self, board: &Board) {
         self.recompute_acc(board);
         self.current_board = Some(board.clone());
-        if self.meta.input_dim == features::halfkp_dim() {
+        if self.halfkp_schema().is_some() {
             self.active = self.halfkp_active_set(board);
         } else {
             self.active.clear();
@@ -123,11 +123,11 @@ impl Nnue {
         };
         next_board.play_unchecked(mv);
 
-        if self.meta.input_dim == features::halfkp_dim() && !self.active.is_empty() {
+        if self.halfkp_schema().is_some() && !self.active.is_empty() {
             self.apply_halfkp_delta(&next_board);
         } else {
             self.recompute_acc(&next_board);
-            if self.meta.input_dim == features::halfkp_dim() {
+            if self.halfkp_schema().is_some() {
                 self.active = self.halfkp_active_set(&next_board);
             } else {
                 self.active.clear();
@@ -158,9 +158,9 @@ impl Nnue {
             }
             return out;
         }
-        if n == features::halfkp_dim() {
+        if let Some(schema) = self.halfkp_schema() {
             let mut out = vec![0.0; n];
-            for idx in features::HalfKpA.active_indices(board) {
+            for idx in schema.active_indices(board) {
                 out[idx] = 1.0;
             }
             return out;
@@ -224,7 +224,7 @@ impl Nnue {
         if self.acc.len() != h {
             self.acc = vec![0.0; h];
         }
-        if n == features::halfkp_dim() {
+        if self.halfkp_schema().is_some() {
             self.acc.copy_from_slice(&self.b1);
             let active = self.halfkp_active_set(board);
             for &idx in &active {
@@ -246,10 +246,16 @@ impl Nnue {
     }
 
     fn halfkp_active_set(&self, board: &Board) -> HashSet<usize> {
-        features::HalfKpA
+        self.halfkp_schema()
+            .expect("HalfKP active set requires a supported input dimension")
             .active_indices(board)
             .into_iter()
             .collect()
+    }
+
+    #[inline]
+    fn halfkp_schema(&self) -> Option<features::HalfKpSchema> {
+        features::HalfKpSchema::from_input_dim(self.meta.input_dim)
     }
 
     fn apply_halfkp_delta(&mut self, after: &Board) {
