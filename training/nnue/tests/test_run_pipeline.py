@@ -7,7 +7,7 @@ from unittest import mock
 from training.nnue import run_pipeline
 
 
-def _write_dataset(root: Path, n: int = 90) -> None:
+def _write_dataset(root: Path, n: int = 90, teacher_depth: int | None = None) -> None:
     file_path = root / "shard_000000.jsonl"
     white_win = {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1}
     draw = {"fen": "k7/8/8/8/8/8/8/K7 w - - 0 1", "result": 0}
@@ -15,6 +15,8 @@ def _write_dataset(root: Path, n: int = 90) -> None:
     samples = [white_win, draw, black_win] * (n // 3)
     with file_path.open("w", encoding="utf-8") as handle:
         for rec in samples:
+            if teacher_depth is not None:
+                rec = {**rec, "value_cp": 0.0, "teacher_depth": teacher_depth}
             handle.write(json.dumps(rec) + "\n")
 
 
@@ -261,6 +263,51 @@ class RunPipelineTests(unittest.TestCase):
 
             shard.write_text(shard.read_text(encoding="utf-8") + "{}\n", encoding="utf-8")
             self.assertFalse(run_pipeline._jsonl_stage_is_complete(stage_dir, "selfplay"))
+
+    def test_relabel_provenance_invalidates_legacy_fixed_phase_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_dir = root / "input"
+            output_dir = root / "output"
+            input_dir.mkdir()
+            output_dir.mkdir()
+            sample = '{"fen":"8/8/8/8/8/8/4K3/7k w - - 0 1","result":0}\n'
+            (input_dir / "shard_000000.jsonl").write_text(sample, encoding="utf-8")
+            (output_dir / "shard_000000.jsonl").write_text(sample, encoding="utf-8")
+
+            expected = run_pipeline._relabel_stage_provenance(
+                piebot_dir=root / "PieBot",
+                jsonl_in=input_dir,
+                depth=6,
+                every=4,
+                threads=2,
+                hash_mb=64,
+                max_records=0,
+                nnue_quant_file=None,
+                nnue_blend_percent=75,
+            )
+            self.assertEqual(2, expected["version"])
+            self.assertEqual(
+                "per-game-fnv1a-phase-v1",
+                expected["selection_policy"],
+            )
+
+            legacy = dict(expected)
+            legacy["version"] = 1
+            legacy.pop("selection_policy")
+            run_pipeline._write_jsonl_stage_manifest(
+                output_dir,
+                "relabel",
+                provenance=legacy,
+            )
+
+            self.assertIsNone(
+                run_pipeline._validated_jsonl_stage_manifest(
+                    output_dir,
+                    "relabel",
+                    expected_provenance=expected,
+                )
+            )
 
     def test_resume_selfplay_binds_seed_model_content_and_manifest_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -577,7 +624,7 @@ class RunPipelineTests(unittest.TestCase):
             data_dir.mkdir()
             validation_dir.mkdir()
             _write_dataset(data_dir, n=12)
-            _write_dataset(validation_dir, n=6)
+            _write_dataset(validation_dir, n=6, teacher_depth=6)
             kwargs = {
                 "jsonl_dir": data_dir,
                 "out_dir": out_dir,
@@ -586,11 +633,13 @@ class RunPipelineTests(unittest.TestCase):
                 "epochs": 1,
                 "hidden_dim": 1,
                 "primary_sample_fraction": 0.5,
+                "teacher_sample_fraction": 0.5,
                 "min_teacher_depth": 6,
                 "loss_kind": "wdl",
                 "huber_delta_cp": 80.0,
                 "wdl_scale_cp": 400.0,
                 "validation_jsonl_dir": validation_dir,
+                "validation_require_teacher": True,
                 "max_validation_samples": 4,
                 "validation_seed": 123,
                 "trainer_backend": "stub",
@@ -599,6 +648,16 @@ class RunPipelineTests(unittest.TestCase):
 
             first = run_pipeline.run_pipeline(**kwargs)
             self.assertEqual("wdl", first["metrics"]["loss_kind"])
+            self.assertEqual(
+                run_pipeline.train_stub.TARGET_SCHEMA,
+                first["metrics"]["target_schema"],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.TARGET_SCHEMA,
+                first["metrics"]["objective"]["target_schema"],
+            )
+            self.assertEqual(0.5, first["metrics"]["teacher_sample_fraction"])
+            self.assertTrue(first["metrics"]["validation_require_teacher"])
             self.assertEqual(12, first["metrics"]["train_samples"])
             self.assertEqual(4, first["metrics"]["val_samples"])
             self.assertEqual(
@@ -621,6 +680,103 @@ class RunPipelineTests(unittest.TestCase):
                 first["validation_dataset"]["fingerprint"],
                 changed["validation_dataset"]["fingerprint"],
             )
+
+    def test_training_identity_validation_rejects_mismatched_checkpoint_metadata(self) -> None:
+        objective = run_pipeline.train_stub.objective_metadata(
+            loss_kind="wdl",
+            target_cp=100.0,
+            teacher_mix=0.8,
+            max_teacher_cp=1200.0,
+            outcome_decay=1.0,
+            min_teacher_depth=6,
+            huber_delta_cp=100.0,
+            wdl_scale_cp=400.0,
+        )
+        metrics = {
+            "target_schema": run_pipeline.train_stub.TARGET_SCHEMA,
+            "objective": objective,
+        }
+        with self.assertRaisesRegex(ValueError, "checkpoint target schema"):
+            run_pipeline._validate_training_target_identity(
+                {
+                    "target_schema": "hard-outcome-v1",
+                    "objective": objective,
+                },
+                metrics,
+                objective,
+            )
+        with self.assertRaisesRegex(ValueError, "checkpoint objective"):
+            run_pipeline._validate_training_target_identity(
+                {
+                    "target_schema": run_pipeline.train_stub.TARGET_SCHEMA,
+                    "objective": {**objective, "target_cp": 200.0},
+                },
+                metrics,
+                objective,
+            )
+
+    def test_pipeline_rejects_validation_source_used_for_training(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            validation_dir = root / "validation"
+            data_dir.mkdir()
+            validation_dir.mkdir()
+            _write_dataset(data_dir, n=6, teacher_depth=6)
+            _write_dataset(validation_dir, n=3, teacher_depth=6)
+
+            with self.assertRaisesRegex(ValueError, "validation.*training"):
+                run_pipeline.run_pipeline(
+                    out_dir=root / "out",
+                    jsonl_dir=data_dir,
+                    replay_jsonl_dirs=[validation_dir],
+                    batch_size=2,
+                    max_samples=6,
+                    epochs=1,
+                    hidden_dim=1,
+                    validation_jsonl_dir=validation_dir,
+                    validation_require_teacher=True,
+                    max_validation_samples=3,
+                    trainer_backend="stub",
+                )
+
+    def test_validation_isolation_rejects_copied_shards_and_game_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            training_dir = root / "training"
+            copied_dir = root / "copied-validation"
+            overlapping_game_dir = root / "game-validation"
+            training_dir.mkdir()
+            copied_dir.mkdir()
+            overlapping_game_dir.mkdir()
+            shared = {
+                "run_id": "train-run",
+                "game_id": "train-game-1",
+                "fen": "8/8/8/8/8/8/4K3/7k w - - 0 1",
+                "result": 0,
+            }
+            shard = training_dir / "shard_000000.jsonl"
+            shard.write_text(json.dumps(shared) + "\n", encoding="utf-8")
+            (training_dir / "shard_000001.jsonl").write_text(
+                json.dumps({**shared, "game_id": "train-game-2"}) + "\n",
+                encoding="utf-8",
+            )
+            (copied_dir / "renamed.jsonl").write_bytes(shard.read_bytes())
+            (overlapping_game_dir / "different.jsonl").write_text(
+                json.dumps({**shared, "value_cp": 42.0, "teacher_depth": 6}) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "copied shard"):
+                run_pipeline._assert_validation_source_disjoint(
+                    copied_dir,
+                    [training_dir],
+                )
+            with self.assertRaisesRegex(ValueError, "game provenance"):
+                run_pipeline._assert_validation_source_disjoint(
+                    overlapping_game_dir,
+                    [training_dir],
+                )
 
     @unittest.skipUnless(
         run_pipeline.train_torch is not None
@@ -694,7 +850,9 @@ class RunPipelineTests(unittest.TestCase):
                 "training.nnue.train_torch.train_model",
                 wraps=run_pipeline.train_torch.train_model,
             ) as train:
-                changed = run_pipeline.run_pipeline(**child_kwargs)
+                changed = run_pipeline.run_pipeline(
+                    **{**child_kwargs, "continue_optimizer_state": False}
+                )
             self.assertEqual(1, train.call_count)
             self.assertNotEqual(
                 first["initial_checkpoint"]["sha256"],

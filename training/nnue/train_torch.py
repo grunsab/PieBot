@@ -103,6 +103,7 @@ def _load_initial_checkpoint(
     input_dim: int,
     hidden_dim: int,
     device: "torch.device",
+    objective: Dict[str, Any],
 ) -> Dict[str, Any]:
     path = Path(checkpoint_path)
     if not path.is_file():
@@ -127,14 +128,19 @@ def _load_initial_checkpoint(
             f"got {checkpoint.get('hidden_dim')}"
         )
     checkpoint_feature_set = checkpoint.get("feature_set")
-    if (
-        checkpoint_feature_set is not None
-        and checkpoint_feature_set != train_stub.FEATURE_SET
-    ):
+    if checkpoint_feature_set != train_stub.FEATURE_SET:
         raise ValueError(
             f"initial checkpoint feature_set mismatch: expected {train_stub.FEATURE_SET!r}, "
             f"got {checkpoint_feature_set!r}"
         )
+    checkpoint_target_schema = checkpoint.get("target_schema")
+    if checkpoint_target_schema != train_stub.TARGET_SCHEMA:
+        raise ValueError(
+            f"initial checkpoint target_schema mismatch: expected "
+            f"{train_stub.TARGET_SCHEMA!r}, got {checkpoint_target_schema!r}"
+        )
+    if checkpoint.get("objective") != objective:
+        raise ValueError("initial checkpoint objective does not match this training run")
 
     expected_lengths = {
         "w1": input_dim * hidden_dim,
@@ -177,6 +183,11 @@ def _load_initial_checkpoint(
             torch.tensor([b2], dtype=model.out.bias.dtype, device=device)
         )
 
+    optimizer_state = checkpoint.get("optimizer_state")
+    optimizer_state_sha256 = (
+        optimizer_state.get("sha256") if isinstance(optimizer_state, dict) else None
+    )
+
     return {
         "path": path.resolve().as_posix(),
         "sha256": _sha256_file(path),
@@ -184,14 +195,38 @@ def _load_initial_checkpoint(
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
         "feature_set": checkpoint_feature_set,
+        "target_schema": checkpoint_target_schema,
+        "objective": objective,
+        "optimizer_state_sha256": optimizer_state_sha256,
     }
 
 
-_OPTIMIZER_FORMAT = "piebot-torch-adam-v1"
+_OPTIMIZER_FORMAT = "piebot-torch-adam-v3"
 
 
 def _parameter_shapes(model: TorchNnue) -> Dict[str, List[int]]:
     return {name: list(parameter.shape) for name, parameter in model.named_parameters()}
+
+
+def _model_parameters_sha256(model: TorchNnue) -> str:
+    """Return a canonical digest of the exact float32 model parameters."""
+    digest = hashlib.sha256()
+    for name, parameter in sorted(model.named_parameters(), key=lambda item: item[0]):
+        shape = [int(dimension) for dimension in parameter.shape]
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(json.dumps(shape, separators=(",", ":")).encode("ascii"))
+        digest.update(b"\0")
+        values = (
+            parameter.detach()
+            .to(device="cpu", dtype=torch.float32)
+            .contiguous()
+            .numpy()
+            .astype("<f4", copy=False)
+        )
+        digest.update(values.tobytes(order="C"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _to_cpu_tree(value: Any) -> Any:
@@ -240,10 +275,17 @@ def _load_initial_optimizer_state(
     input_dim: int,
     hidden_dim: int,
     device: "torch.device",
+    objective: Dict[str, Any],
+    expected_sha256: Optional[str],
 ) -> Dict[str, Any]:
     path = Path(optimizer_path)
     if not path.is_file():
         raise ValueError(f"initial optimizer state does not exist: {path}")
+    actual_sha256 = _sha256_file(path)
+    if not isinstance(expected_sha256, str) or not expected_sha256:
+        raise ValueError("initial checkpoint does not bind an optimizer SHA-256")
+    if actual_sha256 != expected_sha256:
+        raise ValueError("initial optimizer SHA-256 does not match the initial checkpoint")
     try:
         payload = _torch_load(path)
     except Exception as exc:
@@ -262,9 +304,18 @@ def _load_initial_optimizer_state(
         )
     if payload.get("feature_set") != train_stub.FEATURE_SET:
         raise ValueError("initial optimizer feature_set does not match the model")
+    if payload.get("target_schema") != train_stub.TARGET_SCHEMA:
+        raise ValueError("initial optimizer target schema does not match the model")
+    if payload.get("objective") != objective:
+        raise ValueError("initial optimizer objective does not match this training run")
     expected_shapes = _parameter_shapes(model)
     if payload.get("parameter_shapes") != expected_shapes:
         raise ValueError("initial optimizer parameter shapes do not match the model")
+    model_parameters_sha256 = _model_parameters_sha256(model)
+    if payload.get("model_parameters_sha256") != model_parameters_sha256:
+        raise ValueError(
+            "initial optimizer model parameters do not match the initial checkpoint"
+        )
     state_dict = payload.get("state_dict")
     if not isinstance(state_dict, dict):
         raise ValueError("initial optimizer state_dict is missing")
@@ -287,11 +338,14 @@ def _load_initial_optimizer_state(
 
     return {
         "path": path.resolve().as_posix(),
-        "sha256": _sha256_file(path),
+        "sha256": actual_sha256,
         "format": _OPTIMIZER_FORMAT,
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
         "feature_set": train_stub.FEATURE_SET,
+        "target_schema": train_stub.TARGET_SCHEMA,
+        "objective": objective,
+        "model_parameters_sha256": model_parameters_sha256,
     }
 
 
@@ -303,13 +357,18 @@ def _save_optimizer_state(
     input_dim: int,
     hidden_dim: int,
     best_epoch: int,
+    objective: Dict[str, Any],
 ) -> Dict[str, Any]:
+    model_parameters_sha256 = _model_parameters_sha256(model)
     payload = {
         "format": _OPTIMIZER_FORMAT,
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
         "feature_set": train_stub.FEATURE_SET,
+        "target_schema": train_stub.TARGET_SCHEMA,
+        "objective": copy.deepcopy(objective),
         "parameter_shapes": _parameter_shapes(model),
+        "model_parameters_sha256": model_parameters_sha256,
         "best_epoch": int(best_epoch),
         "state_dict": _to_cpu_tree(state_dict),
     }
@@ -321,6 +380,9 @@ def _save_optimizer_state(
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
         "feature_set": train_stub.FEATURE_SET,
+        "target_schema": train_stub.TARGET_SCHEMA,
+        "objective": copy.deepcopy(objective),
+        "model_parameters_sha256": model_parameters_sha256,
         "best_epoch": int(best_epoch),
     }
 
@@ -381,14 +443,16 @@ def _eval_split(
     loss_kind: str,
     huber_delta_cp: float,
     wdl_scale_cp: float,
-) -> Tuple[float, float, float]:
+) -> Tuple[float, float, float, float, float]:
     if not xs:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
     model.eval()
     objective_sum = 0.0
     cp_squared_error_sum = 0.0
     n = 0
     correct = 0
+    prediction_abs_sum = 0.0
+    prediction_max_abs = 0.0
     with torch.no_grad():
         for start in range(0, len(xs), batch_size):
             bx = xs[start:start + batch_size]
@@ -410,6 +474,12 @@ def _eval_split(
             cp_squared_error_sum += float(
                 torch.sum(torch.square(pred - tgt_cp)).item()
             )
+            prediction_abs = torch.abs(pred)
+            prediction_abs_sum += float(torch.sum(prediction_abs).item())
+            prediction_max_abs = max(
+                prediction_max_abs,
+                float(torch.max(prediction_abs).item()),
+            )
             n += bs
             pred_lbl = torch.sign(pred).to(torch.int32)
             tgt_lbl = torch.sign(tgt_cp).to(torch.int32)
@@ -419,6 +489,8 @@ def _eval_split(
         objective_sum / denominator,
         cp_squared_error_sum / denominator,
         float(correct) / denominator,
+        prediction_abs_sum / denominator,
+        prediction_max_abs,
     )
 
 
@@ -448,19 +520,27 @@ def train_model(
     wdl_scale_cp: float = 400.0,
     min_teacher_depth: int = 0,
     primary_sample_fraction: float = 0.5,
+    teacher_sample_fraction: float = 0.5,
     validation_jsonl_dir: Optional[Path] = None,
     max_validation_samples: int = 100000,
     validation_seed: int = 20_260_802,
+    validation_require_teacher: bool = False,
     initial_optimizer_state: Optional[Path] = None,
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
+    if initial_optimizer_state is not None and initial_checkpoint is None:
+        raise ValueError("initial optimizer state requires an initial checkpoint")
     dev = _select_device(device)
 
     batch_size = max(1, int(batch_size))
     epochs = max(1, int(epochs))
     hidden_dim = max(1, int(hidden_dim))
     val_split = min(0.9, max(0.0, float(val_split)))
+    target_cp = max(1.0, float(target_cp))
+    teacher_mix = min(1.0, max(0.0, float(teacher_mix)))
+    max_teacher_cp = max(1.0, float(max_teacher_cp))
+    outcome_decay = min(1.0, max(0.0, float(outcome_decay)))
     loss_kind = str(loss_kind).lower()
     if loss_kind not in {"mse", "huber", "wdl"}:
         raise ValueError("loss_kind must be one of: mse, huber, wdl")
@@ -472,13 +552,25 @@ def train_model(
         raise ValueError("wdl_scale_cp must be finite and positive")
     min_teacher_depth = max(0, int(min_teacher_depth))
     primary_sample_fraction = min(1.0, max(0.0, float(primary_sample_fraction)))
+    teacher_sample_fraction = min(1.0, max(0.0, float(teacher_sample_fraction)))
     max_validation_samples = int(max_validation_samples)
     validation_seed = int(validation_seed)
+    validation_require_teacher = bool(validation_require_teacher)
     if (
         validation_jsonl_dir is not None
         and Path(validation_jsonl_dir).resolve() == Path(jsonl_dir).resolve()
     ):
         raise ValueError("fixed validation source must be separate from training data")
+    objective = train_stub.objective_metadata(
+        loss_kind=loss_kind,
+        target_cp=target_cp,
+        teacher_mix=teacher_mix,
+        max_teacher_cp=max_teacher_cp,
+        outcome_decay=outcome_decay,
+        min_teacher_depth=min_teacher_depth,
+        huber_delta_cp=huber_delta_cp,
+        wdl_scale_cp=wdl_scale_cp,
+    )
     rng = random.Random(seed)
     torch.manual_seed(seed)
     if dev.type == "cuda":
@@ -495,30 +587,22 @@ def train_model(
         max_samples,
         seed=seed,
         primary_sample_fraction=primary_sample_fraction,
+        teacher_sample_fraction=teacher_sample_fraction,
         min_teacher_depth=min_teacher_depth,
     ):
         xs.append(feats)
-        ys_cp.append(
-            train_stub._target_cp_for_record(
-                record,
-                target_cp=target_cp,
-                teacher_mix=teacher_mix,
-                max_teacher_cp=max_teacher_cp,
-                outcome_decay=outcome_decay,
-                min_teacher_depth=min_teacher_depth,
-            )
+        cp, probability = train_stub._targets_for_record(
+            record,
+            loss_kind=loss_kind,
+            target_cp=target_cp,
+            teacher_mix=teacher_mix,
+            max_teacher_cp=max_teacher_cp,
+            outcome_decay=outcome_decay,
+            min_teacher_depth=min_teacher_depth,
+            wdl_scale_cp=wdl_scale_cp,
         )
-        ys_wdl.append(
-            train_stub._target_wdl_probability_for_record(
-                record,
-                target_cp=target_cp,
-                teacher_mix=teacher_mix,
-                max_teacher_cp=max_teacher_cp,
-                outcome_decay=outcome_decay,
-                min_teacher_depth=min_teacher_depth,
-                wdl_scale_cp=wdl_scale_cp,
-            )
-        )
+        ys_cp.append(cp)
+        ys_wdl.append(probability)
         if record.best_move:
             best_move_available += 1
         if record.value_cp is not None:
@@ -527,6 +611,18 @@ def train_model(
             teacher_value_available += 1
     if not xs:
         raise ValueError("no training samples were loaded")
+    requested_teacher_samples = int(round(len(xs) * teacher_sample_fraction))
+    teacher_sampling_satisfied = teacher_value_available == requested_teacher_samples
+    if (
+        max_samples > 0
+        and 0 < teacher_value_available < len(xs)
+        and not teacher_sampling_satisfied
+    ):
+        raise ValueError(
+            "unable to satisfy teacher_sample_fraction while preserving source quotas: "
+            f"requested {requested_teacher_samples}/{len(xs)}, "
+            f"selected {teacher_value_available}/{len(xs)}"
+        )
 
     order = list(range(len(xs)))
     rng.shuffle(order)
@@ -536,7 +632,11 @@ def train_model(
 
     fixed_validation = validation_jsonl_dir is not None
     validation_source = None
+    validation_teacher_value_available: Optional[int] = None
+    validation_raw_teacher_value_available: Optional[int] = None
     if fixed_validation:
+        validation_teacher_value_available = 0
+        validation_raw_teacher_value_available = 0
         validation_path = Path(validation_jsonl_dir)  # type: ignore[arg-type]
         val_x: List[List[int]] = []
         val_y_cp: List[float] = []
@@ -546,30 +646,27 @@ def train_model(
             max_validation_samples,
             seed=validation_seed,
             primary_sample_fraction=primary_sample_fraction,
+            teacher_sample_fraction=teacher_sample_fraction,
             min_teacher_depth=min_teacher_depth,
+            require_teacher=validation_require_teacher,
         ):
+            if record.value_cp is not None:
+                validation_raw_teacher_value_available += 1
+            if train_stub._teacher_available(record, min_teacher_depth):
+                validation_teacher_value_available += 1
             val_x.append(feats)
-            val_y_cp.append(
-                train_stub._target_cp_for_record(
-                    record,
-                    target_cp=target_cp,
-                    teacher_mix=teacher_mix,
-                    max_teacher_cp=max_teacher_cp,
-                    outcome_decay=outcome_decay,
-                    min_teacher_depth=min_teacher_depth,
-                )
+            cp, probability = train_stub._targets_for_record(
+                record,
+                loss_kind=loss_kind,
+                target_cp=target_cp,
+                teacher_mix=teacher_mix,
+                max_teacher_cp=max_teacher_cp,
+                outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+                wdl_scale_cp=wdl_scale_cp,
             )
-            val_y_wdl.append(
-                train_stub._target_wdl_probability_for_record(
-                    record,
-                    target_cp=target_cp,
-                    teacher_mix=teacher_mix,
-                    max_teacher_cp=max_teacher_cp,
-                    outcome_decay=outcome_decay,
-                    min_teacher_depth=min_teacher_depth,
-                    wdl_scale_cp=wdl_scale_cp,
-                )
-            )
+            val_y_cp.append(cp)
+            val_y_wdl.append(probability)
         if not val_x:
             raise ValueError("no fixed validation samples were loaded")
         train_x = xs
@@ -608,6 +705,7 @@ def train_model(
             input_dim=input_dim,
             hidden_dim=hidden_dim,
             device=dev,
+            objective=objective,
         )
     opt = torch.optim.Adam(
         model.parameters(),
@@ -624,6 +722,12 @@ def train_model(
             input_dim=input_dim,
             hidden_dim=hidden_dim,
             device=dev,
+            objective=objective,
+            expected_sha256=(
+                initialized_from.get("optimizer_state_sha256")
+                if isinstance(initialized_from, dict)
+                else None
+            ),
         )
         # Retain the parent's moments and step counters, but honor this cycle's
         # explicitly requested schedule instead of the serialized param-group
@@ -643,8 +747,18 @@ def train_model(
     initial_val_loss = None
     initial_val_cp_mse = None
     initial_val_acc = None
+    initial_train_prediction_mean_abs = None
+    initial_val_prediction_mean_abs = None
+    initial_train_prediction_max_abs = None
+    initial_val_prediction_max_abs = None
     if initialized_from is not None:
-        initial_train_loss, initial_train_cp_mse, initial_train_acc = _eval_split(
+        (
+            initial_train_loss,
+            initial_train_cp_mse,
+            initial_train_acc,
+            initial_train_prediction_mean_abs,
+            initial_train_prediction_max_abs,
+        ) = _eval_split(
             model,
             train_x,
             train_y_cp,
@@ -656,7 +770,13 @@ def train_model(
             wdl_scale_cp=wdl_scale_cp,
         )
         if val_count > 0:
-            initial_val_loss, initial_val_cp_mse, initial_val_acc = _eval_split(
+            (
+                initial_val_loss,
+                initial_val_cp_mse,
+                initial_val_acc,
+                initial_val_prediction_mean_abs,
+                initial_val_prediction_max_abs,
+            ) = _eval_split(
                 model,
                 val_x,
                 val_y_cp,
@@ -671,6 +791,8 @@ def train_model(
             initial_val_loss = initial_train_loss
             initial_val_cp_mse = initial_train_cp_mse
             initial_val_acc = initial_train_acc
+            initial_val_prediction_mean_abs = initial_train_prediction_mean_abs
+            initial_val_prediction_max_abs = initial_train_prediction_max_abs
         best_val = float(initial_val_loss)
         best_state = {
             key: value.detach().cpu().clone() for key, value in model.state_dict().items()
@@ -682,6 +804,10 @@ def train_model(
     val_cp_mse_history: List[float] = []
     train_acc_history: List[float] = []
     val_acc_history: List[float] = []
+    train_prediction_mean_abs_history: List[float] = []
+    val_prediction_mean_abs_history: List[float] = []
+    train_prediction_max_abs_history: List[float] = []
+    val_prediction_max_abs_history: List[float] = []
 
     for ep in range(epochs):
         idx = list(range(train_count))
@@ -711,7 +837,13 @@ def train_model(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), float(grad_clip))
             opt.step()
 
-        tr_loss, tr_cp_mse, tr_acc = _eval_split(
+        (
+            tr_loss,
+            tr_cp_mse,
+            tr_acc,
+            tr_prediction_mean_abs,
+            tr_prediction_max_abs,
+        ) = _eval_split(
             model,
             train_x,
             train_y_cp,
@@ -723,7 +855,13 @@ def train_model(
             wdl_scale_cp=wdl_scale_cp,
         )
         if val_count > 0:
-            va_loss, va_cp_mse, va_acc = _eval_split(
+            (
+                va_loss,
+                va_cp_mse,
+                va_acc,
+                va_prediction_mean_abs,
+                va_prediction_max_abs,
+            ) = _eval_split(
                 model,
                 val_x,
                 val_y_cp,
@@ -736,12 +874,18 @@ def train_model(
             )
         else:
             va_loss, va_cp_mse, va_acc = tr_loss, tr_cp_mse, tr_acc
+            va_prediction_mean_abs = tr_prediction_mean_abs
+            va_prediction_max_abs = tr_prediction_max_abs
         train_loss_history.append(tr_loss)
         val_loss_history.append(va_loss)
         train_cp_mse_history.append(tr_cp_mse)
         val_cp_mse_history.append(va_cp_mse)
         train_acc_history.append(tr_acc)
         val_acc_history.append(va_acc)
+        train_prediction_mean_abs_history.append(tr_prediction_mean_abs)
+        val_prediction_mean_abs_history.append(va_prediction_mean_abs)
+        train_prediction_max_abs_history.append(tr_prediction_max_abs)
+        val_prediction_max_abs_history.append(va_prediction_max_abs)
         if va_loss < best_val:
             best_val = va_loss
             best_epoch = ep + 1
@@ -762,6 +906,7 @@ def train_model(
         input_dim=input_dim,
         hidden_dim=hidden_dim,
         best_epoch=best_epoch,
+        objective=objective,
     )
     emb = model.embed.weight.detach().cpu()  # [input, hidden]
     w1 = emb.transpose(0, 1).contiguous().view(-1).tolist()  # row-major [hidden][input]
@@ -772,6 +917,8 @@ def train_model(
     checkpoint = {
         "format": "piebot-halfkp-mse-v2-torch",
         "feature_set": train_stub.FEATURE_SET,
+        "target_schema": train_stub.TARGET_SCHEMA,
+        "objective": objective,
         "input_dim": input_dim,
         "hidden_dim": hidden_dim,
         "w1": w1,
@@ -792,6 +939,8 @@ def train_model(
         "wdl_scale_cp": wdl_scale_cp,
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
+        "teacher_sample_fraction": teacher_sample_fraction,
+        "validation_require_teacher": validation_require_teacher,
         "validation_source": validation_source,
         "optimizer_state": optimizer_state,
         "optimizer_initialized_from": optimizer_initialized_from,
@@ -803,6 +952,8 @@ def train_model(
         "val_samples": val_count,
         "input_dim": input_dim,
         "feature_set": train_stub.FEATURE_SET,
+        "target_schema": train_stub.TARGET_SCHEMA,
+        "objective": objective,
         "batch_size": batch_size,
         "epochs": epochs,
         "learning_rate": float(learning_rate),
@@ -821,6 +972,7 @@ def train_model(
         "wdl_scale_cp": wdl_scale_cp,
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
+        "teacher_sample_fraction": teacher_sample_fraction,
         "fixed_validation": fixed_validation,
         "validation_jsonl_dir": (
             Path(validation_jsonl_dir).resolve().as_posix()
@@ -829,6 +981,7 @@ def train_model(
         ),
         "max_validation_samples": max_validation_samples,
         "validation_seed": validation_seed,
+        "validation_require_teacher": validation_require_teacher,
         "validation_source": validation_source,
         "best_epoch": best_epoch,
         "best_val_loss": best_val,
@@ -838,6 +991,10 @@ def train_model(
         "initial_val_loss": initial_val_loss,
         "initial_val_cp_mse": initial_val_cp_mse,
         "initial_val_acc": initial_val_acc,
+        "initial_train_prediction_mean_abs": initial_train_prediction_mean_abs,
+        "initial_val_prediction_mean_abs": initial_val_prediction_mean_abs,
+        "initial_train_prediction_max_abs": initial_train_prediction_max_abs,
+        "initial_val_prediction_max_abs": initial_val_prediction_max_abs,
         "initialized_from": initialized_from,
         "optimizer_state": optimizer_state,
         "optimizer_initialized_from": optimizer_initialized_from,
@@ -849,10 +1006,39 @@ def train_model(
         "val_cp_mse_history": val_cp_mse_history,
         "train_acc_history": train_acc_history,
         "val_acc_history": val_acc_history,
+        "train_prediction_mean_abs_history": train_prediction_mean_abs_history,
+        "val_prediction_mean_abs_history": val_prediction_mean_abs_history,
+        "train_prediction_max_abs_history": train_prediction_max_abs_history,
+        "val_prediction_max_abs_history": val_prediction_max_abs_history,
         "records_with_best_move": best_move_available,
         "records_with_teacher_value": teacher_value_available,
         "records_with_raw_teacher_value": raw_teacher_value_available,
         "records_total": len(xs),
+        "validation_records_with_teacher_value": validation_teacher_value_available,
+        "validation_records_with_raw_teacher_value": validation_raw_teacher_value_available,
+        "actual_teacher_sample_fraction": (
+            float(teacher_value_available) / float(len(xs)) if xs else 0.0
+        ),
+        "requested_teacher_samples": requested_teacher_samples,
+        "teacher_sampling_satisfied": teacher_sampling_satisfied,
+        "train_target_cp_mean_abs": (
+            sum(abs(value) for value in train_y_cp) / float(len(train_y_cp))
+            if train_y_cp
+            else 0.0
+        ),
+        "train_target_cp_max_abs": max(
+            (abs(value) for value in train_y_cp),
+            default=0.0,
+        ),
+        "val_target_cp_mean_abs": (
+            sum(abs(value) for value in val_y_cp) / float(len(val_y_cp))
+            if val_y_cp
+            else 0.0
+        ),
+        "val_target_cp_max_abs": max(
+            (abs(value) for value in val_y_cp),
+            default=0.0,
+        ),
         "backend": "torch",
         "device": str(dev),
     }
@@ -885,9 +1071,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--wdl-scale-cp", type=float, default=400.0)
     ap.add_argument("--min-teacher-depth", type=int, default=0)
     ap.add_argument("--primary-sample-fraction", type=float, default=0.5)
+    ap.add_argument("--teacher-sample-fraction", type=float, default=0.5)
     ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
     ap.add_argument("--max-validation-samples", type=int, default=100000)
     ap.add_argument("--validation-seed", type=int, default=20_260_802)
+    ap.add_argument("--validation-require-teacher", action="store_true")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--device", default="auto")
     ap.add_argument("--out", type=Path, default=Path("out/nnue_torch_train"))
@@ -914,9 +1102,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         wdl_scale_cp=args.wdl_scale_cp,
         min_teacher_depth=args.min_teacher_depth,
         primary_sample_fraction=args.primary_sample_fraction,
+        teacher_sample_fraction=args.teacher_sample_fraction,
         validation_jsonl_dir=args.validation_jsonl_dir,
         max_validation_samples=args.max_validation_samples,
         validation_seed=args.validation_seed,
+        validation_require_teacher=args.validation_require_teacher,
         seed=args.seed,
         out_dir=args.out,
         device=args.device,

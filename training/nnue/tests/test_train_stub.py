@@ -1,5 +1,6 @@
 import json
 import hashlib
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +18,21 @@ def _write_dataset(root: Path, n: int = 90) -> None:
     with file_path.open("w", encoding="utf-8") as handle:
         for rec in samples:
             handle.write(json.dumps(rec) + "\n")
+
+
+def _objective(**overrides: object) -> dict:
+    values = {
+        "loss_kind": "mse",
+        "target_cp": 100.0,
+        "teacher_mix": 0.7,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+    }
+    values.update(overrides)
+    return train_stub.objective_metadata(**values)
 
 
 class TrainStubTests(unittest.TestCase):
@@ -110,7 +126,11 @@ class TrainStubTests(unittest.TestCase):
             min_teacher_depth=6,
             wdl_scale_cp=400.0,
         )
-        self.assertAlmostEqual(0.625, target)
+        outcome_probability = train_stub._sigmoid(100.0 / 400.0)
+        self.assertAlmostEqual(
+            0.75 * 0.5 + 0.25 * outcome_probability,
+            target,
+        )
 
         rec.teacher_depth = 2
         shallow_target = train_stub._target_wdl_probability_for_record(
@@ -120,7 +140,76 @@ class TrainStubTests(unittest.TestCase):
             min_teacher_depth=6,
             wdl_scale_cp=400.0,
         )
-        self.assertAlmostEqual(1.0, shallow_target)
+        self.assertAlmostEqual(outcome_probability, shallow_target)
+
+    def test_wdl_decisive_outcomes_are_finite_cp_anchors(self) -> None:
+        fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+        for result, expected_cp in ((1, 125.0), (0, 0.0), (-1, -125.0)):
+            record = TrainingRecord(
+                fen=fen,
+                result=result,
+                result_q=float(result),
+            )
+            probability = train_stub._target_wdl_probability_for_record(
+                record,
+                target_cp=125.0,
+                teacher_mix=0.8,
+                max_teacher_cp=1200.0,
+                wdl_scale_cp=400.0,
+                min_teacher_depth=6,
+            )
+            self.assertGreater(probability, 0.0)
+            self.assertLess(probability, 1.0)
+            self.assertAlmostEqual(
+                expected_cp,
+                train_stub._wdl_probability_to_cp(probability, 400.0),
+                places=6,
+            )
+
+    def test_wdl_outcome_decay_is_applied_in_cp_space(self) -> None:
+        record = TrainingRecord(
+            fen="8/8/8/8/8/8/4K3/7k w - - 0 1",
+            result=1,
+            result_q=1.0,
+            ply=2,
+        )
+        probability = train_stub._target_wdl_probability_for_record(
+            record,
+            target_cp=100.0,
+            teacher_mix=0.8,
+            max_teacher_cp=1200.0,
+            wdl_scale_cp=400.0,
+            outcome_decay=0.5,
+        )
+        self.assertAlmostEqual(
+            25.0,
+            train_stub._wdl_probability_to_cp(probability, 400.0),
+            places=6,
+        )
+
+    def test_wdl_cp_gradient_matches_reported_bce_objective(self) -> None:
+        pred_cp = 137.0
+        target_probability = 0.73
+        scale_cp = 400.0
+        epsilon = 1e-3
+
+        def loss(value: float) -> float:
+            logit = value / scale_cp
+            return (
+                max(logit, 0.0)
+                - logit * target_probability
+                + math.log1p(math.exp(-abs(logit)))
+            )
+
+        finite_difference = (
+            loss(pred_cp + epsilon) - loss(pred_cp - epsilon)
+        ) / (2.0 * epsilon)
+        analytical = train_stub._wdl_loss_gradient_cp(
+            pred_cp,
+            target_probability,
+            scale_cp,
+        )
+        self.assertAlmostEqual(finite_difference, analytical, places=9)
 
     def test_iterate_samples_skips_invalid_outcome_without_teacher(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -262,6 +351,117 @@ class TrainStubTests(unittest.TestCase):
         self.assertLessEqual(max(counts.values()) if not counts else max(counts[idx] for idx in range(1, 7)), 6)
         self.assertGreaterEqual(min(counts[idx] for idx in range(1, 7)), 5)
 
+    def test_teacher_fraction_is_independent_of_primary_source_fraction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+            # The primary source can supply only three deep-teacher samples,
+            # while replay can supply the rest. Source and teacher quotas must
+            # both remain satisfied.
+            for source_idx, teacher_count in ((0, 3), (1, 10)):
+                path = data_dir / f"src{source_idx:02d}_shard000000.jsonl"
+                with path.open("w", encoding="utf-8") as handle:
+                    for record_idx in range(20):
+                        record = {
+                            "id": f"{source_idx}-{record_idx}",
+                            "source": source_idx,
+                            "fen": fen,
+                            "result": 1,
+                        }
+                        if record_idx < teacher_count:
+                            record["value_cp"] = 25.0
+                            record["teacher_depth"] = 6
+                        handle.write(json.dumps(record) + "\n")
+
+            first = list(train_stub.iterate_samples(
+                data_dir,
+                max_samples=20,
+                seed=17,
+                primary_sample_fraction=0.5,
+                teacher_sample_fraction=0.5,
+                min_teacher_depth=6,
+            ))
+            second = list(train_stub.iterate_samples(
+                data_dir,
+                max_samples=20,
+                seed=17,
+                primary_sample_fraction=0.5,
+                teacher_sample_fraction=0.5,
+                min_teacher_depth=6,
+            ))
+
+        self.assertEqual(
+            [record.raw["id"] for _features, record in first],
+            [record.raw["id"] for _features, record in second],
+        )
+        self.assertEqual(
+            {0: 10, 1: 10},
+            {
+                source: sum(
+                    int(record.raw["source"]) == source
+                    for _features, record in first
+                )
+                for source in (0, 1)
+            },
+        )
+        self.assertEqual(
+            10,
+            sum(
+                train_stub._teacher_available(record, 6)
+                for _features, record in first
+            ),
+        )
+
+    def test_teacher_fraction_deterministically_oversamples_sparse_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+            for source_idx, teacher_count in ((0, 2), (1, 3)):
+                path = data_dir / f"src{source_idx:02d}_shard000000.jsonl"
+                with path.open("w", encoding="utf-8") as handle:
+                    for record_idx in range(20):
+                        record = {
+                            "id": f"{source_idx}-{record_idx}",
+                            "source": source_idx,
+                            "fen": fen,
+                            "result": 1,
+                        }
+                        if record_idx < teacher_count:
+                            record["value_cp"] = 25.0
+                            record["teacher_depth"] = 6
+                        handle.write(json.dumps(record) + "\n")
+
+            kwargs = {
+                "max_samples": 20,
+                "seed": 23,
+                "primary_sample_fraction": 0.5,
+                "teacher_sample_fraction": 0.5,
+                "min_teacher_depth": 6,
+            }
+            first = list(train_stub.iterate_samples(data_dir, **kwargs))
+            second = list(train_stub.iterate_samples(data_dir, **kwargs))
+
+        first_ids = [record.raw["id"] for _features, record in first]
+        teacher_ids = [
+            record.raw["id"]
+            for _features, record in first
+            if train_stub._teacher_available(record, 6)
+        ]
+        self.assertEqual(first_ids, [record.raw["id"] for _features, record in second])
+        self.assertEqual(20, len(first))
+        self.assertEqual(10, len(teacher_ids))
+        self.assertLess(len(set(teacher_ids)), len(teacher_ids))
+        self.assertEqual(
+            {0: 10, 1: 10},
+            {
+                source: sum(
+                    int(record.raw["source"]) == source
+                    for _features, record in first
+                )
+                for source in (0, 1)
+            },
+        )
+
     def test_train_model_writes_metrics_and_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -336,6 +536,8 @@ class TrainStubTests(unittest.TestCase):
             )
             self.assertEqual("wdl", metrics["loss_kind"])
             self.assertEqual(1, len(metrics["train_cp_mse_history"]))
+            self.assertEqual(1, len(metrics["train_prediction_mean_abs_history"]))
+            self.assertEqual(1, len(metrics["train_prediction_max_abs_history"]))
             self.assertTrue(metrics["train_loss_history"][0] >= 0.0)
 
     def test_external_validation_is_fixed_and_not_part_of_training(self) -> None:
@@ -366,6 +568,94 @@ class TrainStubTests(unittest.TestCase):
             self.assertEqual(4, metrics["val_samples"])
             self.assertEqual(validation_dir.resolve().as_posix(), metrics["validation_jsonl_dir"])
 
+    def test_external_validation_rejects_the_training_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=6)
+
+            with self.assertRaisesRegex(ValueError, "validation.*training"):
+                train_stub.train_model(
+                    jsonl_dir=data_dir,
+                    batch_size=2,
+                    max_samples=6,
+                    epochs=1,
+                    hidden_dim=1,
+                    validation_jsonl_dir=data_dir,
+                    max_validation_samples=3,
+                    out_dir=root / "out",
+                )
+
+    def test_external_validation_can_require_depth_eligible_teacher(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            train_dir = root / "train-data"
+            validation_dir = root / "fixed-validation"
+            train_dir.mkdir()
+            validation_dir.mkdir()
+            _write_dataset(train_dir, n=3)
+            fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+            records = [
+                {"fen": fen, "result": 1},
+                {
+                    "fen": fen,
+                    "result": 1,
+                    "value_cp": 20.0,
+                    "teacher_depth": 2,
+                },
+                {
+                    "fen": fen,
+                    "result": 1,
+                    "value_cp": 30.0,
+                    "teacher_depth": 6,
+                },
+            ]
+            with (validation_dir / "shard.jsonl").open("w", encoding="utf-8") as handle:
+                for record in records:
+                    handle.write(json.dumps(record) + "\n")
+
+            metrics = train_stub.train_model(
+                jsonl_dir=train_dir,
+                batch_size=3,
+                max_samples=3,
+                epochs=1,
+                learning_rate=0.0,
+                hidden_dim=1,
+                min_teacher_depth=6,
+                validation_jsonl_dir=validation_dir,
+                max_validation_samples=10,
+                validation_require_teacher=True,
+                out_dir=root / "out",
+            )
+
+            self.assertEqual(1, metrics["val_samples"])
+            self.assertTrue(metrics["validation_require_teacher"])
+            self.assertEqual(1, metrics["validation_records_with_teacher_value"])
+            self.assertEqual(1, metrics["validation_records_with_raw_teacher_value"])
+
+    def test_checkpoint_records_target_and_objective_schemas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=3)
+            train_stub.train_model(
+                jsonl_dir=data_dir,
+                max_samples=3,
+                epochs=1,
+                learning_rate=0.0,
+                hidden_dim=1,
+                loss_kind="wdl",
+                out_dir=root / "out",
+            )
+            checkpoint = json.loads((root / "out" / "checkpoint.json").read_text())
+            metrics = json.loads((root / "out" / "metrics.json").read_text())
+
+            self.assertEqual(train_stub.TARGET_SCHEMA, checkpoint["target_schema"])
+            self.assertEqual(train_stub.OBJECTIVE_SCHEMA, checkpoint["objective"]["schema"])
+            self.assertEqual(checkpoint["objective"], metrics["objective"])
+
     def test_stub_warm_start_preserves_parent_when_zero_lr_cannot_improve(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -377,6 +667,9 @@ class TrainStubTests(unittest.TestCase):
             w1[-1] = 2.0
             parent = {
                 "format": "piebot-halfkp-mse-v2",
+                "feature_set": train_stub.FEATURE_SET,
+                "target_schema": train_stub.TARGET_SCHEMA,
+                "objective": _objective(),
                 "input_dim": train_stub.HALFKP_DIM,
                 "hidden_dim": 1,
                 "w1": w1,
@@ -409,6 +702,89 @@ class TrainStubTests(unittest.TestCase):
             self.assertEqual(0, checkpoint["best_epoch"])
             self.assertEqual(parent_sha, metrics["initialized_from"]["sha256"])
             self.assertFalse(metrics["optimizer_state_restored"])
+
+    def test_stub_warm_start_rejects_missing_or_mismatched_target_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=3)
+            base = {
+                "format": "piebot-halfkp-mse-v2",
+                "feature_set": train_stub.FEATURE_SET,
+                "input_dim": train_stub.HALFKP_DIM,
+                "hidden_dim": 1,
+                "w1": [0.0] * train_stub.HALFKP_DIM,
+                "b1": [0.0],
+                "w2": [0.0],
+                "b2": 0.0,
+            }
+            cases = [
+                ("missing", base),
+                (
+                    "schema",
+                    {**base, "target_schema": "hard-outcome-v1", "objective": _objective()},
+                ),
+                (
+                    "objective",
+                    {
+                        **base,
+                        "target_schema": train_stub.TARGET_SCHEMA,
+                        "objective": _objective(target_cp=200.0),
+                    },
+                ),
+            ]
+            for name, parent in cases:
+                parent_path = root / f"{name}.json"
+                parent_path.write_text(json.dumps(parent), encoding="utf-8")
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValueError,
+                    "target_schema|objective",
+                ):
+                    train_stub.train_model(
+                        jsonl_dir=data_dir,
+                        max_samples=3,
+                        epochs=1,
+                        hidden_dim=1,
+                        out_dir=root / f"out-{name}",
+                        initial_checkpoint=parent_path,
+                    )
+
+    def test_stub_warm_start_requires_exact_feature_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=3)
+            base = {
+                "format": "piebot-halfkp-mse-v2",
+                "target_schema": train_stub.TARGET_SCHEMA,
+                "objective": _objective(),
+                "input_dim": train_stub.HALFKP_DIM,
+                "hidden_dim": 1,
+                "w1": [0.0] * train_stub.HALFKP_DIM,
+                "b1": [0.0],
+                "w2": [0.0],
+                "b2": 0.0,
+            }
+            for name, feature_set in (("missing", None), ("wrong", "halfkp-v1")):
+                parent = dict(base)
+                if feature_set is not None:
+                    parent["feature_set"] = feature_set
+                parent_path = root / f"feature-{name}.json"
+                parent_path.write_text(json.dumps(parent), encoding="utf-8")
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValueError,
+                    "feature_set",
+                ):
+                    train_stub.train_model(
+                        jsonl_dir=data_dir,
+                        max_samples=3,
+                        epochs=1,
+                        hidden_dim=1,
+                        out_dir=root / f"feature-out-{name}",
+                        initial_checkpoint=parent_path,
+                    )
 
 
 if __name__ == "__main__":  # pragma: no cover

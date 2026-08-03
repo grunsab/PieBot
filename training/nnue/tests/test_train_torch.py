@@ -10,6 +10,21 @@ except Exception:  # pragma: no cover - exercised on environments without torch
     train_torch = None  # type: ignore[assignment]
 
 
+def _objective(**overrides: object) -> dict:
+    values = {
+        "loss_kind": "mse",
+        "target_cp": 100.0,
+        "teacher_mix": 0.7,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+    }
+    values.update(overrides)
+    return train_torch.train_stub.objective_metadata(**values)
+
+
 @unittest.skipUnless(
     train_torch is not None and train_torch.torch_available(),
     "torch is not installed",
@@ -61,6 +76,9 @@ class TorchBatchPackingTests(unittest.TestCase):
             parent_w1[-1] = 4.0
             parent = {
                 "format": "piebot-halfkp-mse-v2-torch",
+                "feature_set": train_torch.train_stub.FEATURE_SET,
+                "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                "objective": _objective(),
                 "input_dim": input_dim,
                 "hidden_dim": hidden_dim,
                 "w1": parent_w1,
@@ -117,6 +135,9 @@ class TorchBatchPackingTests(unittest.TestCase):
                 json.dumps(
                     {
                         "format": "piebot-halfkp-mse-v2-torch",
+                        "feature_set": train_torch.train_stub.FEATURE_SET,
+                        "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                        "objective": _objective(),
                         "input_dim": input_dim,
                         "hidden_dim": 3,
                         "w1": [0.0] * (input_dim * 3),
@@ -229,6 +250,219 @@ class TorchBatchPackingTests(unittest.TestCase):
             self.assertEqual(1, len(metrics["val_cp_mse_history"]))
             self.assertEqual(1, len(metrics["val_acc_history"]))
 
+    def test_wdl_cp_diagnostics_use_probability_implied_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = {
+                "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                "result": -1,
+                "value_cp": 800.0,
+                "teacher_depth": 6,
+            }
+            self._write_records(root / "train", [record])
+            self._write_records(root / "validation", [record])
+            input_dim = train_torch.train_stub.HALFKP_DIM
+            parent = {
+                "format": "piebot-halfkp-mse-v2-torch",
+                "feature_set": train_torch.train_stub.FEATURE_SET,
+                "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                "objective": _objective(
+                    loss_kind="wdl",
+                    teacher_mix=0.5,
+                    max_teacher_cp=1200.0,
+                    min_teacher_depth=6,
+                    wdl_scale_cp=200.0,
+                ),
+                "input_dim": input_dim,
+                "hidden_dim": 1,
+                "w1": [0.0] * input_dim,
+                "b1": [0.0],
+                "w2": [0.0],
+                "b2": 0.0,
+            }
+            parent_path = root / "parent.json"
+            parent_path.write_text(json.dumps(parent), encoding="utf-8")
+
+            metrics = train_torch.train_model(
+                jsonl_dir=root / "train",
+                batch_size=1,
+                max_samples=1,
+                epochs=1,
+                learning_rate=0.0,
+                hidden_dim=1,
+                target_cp=100.0,
+                teacher_mix=0.5,
+                max_teacher_cp=1200.0,
+                loss_kind="wdl",
+                wdl_scale_cp=200.0,
+                min_teacher_depth=6,
+                validation_jsonl_dir=root / "validation",
+                max_validation_samples=1,
+                initial_checkpoint=parent_path,
+                out_dir=root / "out",
+                device="cpu",
+            )
+            parsed = next(train_torch.train_stub.jsonl_to_training_samples([record]))
+            probability = train_torch.train_stub._target_wdl_probability_for_record(
+                parsed,
+                target_cp=100.0,
+                teacher_mix=0.5,
+                max_teacher_cp=1200.0,
+                wdl_scale_cp=200.0,
+                min_teacher_depth=6,
+            )
+            implied_cp = train_torch.train_stub._wdl_probability_to_cp(
+                probability,
+                200.0,
+            )
+            linear_cp = train_torch.train_stub._target_cp_for_record(
+                parsed,
+                target_cp=100.0,
+                teacher_mix=0.5,
+                max_teacher_cp=1200.0,
+                min_teacher_depth=6,
+            )
+
+            self.assertNotAlmostEqual(linear_cp, implied_cp, places=2)
+            self.assertAlmostEqual(
+                implied_cp * implied_cp,
+                metrics["initial_val_cp_mse"],
+                places=2,
+            )
+            self.assertEqual(0.0, metrics["initial_val_prediction_mean_abs"])
+            self.assertEqual(0.0, metrics["initial_val_prediction_max_abs"])
+
+    def test_warm_start_rejects_missing_or_mismatched_target_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(
+                root / "data",
+                [{"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1}],
+            )
+            base = {
+                "format": "piebot-halfkp-mse-v2-torch",
+                "feature_set": train_torch.train_stub.FEATURE_SET,
+                "input_dim": train_torch.train_stub.HALFKP_DIM,
+                "hidden_dim": 1,
+                "w1": [0.0] * train_torch.train_stub.HALFKP_DIM,
+                "b1": [0.0],
+                "w2": [0.0],
+                "b2": 0.0,
+            }
+            cases = [
+                ("missing", base),
+                (
+                    "schema",
+                    {
+                        **base,
+                        "target_schema": "hard-outcome-v1",
+                        "objective": _objective(),
+                    },
+                ),
+                (
+                    "objective",
+                    {
+                        **base,
+                        "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                        "objective": _objective(target_cp=200.0),
+                    },
+                ),
+            ]
+            for name, parent in cases:
+                parent_path = root / f"{name}.json"
+                parent_path.write_text(json.dumps(parent), encoding="utf-8")
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValueError,
+                    "target_schema|objective",
+                ):
+                    train_torch.train_model(
+                        jsonl_dir=root / "data",
+                        max_samples=1,
+                        epochs=1,
+                        hidden_dim=1,
+                        out_dir=root / f"out-{name}",
+                        device="cpu",
+                        initial_checkpoint=parent_path,
+                    )
+
+    def test_warm_start_rejects_missing_or_mismatched_feature_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(
+                root / "data",
+                [{"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1}],
+            )
+            base = {
+                "format": "piebot-halfkp-mse-v2-torch",
+                "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                "objective": _objective(),
+                "input_dim": train_torch.train_stub.HALFKP_DIM,
+                "hidden_dim": 1,
+                "w1": [0.0] * train_torch.train_stub.HALFKP_DIM,
+                "b1": [0.0],
+                "w2": [0.0],
+                "b2": 0.0,
+            }
+            cases = {
+                "missing": base,
+                "mismatched": {**base, "feature_set": "halfkp-legacy-v0"},
+            }
+            for name, parent in cases.items():
+                parent_path = root / f"{name}.json"
+                parent_path.write_text(json.dumps(parent), encoding="utf-8")
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValueError,
+                    "feature_set",
+                ):
+                    train_torch.train_model(
+                        jsonl_dir=root / "data",
+                        max_samples=1,
+                        epochs=1,
+                        hidden_dim=1,
+                        out_dir=root / f"out-{name}",
+                        device="cpu",
+                        initial_checkpoint=parent_path,
+                    )
+
+    def test_fixed_validation_can_require_depth_eligible_teacher(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fen = "k7/8/8/8/8/8/8/KQ6 w - - 0 1"
+            self._write_records(root / "train", [{"fen": fen, "result": 1}])
+            self._write_records(root / "validation", [
+                {"fen": fen, "result": 1},
+                {
+                    "fen": fen,
+                    "result": 1,
+                    "value_cp": 25.0,
+                    "teacher_depth": 2,
+                },
+                {
+                    "fen": fen,
+                    "result": 1,
+                    "value_cp": 50.0,
+                    "teacher_depth": 6,
+                },
+            ])
+            metrics = train_torch.train_model(
+                jsonl_dir=root / "train",
+                max_samples=1,
+                epochs=1,
+                learning_rate=0.0,
+                hidden_dim=1,
+                min_teacher_depth=6,
+                validation_jsonl_dir=root / "validation",
+                max_validation_samples=10,
+                validation_require_teacher=True,
+                out_dir=root / "out",
+                device="cpu",
+            )
+
+            self.assertEqual(1, metrics["val_samples"])
+            self.assertTrue(metrics["validation_require_teacher"])
+            self.assertEqual(1, metrics["validation_records_with_teacher_value"])
+            self.assertEqual(1, metrics["validation_records_with_raw_teacher_value"])
+
     def test_fixed_validation_rejects_the_training_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -313,6 +547,16 @@ class TorchBatchPackingTests(unittest.TestCase):
                 hashlib.sha256(first_optimizer.read_bytes()).hexdigest(),
                 first["optimizer_state"]["sha256"],
             )
+            first_optimizer_payload = train_torch._torch_load(first_optimizer)
+            self.assertEqual("piebot-torch-adam-v3", first_optimizer_payload["format"])
+            self.assertEqual(
+                first["optimizer_state"]["model_parameters_sha256"],
+                first_optimizer_payload["model_parameters_sha256"],
+            )
+            self.assertRegex(
+                first_optimizer_payload["model_parameters_sha256"],
+                r"^[0-9a-f]{64}$",
+            )
             self.assertFalse(first["optimizer_state_restored"])
 
             second = train_torch.train_model(
@@ -346,12 +590,178 @@ class TorchBatchPackingTests(unittest.TestCase):
                 hashlib.sha256(first_optimizer.read_bytes()).hexdigest(),
                 second["optimizer_initialized_from"]["sha256"],
             )
+            self.assertEqual(
+                first_optimizer_payload["model_parameters_sha256"],
+                second["optimizer_initialized_from"]["model_parameters_sha256"],
+            )
             self.assertTrue((root / "second" / "optimizer.pt").is_file())
             resumed_payload = train_torch._torch_load(root / "second" / "optimizer.pt")
             resumed_group = resumed_payload["state_dict"]["param_groups"][0]
             self.assertEqual(0.004, resumed_group["lr"])
             self.assertEqual((0.8, 0.95), tuple(resumed_group["betas"]))
             self.assertEqual(1e-6, resumed_group["eps"])
+            self.assertEqual(
+                train_torch.train_stub.OBJECTIVE_SCHEMA,
+                resumed_payload["objective"]["schema"],
+            )
+
+    def test_optimizer_rejects_an_incompatible_objective(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = [
+                {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            self._write_records(root / "data", records)
+            train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=2,
+                epochs=1,
+                learning_rate=0.001,
+                hidden_dim=1,
+                loss_kind="wdl",
+                out_dir=root / "first",
+                device="cpu",
+            )
+
+            with self.assertRaisesRegex(ValueError, "objective"):
+                train_torch.train_model(
+                    jsonl_dir=root / "data",
+                    batch_size=2,
+                    max_samples=2,
+                    epochs=1,
+                    learning_rate=0.001,
+                    hidden_dim=1,
+                    loss_kind="huber",
+                    initial_checkpoint=root / "first" / "checkpoint.json",
+                    initial_optimizer_state=root / "first" / "optimizer.pt",
+                    out_dir=root / "second",
+                    device="cpu",
+                )
+
+    def test_optimizer_state_requires_an_initial_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = [
+                {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            self._write_records(root / "data", records)
+            train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=2,
+                epochs=1,
+                learning_rate=0.001,
+                hidden_dim=1,
+                out_dir=root / "first",
+                device="cpu",
+            )
+
+            with self.assertRaisesRegex(ValueError, "optimizer.*requires.*checkpoint"):
+                train_torch.train_model(
+                    jsonl_dir=root / "data",
+                    batch_size=2,
+                    max_samples=2,
+                    epochs=1,
+                    learning_rate=0.001,
+                    hidden_dim=1,
+                    initial_optimizer_state=root / "first" / "optimizer.pt",
+                    out_dir=root / "second",
+                    device="cpu",
+                )
+
+    def test_optimizer_rejects_same_schema_checkpoint_with_modified_weights(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = [
+                {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            self._write_records(root / "data", records)
+            train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=2,
+                epochs=1,
+                learning_rate=0.001,
+                hidden_dim=1,
+                out_dir=root / "first",
+                device="cpu",
+            )
+            checkpoint_path = root / "first" / "checkpoint.json"
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            checkpoint["b2"] = float(checkpoint["b2"]) + 1.0
+            modified_checkpoint = root / "modified-checkpoint.json"
+            modified_checkpoint.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "optimizer.*model parameters"):
+                train_torch.train_model(
+                    jsonl_dir=root / "data",
+                    batch_size=2,
+                    max_samples=2,
+                    epochs=1,
+                    learning_rate=0.001,
+                    hidden_dim=1,
+                    initial_checkpoint=modified_checkpoint,
+                    initial_optimizer_state=root / "first" / "optimizer.pt",
+                    out_dir=root / "second",
+                    device="cpu",
+                )
+
+    def test_checkpoint_rejects_different_optimizer_moments_for_same_weights(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = [
+                {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            self._write_records(root / "data", records)
+            train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=2,
+                epochs=1,
+                learning_rate=0.001,
+                hidden_dim=1,
+                out_dir=root / "first",
+                device="cpu",
+            )
+            original_optimizer = root / "first" / "optimizer.pt"
+            payload = train_torch._torch_load(original_optimizer)
+            changed = False
+            for parameter_state in payload["state_dict"]["state"].values():
+                for key, value in parameter_state.items():
+                    if train_torch.torch.is_tensor(value) and value.numel() > 0:
+                        replacement = value.clone()
+                        replacement.view(-1)[0] += 1.0
+                        parameter_state[key] = replacement
+                        changed = True
+                        break
+                if changed:
+                    break
+            self.assertTrue(changed)
+            different_optimizer = root / "different-optimizer.pt"
+            train_torch._atomic_torch_save(payload, different_optimizer)
+            self.assertNotEqual(
+                hashlib.sha256(original_optimizer.read_bytes()).hexdigest(),
+                hashlib.sha256(different_optimizer.read_bytes()).hexdigest(),
+            )
+
+            with self.assertRaisesRegex(ValueError, "optimizer.*SHA"):
+                train_torch.train_model(
+                    jsonl_dir=root / "data",
+                    batch_size=2,
+                    max_samples=2,
+                    epochs=1,
+                    learning_rate=0.001,
+                    hidden_dim=1,
+                    initial_checkpoint=root / "first" / "checkpoint.json",
+                    initial_optimizer_state=different_optimizer,
+                    out_dir=root / "second",
+                    device="cpu",
+                )
 
 
 if __name__ == "__main__":  # pragma: no cover

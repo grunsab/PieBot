@@ -11,6 +11,7 @@ import json
 import math
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -111,9 +112,14 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         # The production scalar evaluator benchmarks materially faster at 64;
         # v2 gains capacity from its all-piece HalfKP inputs instead of width.
         "hidden_dim": 64,
+        "training_input_dim": 81_920,
+        "training_feature_set": "halfkp-all-pieces-v2",
+        "training_target_schema": "soft-cp-wdl-v2",
+        "training_objective_schema": "nnue-objective-v1",
         "target_cp": 100.0,
         "teacher_mix": 0.8,
         "max_teacher_cp": 1200.0,
+        "outcome_decay": 1.0,
         "learning_rate": 0.003,
         "warm_start_learning_rate": 0.001,
         "val_split": 0.1,
@@ -124,6 +130,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "retain_full_cycles": 0,
         "replay_window_cycles": 6,
         "primary_sample_fraction": 0.5,
+        "teacher_sample_fraction": 0.5,
         "teacher_lag_cycles": 0,
         "min_teacher_depth": 6,
         "loss_kind": "wdl",
@@ -132,6 +139,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "validation_jsonl_dir": None,
         "max_validation_samples": 100_000,
         "validation_seed": 20_260_802,
+        "validation_require_teacher": True,
         "continue_optimizer_state": True,
         "gate_games": 24,
         "gate_movetime_ms": 150,
@@ -140,6 +148,9 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "gate_threads": 1,
         "gate_seed": 1,
         "gate_min_score_delta": 0.0,
+        "gate_paired_openings": True,
+        "gate_confirmation_games": 96,
+        "gate_confirmation_min_score_delta": 2.0,
         "warm_start": True,
         "initial_checkpoint": None,
     }
@@ -150,6 +161,114 @@ def _atomic_write_json(path: Path, obj: Dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(obj, indent=2, sort_keys=True), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _validate_training_lineage_floor(state: Dict[str, Any]) -> int:
+    raw = state.get("training_lineage_start_cycle")
+    if isinstance(raw, bool):
+        raise ValueError("training_lineage_start_cycle must be an integer")
+    try:
+        floor = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("training_lineage_start_cycle must be an integer") from exc
+    if floor < 1:
+        raise ValueError("training_lineage_start_cycle must be >= 1")
+    next_cycle = int(state.get("next_cycle", 1))
+    if floor > next_cycle:
+        raise ValueError(
+            f"training_lineage_start_cycle {floor} cannot exceed next_cycle {next_cycle}"
+        )
+    return floor
+
+
+def _atomic_reset_training_lineage(
+    *,
+    state_path: Path,
+    state: Dict[str, Any],
+    start_cycle: int,
+) -> tuple[Dict[str, Any], bool]:
+    start = int(start_cycle)
+    existing_reset = state.get("training_lineage_reset")
+    already_reset = (
+        int(state.get("training_lineage_start_cycle", 0) or 0) == start
+        and isinstance(existing_reset, dict)
+        and int(existing_reset.get("start_cycle", 0) or 0) == start
+    )
+    if already_reset:
+        return state, False
+
+    next_cycle = int(state.get("next_cycle", 1))
+    if start < 1 or start != next_cycle:
+        raise ValueError(
+            "--reset-training-lineage-at-cycle must equal the current "
+            f"next_cycle ({next_cycle}); got {start}"
+        )
+
+    next_state = copy.deepcopy(state)
+    next_state["training_lineage_start_cycle"] = start
+    next_state["training_lineage_reset"] = {
+        "start_cycle": start,
+        "reset_at": time.time(),
+        "prior_start_cycle": state.get("training_lineage_start_cycle"),
+        "prior_checkpoint_path": state.get("training_checkpoint_path"),
+        "prior_checkpoint_sha256": state.get("training_checkpoint_sha256"),
+        "prior_model_identity": state.get("training_model_identity"),
+    }
+    next_state["training_checkpoint_path"] = None
+    next_state["training_checkpoint_sha256"] = None
+    next_state["training_model_identity"] = None
+    _validate_training_lineage_floor(next_state)
+    _atomic_write_json(state_path, next_state)
+    return next_state, True
+
+
+def _configured_training_objective(defaults: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    schema = defaults.get("training_objective_schema")
+    target_schema = defaults.get("training_target_schema")
+    if schema is None or target_schema is None:
+        return None
+    return {
+        "schema": str(schema),
+        "target_schema": str(target_schema),
+        "loss_kind": str(defaults.get("loss_kind", "mse")),
+        "target_cp": float(defaults.get("target_cp", 100.0)),
+        "teacher_mix": float(defaults.get("teacher_mix", 0.8)),
+        "max_teacher_cp": float(defaults.get("max_teacher_cp", 1200.0)),
+        "outcome_decay": float(defaults.get("outcome_decay", 1.0)),
+        "min_teacher_depth": int(defaults.get("min_teacher_depth", 0)),
+        "huber_delta_cp": float(defaults.get("huber_delta_cp", 100.0)),
+        "wdl_scale_cp": float(defaults.get("wdl_scale_cp", 400.0)),
+    }
+
+
+def _validate_training_checkpoint_identity(
+    state: Dict[str, Any],
+    defaults: Dict[str, Any],
+) -> None:
+    if not state.get("training_checkpoint_path"):
+        return
+    identity = state.get("training_model_identity")
+    if not isinstance(identity, dict):
+        return
+    expected = {
+        "input_dim": defaults.get("training_input_dim"),
+        "hidden_dim": defaults.get("hidden_dim"),
+        "feature_set": defaults.get("training_feature_set"),
+        "target_schema": defaults.get("training_target_schema"),
+        "objective": _configured_training_objective(defaults),
+    }
+    mismatches = {
+        key: (identity.get(key), value)
+        for key, value in expected.items()
+        if value is not None
+        and identity.get(key) != value
+    }
+    if mismatches:
+        raise ValueError(
+            "training checkpoint identity is incompatible with the configured lineage "
+            f"({mismatches}); restart with --reset-training-lineage-at-cycle "
+            f"{int(state.get('next_cycle', 1))}"
+        )
 
 
 def _load_state(path: Path) -> Optional[Dict[str, Any]]:
@@ -188,6 +307,12 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--max-cycles", type=int, default=0, help="Optional max cycles (0 = unlimited)")
     ap.add_argument("--retry-limit", type=int, default=5, help="Retries per cycle before aborting")
     ap.add_argument("--retry-backoff-sec", type=float, default=30.0)
+    ap.add_argument(
+        "--reset-training-lineage-at-cycle",
+        type=int,
+        default=None,
+        help="Atomically start a fresh checkpoint/replay lineage at the current next cycle",
+    )
     ap.add_argument("--profile", default="zen5_9755_7d", choices=["zen5_9755_7d"])
     ap.add_argument("--selfplay-games", type=int, default=None)
     ap.add_argument("--selfplay-depth", type=int, default=None)
@@ -205,6 +330,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         help="Minimum fraction of a capped training sample reserved for the current cycle",
     )
+    ap.add_argument("--teacher-sample-fraction", type=float, default=None)
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--hidden-dim", type=int, default=None)
     ap.add_argument("--min-teacher-depth", type=int, default=None)
@@ -214,6 +340,11 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
     ap.add_argument("--max-validation-samples", type=int, default=None)
     ap.add_argument("--validation-seed", type=int, default=None)
+    ap.add_argument(
+        "--validation-require-teacher",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     ap.add_argument(
         "--continue-optimizer-state",
         action=argparse.BooleanOptionalAction,
@@ -251,6 +382,13 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--gate-threads", type=int, default=None)
     ap.add_argument("--gate-seed", type=int, default=None)
     ap.add_argument("--gate-min-score-delta", type=float, default=None)
+    ap.add_argument(
+        "--gate-paired-openings",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    ap.add_argument("--gate-confirmation-games", type=int, default=None)
+    ap.add_argument("--gate-confirmation-min-score-delta", type=float, default=None)
     return ap.parse_args(argv)
 
 
@@ -273,22 +411,112 @@ def _derive_cycle_seed(base_seed: int, cycle_idx: int, *, stream: int = 0) -> in
     return int(x & mask) or 1
 
 
+_BLEND_RAMP = (25, 50, 75, 100)
+_RUNTIME_IDENTITY_KEYS = (
+    "quant_format",
+    "quant_version",
+    "input_dim",
+    "hidden_dim",
+    "output_dim",
+)
+_SEMANTIC_IDENTITY_KEYS = (
+    "feature_set",
+    "feature_schema",
+    "schema_version",
+    "target_schema",
+    "objective",
+)
+
+
+def _normalized_blend_percent(raw: Any) -> Optional[int]:
+    if not isinstance(raw, (int, float)) or not math.isfinite(float(raw)):
+        return None
+    return max(0, min(100, int(raw)))
+
+
+def _active_accepted_model(state: Dict[str, Any]) -> tuple[Optional[int], Optional[Dict[str, Any]]]:
+    active_path = state.get("active_model_path")
+    accepted = state.get("accepted_models")
+    if not active_path or not isinstance(accepted, list):
+        return None, None
+    for idx in range(len(accepted) - 1, -1, -1):
+        model = accepted[idx]
+        if isinstance(model, dict) and model.get("quant_path") == active_path:
+            return idx, model
+    return None, None
+
+
 def _active_model_blend_percent(state: Dict[str, Any]) -> int:
+    explicit = _normalized_blend_percent(state.get("active_model_blend_percent"))
+    if explicit is not None:
+        return explicit
+
     accepted = state.get("accepted_models")
-    if not isinstance(accepted, list):
+    idx, active_model = _active_accepted_model(state)
+    if idx is not None and active_model is not None:
+        return _accepted_model_promoted_blend(active_model, idx)
+    if not isinstance(accepted, list) or not accepted:
         return 0
-    accepted_count = len(accepted)
-    if accepted_count <= 0:
-        return 0
-    ramp = (25, 50, 75, 100)
-    return int(ramp[min(accepted_count - 1, len(ramp) - 1)])
+    # Final compatibility fallback for states that predate active_model_path or
+    # did not record the promoted blend on an acceptance.
+    return int(_BLEND_RAMP[min(len(accepted) - 1, len(_BLEND_RAMP) - 1)])
 
 
-def _candidate_model_blend_percent(state: Dict[str, Any]) -> int:
+def _model_identities_same(left: Any, right: Any) -> bool:
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    if any(key not in left or key not in right for key in _RUNTIME_IDENTITY_KEYS):
+        return False
+    if any(left[key] != right[key] for key in _RUNTIME_IDENTITY_KEYS):
+        return False
+    for key in _SEMANTIC_IDENTITY_KEYS:
+        left_has_value = key in left and left.get(key) is not None
+        right_has_value = key in right and right.get(key) is not None
+        if left_has_value != right_has_value:
+            return False
+        if left_has_value and left.get(key) != right.get(key):
+            return False
+    return True
+
+
+def _active_model_identity(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    explicit = state.get("active_model_identity")
+    if isinstance(explicit, dict):
+        return dict(explicit)
+    _, active_model = _active_accepted_model(state)
+    if isinstance(active_model, dict) and isinstance(active_model.get("model_identity"), dict):
+        return dict(active_model["model_identity"])
+    active_path = _path_if_exists(state.get("active_model_path"))
+    if active_path is not None:
+        return _quant_model_identity(active_path)
+    return None
+
+
+def _candidate_model_blend_percent(
+    state: Dict[str, Any],
+    *,
+    candidate_identity: Optional[Dict[str, Any]] = None,
+) -> int:
     accepted = state.get("accepted_models")
-    accepted_count = len(accepted) if isinstance(accepted, list) else 0
-    ramp = (25, 50, 75, 100)
-    return int(ramp[min(accepted_count, len(ramp) - 1)])
+    has_active = bool(state.get("active_model_path")) or (
+        isinstance(accepted, list) and bool(accepted)
+    )
+    if not has_active:
+        return _BLEND_RAMP[0]
+
+    active_identity = _active_model_identity(state)
+    if (
+        candidate_identity is not None
+        and active_identity is not None
+        and not _model_identities_same(active_identity, candidate_identity)
+    ):
+        return _BLEND_RAMP[0]
+
+    active_blend = _active_model_blend_percent(state)
+    for blend in _BLEND_RAMP:
+        if blend > active_blend:
+            return blend
+    return _BLEND_RAMP[-1]
 
 
 def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> Dict[str, Any]:
@@ -305,6 +533,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "batch_size": args.batch_size,
         "max_samples": args.max_samples,
         "primary_sample_fraction": args.primary_sample_fraction,
+        "teacher_sample_fraction": args.teacher_sample_fraction,
         "epochs": args.epochs,
         "hidden_dim": args.hidden_dim,
         "min_teacher_depth": args.min_teacher_depth,
@@ -314,6 +543,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "validation_jsonl_dir": args.validation_jsonl_dir,
         "max_validation_samples": args.max_validation_samples,
         "validation_seed": args.validation_seed,
+        "validation_require_teacher": args.validation_require_teacher,
         "continue_optimizer_state": args.continue_optimizer_state,
         "learning_rate": args.learning_rate,
         "warm_start_learning_rate": args.warm_start_learning_rate,
@@ -331,6 +561,9 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "gate_threads": args.gate_threads,
         "gate_seed": args.gate_seed,
         "gate_min_score_delta": args.gate_min_score_delta,
+        "gate_paired_openings": args.gate_paired_openings,
+        "gate_confirmation_games": args.gate_confirmation_games,
+        "gate_confirmation_min_score_delta": args.gate_confirmation_min_score_delta,
     }
     for k, v in mapping.items():
         if v is not None:
@@ -357,6 +590,171 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _quant_model_identity(
+    path: Path,
+    *,
+    summary: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    try:
+        with Path(path).open("rb") as handle:
+            header = handle.read(24)
+    except OSError:
+        return None
+    if len(header) != 24 or header[:8] != b"PIENNQ01":
+        return None
+    try:
+        version, input_dim, hidden_dim, output_dim = struct.unpack("<IIII", header[8:24])
+    except struct.error:
+        return None
+    if version <= 0 or input_dim <= 0 or hidden_dim <= 0 or output_dim <= 0:
+        return None
+
+    identity: Dict[str, Any] = {
+        "quant_format": "PIENNQ01",
+        "quant_version": int(version),
+        "input_dim": int(input_dim),
+        "hidden_dim": int(hidden_dim),
+        "output_dim": int(output_dim),
+    }
+    metrics = summary.get("metrics") if isinstance(summary, dict) else None
+    if isinstance(metrics, dict):
+        for key, expected in (
+            ("input_dim", input_dim),
+            ("hidden_dim", hidden_dim),
+        ):
+            reported = metrics.get(key)
+            if reported is not None and int(reported) != int(expected):
+                raise ValueError(
+                    f"candidate {key} mismatch between summary ({reported}) and quant ({expected})"
+                )
+        for key in ("feature_set", "feature_schema", "schema_version"):
+            value = metrics.get(key)
+            if isinstance(value, (str, int, float)) and value != "":
+                identity[key] = value
+        target_schema = metrics.get("target_schema")
+        if isinstance(target_schema, str) and target_schema:
+            identity["target_schema"] = target_schema
+        objective = metrics.get("objective")
+        if isinstance(objective, dict):
+            identity["objective"] = copy.deepcopy(objective)
+    return identity
+
+
+def _infer_training_model_identity(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    explicit = state.get("training_model_identity")
+    if isinstance(explicit, dict):
+        return dict(explicit)
+    if not state.get("training_checkpoint_path"):
+        return None
+    summary = state.get("last_summary")
+    if not isinstance(summary, dict):
+        return None
+    quant_path = _path_if_exists(summary.get("quant_path"))
+    if quant_path is not None:
+        identity = _quant_model_identity(quant_path, summary=summary)
+        if identity is not None:
+            return identity
+    metrics = summary.get("metrics")
+    if not isinstance(metrics, dict):
+        return None
+    identity = {
+        key: metrics[key]
+        for key in (
+            "input_dim",
+            "hidden_dim",
+            "feature_set",
+            "target_schema",
+            "objective",
+        )
+        if metrics.get(key) is not None
+    }
+    return identity or None
+
+
+def _migrate_deployment_state(state: Dict[str, Any]) -> bool:
+    """Persist the exact deployed model tuple without discarding audit history."""
+    changed = False
+    if state.get("deployment_state_version") != 2:
+        state["deployment_state_version"] = 2
+        changed = True
+    if "training_lineage_start_cycle" not in state:
+        state["training_lineage_start_cycle"] = 1
+        changed = True
+    _validate_training_lineage_floor(state)
+    if "training_model_identity" not in state or (
+        state.get("training_checkpoint_path")
+        and not isinstance(state.get("training_model_identity"), dict)
+    ):
+        training_identity = _infer_training_model_identity(state)
+        state["training_model_identity"] = training_identity
+        changed = True
+
+    active_raw = state.get("active_model_path")
+    if not active_raw:
+        defaults = {
+            "active_model_sha256": None,
+            "active_model_blend_percent": 0,
+            "active_model_identity": None,
+        }
+        for key, value in defaults.items():
+            if key not in state:
+                state[key] = value
+                changed = True
+        return changed
+
+    idx, accepted_model = _active_accepted_model(state)
+    if _normalized_blend_percent(state.get("active_model_blend_percent")) is None:
+        blend = (
+            _accepted_model_promoted_blend(accepted_model, idx)
+            if idx is not None and accepted_model is not None
+            else _active_model_blend_percent(state)
+        )
+        state["active_model_blend_percent"] = blend
+        changed = True
+    blend = _active_model_blend_percent(state)
+
+    if not state.get("active_model_sha256"):
+        accepted_sha = (
+            accepted_model.get("quant_sha256")
+            if isinstance(accepted_model, dict)
+            else None
+        )
+        active_path = _path_if_exists(active_raw)
+        active_sha = accepted_sha or (
+            _sha256_file(active_path) if active_path is not None and active_path.is_file() else None
+        )
+        if active_sha:
+            state["active_model_sha256"] = active_sha
+            changed = True
+
+    identity = state.get("active_model_identity")
+    if not isinstance(identity, dict):
+        accepted_identity = (
+            accepted_model.get("model_identity")
+            if isinstance(accepted_model, dict)
+            else None
+        )
+        if isinstance(accepted_identity, dict):
+            identity = dict(accepted_identity)
+        else:
+            active_path = _path_if_exists(active_raw)
+            identity = (
+                _quant_model_identity(active_path) if active_path is not None else None
+            )
+        if identity is not None:
+            state["active_model_identity"] = identity
+            changed = True
+
+    if isinstance(accepted_model, dict):
+        if accepted_model.get("blend_percent") != blend:
+            accepted_model["blend_percent"] = blend
+            changed = True
+        if isinstance(identity, dict) and accepted_model.get("model_identity") != identity:
+            accepted_model["model_identity"] = dict(identity)
+            changed = True
+    return changed
+
+
 def _verified_quant_path(
     raw: Any,
     *,
@@ -378,9 +776,9 @@ def _resolve_active_quant_path(state: Dict[str, Any]) -> Optional[Path]:
         raw = state.get("active_model_path")
         if not raw:
             return None
-        expected_sha = None
+        expected_sha = state.get("active_model_sha256")
         accepted = state.get("accepted_models")
-        if isinstance(accepted, list):
+        if not expected_sha and isinstance(accepted, list):
             for model in reversed(accepted):
                 if isinstance(model, dict) and model.get("quant_path") == raw:
                     expected_sha = model.get("quant_sha256")
@@ -453,9 +851,12 @@ def _collect_replay_jsonl_dirs(state: Dict[str, Any], window_cycles: int) -> lis
     completed = state.get("completed_cycles")
     if not isinstance(completed, list):
         return []
+    lineage_floor = max(0, int(state.get("training_lineage_start_cycle", 0) or 0))
     out: list[Path] = []
     for c in reversed(completed):
         if not isinstance(c, dict):
+            continue
+        if int(c.get("cycle", 0) or 0) < lineage_floor:
             continue
         # Replay a cycle's fresh/relabelled shards. Its train_jsonl_dir may already
         # contain older replay windows, which would recursively duplicate history.
@@ -732,6 +1133,9 @@ def _apply_cycle_retention(
                 retained_path.resolve(),
                 (cycle_dir / "pipeline_summary.json").resolve(),
                 (cycle_dir / "gate_compare.json").resolve(),
+                (cycle_dir / "gate_compare_confirmation.json").resolve(),
+                (cycle_dir / "gate_compare_same_blend.json").resolve(),
+                (cycle_dir / "gate_compare_same_blend_confirmation.json").resolve(),
             }
         )
         if _prune_cycle_directory(cycle_dir, keep_files):
@@ -778,10 +1182,15 @@ def _run_model_gate(
     min_score_delta: float,
     base_blend_percent: int = 100,
     candidate_blend_percent: int = 100,
+    paired_openings: bool = True,
 ) -> Dict[str, Any]:
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.unlink(missing_ok=True)
     expected_games = max(2, int(games))
+    if paired_openings and expected_games % 2 != 0:
+        raise ValueError(
+            f"paired model gate requires an even game count; got {expected_games}"
+        )
     cmd = [
         "cargo",
         "run",
@@ -814,6 +1223,8 @@ def _run_model_gate(
         "--exp-nnue-quant-file",
         str(candidate_quant),
     ]
+    if paired_openings:
+        cmd.append("--paired-openings")
     if base_quant is None:
         cmd.extend(
             [
@@ -872,6 +1283,110 @@ def _run_model_gate(
     }
 
 
+def _run_confirmed_gate_attempt(
+    *,
+    piebot_dir: Path,
+    screen_json: Path,
+    confirmation_json: Path,
+    base_quant: Optional[Path],
+    candidate_quant: Path,
+    screen_games: int,
+    confirmation_games: int,
+    movetime_ms: int,
+    noise_plies: int,
+    noise_topk: int,
+    threads: int,
+    seed: int,
+    screen_min_score_delta: float,
+    confirmation_min_score_delta: float,
+    base_blend_percent: int,
+    candidate_blend_percent: int,
+    paired_openings: bool,
+) -> Dict[str, Any]:
+    screen = _run_model_gate(
+        piebot_dir=piebot_dir,
+        out_json=screen_json,
+        base_quant=base_quant,
+        candidate_quant=candidate_quant,
+        games=screen_games,
+        movetime_ms=movetime_ms,
+        noise_plies=noise_plies,
+        noise_topk=noise_topk,
+        threads=threads,
+        seed=seed,
+        min_score_delta=screen_min_score_delta,
+        base_blend_percent=base_blend_percent,
+        candidate_blend_percent=candidate_blend_percent,
+        paired_openings=paired_openings,
+    )
+    screen = dict(screen)
+    screen["baseline_blend_percent"] = (
+        0 if base_quant is None else max(0, min(100, int(base_blend_percent)))
+    )
+    screen["experimental_blend_percent"] = max(
+        0, min(100, int(candidate_blend_percent))
+    )
+    attempt: Dict[str, Any] = {
+        "blend_percent": max(0, min(100, int(candidate_blend_percent))),
+        "accepted": False,
+        "screen": screen,
+        "confirmation": None,
+    }
+    if not bool(screen.get("accepted")):
+        attempt["reason"] = "screen-rejected"
+        return attempt
+
+    if int(confirmation_games) <= 0:
+        attempt["accepted"] = True
+        attempt["reason"] = "confirmation-disabled"
+        return attempt
+
+    confirmation = _run_model_gate(
+        piebot_dir=piebot_dir,
+        out_json=confirmation_json,
+        base_quant=base_quant,
+        candidate_quant=candidate_quant,
+        games=confirmation_games,
+        movetime_ms=movetime_ms,
+        noise_plies=noise_plies,
+        noise_topk=noise_topk,
+        threads=threads,
+        seed=seed + 1_000_003,
+        min_score_delta=confirmation_min_score_delta,
+        base_blend_percent=base_blend_percent,
+        candidate_blend_percent=candidate_blend_percent,
+        paired_openings=paired_openings,
+    )
+    confirmation = dict(confirmation)
+    confirmation["baseline_blend_percent"] = (
+        0 if base_quant is None else max(0, min(100, int(base_blend_percent)))
+    )
+    confirmation["experimental_blend_percent"] = max(
+        0, min(100, int(candidate_blend_percent))
+    )
+    attempt["confirmation"] = confirmation
+    attempt["accepted"] = bool(confirmation.get("accepted"))
+    attempt["reason"] = (
+        "confirmation-accepted" if attempt["accepted"] else "confirmation-rejected"
+    )
+    return attempt
+
+
+def _gate_from_attempts(attempts: list[Dict[str, Any]]) -> Dict[str, Any]:
+    if not attempts:
+        return {"accepted": False, "reason": "no-gate-attempt"}
+    selected = next((attempt for attempt in attempts if attempt.get("accepted")), attempts[-1])
+    result = selected.get("confirmation") or selected.get("screen") or {}
+    gate = dict(result) if isinstance(result, dict) else {}
+    gate["accepted"] = bool(selected.get("accepted"))
+    gate["reason"] = selected.get("reason")
+    gate["experimental_blend_percent"] = int(selected["blend_percent"])
+    gate["screen"] = selected.get("screen")
+    gate["confirmation"] = selected.get("confirmation")
+    gate["attempts"] = attempts
+    return gate
+
+
 def _record_acceptance(
     *,
     state: Dict[str, Any],
@@ -879,8 +1394,16 @@ def _record_acceptance(
     quant_path: Path,
     quant_sha256: Optional[str],
     gate: Dict[str, Any],
+    blend_percent: int,
+    model_identity: Optional[Dict[str, Any]],
 ) -> None:
+    blend = max(0, min(100, int(blend_percent)))
     state["active_model_path"] = str(quant_path)
+    state["active_model_sha256"] = quant_sha256
+    state["active_model_blend_percent"] = blend
+    state["active_model_identity"] = (
+        dict(model_identity) if isinstance(model_identity, dict) else None
+    )
     accepted = state.setdefault("accepted_models", [])
     if not isinstance(accepted, list):
         accepted = []
@@ -890,6 +1413,10 @@ def _record_acceptance(
             "cycle": int(cycle_idx),
             "quant_path": str(quant_path),
             "quant_sha256": quant_sha256,
+            "blend_percent": blend,
+            "model_identity": (
+                dict(model_identity) if isinstance(model_identity, dict) else None
+            ),
             "accepted_at": time.time(),
             "gate": gate,
         }
@@ -924,12 +1451,49 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "completed_cycles": [],
                 "accepted_models": [],
                 "active_model_path": None,
+                "active_model_sha256": None,
+                "active_model_blend_percent": 0,
+                "active_model_identity": None,
+                "deployment_state_version": 2,
+                "training_lineage_start_cycle": 1,
+                "training_model_identity": None,
                 "last_error": None,
             }
             _atomic_write_json(state_path, state)
 
+        try:
+            if _migrate_deployment_state(state):
+                _atomic_write_json(state_path, state)
+            if args.reset_training_lineage_at_cycle is not None:
+                state, _ = _atomic_reset_training_lineage(
+                    state_path=state_path,
+                    state=state,
+                    start_cycle=args.reset_training_lineage_at_cycle,
+                )
+            _validate_training_lineage_floor(state)
+        except ValueError as exc:
+            state["last_error"] = {
+                "stage": "training-lineage-reset",
+                "error": str(exc),
+                "ts": time.time(),
+            }
+            _atomic_write_json(state_path, state)
+            print(f"autopilot refusing training lineage: {exc}", file=sys.stderr)
+            return 2
+
         defaults = _profile_defaults(str(state.get("profile", args.profile)))
         defaults = _apply_cli_overrides(defaults, args)
+        try:
+            _validate_training_checkpoint_identity(state, defaults)
+        except ValueError as exc:
+            state["last_error"] = {
+                "stage": "training-lineage-validation",
+                "error": str(exc),
+                "ts": time.time(),
+            }
+            _atomic_write_json(state_path, state)
+            print(f"autopilot refusing incompatible training lineage: {exc}", file=sys.stderr)
+            return 2
         retain_full_cycles = int(defaults.get("retain_full_cycles", 0))
         try:
             _enforce_cycle_retention(
@@ -989,7 +1553,6 @@ def main(argv: Optional[list[str]] = None) -> int:
                         int(defaults.get("teacher_lag_cycles", 0)),
                     )
                     active_blend = _active_model_blend_percent(state)
-                    candidate_blend = _candidate_model_blend_percent(state)
                     replay_dirs = _collect_replay_jsonl_dirs(
                         state,
                         int(defaults.get("replay_window_cycles", 0)),
@@ -1061,12 +1624,45 @@ def main(argv: Optional[list[str]] = None) -> int:
                         if bootstrap_quant is not None
                         else None
                     )
+                    candidate_identity = (
+                        _quant_model_identity(candidate_quant, summary=summary)
+                        if candidate_quant is not None
+                        else None
+                    )
+                    active_identity = _active_model_identity(state)
+                    candidate_blend = _candidate_model_blend_percent(
+                        state,
+                        candidate_identity=candidate_identity,
+                    )
+                    same_lineage = _model_identities_same(
+                        active_identity,
+                        candidate_identity,
+                    )
+                    candidate_blends = [candidate_blend]
+                    if (
+                        bootstrap_quant is not None
+                        and same_lineage
+                        and active_blend > 0
+                        and candidate_blend > active_blend
+                    ):
+                        candidate_blends.append(active_blend)
                     gate_identity = {
                         "quant_sha256": candidate_quant_sha,
                         "baseline_quant_sha256": baseline_quant_sha,
+                        "baseline_model_identity": active_identity,
+                        "candidate_model_identity": candidate_identity,
                         "baseline_blend_percent": active_blend,
-                        "experimental_blend_percent": candidate_blend,
+                        "candidate_blend_percents": candidate_blends,
                         "games": int(defaults.get("gate_games", 0)),
+                        "paired_openings": bool(
+                            defaults.get("gate_paired_openings", True)
+                        ),
+                        "confirmation_games": int(
+                            defaults.get("gate_confirmation_games", 96)
+                        ),
+                        "confirmation_min_score_delta": float(
+                            defaults.get("gate_confirmation_min_score_delta", 2.0)
+                        ),
                         "movetime_ms": int(defaults.get("gate_movetime_ms", 150)),
                         "noise_plies": int(defaults.get("gate_noise_plies", 12)),
                         "noise_topk": int(defaults.get("gate_noise_topk", 5)),
@@ -1078,7 +1674,15 @@ def main(argv: Optional[list[str]] = None) -> int:
                     gate_games = int(defaults.get("gate_games", 0))
                     gate_was_run = False
                     if gate_games <= 0:
-                        gate = {"accepted": True, "reason": "gate-disabled"}
+                        gate = {
+                            "accepted": True,
+                            "reason": "gate-disabled",
+                            "baseline_blend_percent": active_blend,
+                            "experimental_blend_percent": candidate_blend,
+                            "screen": None,
+                            "confirmation": None,
+                            "attempts": [],
+                        }
                     elif candidate_quant is None:
                         gate = {"accepted": False, "reason": "missing-candidate-model"}
                     elif (
@@ -1107,22 +1711,61 @@ def main(argv: Optional[list[str]] = None) -> int:
                             "experimental_blend_percent": candidate_blend,
                         }
                     else:
-                        gate_was_run = True
-                        gate = _run_model_gate(
-                            piebot_dir=args.piebot_dir,
-                            out_json=cycle_dir / "gate_compare.json",
-                            base_quant=bootstrap_quant,
-                            candidate_quant=candidate_quant,
-                            games=gate_games,
-                            movetime_ms=int(defaults.get("gate_movetime_ms", 150)),
-                            noise_plies=int(defaults.get("gate_noise_plies", 12)),
-                            noise_topk=int(defaults.get("gate_noise_topk", 5)),
-                            threads=int(defaults.get("gate_threads", 1)),
-                            seed=int(defaults.get("gate_seed", 1)) + cycle_idx,
-                            min_score_delta=float(defaults.get("gate_min_score_delta", 0.0)),
-                            base_blend_percent=active_blend,
-                            candidate_blend_percent=candidate_blend,
-                        )
+                        gate_attempts: list[Dict[str, Any]] = []
+                        for blend_idx, blend in enumerate(candidate_blends):
+                            if (
+                                blend_idx > 0
+                                and baseline_quant_sha
+                                and candidate_quant_sha == baseline_quant_sha
+                                and blend == active_blend
+                            ):
+                                gate_attempts.append(
+                                    {
+                                        "blend_percent": blend,
+                                        "accepted": False,
+                                        "reason": "candidate-identical-to-active-model",
+                                        "screen": None,
+                                        "confirmation": None,
+                                    }
+                                )
+                                continue
+                            fallback = blend_idx > 0
+                            stem = "gate_compare_same_blend" if fallback else "gate_compare"
+                            gate_was_run = True
+                            gate_attempt = _run_confirmed_gate_attempt(
+                                piebot_dir=args.piebot_dir,
+                                screen_json=cycle_dir / f"{stem}.json",
+                                confirmation_json=cycle_dir / f"{stem}_confirmation.json",
+                                base_quant=bootstrap_quant,
+                                candidate_quant=candidate_quant,
+                                screen_games=gate_games,
+                                confirmation_games=int(
+                                    defaults.get("gate_confirmation_games", 96)
+                                ),
+                                movetime_ms=int(defaults.get("gate_movetime_ms", 150)),
+                                noise_plies=int(defaults.get("gate_noise_plies", 12)),
+                                noise_topk=int(defaults.get("gate_noise_topk", 5)),
+                                threads=int(defaults.get("gate_threads", 1)),
+                                seed=int(defaults.get("gate_seed", 1)) + cycle_idx,
+                                screen_min_score_delta=float(
+                                    defaults.get("gate_min_score_delta", 0.0)
+                                ),
+                                confirmation_min_score_delta=float(
+                                    defaults.get(
+                                        "gate_confirmation_min_score_delta",
+                                        2.0,
+                                    )
+                                ),
+                                base_blend_percent=active_blend,
+                                candidate_blend_percent=blend,
+                                paired_openings=bool(
+                                    defaults.get("gate_paired_openings", True)
+                                ),
+                            )
+                            gate_attempts.append(gate_attempt)
+                            if gate_attempt.get("accepted"):
+                                break
+                        gate = _gate_from_attempts(gate_attempts)
                     next_state = copy.deepcopy(state)
                     if gate_was_run and candidate_quant_sha:
                         next_state["last_gate_identity"] = gate_identity
@@ -1134,6 +1777,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                             quant_path=candidate_quant,
                             quant_sha256=candidate_quant_sha,
                             gate=gate,
+                            blend_percent=int(
+                                gate.get("experimental_blend_percent", candidate_blend)
+                            ),
+                            model_identity=candidate_identity,
                         )
                     completed_cycle_state = dict(cycle_state)
                     completed_cycle_state["status"] = "completed"
@@ -1167,6 +1814,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                     next_state["last_gate"] = gate
                     next_state["training_checkpoint_path"] = str(candidate_checkpoint)
                     next_state["training_checkpoint_sha256"] = candidate_checkpoint_sha
+                    next_state["training_model_identity"] = (
+                        dict(candidate_identity)
+                        if isinstance(candidate_identity, dict)
+                        else None
+                    )
                     _atomic_write_json(state_path, next_state)
                     state = next_state
                     completed += 1

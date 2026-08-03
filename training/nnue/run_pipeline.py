@@ -30,6 +30,10 @@ except Exception:
         train_torch = None  # type: ignore
 
 
+_RELABEL_STAGE_PROVENANCE_VERSION = 2
+_RELABEL_SELECTION_POLICY = "per-game-fnv1a-phase-v1"
+
+
 def _clamp_int(v: float, lo: int, hi: int) -> int:
     iv = int(round(v))
     if iv < lo:
@@ -544,8 +548,9 @@ def _relabel_stage_provenance(
     if not input_snapshot["files"] or int(input_snapshot["records"]) <= 0:
         raise ValueError("relabel input contains no JSONL records")
     return {
-        "version": 1,
+        "version": _RELABEL_STAGE_PROVENANCE_VERSION,
         "generator": "relabel",
+        "selection_policy": _RELABEL_SELECTION_POLICY,
         "piebot_dir": _normalized_path(piebot_dir),
         "input": {
             "path": _normalized_path(jsonl_in),
@@ -719,6 +724,21 @@ def _load_training_artifacts(train_dir: Path) -> Tuple[Dict[str, Any], Dict[str,
     if train_samples <= 0 or val_samples < 0:
         raise ValueError("training metrics have invalid sample counts")
     return checkpoint, metrics
+
+
+def _validate_training_target_identity(
+    checkpoint: Dict[str, Any],
+    metrics: Dict[str, Any],
+    objective: Dict[str, Any],
+) -> None:
+    if metrics.get("target_schema") != train_stub.TARGET_SCHEMA:
+        raise ValueError("trainer target schema does not match the pipeline")
+    if metrics.get("objective") != objective:
+        raise ValueError("trainer objective metadata does not match the pipeline")
+    if checkpoint.get("target_schema") != train_stub.TARGET_SCHEMA:
+        raise ValueError("training checkpoint target schema does not match the pipeline")
+    if checkpoint.get("objective") != objective:
+        raise ValueError("training checkpoint objective does not match the pipeline")
 
 
 def _training_provenance(
@@ -943,6 +963,75 @@ def _merged_source_provenance(src_dirs: Sequence[Path]) -> List[Dict[str, Any]]:
     return sources
 
 
+def _assert_validation_source_disjoint(
+    validation_dir: Path,
+    training_dirs: Sequence[Path],
+) -> None:
+    """Reject path, inode, or exact-copy overlap between train and holdout data."""
+    validation_dir = Path(validation_dir)
+    validation_snapshot = _jsonl_stage_snapshot(validation_dir)
+    if not validation_snapshot["files"] or int(validation_snapshot["records"]) <= 0:
+        raise ValueError(f"validation JSONL source contains no records: {validation_dir}")
+
+    def file_identities(root: Path) -> set[tuple[int, int]]:
+        identities: set[tuple[int, int]] = set()
+        for shard in root.glob("*.jsonl"):
+            stat = shard.stat()
+            identities.add((int(stat.st_dev), int(stat.st_ino)))
+        return identities
+
+    def shard_signatures(snapshot: Dict[str, Any]) -> set[tuple[Any, ...]]:
+        return {
+            (
+                item.get("sha256"),
+                int(item.get("size", -1)),
+                int(item.get("records", -1)),
+            )
+            for item in snapshot["files"]
+        }
+
+    def game_keys(root: Path) -> set[tuple[str, str]]:
+        keys: set[tuple[str, str]] = set()
+        for shard in root.glob("*.jsonl"):
+            with shard.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(record, dict):
+                        continue
+                    run_id = record.get("run_id")
+                    game_id = record.get("game_id")
+                    if (
+                        isinstance(run_id, str)
+                        and run_id
+                        and isinstance(game_id, str)
+                        and game_id
+                    ):
+                        keys.add((run_id, game_id))
+        return keys
+
+    validation_inodes = file_identities(validation_dir)
+    validation_signatures = shard_signatures(validation_snapshot)
+    validation_game_keys = game_keys(validation_dir)
+    for raw_training_dir in training_dirs:
+        training_dir = Path(raw_training_dir)
+        if not _has_jsonl_files(training_dir):
+            continue
+        if _is_same_path(validation_dir, training_dir):
+            raise ValueError("fixed validation source must be separate from training data")
+        if validation_inodes.intersection(file_identities(training_dir)):
+            raise ValueError("fixed validation source overlaps training data by file identity")
+        training_snapshot = _jsonl_stage_snapshot(training_dir)
+        if validation_signatures.intersection(shard_signatures(training_snapshot)):
+            raise ValueError("fixed validation source contains a copied shard from training data")
+        if validation_game_keys and validation_game_keys.intersection(game_keys(training_dir)):
+            raise ValueError("fixed validation source overlaps training game provenance")
+
+
 def _write_merged_stage_manifest(
     merged_dir: Path,
     *,
@@ -1118,11 +1207,13 @@ def run_pipeline(
     adam_eps: float = 1e-8,
     grad_clip: float = 5.0,
     primary_sample_fraction: float = 0.5,
+    teacher_sample_fraction: float = 0.5,
     min_teacher_depth: int = 0,
     loss_kind: str = "mse",
     huber_delta_cp: float = 100.0,
     wdl_scale_cp: float = 400.0,
     validation_jsonl_dir: Optional[Path] = None,
+    validation_require_teacher: bool = False,
     max_validation_samples: int = 100_000,
     validation_seed: int = 20_260_802,
     seed: int = 1,
@@ -1275,6 +1366,12 @@ def run_pipeline(
         jsonl_dir = relabeled_dir
         ingested = int(relabel_manifest["records"])
 
+    if validation_jsonl_dir is not None:
+        _assert_validation_source_disjoint(
+            Path(validation_jsonl_dir),
+            [Path(jsonl_dir), *(Path(path) for path in (replay_jsonl_dirs or []))],
+        )
+
     train_jsonl_dir = _build_training_jsonl_dir(
         out_dir=out_dir,
         primary_jsonl_dir=Path(jsonl_dir),
@@ -1305,6 +1402,16 @@ def run_pipeline(
             if sibling.is_file():
                 resolved_initial_optimizer = sibling
     initial_optimizer_info = _file_content_identity(resolved_initial_optimizer)
+    objective = train_stub.objective_metadata(
+        loss_kind=loss_kind,
+        target_cp=target_cp,
+        teacher_mix=teacher_mix,
+        max_teacher_cp=max_teacher_cp,
+        outcome_decay=outcome_decay,
+        min_teacher_depth=min_teacher_depth,
+        huber_delta_cp=huber_delta_cp,
+        wdl_scale_cp=wdl_scale_cp,
+    )
     training_config: Dict[str, Any] = {
         "batch_size": batch_size,
         "max_samples": max_samples,
@@ -1321,6 +1428,7 @@ def run_pipeline(
         "adam_eps": adam_eps,
         "grad_clip": grad_clip,
         "primary_sample_fraction": primary_sample_fraction,
+        "teacher_sample_fraction": teacher_sample_fraction,
         "min_teacher_depth": min_teacher_depth,
         "loss_kind": loss_kind,
         "huber_delta_cp": huber_delta_cp,
@@ -1330,6 +1438,7 @@ def run_pipeline(
             if validation_jsonl_dir is not None
             else None
         ),
+        "validation_require_teacher": validation_require_teacher,
         "max_validation_samples": max_validation_samples,
         "validation_seed": validation_seed,
         "seed": seed,
@@ -1337,6 +1446,7 @@ def run_pipeline(
     initial_checkpoint_info = _initial_checkpoint_provenance(initial_checkpoint)
     training_provenance_config = {
         **training_config,
+        "objective": objective,
         "initial_checkpoint": initial_checkpoint_info,
         "initial_optimizer_state": initial_optimizer_info,
         "validation_dataset": validation_dataset,
@@ -1383,6 +1493,8 @@ def run_pipeline(
             )
         checkpoint, metrics = _load_training_artifacts(train_out)
         _write_training_stage_manifest(train_out, provenance=training_provenance)
+
+    _validate_training_target_identity(checkpoint, metrics, objective)
 
     if initial_checkpoint_info is not None:
         initialized_from = metrics.get("initialized_from")
@@ -1565,11 +1677,17 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--adam-eps", type=float, default=1e-8)
     ap.add_argument("--grad-clip", type=float, default=5.0)
     ap.add_argument("--primary-sample-fraction", type=float, default=0.5)
+    ap.add_argument("--teacher-sample-fraction", type=float, default=0.5)
     ap.add_argument("--min-teacher-depth", type=int, default=0)
     ap.add_argument("--loss-kind", choices=["mse", "huber", "wdl"], default="mse")
     ap.add_argument("--huber-delta-cp", type=float, default=100.0)
     ap.add_argument("--wdl-scale-cp", type=float, default=400.0)
     ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
+    ap.add_argument(
+        "--validation-require-teacher",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     ap.add_argument("--max-validation-samples", type=int, default=100_000)
     ap.add_argument("--validation-seed", type=int, default=20_260_802)
     ap.add_argument(
@@ -1660,11 +1778,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         adam_eps=args.adam_eps,
         grad_clip=args.grad_clip,
         primary_sample_fraction=args.primary_sample_fraction,
+        teacher_sample_fraction=args.teacher_sample_fraction,
         min_teacher_depth=args.min_teacher_depth,
         loss_kind=args.loss_kind,
         huber_delta_cp=args.huber_delta_cp,
         wdl_scale_cp=args.wdl_scale_cp,
         validation_jsonl_dir=args.validation_jsonl_dir,
+        validation_require_teacher=args.validation_require_teacher,
         max_validation_samples=args.max_validation_samples,
         validation_seed=args.validation_seed,
         seed=args.seed,

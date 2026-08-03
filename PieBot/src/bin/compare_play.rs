@@ -2,8 +2,11 @@ use clap::Parser;
 use cozy_chess::{BitBoard, Color, Piece, Square};
 use cozy_chess::{Board, Move};
 use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::time::Instant;
+
+const PAIRED_OPENING_POLICY: &str = "neutral-pst-topk-v2";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -42,6 +45,10 @@ struct Args {
     /// Random seed
     #[arg(long, default_value_t = 1u64)]
     seed: u64,
+
+    /// Precompute one neutral opening per two games and replay it with colors reversed.
+    #[arg(long, default_value_t = false)]
+    paired_openings: bool,
 
     /// Force both sides to use baseline search implementation (model-only A/B).
     #[arg(long, default_value_t = false)]
@@ -92,7 +99,6 @@ struct Args {
     exp_hash_mb: Option<usize>,
 }
 
-#[cfg(test)]
 fn legal_moves(board: &Board) -> Vec<Move> {
     let mut v = Vec::new();
     board.generate_moves(|ml| {
@@ -253,6 +259,121 @@ fn noisy_choice(order: &[Move], topk: usize, rng: &mut SmallRng) -> Option<Move>
     let k = topk.min(order.len()).max(1);
     let idx = rng.gen_range(0..k);
     Some(order[idx])
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PairedOpening {
+    pair_index: usize,
+    seed: u64,
+    opening_id: String,
+    moves: Vec<String>,
+    positions: Vec<String>,
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^ (value >> 31)
+}
+
+fn paired_opening_seed(base_seed: u64, pair_index: usize) -> u64 {
+    splitmix64(base_seed ^ (pair_index as u64).wrapping_mul(0xD1B5_4A32_D192_ED03))
+}
+
+fn opening_fingerprint(seed: u64, moves: &[String]) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in seed.to_le_bytes().into_iter().chain(
+        moves
+            .iter()
+            .flat_map(|mv| mv.bytes().chain(std::iter::once(0))),
+    ) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+/// Score a candidate from the perspective of the side making `mv` without
+/// consulting either engine under comparison. `eval_cp` evaluates the child
+/// for its side to move, so negate it to recover the mover's perspective.
+fn neutral_move_score(board: &Board, mv: Move) -> i32 {
+    let mut child = board.clone();
+    child.play_unchecked(mv);
+    -piebot::search::eval::eval_cp(&child)
+}
+
+fn neutral_ordered_moves(board: &Board, rng: &mut SmallRng) -> Vec<Move> {
+    let mut moves = legal_moves(board);
+
+    // Start from a canonical order so the same seed remains reproducible even
+    // if the move generator's internal iteration order changes. Shuffle before
+    // the stable score sort to use seeded randomness only as a tie-breaker.
+    moves.sort_unstable_by_key(|mv| format!("{}", mv));
+    moves.shuffle(rng);
+    moves.sort_by(|left, right| {
+        neutral_move_score(board, *right).cmp(&neutral_move_score(board, *left))
+    });
+    moves
+}
+
+fn generate_paired_opening(
+    pair_index: usize,
+    seed: u64,
+    plies: usize,
+    topk: usize,
+) -> PairedOpening {
+    let mut board = Board::default();
+    let mut rng = SmallRng::seed_from_u64(seed);
+    let mut moves = Vec::with_capacity(plies);
+    let mut positions = Vec::with_capacity(plies + 1);
+    positions.push(format!("{}", board));
+
+    for _ in 0..plies {
+        let ordered = neutral_ordered_moves(&board, &mut rng);
+        let Some(mv) = noisy_choice(&ordered, topk, &mut rng) else {
+            break;
+        };
+        moves.push(format!("{}", mv));
+        board.play_unchecked(mv);
+        positions.push(format!("{}", board));
+    }
+
+    PairedOpening {
+        pair_index,
+        seed,
+        opening_id: opening_fingerprint(seed, &moves),
+        moves,
+        positions,
+    }
+}
+
+fn validate_paired_game_count(games: usize, paired_openings: bool) -> Result<(), String> {
+    if paired_openings && games % 2 != 0 {
+        return Err(format!(
+            "--paired-openings requires an even --games count; got {games}"
+        ));
+    }
+    Ok(())
+}
+
+fn build_paired_openings(
+    games: usize,
+    plies: usize,
+    topk: usize,
+    base_seed: u64,
+) -> Result<Vec<PairedOpening>, String> {
+    validate_paired_game_count(games, true)?;
+    Ok((0..games / 2)
+        .map(|pair_index| {
+            let seed = paired_opening_seed(base_seed, pair_index);
+            generate_paired_opening(pair_index, seed, plies, topk)
+        })
+        .collect())
+}
+
+fn opening_for_game(openings: &[PairedOpening], game_index: usize) -> Option<&PairedOpening> {
+    openings.get(game_index / 2)
 }
 
 fn choose_move_noisy_baseline(
@@ -561,6 +682,16 @@ fn is_game_over(board: &Board, position_history: &[Board]) -> Option<i32> {
 fn main() {
     env_logger::init();
     let args = Args::parse();
+    if let Err(message) = validate_paired_game_count(args.games, args.paired_openings) {
+        eprintln!("error: {message}");
+        std::process::exit(2);
+    }
+    let paired_openings = if args.paired_openings {
+        build_paired_openings(args.games, args.noise_plies, args.noise_topk, args.seed)
+            .expect("paired game count was validated")
+    } else {
+        Vec::new()
+    };
     let mut rng = SmallRng::seed_from_u64(args.seed);
 
     // Detect if experimental search is identical to baseline (alphabeta_temp reexports alphabeta)
@@ -573,6 +704,13 @@ fn main() {
         );
     } else if tn_base == tn_exp {
         eprintln!("[WARN] Experimental search equals baseline (alphabeta_temp reexports alphabeta). Comparing baseline against itself.");
+    }
+    if args.paired_openings {
+        eprintln!(
+            "[INFO] paired-opening mode: {} pairs, policy={}, engines reset every game.",
+            paired_openings.len(),
+            PAIRED_OPENING_POLICY
+        );
     }
     let mut base_engine = build_baseline_engine(&args);
     let mut exp_engine = build_experimental_engine(&args);
@@ -593,6 +731,17 @@ fn main() {
     let mut pgn_buf = String::new();
 
     for g in 0..args.games {
+        // A new searcher pair prevents TT, history, killer, and aspiration state
+        // from leaking between the two colors of a paired opening.
+        if args.paired_openings && g > 0 {
+            base_engine = build_baseline_engine(&args);
+            exp_engine = build_experimental_engine(&args);
+        }
+        let paired_opening = if args.paired_openings {
+            opening_for_game(&paired_openings, g)
+        } else {
+            None
+        };
         let mut board = Board::default();
         let mut position_history = vec![board.clone()];
         let baseline_is_white = g % 2 == 0;
@@ -620,7 +769,17 @@ fn main() {
             }
 
             let baseline_to_move = (plies % 2 == 0) == baseline_is_white;
-            let mv = if plies < args.noise_plies {
+            let mv = if let Some(opening) =
+                paired_opening.filter(|opening| plies < opening.moves.len())
+            {
+                let uci = &opening.moves[plies];
+                Some(find_move_uci(&board, uci).unwrap_or_else(|| {
+                    panic!(
+                        "paired opening {} contains illegal move {} at ply {}",
+                        opening.opening_id, uci, plies
+                    )
+                }))
+            } else if !args.paired_openings && plies < args.noise_plies {
                 // Noisy selection from ordered top-K
                 if baseline_to_move {
                     choose_move_noisy_baseline(&board, &base_engine, args.noise_topk, &mut rng)
@@ -671,13 +830,25 @@ fn main() {
             std::cmp::Ordering::Equal => draws += 1,
         }
 
-        println!(
-            "game={} result={} (baseline_white={}) plies={}",
-            g + 1,
-            result,
-            baseline_is_white,
-            plies
-        );
+        if let Some(opening) = paired_opening {
+            println!(
+                "game={} result={} (baseline_white={}) plies={} pair={} opening_id={}",
+                g + 1,
+                result,
+                baseline_is_white,
+                plies,
+                opening.pair_index + 1,
+                opening.opening_id
+            );
+        } else {
+            println!(
+                "game={} result={} (baseline_white={}) plies={}",
+                g + 1,
+                result,
+                baseline_is_white,
+                plies
+            );
+        }
 
         // Append PGN if requested
         if args.pgn_out.is_some() {
@@ -716,6 +887,15 @@ fn main() {
                                      g + 1, white, black, res, time_control));
             if let Some(depth) = args.depth {
                 pgn_buf.push_str(&format!("[PlyDepth \"{}\"]\n", depth.max(1)));
+            }
+            if let Some(opening) = paired_opening {
+                pgn_buf.push_str(&format!(
+                    "[Pair \"{}\"]\n[OpeningSeed \"{}\"]\n[OpeningId \"{}\"]\n[OpeningPolicy \"{}\"]\n",
+                    opening.pair_index + 1,
+                    opening.seed,
+                    opening.opening_id,
+                    PAIRED_OPENING_POLICY
+                ));
             }
             pgn_buf.push('\n');
             // Moves with numbers
@@ -771,6 +951,34 @@ fn main() {
         avg_nps_exp, avg_depth_exp, cnt_exp, sum_nodes_exp, sum_time_exp
     );
 
+    let pairing_payload = if args.paired_openings {
+        serde_json::json!({
+            "enabled": true,
+            "pair_count": paired_openings.len(),
+            "games_per_pair": 2,
+            "colors_reversed": true,
+            "engine_reset_per_game": true,
+            "opening_policy": PAIRED_OPENING_POLICY,
+            "seed_scheme": "splitmix64-v1",
+            "base_seed": args.seed,
+            "openings": paired_openings.iter().map(|opening| serde_json::json!({
+                "pair_index": opening.pair_index,
+                "seed": opening.seed,
+                "opening_id": opening.opening_id,
+                "moves": opening.moves,
+                "positions": opening.positions,
+            })).collect::<Vec<_>>(),
+        })
+    } else {
+        serde_json::json!({
+            "enabled": false,
+            "pair_count": 0,
+            "engine_reset_per_game": false,
+            "opening_policy": "legacy-engine-ordered-noise",
+            "base_seed": args.seed,
+        })
+    };
+
     // Optional machine-readable outputs
     if let Some(path) = args.json_out.as_deref() {
         let payload = serde_json::json!({
@@ -781,6 +989,8 @@ fn main() {
             "noise_topk": args.noise_topk,
             "threads": args.threads,
             "seed": args.seed,
+            "paired_openings": args.paired_openings,
+            "pairing": pairing_payload,
             "self_compare": self_compare,
             "engines": {"baseline": tn_base, "experimental": tn_exp},
             "points": {"baseline": baseline_points, "experimental": experimental_points, "draws": draws},
@@ -800,14 +1010,30 @@ fn main() {
 
     if let Some(path) = args.csv_out.as_deref() {
         // Single-row CSV summary with header
-        let header = "games,movetime_ms,fixed_depth,noise_plies,noise_topk,threads,seed,self_compare,base_type,exp_type,baseline_pts,experimental_pts,draws,base_moves,base_nodes,base_time_s,base_avg_nps,base_avg_depth,exp_moves,exp_nodes,exp_time_s,exp_avg_nps,exp_avg_depth\n";
+        let header = "games,movetime_ms,fixed_depth,noise_plies,noise_topk,threads,seed,self_compare,base_type,exp_type,baseline_pts,experimental_pts,draws,base_moves,base_nodes,base_time_s,base_avg_nps,base_avg_depth,exp_moves,exp_nodes,exp_time_s,exp_avg_nps,exp_avg_depth,paired_openings,opening_pairs,opening_policy,pair_seeds,opening_ids\n";
         let fixed_depth = args.depth.map(|d| d.max(1).to_string()).unwrap_or_default();
+        let pair_seeds = paired_openings
+            .iter()
+            .map(|opening| opening.seed.to_string())
+            .collect::<Vec<_>>()
+            .join(";");
+        let opening_ids = paired_openings
+            .iter()
+            .map(|opening| opening.opening_id.as_str())
+            .collect::<Vec<_>>()
+            .join(";");
+        let opening_policy = if args.paired_openings {
+            PAIRED_OPENING_POLICY
+        } else {
+            "legacy-engine-ordered-noise"
+        };
         let row = format!(
-            "{},{},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{},{},{:.6},{:.1},{:.2},{},{},{:.6},{:.1},{:.2}\n",
+            "{},{},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{},{},{:.6},{:.1},{:.2},{},{},{:.6},{:.1},{:.2},{},{},{},{},{}\n",
             args.games, args.movetime, fixed_depth, args.noise_plies, args.noise_topk, args.threads, args.seed, self_compare, tn_base, tn_exp,
             baseline_points, experimental_points, draws,
             cnt_base, sum_nodes_base, sum_time_base, avg_nps_base, avg_depth_base,
-            cnt_exp, sum_nodes_exp, sum_time_exp, avg_nps_exp, avg_depth_exp
+            cnt_exp, sum_nodes_exp, sum_time_exp, avg_nps_exp, avg_depth_exp,
+            args.paired_openings, paired_openings.len(), opening_policy, pair_seeds, opening_ids
         );
         let mut buf = String::new();
         buf.push_str(header);
@@ -838,6 +1064,104 @@ mod tests {
     #[test]
     fn cli_rejects_zero_fixed_depth() {
         assert!(Args::try_parse_from(["compare_play", "--depth", "0"]).is_err());
+    }
+
+    #[test]
+    fn cli_accepts_opt_in_paired_openings() {
+        let args = Args::try_parse_from(["compare_play", "--games", "8", "--paired-openings"])
+            .expect("--paired-openings should be supported");
+        assert!(args.paired_openings);
+    }
+
+    #[test]
+    fn paired_openings_require_an_even_game_count_without_affecting_legacy_mode() {
+        assert!(build_paired_openings(3, 8, 5, 91).is_err());
+        assert!(validate_paired_game_count(3, false).is_ok());
+        assert!(validate_paired_game_count(4, true).is_ok());
+    }
+
+    #[test]
+    fn paired_neutral_order_is_deterministic_and_score_descending() {
+        let board = Board::default();
+        let mut first_rng = SmallRng::seed_from_u64(0xA55A);
+        let mut second_rng = SmallRng::seed_from_u64(0xA55A);
+        let first = neutral_ordered_moves(&board, &mut first_rng);
+        let second = neutral_ordered_moves(&board, &mut second_rng);
+
+        assert_eq!(first, second);
+        assert!(first
+            .windows(2)
+            .all(|moves| neutral_move_score(&board, moves[0])
+                >= neutral_move_score(&board, moves[1])));
+        assert_eq!(PAIRED_OPENING_POLICY, "neutral-pst-topk-v2");
+    }
+
+    #[test]
+    fn paired_opening_is_deterministic() {
+        let first = build_paired_openings(4, 10, 5, 0xA55A).expect("paired openings");
+        let second = build_paired_openings(4, 10, 5, 0xA55A).expect("paired openings");
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn paired_games_replay_the_identical_opening_with_colors_reversed() {
+        let first = build_paired_openings(4, 10, 5, 0xA55A).expect("paired openings");
+
+        assert_eq!(opening_for_game(&first, 0), opening_for_game(&first, 1));
+        assert_eq!(opening_for_game(&first, 2), opening_for_game(&first, 3));
+        assert!(0 % 2 == 0, "baseline is White in the first game");
+        assert!(1 % 2 != 0, "baseline is Black in the return game");
+
+        let opening = opening_for_game(&first, 0).expect("first opening");
+        let mut board = Board::default();
+        let mut positions = vec![format!("{}", board)];
+        for uci in &opening.moves {
+            let mv = find_move_uci(&board, uci).expect("precomputed move stays legal");
+            board.play_unchecked(mv);
+            positions.push(format!("{}", board));
+        }
+        assert_eq!(opening.positions, positions);
+    }
+
+    #[test]
+    fn paired_opening_topk_never_selects_below_the_neutral_score_cutoff() {
+        let board = Board::default();
+        let topk = 3;
+        let mut scores = legal_moves(&board)
+            .into_iter()
+            .map(|mv| neutral_move_score(&board, mv))
+            .collect::<Vec<_>>();
+        scores.sort_unstable_by(|left, right| right.cmp(left));
+        let cutoff = scores[topk - 1];
+        let best = scores[0];
+
+        for seed in 0..128 {
+            let opening = generate_paired_opening(0, seed, 1, topk);
+            let selected = find_move_uci(&board, &opening.moves[0]).expect("legal first move");
+            assert!(
+                neutral_move_score(&board, selected) >= cutoff,
+                "seed {seed} selected {selected} below top-{topk} cutoff"
+            );
+
+            let forced_best = generate_paired_opening(0, seed, 1, 1);
+            let selected =
+                find_move_uci(&board, &forced_best.moves[0]).expect("legal best first move");
+            assert_eq!(
+                neutral_move_score(&board, selected),
+                best,
+                "top-1 must choose a best neutral move for seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn different_pairs_use_different_deterministic_seeds_and_openings() {
+        let openings = build_paired_openings(4, 12, 5, 0x5EED).expect("paired openings");
+        assert_eq!(2, openings.len());
+        assert_ne!(openings[0].seed, openings[1].seed);
+        assert_ne!(openings[0].opening_id, openings[1].opening_id);
+        assert_ne!(openings[0].moves, openings[1].moves);
     }
 
     #[test]

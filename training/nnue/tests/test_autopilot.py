@@ -1,12 +1,13 @@
 import json
 import hashlib
 import inspect
+import struct
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from training.nnue import autopilot
+from training.nnue import autopilot, train_stub
 
 
 def _write_fake_checkpoint(out_dir: Path) -> Path:
@@ -14,6 +15,23 @@ def _write_fake_checkpoint(out_dir: Path) -> Path:
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     checkpoint.write_text(json.dumps({"fake": out_dir.name}), encoding="utf-8")
     return checkpoint
+
+
+def _write_fake_quant(
+    path: Path,
+    *,
+    input_dim: int = 40_960,
+    hidden_dim: int = 64,
+    output_dim: int = 1,
+    marker: bytes = b"",
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        b"PIENNQ01"
+        + struct.pack("<IIII", 1, input_dim, hidden_dim, output_dim)
+        + marker
+    )
+    return path
 
 
 class _FakeLockBackend:
@@ -53,6 +71,7 @@ class AutopilotTests(unittest.TestCase):
         self.assertTrue(profile["warm_start"])
         self.assertEqual(0.001, profile["warm_start_learning_rate"])
         self.assertEqual(0.5, profile["primary_sample_fraction"])
+        self.assertEqual(0.5, profile["teacher_sample_fraction"])
         self.assertEqual(6, profile["min_teacher_depth"])
         self.assertEqual("wdl", profile["loss_kind"])
         self.assertEqual(100.0, profile["huber_delta_cp"])
@@ -61,12 +80,45 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(100_000, profile["max_validation_samples"])
         self.assertEqual(20_260_802, profile["validation_seed"])
         self.assertTrue(profile["continue_optimizer_state"])
+        self.assertTrue(profile["validation_require_teacher"])
+        self.assertEqual("halfkp-all-pieces-v2", profile["training_feature_set"])
+        self.assertEqual(81_920, profile["training_input_dim"])
+        self.assertEqual("soft-cp-wdl-v2", profile["training_target_schema"])
+        expected_objective = {
+            "schema": "nnue-objective-v1",
+            "target_schema": "soft-cp-wdl-v2",
+            "loss_kind": "wdl",
+            "target_cp": 100.0,
+            "teacher_mix": 0.8,
+            "max_teacher_cp": 1200.0,
+            "outcome_decay": 1.0,
+            "min_teacher_depth": 6,
+            "huber_delta_cp": 100.0,
+            "wdl_scale_cp": 400.0,
+        }
+        self.assertEqual(expected_objective, autopilot._configured_training_objective(profile))
+        self.assertEqual(
+            train_stub.objective_metadata(
+                loss_kind="wdl",
+                target_cp=100.0,
+                teacher_mix=0.8,
+                max_teacher_cp=1200.0,
+                outcome_decay=1.0,
+                min_teacher_depth=6,
+                huber_delta_cp=100.0,
+                wdl_scale_cp=400.0,
+            ),
+            autopilot._configured_training_objective(profile),
+        )
         # The production VM's scalar x86 path loses 23% search throughput at
         # 96 units and 40% at 128 versus 64.  The all-piece v2 feature set
         # supplies the added capacity while keeping the search usable.
         self.assertEqual(profile["hidden_dim"], 64)
         self.assertGreaterEqual(profile["max_samples"], 700_000)
         self.assertEqual(0, profile["teacher_lag_cycles"])
+        self.assertTrue(profile["gate_paired_openings"])
+        self.assertEqual(96, profile["gate_confirmation_games"])
+        self.assertEqual(2.0, profile["gate_confirmation_min_score_delta"])
 
     def test_control_loop_cli_overrides_profile_values(self) -> None:
         validation_dir = Path("fixed-validation")
@@ -76,6 +128,8 @@ class AutopilotTests(unittest.TestCase):
                 "runs",
                 "--primary-sample-fraction",
                 "0.7",
+                "--teacher-sample-fraction",
+                "0.6",
                 "--min-teacher-depth",
                 "8",
                 "--loss-kind",
@@ -91,6 +145,12 @@ class AutopilotTests(unittest.TestCase):
                 "--validation-seed",
                 "99",
                 "--no-continue-optimizer-state",
+                "--no-validation-require-teacher",
+                "--no-gate-paired-openings",
+                "--gate-confirmation-games",
+                "48",
+                "--gate-confirmation-min-score-delta",
+                "3",
             ]
         )
 
@@ -99,6 +159,7 @@ class AutopilotTests(unittest.TestCase):
         )
 
         self.assertEqual(0.7, resolved["primary_sample_fraction"])
+        self.assertEqual(0.6, resolved["teacher_sample_fraction"])
         self.assertEqual(8, resolved["min_teacher_depth"])
         self.assertEqual("mse", resolved["loss_kind"])
         self.assertEqual(75.0, resolved["huber_delta_cp"])
@@ -107,6 +168,10 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(12_345, resolved["max_validation_samples"])
         self.assertEqual(99, resolved["validation_seed"])
         self.assertFalse(resolved["continue_optimizer_state"])
+        self.assertFalse(resolved["validation_require_teacher"])
+        self.assertFalse(resolved["gate_paired_openings"])
+        self.assertEqual(48, resolved["gate_confirmation_games"])
+        self.assertEqual(3.0, resolved["gate_confirmation_min_score_delta"])
 
     def test_cycle_retention_prunes_old_cycles_and_preserves_accepted_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -374,6 +439,184 @@ class AutopilotTests(unittest.TestCase):
             ),
         )
 
+    def test_quant_identity_includes_runtime_dimensions_and_feature_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            quant = _write_fake_quant(
+                Path(tmp) / "v2.nnue",
+                input_dim=81_920,
+                hidden_dim=64,
+            )
+            summary = {
+                "metrics": {
+                    "feature_set": "halfkp-all-pieces-v2",
+                    "target_schema": "soft-cp-wdl-v2",
+                    "objective": {
+                        "schema": "nnue-objective-v1",
+                        "target_schema": "soft-cp-wdl-v2",
+                        "loss_kind": "wdl",
+                    },
+                    "input_dim": 81_920,
+                    "hidden_dim": 64,
+                }
+            }
+
+            self.assertEqual(
+                {
+                    "quant_format": "PIENNQ01",
+                    "quant_version": 1,
+                    "input_dim": 81_920,
+                    "hidden_dim": 64,
+                    "output_dim": 1,
+                    "feature_set": "halfkp-all-pieces-v2",
+                    "target_schema": "soft-cp-wdl-v2",
+                    "objective": {
+                        "schema": "nnue-objective-v1",
+                        "target_schema": "soft-cp-wdl-v2",
+                        "loss_kind": "wdl",
+                    },
+                },
+                autopilot._quant_model_identity(quant, summary=summary),
+            )
+
+    def test_active_blend_uses_exact_promoted_blend_for_active_path(self) -> None:
+        state = {
+            "active_model_path": "legacy.nnue",
+            "accepted_models": [
+                {
+                    "cycle": 1,
+                    "quant_path": "older.nnue",
+                    "gate": {"experimental_blend_percent": 25},
+                },
+                {
+                    "cycle": 2,
+                    "quant_path": "legacy.nnue",
+                    "gate": {"experimental_blend_percent": 75},
+                },
+                {
+                    "cycle": 3,
+                    "quant_path": "different.nnue",
+                    "gate": {"experimental_blend_percent": 100},
+                },
+            ],
+        }
+
+        self.assertEqual(75, autopilot._active_model_blend_percent(state))
+        state["active_model_blend_percent"] = 50
+        self.assertEqual(50, autopilot._active_model_blend_percent(state))
+
+    def test_different_runtime_identity_restarts_candidate_blend_ramp(self) -> None:
+        legacy = {
+            "quant_format": "PIENNQ01",
+            "quant_version": 1,
+            "input_dim": 40_960,
+            "hidden_dim": 64,
+            "output_dim": 1,
+        }
+        v2 = {
+            **legacy,
+            "input_dim": 81_920,
+            "feature_set": "halfkp-all-pieces-v2",
+        }
+        state = {
+            "active_model_path": "legacy.nnue",
+            "active_model_blend_percent": 75,
+            "active_model_identity": legacy,
+            "accepted_models": [{}, {}, {}],
+        }
+
+        self.assertEqual(
+            25,
+            autopilot._candidate_model_blend_percent(
+                state,
+                candidate_identity=v2,
+            ),
+        )
+        self.assertEqual(
+            100,
+            autopilot._candidate_model_blend_percent(
+                state,
+                candidate_identity=legacy,
+            ),
+        )
+
+    def test_different_target_objective_restarts_same_architecture_blend_ramp(self) -> None:
+        runtime = {
+            "quant_format": "PIENNQ01",
+            "quant_version": 1,
+            "input_dim": 81_920,
+            "hidden_dim": 64,
+            "output_dim": 1,
+            "feature_set": "halfkp-all-pieces-v2",
+        }
+        old_identity = {
+            **runtime,
+            "target_schema": "legacy-hard-wdl-v1",
+            "objective": {"schema": "legacy-objective-v1", "loss_kind": "wdl"},
+        }
+        corrected_identity = {
+            **runtime,
+            "target_schema": "soft-cp-wdl-v2",
+            "objective": {
+                "schema": "nnue-objective-v1",
+                "target_schema": "soft-cp-wdl-v2",
+                "loss_kind": "wdl",
+            },
+        }
+        state = {
+            "active_model_path": "old.nnue",
+            "active_model_blend_percent": 75,
+            "active_model_identity": old_identity,
+            "accepted_models": [{}, {}, {}],
+        }
+
+        self.assertFalse(
+            autopilot._model_identities_same(old_identity, corrected_identity)
+        )
+        self.assertFalse(
+            autopilot._model_identities_same(runtime, corrected_identity)
+        )
+        self.assertEqual(
+            25,
+            autopilot._candidate_model_blend_percent(
+                state,
+                candidate_identity=corrected_identity,
+            ),
+        )
+
+    def test_legacy_deployment_state_migration_preserves_exact_active_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            active = _write_fake_quant(Path(tmp) / "legacy.nnue")
+            active_sha = hashlib.sha256(active.read_bytes()).hexdigest()
+            state = {
+                "active_model_path": str(active),
+                "accepted_models": [
+                    {
+                        "cycle": 49,
+                        "quant_path": "older-25.nnue",
+                        "gate": {"experimental_blend_percent": 25},
+                    },
+                    {
+                        "cycle": 55,
+                        "quant_path": "older-50.nnue",
+                        "gate": {"experimental_blend_percent": 50},
+                    },
+                    {
+                        "cycle": 57,
+                        "quant_path": str(active),
+                        "quant_sha256": active_sha,
+                        "gate": {"experimental_blend_percent": 75},
+                    },
+                ],
+            }
+
+            self.assertTrue(autopilot._migrate_deployment_state(state))
+            self.assertEqual(75, state["active_model_blend_percent"])
+            self.assertEqual(active_sha, state["active_model_sha256"])
+            self.assertEqual(40_960, state["active_model_identity"]["input_dim"])
+            self.assertEqual(64, state["active_model_identity"]["hidden_dim"])
+            self.assertEqual(3, len(state["accepted_models"]))
+            self.assertFalse(autopilot._migrate_deployment_state(state))
+
     def test_cycle_uses_previous_quant_for_bootstrap_after_first_accept(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out_root = Path(tmp) / "runs"
@@ -412,6 +655,8 @@ class AutopilotTests(unittest.TestCase):
                             "1",
                             "--max-cycles",
                             "2",
+                            "--gate-confirmation-games",
+                            "0",
                         ]
                     )
 
@@ -442,6 +687,162 @@ class AutopilotTests(unittest.TestCase):
             }
             got = autopilot._collect_replay_jsonl_dirs(state, 2)
             self.assertEqual([p3, p2], got)
+
+    def test_replay_lineage_floor_excludes_old_data_without_removing_audit_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            completed = []
+            paths = []
+            for cycle in range(1, 5):
+                path = Path(tmp) / f"cycle-{cycle}" / "jsonl"
+                path.mkdir(parents=True)
+                paths.append(path)
+                completed.append({"cycle": cycle, "jsonl_dir": str(path)})
+            state = {
+                "training_lineage_start_cycle": 3,
+                "completed_cycles": completed,
+            }
+
+            self.assertEqual(
+                [paths[3], paths[2]],
+                autopilot._collect_replay_jsonl_dirs(state, 4),
+            )
+            self.assertEqual([1, 2, 3, 4], [c["cycle"] for c in completed])
+
+    def test_atomic_training_lineage_reset_clears_warm_start_but_keeps_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "autopilot_state.json"
+            state = {
+                "next_cycle": 77,
+                "training_lineage_start_cycle": 1,
+                "training_checkpoint_path": "/old/checkpoint.json",
+                "training_checkpoint_sha256": "old-sha",
+                "training_model_identity": {"input_dim": 40_960},
+                "completed_cycles": [{"cycle": 1}, {"cycle": 76}],
+                "accepted_models": [{"cycle": 57}],
+            }
+
+            reset, changed = autopilot._atomic_reset_training_lineage(
+                state_path=state_path,
+                state=state,
+                start_cycle=77,
+            )
+
+            self.assertTrue(changed)
+            self.assertEqual(77, reset["training_lineage_start_cycle"])
+            self.assertIsNone(reset["training_checkpoint_path"])
+            self.assertIsNone(reset["training_checkpoint_sha256"])
+            self.assertIsNone(reset["training_model_identity"])
+            self.assertEqual([1, 76], [c["cycle"] for c in reset["completed_cycles"]])
+            self.assertEqual([57], [m["cycle"] for m in reset["accepted_models"]])
+            self.assertEqual("/old/checkpoint.json", reset["training_lineage_reset"]["prior_checkpoint_path"])
+            self.assertEqual(reset, json.loads(state_path.read_text()))
+
+            repeated, repeated_changed = autopilot._atomic_reset_training_lineage(
+                state_path=state_path,
+                state=reset,
+                start_cycle=77,
+            )
+            self.assertFalse(repeated_changed)
+            self.assertEqual(reset, repeated)
+
+            progressed = dict(reset)
+            progressed["next_cycle"] = 78
+            progressed["training_checkpoint_path"] = "/new/checkpoint.json"
+            progressed["training_model_identity"] = {"input_dim": 81_920}
+            restarted, restarted_changed = autopilot._atomic_reset_training_lineage(
+                state_path=state_path,
+                state=progressed,
+                start_cycle=77,
+            )
+            self.assertFalse(restarted_changed)
+            self.assertEqual("/new/checkpoint.json", restarted["training_checkpoint_path"])
+
+    def test_training_lineage_floor_and_checkpoint_identity_fail_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "training_lineage_start_cycle"):
+            autopilot._validate_training_lineage_floor(
+                {"next_cycle": 5, "training_lineage_start_cycle": 0}
+            )
+        with self.assertRaisesRegex(ValueError, "next_cycle"):
+            autopilot._validate_training_lineage_floor(
+                {"next_cycle": 5, "training_lineage_start_cycle": 6}
+            )
+
+        state = {
+            "training_checkpoint_path": "/legacy/checkpoint.json",
+            "training_model_identity": {
+                "input_dim": 40_960,
+                "hidden_dim": 64,
+                "feature_set": "halfkp-own-pieces-v1",
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "reset-training-lineage"):
+            autopilot._validate_training_checkpoint_identity(
+                state,
+                {
+                    "training_input_dim": 81_920,
+                    "hidden_dim": 64,
+                    "training_feature_set": "halfkp-all-pieces-v2",
+                },
+            )
+
+        current_architecture_broken_objective = {
+            "training_checkpoint_path": "/broken-wdl/checkpoint.json",
+            "training_model_identity": {
+                "input_dim": 81_920,
+                "hidden_dim": 64,
+                "feature_set": "halfkp-all-pieces-v2",
+                "target_schema": "legacy-wdl-target-v1",
+                "objective": {"schema": "old-objective"},
+            },
+            "next_cycle": 77,
+        }
+        defaults = autopilot.zen5_9755_7d_profile()
+        with self.assertRaisesRegex(ValueError, "target_schema|objective"):
+            autopilot._validate_training_checkpoint_identity(
+                current_architecture_broken_objective,
+                defaults,
+            )
+
+    def test_main_applies_explicit_lineage_reset_before_checkpoint_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            out_root.mkdir()
+            state = {
+                "version": 1,
+                "profile": "zen5_9755_7d",
+                "started_at": 0.0,
+                "deadline_ts": 0.0,
+                "next_cycle": 77,
+                "training_lineage_start_cycle": 1,
+                "training_checkpoint_path": "/legacy/checkpoint.json",
+                "training_checkpoint_sha256": "legacy-sha",
+                "training_model_identity": {
+                    "input_dim": 40_960,
+                    "hidden_dim": 64,
+                    "feature_set": "halfkp-own-pieces-v1",
+                },
+                "completed_cycles": [{"cycle": 76}],
+                "accepted_models": [],
+                "active_model_path": None,
+                "last_error": None,
+            }
+            (out_root / "autopilot_state.json").write_text(json.dumps(state), encoding="utf-8")
+
+            rc = autopilot.main(
+                [
+                    "--out-root",
+                    str(out_root),
+                    "--reset-training-lineage-at-cycle",
+                    "77",
+                ]
+            )
+
+            self.assertEqual(0, rc)
+            loaded = json.loads((out_root / "autopilot_state.json").read_text())
+            self.assertEqual(77, loaded["training_lineage_start_cycle"])
+            self.assertIsNone(loaded["training_checkpoint_path"])
+            self.assertIsNone(loaded["training_model_identity"])
+            self.assertEqual([76], [c["cycle"] for c in loaded["completed_cycles"]])
 
     def test_training_checkpoint_resolver_migrates_legacy_state_and_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -645,6 +1046,8 @@ class AutopilotTests(unittest.TestCase):
                             "1",
                             "--max-cycles",
                             "2",
+                            "--gate-confirmation-games",
+                            "0",
                         ]
                     )
 
@@ -1040,6 +1443,7 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual("6", cmd[cmd.index("--games") + 1])
             self.assertEqual("25", cmd[cmd.index("--base-blend") + 1])
             self.assertEqual("50", cmd[cmd.index("--exp-blend") + 1])
+            self.assertIn("--paired-openings", cmd)
             self.assertEqual(str(root), kwargs["cwd"])
             self.assertTrue(kwargs["check"])
 
@@ -1070,6 +1474,30 @@ class AutopilotTests(unittest.TestCase):
                         min_score_delta=0.0,
                     )
 
+    def test_paired_model_gate_rejects_odd_game_count_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidate = root / "candidate.nnue"
+            candidate.write_bytes(b"PIENNQ01dummy")
+
+            with mock.patch("training.nnue.autopilot.subprocess.run") as runner:
+                with self.assertRaisesRegex(ValueError, "even"):
+                    autopilot._run_model_gate(
+                        piebot_dir=root,
+                        out_json=root / "gate.json",
+                        base_quant=None,
+                        candidate_quant=candidate,
+                        games=3,
+                        movetime_ms=1,
+                        noise_plies=0,
+                        noise_topk=1,
+                        threads=1,
+                        seed=1,
+                        min_score_delta=0.0,
+                        paired_openings=True,
+                    )
+            runner.assert_not_called()
+
     def test_model_gate_rejects_incomplete_runner_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1098,6 +1526,54 @@ class AutopilotTests(unittest.TestCase):
                         seed=1,
                         min_score_delta=0.0,
                     )
+
+    def test_passing_screen_still_requires_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            quant = _write_fake_quant(root / "candidate.nnue")
+            calls = []
+            results = iter(
+                [
+                    {"accepted": True, "delta_points": 1.0, "games": 24},
+                    {"accepted": False, "delta_points": 0.0, "games": 96},
+                ]
+            )
+
+            def _gate(**kwargs):
+                calls.append(kwargs)
+                return next(results)
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate",
+                side_effect=_gate,
+            ):
+                attempt = autopilot._run_confirmed_gate_attempt(
+                    piebot_dir=root,
+                    screen_json=root / "screen.json",
+                    confirmation_json=root / "confirmation.json",
+                    base_quant=None,
+                    candidate_quant=quant,
+                    screen_games=24,
+                    confirmation_games=96,
+                    movetime_ms=100,
+                    noise_plies=12,
+                    noise_topk=5,
+                    threads=1,
+                    seed=7,
+                    screen_min_score_delta=0.0,
+                    confirmation_min_score_delta=2.0,
+                    base_blend_percent=0,
+                    candidate_blend_percent=25,
+                    paired_openings=True,
+                )
+
+            self.assertFalse(attempt["accepted"])
+            self.assertEqual("confirmation-rejected", attempt["reason"])
+            self.assertTrue(attempt["screen"]["accepted"])
+            self.assertFalse(attempt["confirmation"]["accepted"])
+            self.assertEqual([24, 96], [call["games"] for call in calls])
+            self.assertEqual([0.0, 2.0], [call["min_score_delta"] for call in calls])
+            self.assertTrue(all(call["paired_openings"] for call in calls))
 
     def test_gate_reject_after_accept_keeps_previous_active_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1155,6 +1631,8 @@ class AutopilotTests(unittest.TestCase):
                             "1",
                             "--max-cycles",
                             "2",
+                            "--gate-confirmation-games",
+                            "0",
                         ]
                     )
 
@@ -1224,6 +1702,249 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual(50, created[2][0]["selfplay_nnue_blend_percent"])
             self.assertEqual(25, created[2][0]["teacher_relabel_nnue_blend_percent"])
 
+    def test_cross_lineage_candidate_starts_at_25_and_keeps_legacy_active_on_reject(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            out_root.mkdir()
+            active = _write_fake_quant(root / "legacy.nnue", input_dim=40_960)
+            active_sha = hashlib.sha256(active.read_bytes()).hexdigest()
+            parent_checkpoint = _write_fake_checkpoint(root / "parent")
+            state = {
+                "version": 1,
+                "profile": "zen5_9755_7d",
+                "started_at": 0.0,
+                "deadline_ts": 10**12,
+                "next_cycle": 4,
+                "completed_cycles": [{"cycle": n} for n in range(1, 4)],
+                "accepted_models": [
+                    {
+                        "cycle": 1,
+                        "quant_path": "old-25.nnue",
+                        "gate": {"experimental_blend_percent": 25},
+                    },
+                    {
+                        "cycle": 2,
+                        "quant_path": "old-50.nnue",
+                        "gate": {"experimental_blend_percent": 50},
+                    },
+                    {
+                        "cycle": 3,
+                        "quant_path": str(active),
+                        "quant_sha256": active_sha,
+                        "gate": {"experimental_blend_percent": 75},
+                    },
+                ],
+                "active_model_path": str(active),
+                "training_checkpoint_path": str(parent_checkpoint),
+                "last_error": None,
+            }
+            (out_root / "autopilot_state.json").write_text(json.dumps(state), encoding="utf-8")
+            pipeline_calls = []
+            gate_calls = []
+
+            def _fake_pipeline(**kwargs):
+                pipeline_calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant = _write_fake_quant(
+                    out_dir / "nnue_quant.nnue",
+                    input_dim=81_920,
+                    marker=b"v2",
+                )
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                    "metrics": {
+                        "feature_set": "halfkp-all-pieces-v2",
+                        "input_dim": 81_920,
+                        "hidden_dim": 64,
+                    },
+                }
+
+            def _reject(**kwargs):
+                gate_calls.append(kwargs)
+                return {
+                    "accepted": False,
+                    "baseline_points": 8.0,
+                    "experimental_points": 4.0,
+                    "delta_points": -4.0,
+                    "games": 12,
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    side_effect=_reject,
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--max-cycles",
+                            "4",
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(75, pipeline_calls[0]["selfplay_nnue_blend_percent"])
+            self.assertEqual(75, pipeline_calls[0]["teacher_relabel_nnue_blend_percent"])
+            self.assertEqual([25], [call["candidate_blend_percent"] for call in gate_calls])
+            loaded = json.loads((out_root / "autopilot_state.json").read_text())
+            self.assertEqual(str(active), loaded["active_model_path"])
+            self.assertEqual(75, loaded["active_model_blend_percent"])
+            self.assertEqual(40_960, loaded["active_model_identity"]["input_dim"])
+            self.assertEqual(
+                81_920,
+                loaded["last_gate_identity"]["candidate_model_identity"]["input_dim"],
+            )
+            self.assertEqual([25], loaded["last_gate_identity"]["candidate_blend_percents"])
+
+    def test_same_lineage_ramp_failure_falls_back_to_current_blend_and_promotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            out_root.mkdir()
+            active = _write_fake_quant(
+                root / "active-v2.nnue",
+                input_dim=81_920,
+                marker=b"active",
+            )
+            active_sha = hashlib.sha256(active.read_bytes()).hexdigest()
+            identity = {
+                "quant_format": "PIENNQ01",
+                "quant_version": 1,
+                "input_dim": 81_920,
+                "hidden_dim": 64,
+                "output_dim": 1,
+                "feature_set": "halfkp-all-pieces-v2",
+            }
+            parent_checkpoint = _write_fake_checkpoint(root / "parent")
+            state = {
+                "version": 1,
+                "profile": "zen5_9755_7d",
+                "started_at": 0.0,
+                "deadline_ts": 10**12,
+                "next_cycle": 2,
+                "completed_cycles": [{"cycle": 1}],
+                "accepted_models": [
+                    {
+                        "cycle": 1,
+                        "quant_path": str(active),
+                        "quant_sha256": active_sha,
+                        "blend_percent": 25,
+                        "model_identity": identity,
+                        "gate": {"experimental_blend_percent": 25},
+                    }
+                ],
+                "active_model_path": str(active),
+                "active_model_sha256": active_sha,
+                "active_model_blend_percent": 25,
+                "active_model_identity": identity,
+                "training_checkpoint_path": str(parent_checkpoint),
+                "last_error": None,
+            }
+            (out_root / "autopilot_state.json").write_text(json.dumps(state), encoding="utf-8")
+            candidate_paths = []
+            gate_calls = []
+
+            def _fake_pipeline(**kwargs):
+                out_dir = Path(kwargs["out_dir"])
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant = _write_fake_quant(
+                    out_dir / "nnue_quant.nnue",
+                    input_dim=81_920,
+                    marker=b"improved",
+                )
+                candidate_paths.append(quant)
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                    "metrics": {
+                        "feature_set": "halfkp-all-pieces-v2",
+                        "input_dim": 81_920,
+                        "hidden_dim": 64,
+                    },
+                }
+
+            gate_results = iter(
+                [
+                    {
+                        "accepted": False,
+                        "baseline_points": 8.0,
+                        "experimental_points": 4.0,
+                        "delta_points": -4.0,
+                        "games": 12,
+                    },
+                    {
+                        "accepted": True,
+                        "baseline_points": 5.0,
+                        "experimental_points": 7.0,
+                        "delta_points": 2.0,
+                        "games": 12,
+                    },
+                    {
+                        "accepted": True,
+                        "baseline_points": 45.0,
+                        "experimental_points": 51.0,
+                        "delta_points": 6.0,
+                        "games": 96,
+                    },
+                ]
+            )
+
+            def _gate(**kwargs):
+                gate_calls.append(kwargs)
+                return next(gate_results)
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    side_effect=_gate,
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--max-cycles",
+                            "2",
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(
+                [50, 25, 25],
+                [call["candidate_blend_percent"] for call in gate_calls],
+            )
+            self.assertEqual("gate_compare.json", Path(gate_calls[0]["out_json"]).name)
+            self.assertEqual(
+                "gate_compare_same_blend.json",
+                Path(gate_calls[1]["out_json"]).name,
+            )
+            self.assertEqual(
+                "gate_compare_same_blend_confirmation.json",
+                Path(gate_calls[2]["out_json"]).name,
+            )
+            self.assertEqual(96, gate_calls[2]["games"])
+            self.assertEqual(2.0, gate_calls[2]["min_score_delta"])
+            loaded = json.loads((out_root / "autopilot_state.json").read_text())
+            self.assertEqual(str(candidate_paths[0]), loaded["active_model_path"])
+            self.assertEqual(25, loaded["active_model_blend_percent"])
+            self.assertEqual(identity, loaded["active_model_identity"])
+            promoted = loaded["accepted_models"][-1]
+            self.assertEqual(25, promoted["blend_percent"])
+            self.assertEqual(identity, promoted["model_identity"])
+            self.assertEqual(25, promoted["gate"]["experimental_blend_percent"])
+            self.assertEqual(2, len(promoted["gate"]["attempts"]))
+            self.assertTrue(promoted["gate"]["confirmation"]["accepted"])
+            self.assertEqual([50, 25], loaded["last_gate_identity"]["candidate_blend_percents"])
+
     def test_main_passes_control_loop_options_to_run_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out_root = Path(tmp) / "runs"
@@ -1235,6 +1956,7 @@ class AutopilotTests(unittest.TestCase):
                 *,
                 out_dir,
                 primary_sample_fraction,
+                teacher_sample_fraction,
                 min_teacher_depth,
                 loss_kind,
                 huber_delta_cp,
@@ -1242,12 +1964,14 @@ class AutopilotTests(unittest.TestCase):
                 validation_jsonl_dir,
                 max_validation_samples,
                 validation_seed,
+                validation_require_teacher,
                 continue_optimizer_state,
                 **_kwargs,
             ):
                 calls.append(
                     {
                         "primary_sample_fraction": primary_sample_fraction,
+                        "teacher_sample_fraction": teacher_sample_fraction,
                         "min_teacher_depth": min_teacher_depth,
                         "loss_kind": loss_kind,
                         "huber_delta_cp": huber_delta_cp,
@@ -1255,6 +1979,7 @@ class AutopilotTests(unittest.TestCase):
                         "validation_jsonl_dir": validation_jsonl_dir,
                         "max_validation_samples": max_validation_samples,
                         "validation_seed": validation_seed,
+                        "validation_require_teacher": validation_require_teacher,
                         "continue_optimizer_state": continue_optimizer_state,
                     }
                 )
@@ -1284,6 +2009,8 @@ class AutopilotTests(unittest.TestCase):
                         "0",
                         "--primary-sample-fraction",
                         "0.6",
+                        "--teacher-sample-fraction",
+                        "0.55",
                         "--min-teacher-depth",
                         "7",
                         "--loss-kind",
@@ -1298,6 +2025,7 @@ class AutopilotTests(unittest.TestCase):
                         "54321",
                         "--validation-seed",
                         "123",
+                        "--validation-require-teacher",
                         "--continue-optimizer-state",
                     ]
                 )
@@ -1307,6 +2035,7 @@ class AutopilotTests(unittest.TestCase):
                 [
                     {
                         "primary_sample_fraction": 0.6,
+                        "teacher_sample_fraction": 0.55,
                         "min_teacher_depth": 7,
                         "loss_kind": "huber",
                         "huber_delta_cp": 80.0,
@@ -1314,6 +2043,7 @@ class AutopilotTests(unittest.TestCase):
                         "validation_jsonl_dir": validation_dir,
                         "max_validation_samples": 54_321,
                         "validation_seed": 123,
+                        "validation_require_teacher": True,
                         "continue_optimizer_state": True,
                     }
                 ],

@@ -53,6 +53,7 @@ def _load_initial_checkpoint(
     *,
     input_dim: int,
     hidden_dim: int,
+    objective: Dict[str, Any],
 ) -> Tuple[List[float], List[float], List[float], float, Dict[str, Any]]:
     path = Path(checkpoint_path)
     if not path.is_file():
@@ -70,6 +71,14 @@ def _load_initial_checkpoint(
         raise ValueError("initial checkpoint input_dim mismatch")
     if int(checkpoint.get("hidden_dim", 0)) != hidden_dim:
         raise ValueError("initial checkpoint hidden_dim mismatch")
+    checkpoint_feature_set = checkpoint.get("feature_set")
+    if checkpoint_feature_set != FEATURE_SET:
+        raise ValueError("initial checkpoint feature_set mismatch")
+    checkpoint_target_schema = checkpoint.get("target_schema")
+    if checkpoint_target_schema != TARGET_SCHEMA:
+        raise ValueError("initial checkpoint target_schema mismatch")
+    if checkpoint.get("objective") != objective:
+        raise ValueError("initial checkpoint objective mismatch")
 
     values: Dict[str, List[float]] = {}
     for key, expected_len in (
@@ -99,6 +108,9 @@ def _load_initial_checkpoint(
         "format": str(checkpoint_format),
         "input_dim": input_dim,
         "hidden_dim": hidden_dim,
+        "feature_set": checkpoint_feature_set,
+        "target_schema": checkpoint_target_schema,
+        "objective": objective,
     }
     return values["w1"], values["b1"], values["w2"], b2, metadata
 
@@ -148,6 +160,8 @@ def featureize_fen_counts(fen: str) -> List[int]:
 LEGACY_HALFKP_DIM = 2 * 64 * len(PIECE_ORDER) * 64
 HALFKP_DIM = 2 * 64 * len(FEATURE_PIECE_ORDER) * 64
 FEATURE_SET = "halfkp-all-pieces-v2"
+TARGET_SCHEMA = "soft-cp-wdl-v2"
+OBJECTIVE_SCHEMA = "nnue-objective-v1"
 
 
 def _active_halfkp_indices(fen: str) -> List[int]:
@@ -192,10 +206,13 @@ def _has_usable_target(record: TrainingRecord, min_teacher_depth: int = 0) -> bo
 def _iter_usable_records(
     paths: Sequence[Path],
     min_teacher_depth: int = 0,
+    require_teacher: bool = False,
 ) -> Iterator[TrainingRecord]:
     for path in paths:
         for record in jsonl_to_training_samples(read_jsonl_dir(str(path))):
-            if _has_usable_target(record, min_teacher_depth):
+            if _has_usable_target(record, min_teacher_depth) and (
+                not require_teacher or _teacher_available(record, min_teacher_depth)
+            ):
                 yield record
 
 
@@ -281,13 +298,24 @@ def _reservoir_sample_records(
     limit: int,
     seed: int,
     min_teacher_depth: int = 0,
+    teacher_required: Optional[bool] = None,
+    require_teacher: bool = False,
 ) -> List[TrainingRecord]:
     if limit <= 0:
         return []
     rng = random.Random(seed)
     reservoir: List[TrainingRecord] = []
     seen = 0
-    for record in _iter_usable_records(paths, min_teacher_depth):
+    for record in _iter_usable_records(
+        paths,
+        min_teacher_depth,
+        require_teacher=require_teacher,
+    ):
+        if (
+            teacher_required is not None
+            and _teacher_available(record, min_teacher_depth) != teacher_required
+        ):
+            continue
         seen += 1
         if len(reservoir) < limit:
             reservoir.append(record)
@@ -298,38 +326,173 @@ def _reservoir_sample_records(
     return reservoir
 
 
+def _reservoir_sample_record_strata(
+    paths: Sequence[Path],
+    teacher_limit: int,
+    outcome_limit: int,
+    seed: int,
+    min_teacher_depth: int = 0,
+    require_teacher: bool = False,
+) -> Tuple[List[TrainingRecord], List[TrainingRecord]]:
+    """Reservoir-sample both strata, then deterministically balance by cycling."""
+    teacher_limit = max(0, int(teacher_limit))
+    outcome_limit = max(0, int(outcome_limit))
+    teacher_rng = random.Random(int(seed) + 101)
+    outcome_rng = random.Random(int(seed) + 211)
+    teachers: List[TrainingRecord] = []
+    outcomes: List[TrainingRecord] = []
+    teachers_seen = 0
+    outcomes_seen = 0
+    for record in _iter_usable_records(
+        paths,
+        min_teacher_depth,
+        require_teacher=require_teacher,
+    ):
+        is_teacher = _teacher_available(record, min_teacher_depth)
+        if is_teacher:
+            teachers_seen += 1
+            if len(teachers) < teacher_limit:
+                teachers.append(record)
+            elif teacher_limit > 0:
+                replacement = teacher_rng.randrange(teachers_seen)
+                if replacement < teacher_limit:
+                    teachers[replacement] = record
+        else:
+            outcomes_seen += 1
+            if len(outcomes) < outcome_limit:
+                outcomes.append(record)
+            elif outcome_limit > 0:
+                replacement = outcome_rng.randrange(outcomes_seen)
+                if replacement < outcome_limit:
+                    outcomes[replacement] = record
+
+    def expand_to_limit(
+        records: List[TrainingRecord],
+        limit: int,
+        expansion_seed: int,
+    ) -> List[TrainingRecord]:
+        if not records or len(records) >= limit:
+            return records[:limit]
+        expanded = list(records)
+        rng = random.Random(expansion_seed)
+        while len(expanded) < limit:
+            cycle = list(records)
+            rng.shuffle(cycle)
+            expanded.extend(cycle[: limit - len(expanded)])
+        return expanded
+
+    return (
+        expand_to_limit(teachers, teacher_limit, int(seed) + 401),
+        expand_to_limit(outcomes, outcome_limit, int(seed) + 503),
+    )
+
+
+def _teacher_stratified_sample_quotas(
+    group_quotas: Sequence[int],
+    teacher_counts: Sequence[int],
+    total_counts: Sequence[int],
+    teacher_sample_fraction: float,
+) -> Tuple[List[int], List[int]]:
+    """Split fixed source quotas into teacher/outcome quotas when feasible.
+
+    Source quotas are never changed, so ``primary_sample_fraction`` remains an
+    independent constraint. The requested teacher count is clamped only when
+    the source quotas make it impossible (for example, a source has no deep
+    labels and its quota cannot be transferred without violating the source
+    mix). A non-empty stratum may be deterministically oversampled, which keeps
+    the requested mix exact without changing source quotas or the total cap.
+    """
+    if not (
+        len(group_quotas) == len(teacher_counts) == len(total_counts)
+    ):
+        raise ValueError("teacher quota inputs must have matching lengths")
+    lower: List[int] = []
+    upper: List[int] = []
+    for quota, teacher_count, total_count in zip(
+        group_quotas,
+        teacher_counts,
+        total_counts,
+    ):
+        q = max(0, int(quota))
+        teachers = max(0, int(teacher_count))
+        outcomes = max(0, int(total_count) - teachers)
+        lower.append(q if outcomes == 0 else 0)
+        upper.append(q if teachers > 0 else 0)
+
+    total = sum(max(0, int(quota)) for quota in group_quotas)
+    requested = int(round(total * _clamp(float(teacher_sample_fraction), 0.0, 1.0)))
+    desired = min(max(requested, sum(lower)), sum(upper))
+    capacities = [hi - lo for lo, hi in zip(lower, upper)]
+    extra = _balanced_sample_quotas(capacities, desired - sum(lower))
+    teacher_quotas = [lo + add for lo, add in zip(lower, extra)]
+    outcome_quotas = [
+        max(0, int(quota)) - teacher_quota
+        for quota, teacher_quota in zip(group_quotas, teacher_quotas)
+    ]
+    return teacher_quotas, outcome_quotas
+
+
 def iterate_samples(
     jsonl_dir: Path,
     max_samples: int,
     seed: int = 1,
     primary_sample_fraction: float = 0.5,
+    teacher_sample_fraction: float = 0.5,
     min_teacher_depth: int = 0,
+    require_teacher: bool = False,
 ) -> Iterator[Tuple[List[int], TrainingRecord]]:
     groups = _training_source_groups(Path(jsonl_dir))
     if max_samples <= 0:
         for group in groups:
-            for record in _iter_usable_records(group, min_teacher_depth):
+            for record in _iter_usable_records(
+                group,
+                min_teacher_depth,
+                require_teacher=require_teacher,
+            ):
                 yield _active_halfkp_indices(record.fen), record
         return
 
-    counts = [
-        sum(1 for _ in _iter_usable_records(group, min_teacher_depth))
-        for group in groups
-    ]
+    counts: List[int] = []
+    teacher_counts: List[int] = []
+    for group in groups:
+        total = 0
+        teachers = 0
+        for record in _iter_usable_records(
+            group,
+            min_teacher_depth,
+            require_teacher=require_teacher,
+        ):
+            total += 1
+            teachers += int(_teacher_available(record, min_teacher_depth))
+        counts.append(total)
+        teacher_counts.append(teachers)
     quotas = _primary_weighted_sample_quotas(
         counts,
         max_samples,
         primary_sample_fraction,
     )
-    samples = [
-        _reservoir_sample_records(
+    teacher_quotas, outcome_quotas = _teacher_stratified_sample_quotas(
+        quotas,
+        teacher_counts,
+        counts,
+        1.0 if require_teacher else teacher_sample_fraction,
+    )
+    samples: List[List[TrainingRecord]] = []
+    for group_idx, (group, teacher_quota, outcome_quota) in enumerate(
+        zip(groups, teacher_quotas, outcome_quotas)
+    ):
+        group_seed = int(seed) + (group_idx + 1) * 1_000_003
+        teachers, outcomes = _reservoir_sample_record_strata(
             group,
-            quota,
-            int(seed) + (group_idx + 1) * 1_000_003,
+            teacher_quota,
+            outcome_quota,
+            group_seed,
             min_teacher_depth,
+            require_teacher=require_teacher,
         )
-        for group_idx, (group, quota) in enumerate(zip(groups, quotas))
-    ]
+        sampled = teachers + outcomes
+        random.Random(group_seed + 307).shuffle(sampled)
+        samples.append(sampled)
     max_group_len = max((len(group) for group in samples), default=0)
     for sample_idx in range(max_group_len):
         for group in samples:
@@ -393,6 +556,49 @@ def _sigmoid(value: float) -> float:
     return z / (1.0 + z)
 
 
+def _wdl_probability_to_cp(probability: float, wdl_scale_cp: float) -> float:
+    """Return the finite CP value represented by a soft WDL probability."""
+    bounded = _clamp(float(probability), 1e-6, 1.0 - 1e-6)
+    return float(wdl_scale_cp) * math.log(bounded / (1.0 - bounded))
+
+
+def _wdl_loss_gradient_cp(
+    prediction_cp: float,
+    target_probability: float,
+    wdl_scale_cp: float,
+) -> float:
+    """Derivative of the reported BCE objective with respect to CP output."""
+    scale = max(1e-6, float(wdl_scale_cp))
+    target = _clamp(float(target_probability), 0.0, 1.0)
+    return (_sigmoid(float(prediction_cp) / scale) - target) / scale
+
+
+def objective_metadata(
+    *,
+    loss_kind: str,
+    target_cp: float,
+    teacher_mix: float,
+    max_teacher_cp: float,
+    outcome_decay: float,
+    min_teacher_depth: int,
+    huber_delta_cp: float,
+    wdl_scale_cp: float,
+) -> Dict[str, Any]:
+    """Stable identity for target semantics carried by model/optimizer state."""
+    return {
+        "schema": OBJECTIVE_SCHEMA,
+        "target_schema": TARGET_SCHEMA,
+        "loss_kind": str(loss_kind),
+        "target_cp": float(target_cp),
+        "teacher_mix": float(teacher_mix),
+        "max_teacher_cp": float(max_teacher_cp),
+        "outcome_decay": float(outcome_decay),
+        "min_teacher_depth": int(min_teacher_depth),
+        "huber_delta_cp": float(huber_delta_cp),
+        "wdl_scale_cp": float(wdl_scale_cp),
+    }
+
+
 def _target_wdl_probability_for_record(
     record: TrainingRecord,
     *,
@@ -403,7 +609,6 @@ def _target_wdl_probability_for_record(
     outcome_decay: float = 1.0,
     target_cp: float = 100.0,
 ) -> float:
-    del target_cp  # Kept in the shared trainer API for configuration compatibility.
     teacher_available = _teacher_available(record, min_teacher_depth)
     scale = max(1e-6, float(wdl_scale_cp))
     if not record.outcome_valid:
@@ -420,9 +625,13 @@ def _target_wdl_probability_for_record(
     if not math.isfinite(result_q):
         result_q = float(record.result)
     result_q = _clamp(result_q, -1.0, 1.0)
+    outcome_cp = result_q * float(target_cp)
     if record.ply is not None and record.ply > 0 and outcome_decay < 0.999999:
-        result_q *= float(outcome_decay) ** int(record.ply)
-    outcome_probability = 0.5 * (result_q + 1.0)
+        outcome_cp *= float(outcome_decay) ** int(record.ply)
+    # A decisive result is evidence worth +/-target_cp, not a hard 0/1 label.
+    # Hard labels have no finite optimum when the network output is consumed
+    # directly as centipawns by alpha-beta search.
+    outcome_probability = _sigmoid(outcome_cp / scale)
     if not teacher_available:
         return outcome_probability
 
@@ -434,6 +643,41 @@ def _target_wdl_probability_for_record(
     teacher_probability = _sigmoid(teacher_cp / scale)
     mix = _clamp(float(teacher_mix), 0.0, 1.0)
     return mix * teacher_probability + (1.0 - mix) * outcome_probability
+
+
+def _targets_for_record(
+    record: TrainingRecord,
+    *,
+    loss_kind: str,
+    target_cp: float,
+    teacher_mix: float,
+    max_teacher_cp: float,
+    outcome_decay: float,
+    min_teacher_depth: int,
+    wdl_scale_cp: float,
+) -> Tuple[float, float]:
+    """Build mutually consistent CP diagnostics and WDL objective targets."""
+    probability = _target_wdl_probability_for_record(
+        record,
+        target_cp=target_cp,
+        teacher_mix=teacher_mix,
+        max_teacher_cp=max_teacher_cp,
+        outcome_decay=outcome_decay,
+        min_teacher_depth=min_teacher_depth,
+        wdl_scale_cp=wdl_scale_cp,
+    )
+    if loss_kind == "wdl":
+        cp = _wdl_probability_to_cp(probability, wdl_scale_cp)
+    else:
+        cp = _target_cp_for_record(
+            record,
+            target_cp=target_cp,
+            teacher_mix=teacher_mix,
+            max_teacher_cp=max_teacher_cp,
+            outcome_decay=outcome_decay,
+            min_teacher_depth=min_teacher_depth,
+        )
+    return cp, probability
 
 
 def _eval_split(
@@ -449,12 +693,14 @@ def _eval_split(
     loss_kind: str = "mse",
     huber_delta_cp: float = 100.0,
     wdl_scale_cp: float = 400.0,
-) -> Tuple[float, float, float]:
+) -> Tuple[float, float, float, float, float]:
     if not xs:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
     loss_sum = 0.0
     cp_mse_sum = 0.0
     correct = 0
+    prediction_abs_sum = 0.0
+    prediction_max_abs = 0.0
     hidden_dim = len(b1)
     for i in range(len(xs)):
         act = xs[i]
@@ -470,6 +716,9 @@ def _eval_split(
         pred = b2
         for j in range(hidden_dim):
             pred += w2[j] * h[j]
+        prediction_abs = abs(pred)
+        prediction_abs_sum += prediction_abs
+        prediction_max_abs = max(prediction_max_abs, prediction_abs)
         diff = pred - y
         cp_mse_sum += diff * diff
         if loss_kind == "mse":
@@ -492,7 +741,13 @@ def _eval_split(
         if pred_label == true_label:
             correct += 1
     n = float(len(xs))
-    return loss_sum / n, cp_mse_sum / n, correct / n
+    return (
+        loss_sum / n,
+        cp_mse_sum / n,
+        correct / n,
+        prediction_abs_sum / n,
+        prediction_max_abs,
+    )
 
 
 def train_model(
@@ -513,6 +768,7 @@ def train_model(
     adam_eps: float = 1e-8,
     grad_clip: float = 5.0,
     primary_sample_fraction: float = 0.5,
+    teacher_sample_fraction: float = 0.5,
     min_teacher_depth: int = 0,
     loss_kind: str = "mse",
     huber_delta_cp: float = 100.0,
@@ -520,6 +776,7 @@ def train_model(
     validation_jsonl_dir: Optional[Path] = None,
     max_validation_samples: int = 100_000,
     validation_seed: int = 20_260_802,
+    validation_require_teacher: bool = False,
     seed: int = 1,
     out_dir: Path,
     initial_checkpoint: Optional[Path] = None,
@@ -538,6 +795,7 @@ def train_model(
     adam_eps = max(1e-12, float(adam_eps))
     grad_clip = max(0.0, float(grad_clip))
     primary_sample_fraction = _clamp(float(primary_sample_fraction), 0.0, 1.0)
+    teacher_sample_fraction = _clamp(float(teacher_sample_fraction), 0.0, 1.0)
     min_teacher_depth = max(0, int(min_teacher_depth))
     loss_kind = str(loss_kind).strip().lower()
     if loss_kind not in {"mse", "huber", "wdl"}:
@@ -545,6 +803,22 @@ def train_model(
     huber_delta_cp = max(1e-6, float(huber_delta_cp))
     wdl_scale_cp = max(1e-6, float(wdl_scale_cp))
     max_validation_samples = max(0, int(max_validation_samples))
+    validation_require_teacher = bool(validation_require_teacher)
+    if (
+        validation_jsonl_dir is not None
+        and Path(validation_jsonl_dir).resolve() == Path(jsonl_dir).resolve()
+    ):
+        raise ValueError("fixed validation source must be separate from training data")
+    objective = objective_metadata(
+        loss_kind=loss_kind,
+        target_cp=target_cp,
+        teacher_mix=teacher_mix,
+        max_teacher_cp=max_teacher_cp,
+        outcome_decay=outcome_decay,
+        min_teacher_depth=min_teacher_depth,
+        huber_delta_cp=huber_delta_cp,
+        wdl_scale_cp=wdl_scale_cp,
+    )
 
     xs: List[List[int]] = []
     cp_targets: List[float] = []
@@ -557,11 +831,13 @@ def train_model(
         max_samples,
         seed=seed,
         primary_sample_fraction=primary_sample_fraction,
+        teacher_sample_fraction=teacher_sample_fraction,
         min_teacher_depth=min_teacher_depth,
     ):
         xs.append(feats)
-        probability = _target_wdl_probability_for_record(
+        cp, probability = _targets_for_record(
             record,
+            loss_kind=loss_kind,
             target_cp=target_cp,
             teacher_mix=teacher_mix,
             max_teacher_cp=max_teacher_cp,
@@ -569,24 +845,8 @@ def train_model(
             min_teacher_depth=min_teacher_depth,
             wdl_scale_cp=wdl_scale_cp,
         )
+        cp_targets.append(cp)
         wdl_targets.append(probability)
-        if loss_kind == "wdl":
-            bounded_probability = _clamp(probability, 1e-6, 1.0 - 1e-6)
-            cp_targets.append(
-                wdl_scale_cp
-                * math.log(bounded_probability / (1.0 - bounded_probability))
-            )
-        else:
-            cp_targets.append(
-                _target_cp_for_record(
-                    record,
-                    target_cp=target_cp,
-                    teacher_mix=teacher_mix,
-                    max_teacher_cp=max_teacher_cp,
-                    outcome_decay=outcome_decay,
-                    min_teacher_depth=min_teacher_depth,
-                )
-            )
         if record.best_move:
             best_move_available += 1
         if record.value_cp is not None:
@@ -596,6 +856,18 @@ def train_model(
 
     if not xs:
         raise ValueError("no training samples were loaded")
+    requested_teacher_samples = int(round(len(xs) * teacher_sample_fraction))
+    teacher_sampling_satisfied = teacher_value_available == requested_teacher_samples
+    if (
+        max_samples > 0
+        and 0 < teacher_value_available < len(xs)
+        and not teacher_sampling_satisfied
+    ):
+        raise ValueError(
+            "unable to satisfy teacher_sample_fraction while preserving source quotas: "
+            f"requested {requested_teacher_samples}/{len(xs)}, "
+            f"selected {teacher_value_available}/{len(xs)}"
+        )
 
     dim = HALFKP_DIM
     rng = random.Random(seed)
@@ -605,7 +877,11 @@ def train_model(
     cp_targets = [cp_targets[i] for i in order]
     wdl_targets = [wdl_targets[i] for i in order]
 
+    validation_teacher_value_available: Optional[int] = None
+    validation_raw_teacher_value_available: Optional[int] = None
     if validation_jsonl_dir is not None:
+        validation_teacher_value_available = 0
+        validation_raw_teacher_value_available = 0
         train_x = xs
         train_cp = cp_targets
         train_wdl = wdl_targets
@@ -617,10 +893,17 @@ def train_model(
             max_validation_samples,
             seed=validation_seed,
             primary_sample_fraction=primary_sample_fraction,
+            teacher_sample_fraction=teacher_sample_fraction,
             min_teacher_depth=min_teacher_depth,
+            require_teacher=validation_require_teacher,
         ):
-            probability = _target_wdl_probability_for_record(
+            if record.value_cp is not None:
+                validation_raw_teacher_value_available += 1
+            if _teacher_available(record, min_teacher_depth):
+                validation_teacher_value_available += 1
+            cp, probability = _targets_for_record(
                 record,
+                loss_kind=loss_kind,
                 target_cp=target_cp,
                 teacher_mix=teacher_mix,
                 max_teacher_cp=max_teacher_cp,
@@ -629,22 +912,8 @@ def train_model(
                 wdl_scale_cp=wdl_scale_cp,
             )
             val_x.append(feats)
+            val_cp.append(cp)
             val_wdl.append(probability)
-            if loss_kind == "wdl":
-                bounded_probability = _clamp(probability, 1e-6, 1.0 - 1e-6)
-                val_cp.append(
-                    wdl_scale_cp
-                    * math.log(bounded_probability / (1.0 - bounded_probability))
-                )
-            else:
-                val_cp.append(_target_cp_for_record(
-                    record,
-                    target_cp=target_cp,
-                    teacher_mix=teacher_mix,
-                    max_teacher_cp=max_teacher_cp,
-                    outcome_decay=outcome_decay,
-                    min_teacher_depth=min_teacher_depth,
-                ))
         if not val_x:
             raise ValueError("external validation dataset contains no usable samples")
     else:
@@ -675,6 +944,7 @@ def train_model(
             Path(initial_checkpoint),
             input_dim=dim,
             hidden_dim=hidden_dim,
+            objective=objective,
         )
     best_w1 = list(w1)
     best_b1 = list(b1)
@@ -698,6 +968,10 @@ def train_model(
     val_cp_mse_history: List[float] = []
     train_acc_history: List[float] = []
     val_acc_history: List[float] = []
+    train_prediction_mean_abs_history: List[float] = []
+    val_prediction_mean_abs_history: List[float] = []
+    train_prediction_max_abs_history: List[float] = []
+    val_prediction_max_abs_history: List[float] = []
     best_val_loss = float("inf")
     best_epoch = 0
     initial_train_loss = None
@@ -706,8 +980,18 @@ def train_model(
     initial_val_acc = None
     initial_train_cp_mse = None
     initial_val_cp_mse = None
+    initial_train_prediction_mean_abs = None
+    initial_val_prediction_mean_abs = None
+    initial_train_prediction_max_abs = None
+    initial_val_prediction_max_abs = None
     if initialized_from is not None:
-        initial_train_loss, initial_train_cp_mse, initial_train_acc = _eval_split(
+        (
+            initial_train_loss,
+            initial_train_cp_mse,
+            initial_train_acc,
+            initial_train_prediction_mean_abs,
+            initial_train_prediction_max_abs,
+        ) = _eval_split(
             w1,
             b1,
             w2,
@@ -721,7 +1005,13 @@ def train_model(
             wdl_scale_cp=wdl_scale_cp,
         )
         if val_count > 0:
-            initial_val_loss, initial_val_cp_mse, initial_val_acc = _eval_split(
+            (
+                initial_val_loss,
+                initial_val_cp_mse,
+                initial_val_acc,
+                initial_val_prediction_mean_abs,
+                initial_val_prediction_max_abs,
+            ) = _eval_split(
                 w1,
                 b1,
                 w2,
@@ -737,6 +1027,8 @@ def train_model(
         else:
             initial_val_loss, initial_val_acc = initial_train_loss, initial_train_acc
             initial_val_cp_mse = initial_train_cp_mse
+            initial_val_prediction_mean_abs = initial_train_prediction_mean_abs
+            initial_val_prediction_max_abs = initial_train_prediction_max_abs
         best_val_loss = float(initial_val_loss)
 
     for epoch in range(epochs):
@@ -776,9 +1068,11 @@ def train_model(
                     else:
                         dloss_dpred = math.copysign(huber_delta_cp, diff)
                 else:
-                    # Optimize BCE * wdl_scale_cp. The scale cancels the
-                    # d(logit)/d(cp) factor and leaves a stable bounded gradient.
-                    dloss_dpred = _sigmoid(pred / wdl_scale_cp) - train_wdl[i]
+                    dloss_dpred = _wdl_loss_gradient_cp(
+                        pred,
+                        train_wdl[i],
+                        wdl_scale_cp,
+                    )
 
                 gb2 += dloss_dpred
                 for j in range(hidden_dim):
@@ -849,7 +1143,13 @@ def train_model(
             v_b2 = adam_beta2 * v_b2 + (1.0 - adam_beta2) * gb2 * gb2
             b2 -= lr * (m_b2 / bc1) / (math.sqrt(v_b2 / bc2) + adam_eps)
 
-        train_loss, train_cp_mse, train_acc = _eval_split(
+        (
+            train_loss,
+            train_cp_mse,
+            train_acc,
+            train_prediction_mean_abs,
+            train_prediction_max_abs,
+        ) = _eval_split(
             w1,
             b1,
             w2,
@@ -863,7 +1163,13 @@ def train_model(
             wdl_scale_cp=wdl_scale_cp,
         )
         if val_count > 0:
-            val_loss, val_cp_mse, val_acc = _eval_split(
+            (
+                val_loss,
+                val_cp_mse,
+                val_acc,
+                val_prediction_mean_abs,
+                val_prediction_max_abs,
+            ) = _eval_split(
                 w1,
                 b1,
                 w2,
@@ -879,6 +1185,8 @@ def train_model(
         else:
             val_loss, val_acc = train_loss, train_acc
             val_cp_mse = train_cp_mse
+            val_prediction_mean_abs = train_prediction_mean_abs
+            val_prediction_max_abs = train_prediction_max_abs
 
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
@@ -886,6 +1194,10 @@ def train_model(
         val_cp_mse_history.append(val_cp_mse)
         train_acc_history.append(train_acc)
         val_acc_history.append(val_acc)
+        train_prediction_mean_abs_history.append(train_prediction_mean_abs)
+        val_prediction_mean_abs_history.append(val_prediction_mean_abs)
+        train_prediction_max_abs_history.append(train_prediction_max_abs)
+        val_prediction_max_abs_history.append(val_prediction_max_abs)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -898,6 +1210,8 @@ def train_model(
     out_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = {
         "format": "piebot-halfkp-mse-v2",
+        "target_schema": TARGET_SCHEMA,
+        "objective": objective,
         "input_dim": dim,
         "hidden_dim": hidden_dim,
         "w1": best_w1,
@@ -913,6 +1227,9 @@ def train_model(
         "huber_delta_cp": huber_delta_cp,
         "wdl_scale_cp": wdl_scale_cp,
         "min_teacher_depth": min_teacher_depth,
+        "primary_sample_fraction": primary_sample_fraction,
+        "teacher_sample_fraction": teacher_sample_fraction,
+        "validation_require_teacher": validation_require_teacher,
         "seed": seed,
         "epochs": epochs,
         "best_epoch": best_epoch,
@@ -932,7 +1249,10 @@ def train_model(
         "max_teacher_cp": max_teacher_cp,
         "outcome_decay": outcome_decay,
         "feature_set": FEATURE_SET,
+        "target_schema": TARGET_SCHEMA,
+        "objective": objective,
         "primary_sample_fraction": primary_sample_fraction,
+        "teacher_sample_fraction": teacher_sample_fraction,
         "min_teacher_depth": min_teacher_depth,
         "loss_kind": loss_kind,
         "huber_delta_cp": huber_delta_cp,
@@ -944,6 +1264,7 @@ def train_model(
         ),
         "max_validation_samples": max_validation_samples,
         "validation_seed": int(validation_seed),
+        "validation_require_teacher": validation_require_teacher,
         "adam_beta1": adam_beta1,
         "adam_beta2": adam_beta2,
         "adam_eps": adam_eps,
@@ -957,6 +1278,10 @@ def train_model(
         "initial_val_acc": initial_val_acc,
         "initial_train_cp_mse": initial_train_cp_mse,
         "initial_val_cp_mse": initial_val_cp_mse,
+        "initial_train_prediction_mean_abs": initial_train_prediction_mean_abs,
+        "initial_val_prediction_mean_abs": initial_val_prediction_mean_abs,
+        "initial_train_prediction_max_abs": initial_train_prediction_max_abs,
+        "initial_val_prediction_max_abs": initial_val_prediction_max_abs,
         "initialized_from": initialized_from,
         "optimizer_state_restored": False,
         "train_loss_history": train_loss_history,
@@ -965,10 +1290,33 @@ def train_model(
         "val_cp_mse_history": val_cp_mse_history,
         "train_acc_history": train_acc_history,
         "val_acc_history": val_acc_history,
+        "train_prediction_mean_abs_history": train_prediction_mean_abs_history,
+        "val_prediction_mean_abs_history": val_prediction_mean_abs_history,
+        "train_prediction_max_abs_history": train_prediction_max_abs_history,
+        "val_prediction_max_abs_history": val_prediction_max_abs_history,
         "records_with_best_move": best_move_available,
         "records_with_teacher_value": teacher_value_available,
         "records_with_raw_teacher_value": raw_teacher_value_available,
         "records_total": len(xs),
+        "validation_records_with_teacher_value": validation_teacher_value_available,
+        "validation_records_with_raw_teacher_value": validation_raw_teacher_value_available,
+        "actual_teacher_sample_fraction": (
+            float(teacher_value_available) / float(len(xs)) if xs else 0.0
+        ),
+        "requested_teacher_samples": requested_teacher_samples,
+        "teacher_sampling_satisfied": teacher_sampling_satisfied,
+        "train_target_cp_mean_abs": (
+            sum(abs(value) for value in train_cp) / float(len(train_cp))
+            if train_cp
+            else 0.0
+        ),
+        "train_target_cp_max_abs": max((abs(value) for value in train_cp), default=0.0),
+        "val_target_cp_mean_abs": (
+            sum(abs(value) for value in val_cp) / float(len(val_cp))
+            if val_cp
+            else 0.0
+        ),
+        "val_target_cp_max_abs": max((abs(value) for value in val_cp), default=0.0),
     }
     (out_dir / "checkpoint.json").write_text(json.dumps(checkpoint), encoding="utf-8")
     (out_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
@@ -994,6 +1342,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--adam-eps", type=float, default=1e-8)
     ap.add_argument("--grad-clip", type=float, default=5.0)
     ap.add_argument("--primary-sample-fraction", type=float, default=0.5)
+    ap.add_argument("--teacher-sample-fraction", type=float, default=0.5)
     ap.add_argument("--min-teacher-depth", type=int, default=0)
     ap.add_argument("--loss-kind", choices=["mse", "huber", "wdl"], default="mse")
     ap.add_argument("--huber-delta-cp", type=float, default=100.0)
@@ -1001,6 +1350,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
     ap.add_argument("--max-validation-samples", type=int, default=100_000)
     ap.add_argument("--validation-seed", type=int, default=20_260_802)
+    ap.add_argument("--validation-require-teacher", action="store_true")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", type=Path, default=Path("out/nnue_stub_train"))
     args = ap.parse_args(argv)
@@ -1022,6 +1372,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         adam_eps=args.adam_eps,
         grad_clip=args.grad_clip,
         primary_sample_fraction=args.primary_sample_fraction,
+        teacher_sample_fraction=args.teacher_sample_fraction,
         min_teacher_depth=args.min_teacher_depth,
         loss_kind=args.loss_kind,
         huber_delta_cp=args.huber_delta_cp,
@@ -1029,6 +1380,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         validation_jsonl_dir=args.validation_jsonl_dir,
         max_validation_samples=args.max_validation_samples,
         validation_seed=args.validation_seed,
+        validation_require_teacher=args.validation_require_teacher,
         seed=args.seed,
         out_dir=args.out,
         initial_checkpoint=args.initial_checkpoint,

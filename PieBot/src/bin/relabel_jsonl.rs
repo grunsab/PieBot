@@ -118,6 +118,56 @@ struct BatchLine {
     should_relabel: bool,
 }
 
+const FNV1A_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV1A_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+fn fnv1a_update(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV1A_PRIME);
+    }
+    hash
+}
+
+fn relabel_phase(map: &serde_json::Map<String, Value>, period: usize) -> usize {
+    let period = period.max(1);
+    let run_id = map
+        .get("run_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
+    let game_id = map
+        .get("game_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
+
+    // Preserve the historical ply % period == 0 behavior for records that
+    // predate self-play provenance IDs.
+    if run_id.is_none() && game_id.is_none() {
+        return 0;
+    }
+
+    // FNV-1a is deliberately specified here instead of DefaultHasher so the
+    // selected phase is stable across Rust versions, processes, and machines.
+    let mut hash = fnv1a_update(FNV1A_OFFSET_BASIS, b"piebot-relabel-phase-v1\0");
+    if let Some(value) = run_id {
+        hash = fnv1a_update(hash, b"run_id\0");
+        hash = fnv1a_update(hash, value.as_bytes());
+        hash = fnv1a_update(hash, b"\0");
+    }
+    if let Some(value) = game_id {
+        hash = fnv1a_update(hash, b"game_id\0");
+        hash = fnv1a_update(hash, value.as_bytes());
+        hash = fnv1a_update(hash, b"\0");
+    }
+    (hash % period as u64) as usize
+}
+
+fn should_select_for_relabel(map: &serde_json::Map<String, Value>, period: usize) -> bool {
+    let period = period.max(1);
+    let ply = map.get("ply").and_then(Value::as_u64).unwrap_or(0) as usize;
+    ply % period == relabel_phase(map, period)
+}
+
 fn worker_batches<T, F>(items: Vec<T>, max_workers: usize, is_expensive: F) -> Vec<Vec<(usize, T)>>
 where
     F: Fn(&T) -> bool,
@@ -209,9 +259,8 @@ fn process_batch(
                 };
             };
             ensure_played_move(&mut map);
-            let ply = map.get("ply").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
             let allowed = remaining_limit.map(|m| scheduled < m).unwrap_or(true);
-            let should_relabel = allowed && ply % period == 0;
+            let should_relabel = allowed && should_select_for_relabel(&map, period);
             if should_relabel {
                 scheduled += 1;
             }
@@ -360,7 +409,7 @@ fn main() -> anyhow::Result<()> {
 mod tests {
     use super::{
         build_teacher_search_params, build_teacher_searcher, per_worker_hash_mb,
-        process_batch_line, worker_batches, BatchLine,
+        process_batch_line, relabel_phase, should_select_for_relabel, worker_batches, BatchLine,
     };
     use serde_json::{json, Value};
 
@@ -404,6 +453,100 @@ mod tests {
             (0usize..24).map(|index| (index, index)).collect::<Vec<_>>(),
             indexed
         );
+    }
+
+    #[test]
+    fn provenance_phase_is_exact_and_deterministic() {
+        let record = json!({
+            "run_id": "run-abc",
+            "game_id": "game-xyz",
+            "ply": 17
+        });
+        let map = record.as_object().expect("record object");
+
+        assert_eq!(3, relabel_phase(map, 4));
+        assert_eq!(relabel_phase(map, 4), relabel_phase(map, 4));
+    }
+
+    #[test]
+    fn every_position_in_the_same_game_uses_the_same_phase() {
+        let phases: Vec<usize> = (0..12)
+            .map(|ply| {
+                let record = json!({
+                    "run_id": "run-same",
+                    "game_id": "game-same",
+                    "ply": ply,
+                    "custom": ply * 3
+                });
+                relabel_phase(record.as_object().expect("record object"), 4)
+            })
+            .collect();
+
+        assert!(phases.iter().all(|phase| *phase == phases[0]));
+        for ply in 0..12 {
+            let record = json!({
+                "run_id": "run-same",
+                "game_id": "game-same",
+                "ply": ply
+            });
+            assert_eq!(
+                ply % 4 == phases[0],
+                should_select_for_relabel(record.as_object().expect("record object"), 4)
+            );
+        }
+    }
+
+    #[test]
+    fn different_games_can_use_different_phase_offsets() {
+        let game_a = json!({"run_id": "run-1", "game_id": "game-a", "ply": 0});
+        let game_b = json!({"run_id": "run-1", "game_id": "game-b", "ply": 0});
+
+        assert_ne!(
+            relabel_phase(game_a.as_object().expect("record object"), 4),
+            relabel_phase(game_b.as_object().expect("record object"), 4)
+        );
+    }
+
+    #[test]
+    fn game_phases_cover_both_side_to_move_parities() {
+        let phases: Vec<usize> = (0..64)
+            .map(|game| {
+                let record = json!({
+                    "run_id": "run-balanced",
+                    "game_id": format!("game-{game:03}"),
+                    "ply": 0
+                });
+                relabel_phase(record.as_object().expect("record object"), 4)
+            })
+            .collect();
+        let even = phases.iter().filter(|phase| **phase % 2 == 0).count();
+        let odd = phases.len() - even;
+
+        assert!(even > 0, "expected white-to-move relabel phases");
+        assert!(odd > 0, "expected black-to-move relabel phases");
+        assert!(
+            even.abs_diff(odd) <= 8,
+            "phase parity should be reasonably balanced"
+        );
+    }
+
+    #[test]
+    fn legacy_records_without_provenance_keep_zero_phase_selection() {
+        let selected = json!({"ply": 8});
+        let skipped = json!({"ply": 9});
+
+        assert_eq!(
+            0,
+            relabel_phase(selected.as_object().expect("record object"), 4)
+        );
+        assert!(should_select_for_relabel(
+            selected.as_object().expect("record object"),
+            4
+        ));
+        assert!(!should_select_for_relabel(
+            skipped.as_object().expect("record object"),
+            4
+        ));
     }
 
     #[test]
