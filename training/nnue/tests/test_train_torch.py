@@ -259,8 +259,15 @@ class TorchBatchPackingTests(unittest.TestCase):
                 "value_cp": 800.0,
                 "teacher_depth": 6,
             }
-            self._write_records(root / "train", [record])
-            self._write_records(root / "validation", [record])
+            self._write_records(root / "train", [{**record, "split": "train"}])
+            self._write_records(
+                root / "validation",
+                [{
+                    **record,
+                    "fen": "1k6/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "split": "validation",
+                }],
+            )
             input_dim = train_torch.train_stub.HALFKP_DIM
             parent = {
                 "format": "piebot-halfkp-mse-v2-torch",
@@ -428,7 +435,10 @@ class TorchBatchPackingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fen = "k7/8/8/8/8/8/8/KQ6 w - - 0 1"
-            self._write_records(root / "train", [{"fen": fen, "result": 1}])
+            self._write_records(
+                root / "train",
+                [{"fen": "1k6/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1}],
+            )
             self._write_records(root / "validation", [
                 {"fen": fen, "result": 1},
                 {
@@ -482,6 +492,36 @@ class TorchBatchPackingTests(unittest.TestCase):
                     out_dir=root / "out",
                     device="cpu",
                     validation_jsonl_dir=data,
+                    max_validation_samples=1,
+                )
+
+    def test_fixed_validation_rejects_overlapping_game_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(root / "train", [{
+                "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                "result": 1,
+                "run_id": "run-a",
+                "game_id": "game-a",
+                "ply": 0,
+            }])
+            self._write_records(root / "validation", [{
+                "fen": "k7/8/8/8/8/8/8/KR6 b - - 1 1",
+                "result": 1,
+                "run_id": "run-a",
+                "game_id": "game-a",
+                "ply": 1,
+            }])
+
+            with self.assertRaisesRegex(ValueError, "game provenance"):
+                train_torch.train_model(
+                    jsonl_dir=root / "train",
+                    max_samples=1,
+                    epochs=1,
+                    hidden_dim=1,
+                    out_dir=root / "out",
+                    device="cpu",
+                    validation_jsonl_dir=root / "validation",
                     max_validation_samples=1,
                 )
 
@@ -566,9 +606,6 @@ class TorchBatchPackingTests(unittest.TestCase):
                 epochs=1,
                 val_split=0.25,
                 learning_rate=0.004,
-                adam_beta1=0.8,
-                adam_beta2=0.95,
-                adam_eps=1e-6,
                 hidden_dim=2,
                 seed=31,
                 out_dir=root / "second",
@@ -598,12 +635,54 @@ class TorchBatchPackingTests(unittest.TestCase):
             resumed_payload = train_torch._torch_load(root / "second" / "optimizer.pt")
             resumed_group = resumed_payload["state_dict"]["param_groups"][0]
             self.assertEqual(0.004, resumed_group["lr"])
-            self.assertEqual((0.8, 0.95), tuple(resumed_group["betas"]))
-            self.assertEqual(1e-6, resumed_group["eps"])
+            self.assertEqual((0.9, 0.999), tuple(resumed_group["betas"]))
+            self.assertEqual(1e-8, resumed_group["eps"])
             self.assertEqual(
                 train_torch.train_stub.OBJECTIVE_SCHEMA,
                 resumed_payload["objective"]["schema"],
             )
+
+    def test_optimizer_rejects_adam_beta_or_epsilon_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            records = [
+                {"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ]
+            self._write_records(root / "data", records)
+            train_torch.train_model(
+                jsonl_dir=root / "data",
+                batch_size=2,
+                max_samples=2,
+                epochs=1,
+                learning_rate=0.001,
+                hidden_dim=1,
+                out_dir=root / "first",
+                device="cpu",
+            )
+
+            cases = {
+                "betas": {"adam_beta1": 0.8},
+                "epsilon": {"adam_eps": 1e-6},
+            }
+            for name, overrides in cases.items():
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValueError,
+                    f"Adam {name}",
+                ):
+                    train_torch.train_model(
+                        jsonl_dir=root / "data",
+                        batch_size=2,
+                        max_samples=2,
+                        epochs=1,
+                        learning_rate=0.004,
+                        hidden_dim=1,
+                        initial_checkpoint=root / "first" / "checkpoint.json",
+                        initial_optimizer_state=root / "first" / "optimizer.pt",
+                        out_dir=root / f"second-{name}",
+                        device="cpu",
+                        **overrides,
+                    )
 
     def test_optimizer_rejects_an_incompatible_objective(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

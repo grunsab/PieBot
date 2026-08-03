@@ -382,6 +382,65 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual("deleted", loaded["completed_cycles"][0]["retention"])
             self.assertEqual("full", loaded["completed_cycles"][1]["retention"])
 
+    def test_live_restart_marks_run_running_before_launching_next_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp) / "runs"
+            out_root.mkdir()
+            state_path = out_root / "autopilot_state.json"
+            stale_error = {
+                "cycle": 1,
+                "attempt": 1,
+                "error": "prior transient failure",
+                "ts": 123.0,
+            }
+            state = {
+                "version": 1,
+                "profile": "zen5_9755_7d",
+                "started_at": 0.0,
+                "deadline_ts": 10**12,
+                "next_cycle": 2,
+                "completed_cycles": [{"cycle": 1}],
+                "accepted_models": [],
+                "active_model_path": None,
+                "training_checkpoint_path": None,
+                "training_lineage_start_cycle": 1,
+                "last_error": stale_error,
+                "status": "complete",
+                "finished_at": 456.0,
+            }
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            launched_states = []
+
+            def _capture_launch_state(**_kwargs):
+                launched_states.append(
+                    json.loads(state_path.read_text(encoding="utf-8"))
+                )
+                raise RuntimeError("stop after observing launch state")
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_capture_launch_state,
+            ):
+                rc = autopilot.main(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--retry-limit",
+                        "1",
+                        "--gate-games",
+                        "0",
+                    ]
+                )
+
+            self.assertEqual(2, rc)
+            self.assertEqual(1, len(launched_states))
+            launched = launched_states[0]
+            self.assertEqual("running", launched["status"])
+            self.assertNotIn("finished_at", launched)
+            self.assertEqual(stale_error, launched["last_error"])
+            self.assertEqual(2, launched["current_cycle"]["cycle"])
+            self.assertEqual("running", launched["current_cycle"]["status"])
+
     def test_blend_percent_ramps_with_number_of_accepted_models(self) -> None:
         self.assertEqual(0, autopilot._active_model_blend_percent({}))
         self.assertEqual(

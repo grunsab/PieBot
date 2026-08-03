@@ -731,6 +731,13 @@ def _validate_training_target_identity(
     metrics: Dict[str, Any],
     objective: Dict[str, Any],
 ) -> None:
+    if metrics.get("sampling_schema") != train_stub.SAMPLING_SCHEMA:
+        raise ValueError("trainer sampling schema does not match the pipeline")
+    if (
+        metrics.get("validation_sampling_schema")
+        != train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+    ):
+        raise ValueError("trainer validation sampling schema does not match the pipeline")
     if metrics.get("target_schema") != train_stub.TARGET_SCHEMA:
         raise ValueError("trainer target schema does not match the pipeline")
     if metrics.get("objective") != objective:
@@ -1446,6 +1453,8 @@ def run_pipeline(
     initial_checkpoint_info = _initial_checkpoint_provenance(initial_checkpoint)
     training_provenance_config = {
         **training_config,
+        "sampling_schema": train_stub.SAMPLING_SCHEMA,
+        "validation_sampling_schema": train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
         "objective": objective,
         "initial_checkpoint": initial_checkpoint_info,
         "initial_optimizer_state": initial_optimizer_info,

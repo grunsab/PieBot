@@ -582,6 +582,19 @@ class RunPipelineTests(unittest.TestCase):
             loaded = json.loads(pipeline_summary.read_text(encoding="utf-8"))
             self.assertEqual(str(dense_path), loaded["dense_path"])
             self.assertGreater(loaded["metrics"]["train_samples"], 0)
+            train_manifest = json.loads(
+                (out_dir / "train" / ".piebot_train_complete.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.SAMPLING_SCHEMA,
+                train_manifest["provenance"]["config"]["sampling_schema"],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+                train_manifest["provenance"]["config"]["validation_sampling_schema"],
+            )
 
     def test_pipeline_replay_jsonl_dirs_are_merged_for_training(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -693,6 +706,10 @@ class RunPipelineTests(unittest.TestCase):
             wdl_scale_cp=400.0,
         )
         metrics = {
+            "sampling_schema": run_pipeline.train_stub.SAMPLING_SCHEMA,
+            "validation_sampling_schema": (
+                run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            ),
             "target_schema": run_pipeline.train_stub.TARGET_SCHEMA,
             "objective": objective,
         }

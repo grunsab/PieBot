@@ -1520,6 +1520,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             if args.max_cycles > 0 and completed >= args.max_cycles:
                 break
 
+            state["status"] = "running"
+            state.pop("finished_at", None)
             cycle_idx = int(state["next_cycle"])
             cycle_dir = out_root / "cycles" / f"cycle_{cycle_idx:06d}"
             cycle_selfplay_seed = _derive_cycle_seed(

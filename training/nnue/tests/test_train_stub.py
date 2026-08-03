@@ -1,6 +1,7 @@
 import json
 import hashlib
 import math
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -462,6 +463,158 @@ class TrainStubTests(unittest.TestCase):
             },
         )
 
+    def test_internal_split_keeps_oversampled_records_in_one_partition(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            black_king_placements = [
+                f"{rank}/8" for rank in (
+                    "k7", "1k6", "2k5", "3k4", "4k3",
+                    "5k2", "6k1", "7k",
+                )
+            ] + [
+                "8/k7",
+                "8/1k6",
+            ]
+            records = []
+            for record_idx in range(10):
+                record = {
+                    "id": f"record-{record_idx}",
+                    "fen": (
+                        f"{black_king_placements[record_idx]}/8/8/8/8/4K3/8 "
+                        "w - - 0 1"
+                    ),
+                    "result": 1,
+                }
+                if record_idx == 0:
+                    record["value_cp"] = 25.0
+                    record["teacher_depth"] = 6
+                records.append(record)
+            with (data_dir / "shard.jsonl").open("w", encoding="utf-8") as handle:
+                for record in records:
+                    handle.write(json.dumps(record) + "\n")
+
+            metrics = train_stub.train_model(
+                jsonl_dir=data_dir,
+                batch_size=2,
+                max_samples=10,
+                epochs=1,
+                val_split=0.2,
+                learning_rate=0.0,
+                hidden_dim=1,
+                teacher_sample_fraction=0.5,
+                min_teacher_depth=6,
+                seed=1,
+                out_dir=root / "out",
+            )
+            sampled_records = [
+                record
+                for _features, record in train_stub.iterate_samples(
+                    data_dir,
+                    10,
+                    seed=1,
+                    teacher_sample_fraction=0.5,
+                    min_teacher_depth=6,
+                )
+            ]
+            order = list(range(len(sampled_records)))
+            random.Random(1).shuffle(order)
+            sampled_records = [sampled_records[idx] for idx in order]
+            train_indices, validation_indices = train_stub._internal_validation_partition(
+                sampled_records,
+                0.2,
+            )
+
+            self.assertEqual(0, metrics["internal_validation_record_overlap"])
+            self.assertEqual(10, metrics["train_samples"] + metrics["val_samples"])
+            self.assertGreater(metrics["val_samples"], 0)
+            self.assertEqual(
+                5,
+                sum(
+                    sampled_records[idx].raw["id"] == "record-0"
+                    for idx in train_indices
+                ),
+            )
+            self.assertNotIn(
+                "record-0",
+                [sampled_records[idx].raw["id"] for idx in validation_indices],
+            )
+
+    def test_internal_split_keeps_complete_games_in_one_partition(self) -> None:
+        records = []
+        fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+        for game_idx in range(6):
+            for ply in range(4):
+                records.append(
+                    train_stub.TrainingRecord(
+                        fen=fen,
+                        result=0,
+                        run_id="run-internal-split",
+                        game_id=f"game-{game_idx}",
+                        ply=ply,
+                        raw={
+                            "fen": fen,
+                            "run_id": "run-internal-split",
+                            "game_id": f"game-{game_idx}",
+                            "ply": ply,
+                        },
+                    )
+                )
+
+        train_indices, validation_indices = train_stub._internal_validation_partition(
+            records,
+            0.25,
+        )
+        train_games = {records[idx].game_id for idx in train_indices}
+        validation_games = {records[idx].game_id for idx in validation_indices}
+
+        self.assertTrue(train_games)
+        self.assertTrue(validation_games)
+        self.assertFalse(train_games.intersection(validation_games))
+
+    def test_internal_split_preserves_teacher_mix_when_groups_allow_it(self) -> None:
+        records = []
+        fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+        for game_idx in range(8):
+            for ply in range(2):
+                teacher = game_idx % 2 == 0
+                records.append(
+                    train_stub.TrainingRecord(
+                        fen=fen,
+                        result=0,
+                        value_cp=25.0 if teacher else None,
+                        teacher_depth=6 if teacher else None,
+                        run_id="run-stratified-split",
+                        game_id=f"game-{game_idx}",
+                        ply=ply,
+                        raw={
+                            "fen": fen,
+                            "run_id": "run-stratified-split",
+                            "game_id": f"game-{game_idx}",
+                            "ply": ply,
+                        },
+                    )
+                )
+
+        train_indices, validation_indices = train_stub._internal_validation_partition(
+            records,
+            0.25,
+            min_teacher_depth=6,
+        )
+
+        self.assertEqual(4, len(validation_indices))
+        self.assertEqual(
+            0.5,
+            sum(records[idx].teacher_depth == 6 for idx in validation_indices)
+            / len(validation_indices),
+        )
+        self.assertEqual(
+            0.5,
+            sum(records[idx].teacher_depth == 6 for idx in train_indices)
+            / len(train_indices),
+        )
+
     def test_train_model_writes_metrics_and_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -548,7 +701,16 @@ class TrainStubTests(unittest.TestCase):
             train_dir.mkdir()
             validation_dir.mkdir()
             _write_dataset(train_dir, n=12)
-            _write_dataset(validation_dir, n=6)
+            validation_records = [
+                {"fen": "1k6/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1},
+                {"fen": "1k6/8/8/8/8/8/8/K7 w - - 0 1", "result": 0},
+                {"fen": "1kq5/8/8/8/8/8/8/K7 w - - 0 1", "result": -1},
+            ] * 2
+            with (validation_dir / "shard_000000.jsonl").open(
+                "w", encoding="utf-8"
+            ) as handle:
+                for record in validation_records:
+                    handle.write(json.dumps(record) + "\n")
 
             metrics = train_stub.train_model(
                 jsonl_dir=train_dir,
@@ -586,6 +748,179 @@ class TrainStubTests(unittest.TestCase):
                     max_validation_samples=3,
                     out_dir=root / "out",
                 )
+
+    def test_external_validation_rejects_a_copied_training_shard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            train_dir = root / "train"
+            validation_dir = root / "validation"
+            train_dir.mkdir()
+            validation_dir.mkdir()
+            _write_dataset(train_dir, n=6)
+            (validation_dir / "copy.jsonl").write_bytes(
+                (train_dir / "shard_000000.jsonl").read_bytes()
+            )
+
+            with self.assertRaisesRegex(ValueError, "copied shard"):
+                train_stub.train_model(
+                    jsonl_dir=train_dir,
+                    max_samples=6,
+                    epochs=1,
+                    hidden_dim=1,
+                    validation_jsonl_dir=validation_dir,
+                    max_validation_samples=3,
+                    out_dir=root / "out",
+                )
+
+    def test_external_validation_rejects_overlapping_game_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            train_dir = root / "train"
+            validation_dir = root / "validation"
+            train_dir.mkdir()
+            validation_dir.mkdir()
+            train_record = {
+                "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                "result": 1,
+                "run_id": "run-a",
+                "game_id": "game-7",
+                "ply": 0,
+            }
+            validation_record = {
+                "fen": "k7/8/8/8/8/8/8/KR6 b - - 1 1",
+                "result": 1,
+                "run_id": "run-a",
+                "game_id": "game-7",
+                "ply": 1,
+            }
+            (train_dir / "train.jsonl").write_text(
+                json.dumps(train_record) + "\n", encoding="utf-8"
+            )
+            (validation_dir / "validation.jsonl").write_text(
+                json.dumps(validation_record) + "\n", encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(ValueError, "game provenance"):
+                train_stub.train_model(
+                    jsonl_dir=train_dir,
+                    max_samples=1,
+                    epochs=1,
+                    hidden_dim=1,
+                    validation_jsonl_dir=validation_dir,
+                    max_validation_samples=1,
+                    out_dir=root / "out",
+                )
+
+    def test_external_validation_rejects_a_copied_legacy_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            train_dir = root / "train"
+            validation_dir = root / "validation"
+            train_dir.mkdir()
+            validation_dir.mkdir()
+            shared = {
+                "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                "result": 1,
+                "value_cp": 42.0,
+                "teacher_depth": 6,
+            }
+            (train_dir / "train.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(shared),
+                        json.dumps(
+                            {
+                                "fen": "k7/8/8/8/8/8/8/KR6 b - - 1 1",
+                                "result": 0,
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (validation_dir / "validation.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps({**shared, "split": "validation-only-metadata"}),
+                        json.dumps(
+                            {
+                                "fen": "8/k7/8/8/8/8/8/KQ6 w - - 2 2",
+                                "result": -1,
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "record identity"):
+                train_stub.train_model(
+                    jsonl_dir=train_dir,
+                    max_samples=2,
+                    epochs=1,
+                    hidden_dim=1,
+                    validation_jsonl_dir=validation_dir,
+                    max_validation_samples=2,
+                    out_dir=root / "out",
+                )
+
+    def test_external_validation_sampling_ignores_training_mix_knobs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            train_dir = root / "train"
+            validation_dir = root / "validation"
+            train_dir.mkdir()
+            validation_dir.mkdir()
+            _write_dataset(train_dir, n=3)
+            fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+            for source_idx, has_teacher in ((0, True), (1, False)):
+                path = validation_dir / f"src{source_idx:02d}_shard.jsonl"
+                with path.open("w", encoding="utf-8") as handle:
+                    for record_idx in range(8):
+                        record = {
+                            "id": f"validation-{source_idx}-{record_idx}",
+                            "fen": fen,
+                            "result": 1,
+                        }
+                        if has_teacher:
+                            record["value_cp"] = 50.0
+                            record["teacher_depth"] = 6
+                        handle.write(json.dumps(record) + "\n")
+
+            common = {
+                "jsonl_dir": train_dir,
+                "max_samples": 0,
+                "epochs": 1,
+                "learning_rate": 0.0,
+                "hidden_dim": 1,
+                "min_teacher_depth": 6,
+                "validation_jsonl_dir": validation_dir,
+                "max_validation_samples": 6,
+                "validation_seed": 71,
+            }
+            primary_teacher = train_stub.train_model(
+                **common,
+                primary_sample_fraction=1.0,
+                teacher_sample_fraction=1.0,
+                out_dir=root / "out-primary-teacher",
+            )
+            replay_outcome = train_stub.train_model(
+                **common,
+                primary_sample_fraction=0.0,
+                teacher_sample_fraction=0.0,
+                out_dir=root / "out-replay-outcome",
+            )
+
+            self.assertEqual(
+                primary_teacher["validation_records_with_teacher_value"],
+                replay_outcome["validation_records_with_teacher_value"],
+            )
+            self.assertEqual(
+                primary_teacher["validation_sample_sha256"],
+                replay_outcome["validation_sample_sha256"],
+            )
 
     def test_external_validation_can_require_depth_eligible_teacher(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -162,6 +162,8 @@ HALFKP_DIM = 2 * 64 * len(FEATURE_PIECE_ORDER) * 64
 FEATURE_SET = "halfkp-all-pieces-v2"
 TARGET_SCHEMA = "soft-cp-wdl-v2"
 OBJECTIVE_SCHEMA = "nnue-objective-v1"
+SAMPLING_SCHEMA = "source-teacher-stratified-v3-no-internal-leakage"
+FIXED_VALIDATION_SAMPLING_SCHEMA = "uniform-reservoir-v1"
 
 
 def _active_halfkp_indices(fen: str) -> List[int]:
@@ -239,6 +241,178 @@ def _training_source_groups(path: Path) -> List[List[Path]]:
     if unmatched:
         groups.append(unmatched)
     return groups
+
+
+def _jsonl_files(path: Path) -> List[Path]:
+    root = Path(path)
+    if root.is_file():
+        return [root]
+    return sorted(root.glob("*.jsonl"))
+
+
+def _record_identity(record: TrainingRecord) -> str:
+    """Return a stable identity used to keep duplicate samples together."""
+    if record.run_id is not None and record.game_id is not None and record.ply is not None:
+        return f"position\0{record.run_id}\0{record.game_id}\0{record.ply}"
+    # Legacy rows have no reliable provenance. Hash exactly the parsed fields
+    # that determine features and scalar targets, not the raw JSON object, so
+    # irrelevant metadata cannot disguise a copied training example.
+    encoded = json.dumps(
+        (
+            "piebot-training-record-v1",
+            record.fen,
+            record.result,
+            record.result_q,
+            record.outcome_valid,
+            record.value_cp,
+            record.teacher_depth,
+            record.ply,
+        ),
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"record\0{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _sample_identity_sha256(records: Sequence[TrainingRecord]) -> str:
+    digest = hashlib.sha256()
+    for record in records:
+        digest.update(_record_identity(record).encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _validation_group_identity(record: TrainingRecord) -> str:
+    """Group an entire provenance-aware game into one validation partition."""
+    if record.run_id is not None and record.game_id is not None:
+        return f"game\0{record.run_id}\0{record.game_id}"
+    return _record_identity(record)
+
+
+def _internal_validation_partition(
+    records: Sequence[TrainingRecord],
+    val_split: float,
+    *,
+    min_teacher_depth: int = 0,
+) -> Tuple[List[int], List[int]]:
+    """Partition samples without placing a game or duplicate on both sides.
+
+    Provenance-aware records are grouped by game. Legacy teacher balancing can
+    intentionally repeat a scarce labeled position, so all exact copies of
+    that position remain together as the strongest available fallback.
+    """
+    count = len(records)
+    desired = int(count * min(0.9, max(0.0, float(val_split))))
+    if val_split > 0.0 and count > 1:
+        desired = max(1, desired)
+        desired = min(desired, count - 1)
+    else:
+        desired = 0
+    if desired <= 0:
+        return list(range(count)), []
+
+    identities = [_validation_group_identity(record) for record in records]
+    group_sizes: Dict[str, int] = {}
+    group_teacher_counts: Dict[str, int] = {}
+    for identity, record in zip(identities, records):
+        group_sizes[identity] = group_sizes.get(identity, 0) + 1
+        if _teacher_available(record, min_teacher_depth):
+            group_teacher_counts[identity] = group_teacher_counts.get(identity, 0) + 1
+
+    candidates = list(dict.fromkeys(reversed(identities)))
+    total_teacher = sum(group_teacher_counts.values())
+    desired_teacher = float(total_teacher) * float(desired) / float(count)
+    desired_outcome = float(desired) - desired_teacher
+
+    def partition_error(selected: int, selected_teacher: int) -> float:
+        selected_outcome = selected - selected_teacher
+        return (
+            abs(float(selected) - float(desired)) / max(1.0, float(desired))
+            + abs(float(selected_teacher) - desired_teacher)
+            / max(1.0, desired_teacher)
+            + abs(float(selected_outcome) - desired_outcome)
+            / max(1.0, desired_outcome)
+        )
+
+    validation_identities: set[str] = set()
+    validation_count = 0
+    validation_teacher_count = 0
+    best_error = partition_error(0, 0)
+    for identity in candidates:
+        group_size = group_sizes[identity]
+        if validation_count + group_size >= count:
+            continue
+        group_teachers = group_teacher_counts.get(identity, 0)
+        candidate_count = validation_count + group_size
+        candidate_teachers = validation_teacher_count + group_teachers
+        candidate_error = partition_error(candidate_count, candidate_teachers)
+        if candidate_error + 1e-12 < best_error:
+            validation_identities.add(identity)
+            validation_count = candidate_count
+            validation_teacher_count = candidate_teachers
+            best_error = candidate_error
+
+    train_indices = [
+        idx for idx, identity in enumerate(identities)
+        if identity not in validation_identities
+    ]
+    validation_indices = [
+        idx for idx, identity in enumerate(identities)
+        if identity in validation_identities
+    ]
+    return train_indices, validation_indices
+
+
+def _assert_validation_source_disjoint(
+    validation_jsonl_dir: Path,
+    training_jsonl_dir: Path,
+) -> None:
+    """Fail closed when fixed validation aliases any training data."""
+    validation_root = Path(validation_jsonl_dir)
+    training_root = Path(training_jsonl_dir)
+    if validation_root.resolve() == training_root.resolve():
+        raise ValueError("fixed validation source must be separate from training data")
+
+    validation_files = _jsonl_files(validation_root)
+    training_files = _jsonl_files(training_root)
+
+    def file_identities(paths: Sequence[Path]) -> set[Tuple[int, int]]:
+        identities: set[Tuple[int, int]] = set()
+        for path in paths:
+            stat = path.stat()
+            identities.add((int(stat.st_dev), int(stat.st_ino)))
+        return identities
+
+    if file_identities(validation_files).intersection(file_identities(training_files)):
+        raise ValueError("fixed validation source overlaps training data by file identity")
+
+    validation_hashes = {_sha256_file(path) for path in validation_files}
+    training_hashes = {_sha256_file(path) for path in training_files}
+    if validation_hashes.intersection(training_hashes):
+        raise ValueError("fixed validation source contains a copied shard from training data")
+
+    def provenance_keys(
+        paths: Sequence[Path],
+    ) -> Tuple[set[Tuple[str, str]], set[str]]:
+        games: set[Tuple[str, str]] = set()
+        legacy_records: set[str] = set()
+        for path in paths:
+            for record in jsonl_to_training_samples(read_jsonl_dir(str(path))):
+                if record.run_id is not None and record.game_id is not None:
+                    games.add((record.run_id, record.game_id))
+                else:
+                    # Legacy data has no game provenance. Exact canonical
+                    # record identity is the strongest safe isolation signal
+                    # available; fail closed instead of silently validating on
+                    # a copied row from training.
+                    legacy_records.add(_record_identity(record))
+        return games, legacy_records
+
+    validation_games, validation_legacy_records = provenance_keys(validation_files)
+    training_games, training_legacy_records = provenance_keys(training_files)
+    if validation_games and validation_games.intersection(training_games):
+        raise ValueError("fixed validation source overlaps training game provenance")
+    if validation_legacy_records.intersection(training_legacy_records):
+        raise ValueError("fixed validation source overlaps training record identity")
 
 
 def _balanced_sample_quotas(counts: Sequence[int], limit: int) -> List[int]:
@@ -324,6 +498,36 @@ def _reservoir_sample_records(
         if replacement < limit:
             reservoir[replacement] = record
     return reservoir
+
+
+def iterate_fixed_validation_samples(
+    jsonl_dir: Path,
+    max_samples: int,
+    *,
+    seed: int,
+    min_teacher_depth: int = 0,
+    require_teacher: bool = False,
+) -> Iterator[Tuple[List[int], TrainingRecord]]:
+    """Uniformly sample fixed validation, independent of training mix knobs."""
+    paths = _jsonl_files(Path(jsonl_dir))
+    if max_samples <= 0:
+        records = list(
+            _iter_usable_records(
+                paths,
+                min_teacher_depth,
+                require_teacher=require_teacher,
+            )
+        )
+    else:
+        records = _reservoir_sample_records(
+            paths,
+            max_samples,
+            seed,
+            min_teacher_depth,
+            require_teacher=require_teacher,
+        )
+    for record in records:
+        yield _active_halfkp_indices(record.fen), record
 
 
 def _reservoir_sample_record_strata(
@@ -804,11 +1008,11 @@ def train_model(
     wdl_scale_cp = max(1e-6, float(wdl_scale_cp))
     max_validation_samples = max(0, int(max_validation_samples))
     validation_require_teacher = bool(validation_require_teacher)
-    if (
-        validation_jsonl_dir is not None
-        and Path(validation_jsonl_dir).resolve() == Path(jsonl_dir).resolve()
-    ):
-        raise ValueError("fixed validation source must be separate from training data")
+    if validation_jsonl_dir is not None:
+        _assert_validation_source_disjoint(
+            Path(validation_jsonl_dir),
+            Path(jsonl_dir),
+        )
     objective = objective_metadata(
         loss_kind=loss_kind,
         target_cp=target_cp,
@@ -823,6 +1027,12 @@ def train_model(
     xs: List[List[int]] = []
     cp_targets: List[float] = []
     wdl_targets: List[float] = []
+    # Fixed validation never uses the internal duplicate-aware split. Avoid
+    # retaining every parsed raw record in that production path: at 700k
+    # samples this otherwise consumes several unnecessary gigabytes.
+    sample_records: Optional[List[TrainingRecord]] = (
+        [] if validation_jsonl_dir is None else None
+    )
     best_move_available = 0
     teacher_value_available = 0
     raw_teacher_value_available = 0
@@ -835,6 +1045,8 @@ def train_model(
         min_teacher_depth=min_teacher_depth,
     ):
         xs.append(feats)
+        if sample_records is not None:
+            sample_records.append(record)
         cp, probability = _targets_for_record(
             record,
             loss_kind=loss_kind,
@@ -876,9 +1088,13 @@ def train_model(
     xs = [xs[i] for i in order]
     cp_targets = [cp_targets[i] for i in order]
     wdl_targets = [wdl_targets[i] for i in order]
+    if sample_records is not None:
+        sample_records = [sample_records[i] for i in order]
 
     validation_teacher_value_available: Optional[int] = None
     validation_raw_teacher_value_available: Optional[int] = None
+    validation_sample_sha256: Optional[str] = None
+    internal_validation_record_overlap: Optional[int] = None
     if validation_jsonl_dir is not None:
         validation_teacher_value_available = 0
         validation_raw_teacher_value_available = 0
@@ -888,15 +1104,16 @@ def train_model(
         val_x: List[List[int]] = []
         val_cp: List[float] = []
         val_wdl: List[float] = []
-        for feats, record in iterate_samples(
+        validation_digest = hashlib.sha256()
+        for feats, record in iterate_fixed_validation_samples(
             Path(validation_jsonl_dir),
             max_validation_samples,
             seed=validation_seed,
-            primary_sample_fraction=primary_sample_fraction,
-            teacher_sample_fraction=teacher_sample_fraction,
             min_teacher_depth=min_teacher_depth,
             require_teacher=validation_require_teacher,
         ):
+            validation_digest.update(_record_identity(record).encode("utf-8"))
+            validation_digest.update(b"\0")
             if record.value_cp is not None:
                 validation_raw_teacher_value_available += 1
             if _teacher_available(record, min_teacher_depth):
@@ -916,20 +1133,29 @@ def train_model(
             val_wdl.append(probability)
         if not val_x:
             raise ValueError("external validation dataset contains no usable samples")
+        validation_sample_sha256 = validation_digest.hexdigest()
     else:
-        val_count = int(len(xs) * val_split)
-        if val_split > 0.0:
-            val_count = max(1, val_count)
-            val_count = min(val_count, len(xs) - 1)
-        else:
-            val_count = 0
-        train_count = len(xs) - val_count
-        train_x = xs[:train_count]
-        train_cp = cp_targets[:train_count]
-        train_wdl = wdl_targets[:train_count]
-        val_x = xs[train_count:]
-        val_cp = cp_targets[train_count:]
-        val_wdl = wdl_targets[train_count:]
+        assert sample_records is not None
+        train_indices, validation_indices = _internal_validation_partition(
+            sample_records,
+            val_split,
+            min_teacher_depth=min_teacher_depth,
+        )
+        train_x = [xs[idx] for idx in train_indices]
+        train_cp = [cp_targets[idx] for idx in train_indices]
+        train_wdl = [wdl_targets[idx] for idx in train_indices]
+        val_x = [xs[idx] for idx in validation_indices]
+        val_cp = [cp_targets[idx] for idx in validation_indices]
+        val_wdl = [wdl_targets[idx] for idx in validation_indices]
+        train_identities = {
+            _record_identity(sample_records[idx]) for idx in train_indices
+        }
+        validation_identities = {
+            _record_identity(sample_records[idx]) for idx in validation_indices
+        }
+        internal_validation_record_overlap = len(
+            train_identities.intersection(validation_identities)
+        )
     train_count = len(train_x)
     val_count = len(val_x)
 
@@ -1229,6 +1455,8 @@ def train_model(
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
+        "sampling_schema": SAMPLING_SCHEMA,
+        "validation_sampling_schema": FIXED_VALIDATION_SAMPLING_SCHEMA,
         "validation_require_teacher": validation_require_teacher,
         "seed": seed,
         "epochs": epochs,
@@ -1253,6 +1481,8 @@ def train_model(
         "objective": objective,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
+        "sampling_schema": SAMPLING_SCHEMA,
+        "validation_sampling_schema": FIXED_VALIDATION_SAMPLING_SCHEMA,
         "min_teacher_depth": min_teacher_depth,
         "loss_kind": loss_kind,
         "huber_delta_cp": huber_delta_cp,
@@ -1300,6 +1530,8 @@ def train_model(
         "records_total": len(xs),
         "validation_records_with_teacher_value": validation_teacher_value_available,
         "validation_records_with_raw_teacher_value": validation_raw_teacher_value_available,
+        "validation_sample_sha256": validation_sample_sha256,
+        "internal_validation_record_overlap": internal_validation_record_overlap,
         "actual_teacher_sample_fraction": (
             float(teacher_value_available) / float(len(xs)) if xs else 0.0
         ),

@@ -319,6 +319,36 @@ def _load_initial_optimizer_state(
     state_dict = payload.get("state_dict")
     if not isinstance(state_dict, dict):
         raise ValueError("initial optimizer state_dict is missing")
+    serialized_groups = state_dict.get("param_groups")
+    if not isinstance(serialized_groups, list) or len(serialized_groups) != len(
+        optimizer.param_groups
+    ):
+        raise ValueError("initial optimizer parameter groups are incompatible")
+    for serialized, requested in zip(serialized_groups, optimizer.param_groups):
+        if not isinstance(serialized, dict):
+            raise ValueError("initial optimizer parameter group is invalid")
+        serialized_betas = serialized.get("betas")
+        requested_betas = requested.get("betas")
+        try:
+            restored_betas = tuple(float(value) for value in serialized_betas)
+            expected_betas = tuple(float(value) for value in requested_betas)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("initial optimizer Adam betas are invalid") from exc
+        if restored_betas != expected_betas:
+            raise ValueError(
+                "initial optimizer Adam betas mismatch: "
+                f"expected {expected_betas}, got {restored_betas}"
+            )
+        try:
+            restored_eps = float(serialized["eps"])
+            expected_eps = float(requested["eps"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("initial optimizer Adam epsilon is invalid") from exc
+        if restored_eps != expected_eps:
+            raise ValueError(
+                "initial optimizer Adam epsilon mismatch: "
+                f"expected {expected_eps}, got {restored_eps}"
+            )
     try:
         optimizer.load_state_dict(state_dict)
     except (KeyError, TypeError, ValueError, RuntimeError) as exc:
@@ -346,6 +376,8 @@ def _load_initial_optimizer_state(
         "target_schema": train_stub.TARGET_SCHEMA,
         "objective": objective,
         "model_parameters_sha256": model_parameters_sha256,
+        "adam_betas": list(expected_betas),
+        "adam_eps": expected_eps,
     }
 
 
@@ -556,11 +588,11 @@ def train_model(
     max_validation_samples = int(max_validation_samples)
     validation_seed = int(validation_seed)
     validation_require_teacher = bool(validation_require_teacher)
-    if (
-        validation_jsonl_dir is not None
-        and Path(validation_jsonl_dir).resolve() == Path(jsonl_dir).resolve()
-    ):
-        raise ValueError("fixed validation source must be separate from training data")
+    if validation_jsonl_dir is not None:
+        train_stub._assert_validation_source_disjoint(
+            Path(validation_jsonl_dir),
+            Path(jsonl_dir),
+        )
     objective = train_stub.objective_metadata(
         loss_kind=loss_kind,
         target_cp=target_cp,
@@ -579,6 +611,12 @@ def train_model(
     xs: List[List[int]] = []
     ys_cp: List[float] = []
     ys_wdl: List[float] = []
+    # Production supplies a disjoint fixed holdout and does not need raw
+    # training records after target extraction. Retaining all 700k records here
+    # materially increases peak RAM without contributing to validation.
+    sample_records: Optional[List[train_stub.TrainingRecord]] = (
+        [] if validation_jsonl_dir is None else None
+    )
     best_move_available = 0
     teacher_value_available = 0
     raw_teacher_value_available = 0
@@ -591,6 +629,8 @@ def train_model(
         min_teacher_depth=min_teacher_depth,
     ):
         xs.append(feats)
+        if sample_records is not None:
+            sample_records.append(record)
         cp, probability = train_stub._targets_for_record(
             record,
             loss_kind=loss_kind,
@@ -629,11 +669,15 @@ def train_model(
     xs = [xs[i] for i in order]
     ys_cp = [ys_cp[i] for i in order]
     ys_wdl = [ys_wdl[i] for i in order]
+    if sample_records is not None:
+        sample_records = [sample_records[i] for i in order]
 
     fixed_validation = validation_jsonl_dir is not None
     validation_source = None
     validation_teacher_value_available: Optional[int] = None
     validation_raw_teacher_value_available: Optional[int] = None
+    validation_sample_sha256: Optional[str] = None
+    internal_validation_record_overlap: Optional[int] = None
     if fixed_validation:
         validation_teacher_value_available = 0
         validation_raw_teacher_value_available = 0
@@ -641,15 +685,18 @@ def train_model(
         val_x: List[List[int]] = []
         val_y_cp: List[float] = []
         val_y_wdl: List[float] = []
-        for feats, record in train_stub.iterate_samples(
+        validation_digest = hashlib.sha256()
+        for feats, record in train_stub.iterate_fixed_validation_samples(
             validation_path,
             max_validation_samples,
             seed=validation_seed,
-            primary_sample_fraction=primary_sample_fraction,
-            teacher_sample_fraction=teacher_sample_fraction,
             min_teacher_depth=min_teacher_depth,
             require_teacher=validation_require_teacher,
         ):
+            validation_digest.update(
+                train_stub._record_identity(record).encode("utf-8")
+            )
+            validation_digest.update(b"\0")
             if record.value_cp is not None:
                 validation_raw_teacher_value_available += 1
             if train_stub._teacher_available(record, min_teacher_depth):
@@ -680,20 +727,32 @@ def train_model(
             "max_samples": max_validation_samples,
             "seed": validation_seed,
         }
+        validation_sample_sha256 = validation_digest.hexdigest()
     else:
-        val_count = int(len(xs) * val_split)
-        if val_split > 0.0:
-            val_count = max(1, val_count)
-            val_count = min(val_count, len(xs) - 1)
-        else:
-            val_count = 0
-        train_count = len(xs) - val_count
-        train_x = xs[:train_count]
-        train_y_cp = ys_cp[:train_count]
-        train_y_wdl = ys_wdl[:train_count]
-        val_x = xs[train_count:]
-        val_y_cp = ys_cp[train_count:]
-        val_y_wdl = ys_wdl[train_count:]
+        assert sample_records is not None
+        train_indices, validation_indices = train_stub._internal_validation_partition(
+            sample_records,
+            val_split,
+            min_teacher_depth=min_teacher_depth,
+        )
+        train_x = [xs[idx] for idx in train_indices]
+        train_y_cp = [ys_cp[idx] for idx in train_indices]
+        train_y_wdl = [ys_wdl[idx] for idx in train_indices]
+        val_x = [xs[idx] for idx in validation_indices]
+        val_y_cp = [ys_cp[idx] for idx in validation_indices]
+        val_y_wdl = [ys_wdl[idx] for idx in validation_indices]
+        train_count = len(train_x)
+        val_count = len(val_x)
+        train_identities = {
+            train_stub._record_identity(sample_records[idx]) for idx in train_indices
+        }
+        validation_identities = {
+            train_stub._record_identity(sample_records[idx])
+            for idx in validation_indices
+        }
+        internal_validation_record_overlap = len(
+            train_identities.intersection(validation_identities)
+        )
 
     input_dim = train_stub.HALFKP_DIM
     model = TorchNnue(input_dim=input_dim, hidden_dim=hidden_dim).to(dev)
@@ -730,12 +789,11 @@ def train_model(
             ),
         )
         # Retain the parent's moments and step counters, but honor this cycle's
-        # explicitly requested schedule instead of the serialized param-group
-        # hyperparameters restored by Optimizer.load_state_dict().
+        # explicitly requested learning-rate schedule. Adam betas and epsilon
+        # were validated above because changing them would reinterpret the
+        # restored moments and bias-correction step counters.
         for param_group in opt.param_groups:
             param_group["lr"] = float(learning_rate)
-            param_group["betas"] = (float(adam_beta1), float(adam_beta2))
-            param_group["eps"] = float(adam_eps)
 
     best_state = None
     best_optimizer_state = None
@@ -940,6 +998,8 @@ def train_model(
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
+        "sampling_schema": train_stub.SAMPLING_SCHEMA,
+        "validation_sampling_schema": train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
         "validation_require_teacher": validation_require_teacher,
         "validation_source": validation_source,
         "optimizer_state": optimizer_state,
@@ -973,6 +1033,8 @@ def train_model(
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
+        "sampling_schema": train_stub.SAMPLING_SCHEMA,
+        "validation_sampling_schema": train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
         "fixed_validation": fixed_validation,
         "validation_jsonl_dir": (
             Path(validation_jsonl_dir).resolve().as_posix()
@@ -1016,6 +1078,8 @@ def train_model(
         "records_total": len(xs),
         "validation_records_with_teacher_value": validation_teacher_value_available,
         "validation_records_with_raw_teacher_value": validation_raw_teacher_value_available,
+        "validation_sample_sha256": validation_sample_sha256,
+        "internal_validation_record_overlap": internal_validation_record_overlap,
         "actual_teacher_sample_fraction": (
             float(teacher_value_available) / float(len(xs)) if xs else 0.0
         ),
