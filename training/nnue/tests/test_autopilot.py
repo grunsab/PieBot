@@ -70,6 +70,9 @@ def _paired_gate_payload(pair_deltas: list[float]) -> dict:
     return {
         "games": len(game_results),
         "paired_openings": True,
+        "parallel_games_requested": 1,
+        "parallel_games": 1,
+        "parallelism_schema": "bounded-pair-workers-v1",
         "points": {
             "baseline": baseline_wins,
             "experimental": experimental_wins,
@@ -162,6 +165,7 @@ class AutopilotTests(unittest.TestCase):
         self.assertGreaterEqual(profile["max_samples"], 700_000)
         self.assertEqual(0, profile["teacher_lag_cycles"])
         self.assertTrue(profile["gate_paired_openings"])
+        self.assertEqual(1, profile["gate_parallel_games"])
         self.assertEqual(96, profile["gate_confirmation_games"])
         self.assertEqual(0.0, profile["gate_confirmation_min_score_delta"])
         self.assertEqual(0.95, profile["gate_confidence_level"])
@@ -201,6 +205,8 @@ class AutopilotTests(unittest.TestCase):
                 "--no-continue-optimizer-state",
                 "--no-validation-require-teacher",
                 "--no-gate-paired-openings",
+                "--gate-parallel-games",
+                "7",
                 "--gate-confirmation-games",
                 "48",
                 "--gate-confirmation-min-score-delta",
@@ -224,6 +230,7 @@ class AutopilotTests(unittest.TestCase):
         self.assertFalse(resolved["continue_optimizer_state"])
         self.assertFalse(resolved["validation_require_teacher"])
         self.assertFalse(resolved["gate_paired_openings"])
+        self.assertEqual(7, resolved["gate_parallel_games"])
         self.assertEqual(48, resolved["gate_confirmation_games"])
         self.assertEqual(3.0, resolved["gate_confirmation_min_score_delta"])
 
@@ -1583,7 +1590,7 @@ class AutopilotTests(unittest.TestCase):
                     fresh=False,
                 )
 
-    def test_unchanged_training_checkpoint_is_not_repeatedly_gated(self) -> None:
+    def test_gate_parallelism_is_cache_bound_and_change_forces_fresh_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out_root = Path(tmp) / "runs"
             gate_calls = []
@@ -1631,6 +1638,8 @@ class AutopilotTests(unittest.TestCase):
                             "1",
                             "--max-cycles",
                             "2",
+                            "--gate-parallel-games",
+                            "3",
                         ]
                     )
 
@@ -1639,6 +1648,39 @@ class AutopilotTests(unittest.TestCase):
             state = json.loads((out_root / "autopilot_state.json").read_text())
             self.assertEqual(quant_sha, state["last_gated_quant_sha256"])
             self.assertEqual("unchanged-training-checkpoint", state["last_gate"]["reason"])
+            self.assertEqual(3, state["last_gate_identity"]["parallel_games_requested"])
+            self.assertEqual(
+                "bounded-pair-workers-v1",
+                state["last_gate_identity"]["parallelism_schema"],
+            )
+            self.assertEqual(3, gate_calls[0]["parallel_games"])
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    side_effect=_fake_gate,
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "3",
+                            "--gate-parallel-games",
+                            "4",
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(2, len(gate_calls))
+            state = json.loads((out_root / "autopilot_state.json").read_text())
+            self.assertEqual(4, state["last_gate_identity"]["parallel_games_requested"])
+            self.assertEqual(4, gate_calls[-1]["parallel_games"])
 
     def test_saturated_active_model_is_not_reaccepted_when_candidate_is_identical(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1804,10 +1846,9 @@ class AutopilotTests(unittest.TestCase):
 
             def _fake_run(cmd, **kwargs):
                 commands.append((cmd, kwargs))
-                out_json.write_text(
-                    json.dumps(_paired_gate_payload([2.0, 2.0, 2.0])),
-                    encoding="utf-8",
-                )
+                payload = _paired_gate_payload([2.0, 2.0, 2.0])
+                payload["parallel_games_requested"] = 3
+                out_json.write_text(json.dumps(payload), encoding="utf-8")
 
             with mock.patch("training.nnue.autopilot.subprocess.run", side_effect=_fake_run):
                 gate = autopilot._run_model_gate(
@@ -1824,6 +1865,7 @@ class AutopilotTests(unittest.TestCase):
                     min_score_delta=0.0,
                     base_blend_percent=25,
                     candidate_blend_percent=50,
+                    parallel_games=3,
                 )
 
             self.assertTrue(gate["accepted"])
@@ -1839,9 +1881,67 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual("6", cmd[cmd.index("--games") + 1])
             self.assertEqual("25", cmd[cmd.index("--base-blend") + 1])
             self.assertEqual("50", cmd[cmd.index("--exp-blend") + 1])
+            self.assertEqual("3", cmd[cmd.index("--parallel-games") + 1])
             self.assertIn("--paired-openings", cmd)
+            self.assertEqual(3, gate["parallel_games_requested"])
+            self.assertEqual(1, gate["parallel_games"])
+            self.assertEqual("bounded-pair-workers-v1", gate["parallelism_schema"])
             self.assertEqual(str(root), kwargs["cwd"])
             self.assertTrue(kwargs["check"])
+
+    def test_model_gate_parallel_games_must_be_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidate = root / "candidate.nnue"
+            candidate.write_bytes(b"PIENNQ01dummy")
+            with mock.patch("training.nnue.autopilot.subprocess.run") as runner:
+                with self.assertRaisesRegex(ValueError, "parallel games must be positive"):
+                    autopilot._run_model_gate(
+                        piebot_dir=root,
+                        out_json=root / "gate.json",
+                        base_quant=None,
+                        candidate_quant=candidate,
+                        games=2,
+                        movetime_ms=1,
+                        noise_plies=0,
+                        noise_topk=1,
+                        threads=1,
+                        seed=1,
+                        min_score_delta=0.0,
+                        parallel_games=0,
+                    )
+            runner.assert_not_called()
+
+    def test_model_gate_rejects_parallelism_evidence_from_another_request(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_json = root / "gate.json"
+            candidate = root / "candidate.nnue"
+            candidate.write_bytes(b"PIENNQ01dummy")
+
+            def _fake_run(_cmd, **_kwargs):
+                payload = _paired_gate_payload([2.0])
+                payload["parallel_games_requested"] = 1
+                out_json.write_text(json.dumps(payload), encoding="utf-8")
+
+            with mock.patch(
+                "training.nnue.autopilot.subprocess.run", side_effect=_fake_run
+            ):
+                with self.assertRaisesRegex(ValueError, "does not match the request"):
+                    autopilot._run_model_gate(
+                        piebot_dir=root,
+                        out_json=out_json,
+                        base_quant=None,
+                        candidate_quant=candidate,
+                        games=2,
+                        movetime_ms=1,
+                        noise_plies=0,
+                        noise_topk=1,
+                        threads=1,
+                        seed=1,
+                        min_score_delta=0.0,
+                        parallel_games=2,
+                    )
 
     def test_gate_statistics_require_complete_game_level_pairs(self) -> None:
         payload = _paired_gate_payload([2.0, 2.0])
@@ -1922,6 +2022,9 @@ class AutopilotTests(unittest.TestCase):
                     json.dumps(
                         {
                             "games": 6,
+                            "parallel_games_requested": 1,
+                            "parallel_games": 1,
+                            "parallelism_schema": "bounded-pair-workers-v1",
                             "points": {"baseline": 0.0, "experimental": 6.0},
                         }
                     ),
@@ -1987,11 +2090,13 @@ class AutopilotTests(unittest.TestCase):
                     base_blend_percent=25,
                     candidate_blend_percent=50,
                     paired_openings=True,
+                    parallel_games=5,
                 )
 
             self.assertFalse(attempt["accepted"])
             self.assertEqual("absolute-pst-rejected", attempt["reason"])
             self.assertEqual(3, len(calls))
+            self.assertEqual([5, 5, 5], [call["parallel_games"] for call in calls])
             self.assertIsNone(calls[-1]["base_quant"])
             self.assertEqual("pure-pst", attempt["absolute"]["baseline_kind"])
 

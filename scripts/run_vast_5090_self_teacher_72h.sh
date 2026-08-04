@@ -46,6 +46,8 @@ RETAIN_FULL_CYCLES="${RETAIN_FULL_CYCLES:-8}"
 REPLAY_WINDOW_CYCLES="${REPLAY_WINDOW_CYCLES:-6}"
 GATE_GAMES="${GATE_GAMES:-24}"
 GATE_CONFIRMATION_GAMES="${GATE_CONFIRMATION_GAMES:-96}"
+GATE_SEARCH_THREADS="${GATE_SEARCH_THREADS:-1}"
+GATE_PARALLEL_GAMES="${GATE_PARALLEL_GAMES:-12}"
 
 export PATH="/root/.cargo/bin:/venv/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 export PYTHONUNBUFFERED=1
@@ -191,9 +193,13 @@ require_nonnegative_int RETAIN_FULL_CYCLES "$RETAIN_FULL_CYCLES"
 require_nonnegative_int REPLAY_WINDOW_CYCLES "$REPLAY_WINDOW_CYCLES"
 require_positive_int GATE_GAMES "$GATE_GAMES"
 require_positive_int GATE_CONFIRMATION_GAMES "$GATE_CONFIRMATION_GAMES"
+require_positive_int GATE_SEARCH_THREADS "$GATE_SEARCH_THREADS"
+require_positive_int GATE_PARALLEL_GAMES "$GATE_PARALLEL_GAMES"
 require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODEL_BLEND_PERCENT"
 
 [[ "$RELABEL_DEPTH" -eq 5 ]] || die "this deployment is pinned to PieBot teacher depth 5"
+(( GATE_PARALLEL_GAMES == 1 || GATE_SEARCH_THREADS == 1 )) \
+  || die "parallel promotion matches require GATE_SEARCH_THREADS=1"
 (( INITIAL_ACTIVE_MODEL_BLEND_PERCENT <= 100 )) \
   || die "INITIAL_ACTIVE_MODEL_BLEND_PERCENT must be between 0 and 100"
 [[ "$INITIAL_ACTIVE_MODEL_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
@@ -236,20 +242,26 @@ stage_verified_file "$VALIDATION_PROVENANCE_SOURCE" "$VALIDATION_PROVENANCE" "$V
 require_autopilot_flag "--initial-checkpoint-weights-only"
 require_autopilot_flag "--initial-active-model"
 require_autopilot_flag "--initial-active-model-blend-percent"
+require_autopilot_flag "--gate-parallel-games"
 verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
 verify_sha256 "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 
 EFFECTIVE_CPUS="$(effective_cpu_count)"
-REQUIRED_CPUS="$SELFPLAY_PARALLEL_GAMES"
+SELFPLAY_CPU_SLOTS=$((SELFPLAY_THREADS * SELFPLAY_PARALLEL_GAMES))
+GATE_CPU_SLOTS=$((GATE_SEARCH_THREADS * GATE_PARALLEL_GAMES))
+REQUIRED_CPUS="$SELFPLAY_CPU_SLOTS"
 if (( RELABEL_THREADS > REQUIRED_CPUS )); then
   REQUIRED_CPUS="$RELABEL_THREADS"
+fi
+if (( GATE_CPU_SLOTS > REQUIRED_CPUS )); then
+  REQUIRED_CPUS="$GATE_CPU_SLOTS"
 fi
 (( EFFECTIVE_CPUS >= REQUIRED_CPUS )) \
   || die "only $EFFECTIVE_CPUS effective CPUs are available; $REQUIRED_CPUS are configured"
 
 log "hardware preflight"
 log "source Git commit: $SOURCE_GIT_COMMIT"
-log "effective CPUs: $EFFECTIVE_CPUS (configured workers: $RELABEL_THREADS)"
+log "effective CPUs: $EFFECTIVE_CPUS (selfplay slots: $SELFPLAY_CPU_SLOTS; relabel slots: $RELABEL_THREADS; gate slots: $GATE_CPU_SLOTS)"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 "$PYTHON_BIN" - <<'PY'
 import shutil
@@ -312,6 +324,8 @@ AUTOPILOT_ARGS=(
   "--teacher-lag-cycles" "0"
   "--gate-games" "$GATE_GAMES"
   "--gate-confirmation-games" "$GATE_CONFIRMATION_GAMES"
+  "--gate-threads" "$GATE_SEARCH_THREADS"
+  "--gate-parallel-games" "$GATE_PARALLEL_GAMES"
   "--gate-min-score-delta" "0.0"
   "--gate-confirmation-min-score-delta" "0.0"
   "--gate-paired-openings"

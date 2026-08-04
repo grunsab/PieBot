@@ -36,6 +36,9 @@ except Exception:  # pragma: no cover
     msvcrt = None  # type: ignore
 
 
+GATE_PARALLELISM_SCHEMA = "bounded-pair-workers-v1"
+
+
 class _FileLockBackend:
     name = "unknown"
 
@@ -147,6 +150,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "gate_noise_plies": 12,
         "gate_noise_topk": 5,
         "gate_threads": 1,
+        "gate_parallel_games": 1,
         "gate_seed": 1,
         "gate_confidence_level": 0.95,
         "gate_bootstrap_samples": 20_000,
@@ -439,6 +443,15 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--gate-noise-plies", type=int, default=None)
     ap.add_argument("--gate-noise-topk", type=int, default=None)
     ap.add_argument("--gate-threads", type=int, default=None)
+    ap.add_argument(
+        "--gate-parallel-games",
+        type=int,
+        default=None,
+        help=(
+            "Maximum concurrent promotion-match work units, independent of "
+            "per-engine --gate-threads"
+        ),
+    )
     ap.add_argument("--gate-seed", type=int, default=None)
     ap.add_argument("--gate-confidence-level", type=float, default=None)
     ap.add_argument("--gate-bootstrap-samples", type=int, default=None)
@@ -636,6 +649,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "gate_noise_plies": args.gate_noise_plies,
         "gate_noise_topk": args.gate_noise_topk,
         "gate_threads": args.gate_threads,
+        "gate_parallel_games": args.gate_parallel_games,
         "gate_seed": args.gate_seed,
         "gate_confidence_level": args.gate_confidence_level,
         "gate_bootstrap_samples": args.gate_bootstrap_samples,
@@ -1855,11 +1869,15 @@ def _run_model_gate(
     paired_openings: bool = True,
     confidence_level: float = 0.95,
     bootstrap_samples: int = 20_000,
+    parallel_games: int = 1,
 ) -> Dict[str, Any]:
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.unlink(missing_ok=True)
     expected_games = max(2, int(games))
     effective_seed = max(1, int(seed))
+    requested_parallel_games = int(parallel_games)
+    if requested_parallel_games < 1:
+        raise ValueError("gate parallel games must be positive")
     if paired_openings and expected_games % 2 != 0:
         raise ValueError(
             f"paired model gate requires an even game count; got {expected_games}"
@@ -1882,6 +1900,8 @@ def _run_model_gate(
         str(max(1, int(noise_topk))),
         "--threads",
         str(max(1, int(threads))),
+        "--parallel-games",
+        str(requested_parallel_games),
         "--seed",
         str(effective_seed),
         "--json-out",
@@ -1938,6 +1958,27 @@ def _run_model_gate(
         raise ValueError(
             f"model gate JSON reports {reported_games} games, expected {expected_games}"
         )
+    try:
+        reported_parallel_requested = int(payload["parallel_games_requested"])
+        reported_parallel_games = int(payload["parallel_games"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("model gate JSON is missing parallelism evidence") from exc
+    if reported_parallel_requested != requested_parallel_games:
+        raise ValueError(
+            "model gate JSON parallel_games_requested does not match the request"
+        )
+    maximum_work_units = (
+        expected_games // 2 if paired_openings else expected_games
+    )
+    if not 1 <= reported_parallel_games <= min(
+        requested_parallel_games, maximum_work_units
+    ):
+        raise ValueError("model gate JSON reports invalid effective parallel games")
+    parallelism_schema = payload.get("parallelism_schema")
+    if parallelism_schema != GATE_PARALLELISM_SCHEMA:
+        raise ValueError(
+            "model gate JSON reports an unsupported parallelism schema"
+        )
     delta = experimental - baseline
     statistics = _paired_gate_statistics(
         payload,
@@ -1956,6 +1997,9 @@ def _run_model_gate(
         "experimental_points": experimental,
         "delta_points": delta,
         "games": reported_games,
+        "parallel_games_requested": reported_parallel_requested,
+        "parallel_games": reported_parallel_games,
+        "parallelism_schema": parallelism_schema,
         "json_path": str(out_json),
         "baseline_blend_percent": 0
         if base_quant is None
@@ -1991,6 +2035,7 @@ def _run_confirmed_gate_attempt(
     paired_openings: bool,
     confidence_level: float = 0.95,
     bootstrap_samples: int = 20_000,
+    parallel_games: int = 1,
 ) -> Dict[str, Any]:
     screen = _run_model_gate(
         piebot_dir=piebot_dir,
@@ -2009,6 +2054,7 @@ def _run_confirmed_gate_attempt(
         paired_openings=paired_openings,
         confidence_level=confidence_level,
         bootstrap_samples=bootstrap_samples,
+        parallel_games=parallel_games,
     )
     screen = dict(screen)
     screen["baseline_blend_percent"] = (
@@ -2048,6 +2094,7 @@ def _run_confirmed_gate_attempt(
             paired_openings=paired_openings,
             confidence_level=confidence_level,
             bootstrap_samples=bootstrap_samples,
+            parallel_games=parallel_games,
         )
         confirmation = dict(confirmation)
         confirmation["baseline_blend_percent"] = (
@@ -2092,6 +2139,7 @@ def _run_confirmed_gate_attempt(
             paired_openings=paired_openings,
             confidence_level=confidence_level,
             bootstrap_samples=bootstrap_samples,
+            parallel_games=parallel_games,
         )
         absolute = dict(absolute)
     attempt["absolute"] = absolute
@@ -2522,6 +2570,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         "noise_plies": int(defaults.get("gate_noise_plies", 12)),
                         "noise_topk": int(defaults.get("gate_noise_topk", 5)),
                         "threads": int(defaults.get("gate_threads", 1)),
+                        "parallel_games_requested": int(
+                            defaults.get("gate_parallel_games", 1)
+                        ),
+                        "parallelism_schema": GATE_PARALLELISM_SCHEMA,
                         "min_score_delta": float(
                             defaults.get("gate_min_score_delta", 0.0)
                         ),
@@ -2623,6 +2675,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 ),
                                 bootstrap_samples=int(
                                     defaults.get("gate_bootstrap_samples", 20_000)
+                                ),
+                                parallel_games=int(
+                                    defaults.get("gate_parallel_games", 1)
                                 ),
                             )
                             gate_attempts.append(gate_attempt)

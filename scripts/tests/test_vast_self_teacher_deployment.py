@@ -165,6 +165,23 @@ class VastSelfTeacherDeploymentTests(unittest.TestCase):
         launcher = LAUNCHER.read_text(encoding="utf-8")
         self.assertIn('PYTHON_BIN="${PYTHON_BIN:-/venv/main/bin/python}"', launcher)
         self.assertIn('SELFPLAY_PARALLEL_GAMES="${SELFPLAY_PARALLEL_GAMES:-46}"', launcher)
+        self.assertIn('GATE_SEARCH_THREADS="${GATE_SEARCH_THREADS:-1}"', launcher)
+        self.assertIn('GATE_PARALLEL_GAMES="${GATE_PARALLEL_GAMES:-12}"', launcher)
+        self.assertIn(
+            'GATE_CPU_SLOTS=$((GATE_SEARCH_THREADS * GATE_PARALLEL_GAMES))',
+            launcher,
+        )
+        self.assertIn(
+            'require_positive_int GATE_PARALLEL_GAMES "$GATE_PARALLEL_GAMES"',
+            launcher,
+        )
+        self.assertIn(
+            'parallel promotion matches require GATE_SEARCH_THREADS=1', launcher
+        )
+        self.assertIn(
+            '"--gate-parallel-games" "$GATE_PARALLEL_GAMES"', launcher
+        )
+        self.assertIn('"--gate-threads" "$GATE_SEARCH_THREADS"', launcher)
         self.assertIn("torch.cuda.is_available()", launcher)
         self.assertIn("46", launcher)
         self.assertIn("-C target-cpu=native", launcher)

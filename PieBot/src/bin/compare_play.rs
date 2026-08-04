@@ -4,11 +4,13 @@ use cozy_chess::{Board, Move};
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
+use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
 const PAIRED_OPENING_POLICY: &str = "neutral-pst-topk-v2";
+const PARALLELISM_SCHEMA: &str = "bounded-pair-workers-v1";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -43,6 +45,14 @@ struct Args {
     /// Threads for each engine (1 recommended for reproducibility)
     #[arg(long, default_value_t = 1)]
     threads: usize,
+
+    /// Concurrent whole-opening-pair workers (paired mode, 1 preserves serial behavior)
+    #[arg(
+        long,
+        default_value_t = 1,
+        value_parser = parse_positive_usize
+    )]
+    parallel_games: usize,
 
     /// Random seed
     #[arg(long, default_value_t = 1u64)]
@@ -99,6 +109,16 @@ struct Args {
     exp_nnue_file: Option<String>,
     #[arg(long)]
     exp_hash_mb: Option<usize>,
+}
+
+fn parse_positive_usize(raw: &str) -> Result<usize, String> {
+    let value = raw
+        .parse::<usize>()
+        .map_err(|_| format!("expected a positive integer, got {raw:?}"))?;
+    if value == 0 {
+        return Err("value must be at least 1".to_string());
+    }
+    Ok(value)
 }
 
 fn legal_moves(board: &Board) -> Vec<Move> {
@@ -272,7 +292,7 @@ struct PairedOpening {
     positions: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 struct GameResultRecord {
     game_index: usize,
     pair_index: Option<usize>,
@@ -330,6 +350,37 @@ impl GameResultRecord {
         record.pair_index = None;
         record
     }
+}
+
+#[derive(Default)]
+struct SearchStats {
+    nodes: u64,
+    time_s: f64,
+    depth: u64,
+    moves: u64,
+}
+
+impl SearchStats {
+    fn record_move(&mut self, depth: u32, nodes: u64, time_s: f64) {
+        self.nodes += nodes;
+        self.time_s += time_s;
+        self.depth += u64::from(depth);
+        self.moves += 1;
+    }
+
+    fn merge(&mut self, other: &Self) {
+        self.nodes += other.nodes;
+        self.time_s += other.time_s;
+        self.depth += other.depth;
+        self.moves += other.moves;
+    }
+}
+
+struct PlayedGame {
+    record: GameResultRecord,
+    san_moves: Vec<String>,
+    baseline: SearchStats,
+    experimental: SearchStats,
 }
 
 fn pair_outcome_payload(games: &[GameResultRecord]) -> Result<Vec<serde_json::Value>, String> {
@@ -456,6 +507,55 @@ fn validate_paired_game_count(games: usize, paired_openings: bool) -> Result<(),
         ));
     }
     Ok(())
+}
+
+fn baseline_search_threads(args: &Args) -> usize {
+    args.base_threads.unwrap_or(args.threads).max(1)
+}
+
+fn experimental_search_threads(args: &Args) -> usize {
+    args.exp_threads.unwrap_or(args.threads).max(1)
+}
+
+fn build_match_work_units(games: usize, paired_openings: bool) -> Vec<Vec<usize>> {
+    if paired_openings {
+        (0..games / 2)
+            .map(|pair_index| vec![pair_index * 2, pair_index * 2 + 1])
+            .collect()
+    } else {
+        (0..games).map(|game_index| vec![game_index]).collect()
+    }
+}
+
+/// Resolve the bounded number of match workers without changing search-level
+/// `--threads` semantics. Parallel promotion games are intentionally limited
+/// to paired-opening mode and one search thread per engine: the search itself
+/// uses Rayon when multiple engine threads are requested, and nesting it in a
+/// match pool would let the outer pool redefine its effective thread budget.
+fn effective_parallel_games(args: &Args, available_cores: usize) -> usize {
+    let work_units = if args.paired_openings {
+        args.games / 2
+    } else {
+        args.games
+    };
+    if work_units == 0 {
+        return 0;
+    }
+    if !args.paired_openings
+        || args.parallel_games <= 1
+        || baseline_search_threads(args) != 1
+        || experimental_search_threads(args) != 1
+    {
+        return 1;
+    }
+    args.parallel_games
+        .min(available_cores.max(1))
+        .min(work_units)
+        .max(1)
+}
+
+fn canonicalize_game_results(games: &mut [GameResultRecord]) {
+    games.sort_unstable_by_key(|game| game.game_index);
 }
 
 fn build_paired_openings(
@@ -785,6 +885,174 @@ fn is_game_over(board: &Board, position_history: &[Board]) -> Option<i32> {
     })
 }
 
+fn play_single_game(
+    args: &Args,
+    game_index: usize,
+    paired_opening: Option<&PairedOpening>,
+    base_engine: &mut BaselineEngine,
+    exp_engine: &mut ExperimentalEngine,
+    rng: &mut SmallRng,
+) -> PlayedGame {
+    let mut board = Board::default();
+    let mut position_history = vec![board.clone()];
+    let baseline_is_white = game_index % 2 == 0;
+    let mut plies = 0usize;
+    let mut san_moves = Vec::new();
+    let mut baseline = SearchStats::default();
+    let mut experimental = SearchStats::default();
+
+    let result = loop {
+        if let Some(res) = is_game_over(&board, &position_history) {
+            break match res {
+                1 => {
+                    // Side to move has no moves and is in check, so the
+                    // previous mover won.
+                    let previous_was_baseline =
+                        plies > 0 && ((plies - 1) % 2 == 0) == baseline_is_white;
+                    if previous_was_baseline {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+                _ => 0.0,
+            };
+        }
+        if plies >= args.max_plies {
+            break 0.0;
+        }
+
+        let baseline_to_move = (plies % 2 == 0) == baseline_is_white;
+        let mv = if let Some(opening) = paired_opening.filter(|opening| plies < opening.moves.len())
+        {
+            let uci = &opening.moves[plies];
+            Some(find_move_uci(&board, uci).unwrap_or_else(|| {
+                panic!(
+                    "paired opening {} contains illegal move {} at ply {}",
+                    opening.opening_id, uci, plies
+                )
+            }))
+        } else if paired_opening.is_none() && plies < args.noise_plies {
+            if baseline_to_move {
+                choose_move_noisy_baseline(&board, base_engine, args.noise_topk, rng)
+            } else {
+                choose_move_noisy_experimental(&board, exp_engine, args.noise_topk, rng)
+            }
+        } else if baseline_to_move {
+            let (mv, depth, nodes, time_s) =
+                decide_move_baseline(&board, &position_history, args, base_engine);
+            if mv.is_some() {
+                baseline.record_move(depth, nodes, time_s);
+            }
+            mv
+        } else {
+            let (mv, depth, nodes, time_s) =
+                decide_move_experimental(&board, &position_history, args, exp_engine);
+            if mv.is_some() {
+                experimental.record_move(depth, nodes, time_s);
+            }
+            mv
+        };
+
+        let Some(mv) = mv else {
+            break 0.0;
+        };
+        san_moves.push(san_for_move(&board, mv));
+        board.play_unchecked(mv);
+        position_history.push(board.clone());
+        plies += 1;
+    };
+
+    let record = if let Some(opening) = paired_opening {
+        GameResultRecord::new(
+            game_index,
+            opening.pair_index,
+            baseline_is_white,
+            result,
+            plies,
+            Some(&opening.opening_id),
+        )
+    } else {
+        GameResultRecord::unpaired(game_index, baseline_is_white, result, plies)
+    };
+    PlayedGame {
+        record,
+        san_moves,
+        baseline,
+        experimental,
+    }
+}
+
+fn play_paired_work_unit(
+    args: &Args,
+    openings: &[PairedOpening],
+    game_indices: &[usize],
+) -> Vec<PlayedGame> {
+    game_indices
+        .iter()
+        .map(|&game_index| {
+            // Search state is deliberately rebuilt for each color: neither TT
+            // entries nor history/killer state may cross the pair boundary.
+            let mut base_engine = build_baseline_engine(args);
+            let mut exp_engine = build_experimental_engine(args);
+            let opening = opening_for_game(openings, game_index)
+                .expect("paired work always has a precomputed opening");
+            // Paired openings consume no game RNG, but give each task a stable
+            // local stream so future per-game randomness cannot depend on
+            // worker scheduling.
+            let mut rng = SmallRng::seed_from_u64(splitmix64(
+                args.seed ^ (game_index as u64).wrapping_mul(0xA24B_AED4_963E_E407),
+            ));
+            play_single_game(
+                args,
+                game_index,
+                Some(opening),
+                &mut base_engine,
+                &mut exp_engine,
+                &mut rng,
+            )
+        })
+        .collect()
+}
+
+fn play_paired_match(
+    args: &Args,
+    openings: &[PairedOpening],
+    parallel_games: usize,
+) -> (Vec<PlayedGame>, usize) {
+    let work_units = build_match_work_units(args.games, true);
+    let run_serial = || {
+        work_units
+            .iter()
+            .flat_map(|unit| play_paired_work_unit(args, openings, unit))
+            .collect::<Vec<_>>()
+    };
+    let (mut games, actual_parallel_games) = if parallel_games <= 1 || work_units.len() <= 1 {
+        (run_serial(), parallel_games.min(1))
+    } else {
+        match rayon::ThreadPoolBuilder::new()
+            .num_threads(parallel_games)
+            .build()
+        {
+            Ok(pool) => (
+                pool.install(|| {
+                    work_units
+                        .par_iter()
+                        .flat_map_iter(|unit| play_paired_work_unit(args, openings, unit))
+                        .collect()
+                }),
+                parallel_games,
+            ),
+            Err(error) => {
+                eprintln!("warn: failed to build match worker pool ({error}); using serial play");
+                (run_serial(), 1)
+            }
+        }
+    };
+    games.sort_unstable_by_key(|game| game.record.game_index);
+    (games, actual_parallel_games)
+}
+
 fn main() {
     env_logger::init();
     let args = Args::parse();
@@ -798,8 +1066,6 @@ fn main() {
     } else {
         Vec::new()
     };
-    let mut rng = SmallRng::seed_from_u64(args.seed);
-
     // Detect if experimental search is identical to baseline (alphabeta_temp reexports alphabeta)
     let tn_base = std::any::type_name::<piebot::search::alphabeta::Searcher>();
     let tn_exp = std::any::type_name::<piebot::search::alphabeta_temp::Searcher>();
@@ -818,156 +1084,109 @@ fn main() {
             PAIRED_OPENING_POLICY
         );
     }
-    let mut base_engine = build_baseline_engine(&args);
-    let mut exp_engine = build_experimental_engine(&args);
+    let available_cores = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1);
+    let planned_parallel_games = effective_parallel_games(&args, available_cores);
+    if args.parallel_games > 1 && !args.paired_openings {
+        eprintln!(
+            "[WARN] --parallel-games only accelerates paired-opening matches; using serial play."
+        );
+    } else if args.parallel_games > 1
+        && (baseline_search_threads(&args) > 1 || experimental_search_threads(&args) > 1)
+    {
+        eprintln!(
+            "[WARN] match workers require one thread per engine; preserving engine --threads with serial play."
+        );
+    }
+    eprintln!(
+        "[INFO] match parallelism: requested={} planned={} work_unit={} schema={} available_cores={}.",
+        args.parallel_games,
+        planned_parallel_games,
+        if args.paired_openings {
+            "opening-pair"
+        } else {
+            "game"
+        },
+        PARALLELISM_SCHEMA,
+        available_cores
+    );
+
+    let match_started = Instant::now();
+    let (played_games, parallel_games) = if args.paired_openings {
+        play_paired_match(&args, &paired_openings, planned_parallel_games)
+    } else {
+        // Preserve legacy unpaired behavior exactly: one RNG stream and engine
+        // state that remains warm between sequential games.
+        let mut rng = SmallRng::seed_from_u64(args.seed);
+        let mut base_engine = build_baseline_engine(&args);
+        let mut exp_engine = build_experimental_engine(&args);
+        (
+            (0..args.games)
+                .map(|game_index| {
+                    play_single_game(
+                        &args,
+                        game_index,
+                        None,
+                        &mut base_engine,
+                        &mut exp_engine,
+                        &mut rng,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            planned_parallel_games,
+        )
+    };
+    if parallel_games != planned_parallel_games {
+        eprintln!(
+            "[WARN] actual match workers ({parallel_games}) differ from planned workers ({planned_parallel_games})."
+        );
+    }
+    let match_wall_time_s = match_started.elapsed().as_secs_f64();
 
     let mut baseline_points = 0.0f64;
     let mut experimental_points = 0.0f64;
     let mut draws = 0usize;
-    // Stats
-    let mut sum_nodes_base: u64 = 0;
-    let mut sum_time_base: f64 = 0.0;
-    let mut sum_depth_base: u64 = 0;
-    let mut cnt_base: u64 = 0;
-    let mut sum_nodes_exp: u64 = 0;
-    let mut sum_time_exp: f64 = 0.0;
-    let mut sum_depth_exp: u64 = 0;
-    let mut cnt_exp: u64 = 0;
-    let mut game_results: Vec<GameResultRecord> = Vec::with_capacity(args.games);
-
+    let mut baseline_stats = SearchStats::default();
+    let mut experimental_stats = SearchStats::default();
+    let mut game_results = played_games
+        .iter()
+        .map(|game| game.record.clone())
+        .collect::<Vec<_>>();
+    canonicalize_game_results(&mut game_results);
     let mut pgn_buf = String::new();
 
-    for g in 0..args.games {
-        // A new searcher pair prevents TT, history, killer, and aspiration state
-        // from leaking between the two colors of a paired opening.
-        if args.paired_openings && g > 0 {
-            base_engine = build_baseline_engine(&args);
-            exp_engine = build_experimental_engine(&args);
-        }
-        let paired_opening = if args.paired_openings {
-            opening_for_game(&paired_openings, g)
-        } else {
-            None
-        };
-        let mut board = Board::default();
-        let mut position_history = vec![board.clone()];
-        let baseline_is_white = g % 2 == 0;
-        let mut plies = 0usize;
-        let mut san_moves: Vec<String> = Vec::new();
-
-        let result = loop {
-            if let Some(res) = is_game_over(&board, &position_history) {
-                break match res {
-                    1 => {
-                        // side to move has no moves and is in check => previous mover won
-                        let prev_was_baseline =
-                            (plies > 0) && ((plies - 1) % 2 == 0) == baseline_is_white;
-                        if prev_was_baseline {
-                            1.0
-                        } else {
-                            -1.0
-                        }
-                    }
-                    _ => 0.0,
-                };
-            }
-            if plies >= args.max_plies {
-                break 0.0;
-            }
-
-            let baseline_to_move = (plies % 2 == 0) == baseline_is_white;
-            let mv = if let Some(opening) =
-                paired_opening.filter(|opening| plies < opening.moves.len())
-            {
-                let uci = &opening.moves[plies];
-                Some(find_move_uci(&board, uci).unwrap_or_else(|| {
-                    panic!(
-                        "paired opening {} contains illegal move {} at ply {}",
-                        opening.opening_id, uci, plies
-                    )
-                }))
-            } else if !args.paired_openings && plies < args.noise_plies {
-                // Noisy selection from ordered top-K
-                if baseline_to_move {
-                    choose_move_noisy_baseline(&board, &base_engine, args.noise_topk, &mut rng)
-                } else {
-                    choose_move_noisy_experimental(&board, &exp_engine, args.noise_topk, &mut rng)
-                }
-            } else {
-                if baseline_to_move {
-                    let (m, d, n, dt) =
-                        decide_move_baseline(&board, &position_history, &args, &mut base_engine);
-                    if let Some(_) = m {
-                        sum_nodes_base += n;
-                        sum_time_base += dt;
-                        sum_depth_base += d as u64;
-                        cnt_base += 1;
-                    }
-                    m
-                } else {
-                    let (m, d, n, dt) =
-                        decide_move_experimental(&board, &position_history, &args, &mut exp_engine);
-                    if let Some(_) = m {
-                        sum_nodes_exp += n;
-                        sum_time_exp += dt;
-                        sum_depth_exp += d as u64;
-                        cnt_exp += 1;
-                    }
-                    m
-                }
-            };
-
-            let mv = match mv {
-                Some(m) => m,
-                None => {
-                    break 0.0;
-                }
-            };
-            // Record SAN before updating board
-            let san = san_for_move(&board, mv);
-            let mut next = board.clone();
-            next.play_unchecked(mv);
-            board = next;
-            position_history.push(board.clone());
-            san_moves.push(san);
-            plies += 1;
-        };
-
+    for game in &played_games {
+        let record = &game.record;
+        let result = record.result_baseline_pov;
+        let game_index = record.game_index;
+        let baseline_is_white = record.baseline_is_white;
         match result.partial_cmp(&0.0).unwrap() {
             std::cmp::Ordering::Greater => baseline_points += 1.0,
             std::cmp::Ordering::Less => experimental_points += 1.0,
             std::cmp::Ordering::Equal => draws += 1,
         }
-        game_results.push(if let Some(opening) = paired_opening {
-            GameResultRecord::new(
-                g,
-                opening.pair_index,
-                baseline_is_white,
-                result,
-                plies,
-                Some(&opening.opening_id),
-            )
-        } else {
-            GameResultRecord::unpaired(g, baseline_is_white, result, plies)
-        });
+        baseline_stats.merge(&game.baseline);
+        experimental_stats.merge(&game.experimental);
 
-        if let Some(opening) = paired_opening {
+        if let Some(pair_index) = record.pair_index {
+            let opening = &paired_openings[pair_index];
             println!(
                 "game={} result={} (baseline_white={}) plies={} pair={} opening_id={}",
-                g + 1,
+                game_index + 1,
                 result,
                 baseline_is_white,
-                plies,
+                record.plies,
                 opening.pair_index + 1,
                 opening.opening_id
             );
         } else {
             println!(
                 "game={} result={} (baseline_white={}) plies={}",
-                g + 1,
+                game_index + 1,
                 result,
                 baseline_is_white,
-                plies
+                record.plies
             );
         }
 
@@ -1005,11 +1224,12 @@ fn main() {
                 .map(|_| "-".to_string())
                 .unwrap_or_else(|| args.movetime.to_string());
             pgn_buf.push_str(&format!("[Event \"Cozy A/B\"]\n[Site \"Local\"]\n[Round \"{}\"]\n[White \"{}\"]\n[Black \"{}\"]\n[Result \"{}\"]\n[TimeControl \"{}\"]\n",
-                                     g + 1, white, black, res, time_control));
+                                     game_index + 1, white, black, res, time_control));
             if let Some(depth) = args.depth {
                 pgn_buf.push_str(&format!("[PlyDepth \"{}\"]\n", depth.max(1)));
             }
-            if let Some(opening) = paired_opening {
+            if let Some(pair_index) = record.pair_index {
+                let opening = &paired_openings[pair_index];
                 pgn_buf.push_str(&format!(
                     "[Pair \"{}\"]\n[OpeningSeed \"{}\"]\n[OpeningId \"{}\"]\n[OpeningPolicy \"{}\"]\n",
                     opening.pair_index + 1,
@@ -1021,22 +1241,31 @@ fn main() {
             pgn_buf.push('\n');
             // Moves with numbers
             let mut move_num = 1;
-            for i in (0..san_moves.len()).step_by(2) {
-                if i + 1 < san_moves.len() {
+            for i in (0..game.san_moves.len()).step_by(2) {
+                if i + 1 < game.san_moves.len() {
                     pgn_buf.push_str(&format!(
                         "{}. {} {} ",
                         move_num,
-                        san_moves[i],
-                        san_moves[i + 1]
+                        game.san_moves[i],
+                        game.san_moves[i + 1]
                     ));
                 } else {
-                    pgn_buf.push_str(&format!("{}. {} ", move_num, san_moves[i]));
+                    pgn_buf.push_str(&format!("{}. {} ", move_num, game.san_moves[i]));
                 }
                 move_num += 1;
             }
             pgn_buf.push_str(&format!("{}\n\n", res));
         }
     }
+
+    let sum_nodes_base = baseline_stats.nodes;
+    let sum_time_base = baseline_stats.time_s;
+    let sum_depth_base = baseline_stats.depth;
+    let cnt_base = baseline_stats.moves;
+    let sum_nodes_exp = experimental_stats.nodes;
+    let sum_time_exp = experimental_stats.time_s;
+    let sum_depth_exp = experimental_stats.depth;
+    let cnt_exp = experimental_stats.moves;
 
     let avg_nps_base = if sum_time_base > 0.0 {
         sum_nodes_base as f64 / sum_time_base
@@ -1064,6 +1293,10 @@ fn main() {
         args.games, baseline_points, experimental_points, draws
     );
     println!(
+        "match: wall_time={:.3}s parallel_workers={} schema={}",
+        match_wall_time_s, parallel_games, PARALLELISM_SCHEMA
+    );
+    println!(
         "baseline: avg_nps={:.1} avg_depth={:.2} moves={} nodes={} time={:.3}s",
         avg_nps_base, avg_depth_base, cnt_base, sum_nodes_base, sum_time_base
     );
@@ -1079,6 +1312,8 @@ fn main() {
             "games_per_pair": 2,
             "colors_reversed": true,
             "engine_reset_per_game": true,
+            "parallel_work_unit": "opening-pair",
+            "canonical_game_order": true,
             "opening_policy": PAIRED_OPENING_POLICY,
             "seed_scheme": "splitmix64-v1",
             "base_seed": args.seed,
@@ -1095,6 +1330,8 @@ fn main() {
             "enabled": false,
             "pair_count": 0,
             "engine_reset_per_game": false,
+            "parallel_work_unit": "game",
+            "canonical_game_order": true,
             "opening_policy": "legacy-engine-ordered-noise",
             "base_seed": args.seed,
         })
@@ -1115,6 +1352,12 @@ fn main() {
             "noise_plies": args.noise_plies,
             "noise_topk": args.noise_topk,
             "threads": args.threads,
+            "base_threads": baseline_search_threads(&args),
+            "exp_threads": experimental_search_threads(&args),
+            "parallel_games_requested": args.parallel_games,
+            "parallel_games": parallel_games,
+            "parallelism_schema": PARALLELISM_SCHEMA,
+            "match_wall_time_s": match_wall_time_s,
             "seed": args.seed,
             "paired_openings": args.paired_openings,
             "pairing": pairing_payload,
@@ -1139,7 +1382,7 @@ fn main() {
 
     if let Some(path) = args.csv_out.as_deref() {
         // Single-row CSV summary with header
-        let header = "games,movetime_ms,fixed_depth,noise_plies,noise_topk,threads,seed,self_compare,base_type,exp_type,baseline_pts,experimental_pts,draws,base_moves,base_nodes,base_time_s,base_avg_nps,base_avg_depth,exp_moves,exp_nodes,exp_time_s,exp_avg_nps,exp_avg_depth,paired_openings,opening_pairs,opening_policy,pair_seeds,opening_ids\n";
+        let header = "games,movetime_ms,fixed_depth,noise_plies,noise_topk,threads,parallel_games_requested,parallel_games,parallelism_schema,match_wall_time_s,seed,self_compare,base_type,exp_type,baseline_pts,experimental_pts,draws,base_moves,base_nodes,base_time_s,base_avg_nps,base_avg_depth,exp_moves,exp_nodes,exp_time_s,exp_avg_nps,exp_avg_depth,paired_openings,opening_pairs,opening_policy,pair_seeds,opening_ids\n";
         let fixed_depth = args.depth.map(|d| d.max(1).to_string()).unwrap_or_default();
         let pair_seeds = paired_openings
             .iter()
@@ -1157,8 +1400,10 @@ fn main() {
             "legacy-engine-ordered-noise"
         };
         let row = format!(
-            "{},{},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{},{},{:.6},{:.1},{:.2},{},{},{:.6},{:.1},{:.2},{},{},{},{},{}\n",
-            args.games, args.movetime, fixed_depth, args.noise_plies, args.noise_topk, args.threads, args.seed, self_compare, tn_base, tn_exp,
+            "{},{},{},{},{},{},{},{},{},{:.6},{},{},{},{},{:.3},{:.3},{},{},{},{:.6},{:.1},{:.2},{},{},{:.6},{:.1},{:.2},{},{},{},{},{}\n",
+            args.games, args.movetime, fixed_depth, args.noise_plies, args.noise_topk, args.threads,
+            args.parallel_games, parallel_games, PARALLELISM_SCHEMA, match_wall_time_s,
+            args.seed, self_compare, tn_base, tn_exp,
             baseline_points, experimental_points, draws,
             cnt_base, sum_nodes_base, sum_time_base, avg_nps_base, avg_depth_base,
             cnt_exp, sum_nodes_exp, sum_time_exp, avg_nps_exp, avg_depth_exp,
@@ -1200,6 +1445,152 @@ mod tests {
         let args = Args::try_parse_from(["compare_play", "--games", "8", "--paired-openings"])
             .expect("--paired-openings should be supported");
         assert!(args.paired_openings);
+    }
+
+    #[test]
+    fn cli_parallel_games_is_opt_in_and_does_not_replace_engine_threads() {
+        let defaults = Args::try_parse_from(["compare_play"]).expect("default arguments");
+        assert_eq!(defaults.parallel_games, 1);
+
+        let args = Args::try_parse_from([
+            "compare_play",
+            "--games",
+            "24",
+            "--paired-openings",
+            "--parallel-games",
+            "12",
+            "--threads",
+            "1",
+            "--base-threads",
+            "1",
+            "--exp-threads",
+            "1",
+        ])
+        .expect("match-level parallelism should have a separate CLI setting");
+        assert_eq!(args.parallel_games, 12);
+        assert_eq!(baseline_search_threads(&args), 1);
+        assert_eq!(experimental_search_threads(&args), 1);
+        assert!(Args::try_parse_from(["compare_play", "--parallel-games", "0"]).is_err());
+    }
+
+    #[test]
+    fn paired_parallelism_is_bounded_and_multi_threaded_search_stays_serial() {
+        let args = Args::try_parse_from([
+            "compare_play",
+            "--games",
+            "24",
+            "--paired-openings",
+            "--parallel-games",
+            "20",
+            "--threads",
+            "1",
+        ])
+        .expect("parallel paired match");
+        assert_eq!(effective_parallel_games(&args, 24), 12);
+        assert_eq!(effective_parallel_games(&args, 8), 8);
+
+        let multi_threaded = Args::try_parse_from([
+            "compare_play",
+            "--games",
+            "24",
+            "--paired-openings",
+            "--parallel-games",
+            "12",
+            "--threads",
+            "2",
+        ])
+        .expect("multi-threaded engine match");
+        assert_eq!(effective_parallel_games(&multi_threaded, 24), 1);
+    }
+
+    #[test]
+    fn parallel_work_units_keep_color_reversed_opening_pairs_together() {
+        assert_eq!(
+            build_match_work_units(6, true),
+            vec![vec![0, 1], vec![2, 3], vec![4, 5]]
+        );
+        assert_eq!(
+            build_match_work_units(3, false),
+            vec![vec![0], vec![1], vec![2]]
+        );
+    }
+
+    #[test]
+    fn canonical_result_order_is_independent_of_worker_completion_order() {
+        let mut games = vec![
+            GameResultRecord::new(3, 1, false, 0.0, 44, Some("opening-b")),
+            GameResultRecord::new(0, 0, true, 1.0, 40, Some("opening-a")),
+            GameResultRecord::new(2, 1, true, -1.0, 42, Some("opening-b")),
+            GameResultRecord::new(1, 0, false, 0.0, 46, Some("opening-a")),
+        ];
+
+        canonicalize_game_results(&mut games);
+
+        assert_eq!(
+            games.iter().map(|game| game.game_index).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        let pairs = pair_outcome_payload(&games).expect("canonical paired evidence");
+        assert_eq!(pairs[0]["game_indices"], serde_json::json!([0, 1]));
+        assert_eq!(pairs[1]["game_indices"], serde_json::json!([2, 3]));
+    }
+
+    #[test]
+    fn fixed_depth_paired_results_match_between_serial_and_parallel_workers() {
+        let args = Args::try_parse_from([
+            "compare_play",
+            "--games",
+            "4",
+            "--paired-openings",
+            "--parallel-games",
+            "2",
+            "--depth",
+            "1",
+            "--noise-plies",
+            "2",
+            "--noise-topk",
+            "3",
+            "--max-plies",
+            "6",
+            "--threads",
+            "1",
+            "--same-search",
+            "--seed",
+            "51966",
+        ])
+        .expect("small deterministic match");
+        let openings =
+            build_paired_openings(args.games, args.noise_plies, args.noise_topk, args.seed)
+                .expect("paired openings");
+
+        let (serial, serial_workers) = play_paired_match(&args, &openings, 1);
+        let (parallel, parallel_workers) = play_paired_match(&args, &openings, 2);
+        assert_eq!(serial_workers, 1);
+        assert_eq!(parallel_workers, 2);
+        let serial_records = serial
+            .iter()
+            .map(|game| game.record.clone())
+            .collect::<Vec<_>>();
+        let parallel_records = parallel
+            .iter()
+            .map(|game| game.record.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(serial_records, parallel_records);
+        assert_eq!(
+            serial
+                .iter()
+                .map(|game| game.san_moves.as_slice())
+                .collect::<Vec<_>>(),
+            parallel
+                .iter()
+                .map(|game| game.san_moves.as_slice())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            pair_outcome_payload(&serial_records).expect("serial pair evidence"),
+            pair_outcome_payload(&parallel_records).expect("parallel pair evidence")
+        );
     }
 
     #[test]
