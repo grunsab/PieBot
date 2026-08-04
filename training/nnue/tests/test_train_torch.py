@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 try:
     from training.nnue import train_torch
@@ -427,8 +428,13 @@ class TorchBatchPackingTests(unittest.TestCase):
                 validation_seed=91,
             )
 
-            self.assertEqual(4, metrics["train_samples"])
-            self.assertEqual(2, metrics["val_samples"])
+            self.assertEqual(
+                4,
+                metrics["train_samples"] + metrics["val_samples"],
+            )
+            self.assertGreater(metrics["train_samples"], 0)
+            self.assertGreater(metrics["val_samples"], 0)
+            self.assertEqual(2, metrics["reference_val_samples"])
             self.assertEqual(4, metrics["records_total"])
             self.assertEqual("wdl", metrics["loss_kind"])
             self.assertEqual(0.75, metrics["primary_sample_fraction"])
@@ -441,6 +447,195 @@ class TorchBatchPackingTests(unittest.TestCase):
             self.assertEqual(1, len(metrics["val_loss_history"]))
             self.assertEqual(1, len(metrics["val_cp_mse_history"]))
             self.assertEqual(1, len(metrics["val_acc_history"]))
+
+    def test_external_validation_is_reference_only_for_epoch_selection(self) -> None:
+        """A mismatched fixed corpus must not replace the aligned holdout."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            training = [
+                {
+                    "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "result": 1,
+                    "run_id": "train-run",
+                    "game_id": "game-1",
+                    "ply": 0,
+                },
+                {
+                    "fen": "k7/8/8/8/8/8/8/KR6 w - - 0 1",
+                    "result": 1,
+                    "run_id": "train-run",
+                    "game_id": "game-1",
+                    "ply": 1,
+                },
+                {
+                    "fen": "kq6/8/8/8/8/8/8/K7 w - - 0 1",
+                    "result": -1,
+                    "run_id": "train-run",
+                    "game_id": "game-2",
+                    "ply": 0,
+                },
+                {
+                    "fen": "kr6/8/8/8/8/8/8/K7 w - - 0 1",
+                    "result": -1,
+                    "run_id": "train-run",
+                    "game_id": "game-2",
+                    "ply": 1,
+                },
+            ]
+            reference = [
+                {
+                    "fen": "1k6/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "result": 1,
+                    "value_cp": 900.0,
+                    "teacher_depth": 6,
+                },
+                {
+                    "fen": "1kq5/8/8/8/8/8/8/K7 w - - 0 1",
+                    "result": -1,
+                    "value_cp": -900.0,
+                    "teacher_depth": 6,
+                },
+            ]
+            self._write_records(root / "train", training)
+            self._write_records(root / "reference", reference)
+
+            metrics = train_torch.train_model(
+                jsonl_dir=root / "train",
+                batch_size=2,
+                max_samples=4,
+                epochs=1,
+                val_split=0.5,
+                learning_rate=0.0,
+                hidden_dim=1,
+                seed=23,
+                out_dir=root / "out",
+                device="cpu",
+                validation_jsonl_dir=root / "reference",
+                max_validation_samples=2,
+            )
+
+            self.assertEqual(4, metrics["records_total"])
+            self.assertEqual(2, metrics["train_samples"])
+            self.assertEqual(2, metrics["val_samples"])
+            self.assertEqual(2, metrics["reference_val_samples"])
+            self.assertEqual(0, metrics["internal_validation_record_overlap"])
+            self.assertEqual(
+                train_torch.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+                metrics["validation_sampling_schema"],
+            )
+            self.assertEqual(
+                train_torch.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+                metrics["reference_validation_sampling_schema"],
+            )
+            self.assertEqual(1, len(metrics["val_loss_history"]))
+            self.assertEqual(1, len(metrics["reference_val_loss_history"]))
+            self.assertLess(
+                metrics["val_target_cp_mean_abs"],
+                metrics["reference_val_target_cp_mean_abs"],
+            )
+
+    def test_reference_guard_allows_small_mismatch_but_blocks_large_regression(self) -> None:
+        """Primary loss selects epochs inside the depth-6 safety envelope."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(
+                root / "train",
+                [
+                    {
+                        "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                        "result": 1,
+                        "run_id": "run",
+                        "game_id": f"game-{idx}",
+                        "ply": 0,
+                    }
+                    for idx in range(4)
+                ],
+            )
+            self._write_records(
+                root / "reference",
+                [{
+                    "fen": "1k6/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "result": 1,
+                    "value_cp": 500.0,
+                    "teacher_depth": 6,
+                }],
+            )
+            input_dim = train_torch.train_stub.HALFKP_DIM
+            parent = {
+                "format": "piebot-halfkp-mse-v2-torch",
+                "feature_set": train_torch.train_stub.FEATURE_SET,
+                "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                "objective": _objective(),
+                "input_dim": input_dim,
+                "hidden_dim": 1,
+                "w1": [0.0] * input_dim,
+                "b1": [0.0],
+                "w2": [0.0],
+                "b2": 0.0,
+            }
+            parent_path = root / "parent.json"
+            parent_path.write_text(json.dumps(parent), encoding="utf-8")
+
+            def run_case(name: str, epoch_reference_loss: float) -> dict:
+                # initial train, primary, reference; then epoch train, primary,
+                # reference. Only the first tuple element drives selection.
+                evaluations = [
+                    (0.9, 1.0, 0.5, 0.0, 0.0),
+                    (1.0, 1.0, 0.5, 0.0, 0.0),
+                    (1.0, 1.0, 0.5, 0.0, 0.0),
+                    (0.8, 1.0, 0.5, 0.0, 0.0),
+                    (0.8, 1.0, 0.5, 0.0, 0.0),
+                    (epoch_reference_loss, 1.0, 0.5, 0.0, 0.0),
+                    (
+                        0.8 if epoch_reference_loss <= 1.01 else 1.0,
+                        1.0,
+                        0.5,
+                        0.0,
+                        0.0,
+                    ),
+                    (
+                        epoch_reference_loss
+                        if epoch_reference_loss <= 1.01
+                        else 1.0,
+                        1.0,
+                        0.5,
+                        0.0,
+                        0.0,
+                    ),
+                ]
+                with mock.patch(
+                    "training.nnue.train_torch._eval_split",
+                    side_effect=evaluations,
+                ):
+                    return train_torch.train_model(
+                        jsonl_dir=root / "train",
+                        batch_size=2,
+                        max_samples=4,
+                        epochs=1,
+                        val_split=0.25,
+                        learning_rate=0.0,
+                        hidden_dim=1,
+                        seed=17,
+                        out_dir=root / name,
+                        device="cpu",
+                        initial_checkpoint=parent_path,
+                        validation_jsonl_dir=root / "reference",
+                        max_validation_samples=1,
+                    )
+
+            allowed = run_case("allowed", 1.002)
+            blocked = run_case("blocked", 1.02)
+
+            self.assertEqual(1, allowed["best_epoch"])
+            self.assertEqual(1.002, allowed["best_reference_val_loss"])
+            self.assertEqual(0.8, allowed["selected_val_loss"])
+            self.assertEqual(1.002, allowed["selected_reference_val_loss"])
+            self.assertEqual([True], allowed["reference_val_checkpoint_eligible_history"])
+            self.assertEqual(0, blocked["best_epoch"])
+            self.assertEqual(1.0, blocked["best_reference_val_loss"])
+            self.assertEqual(1.0, blocked["selected_val_loss"])
+            self.assertEqual(1.0, blocked["selected_reference_val_loss"])
+            self.assertEqual([False], blocked["reference_val_checkpoint_eligible_history"])
 
     def test_wdl_cp_diagnostics_use_probability_implied_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -525,11 +720,17 @@ class TorchBatchPackingTests(unittest.TestCase):
             self.assertNotAlmostEqual(linear_cp, implied_cp, places=2)
             self.assertAlmostEqual(
                 implied_cp * implied_cp,
-                metrics["initial_val_cp_mse"],
+                metrics["initial_reference_val_cp_mse"],
                 places=2,
             )
-            self.assertEqual(0.0, metrics["initial_val_prediction_mean_abs"])
-            self.assertEqual(0.0, metrics["initial_val_prediction_max_abs"])
+            self.assertEqual(
+                0.0,
+                metrics["initial_reference_val_prediction_mean_abs"],
+            )
+            self.assertEqual(
+                0.0,
+                metrics["initial_reference_val_prediction_max_abs"],
+            )
 
     def test_warm_start_rejects_missing_or_mismatched_target_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -660,7 +861,8 @@ class TorchBatchPackingTests(unittest.TestCase):
                 device="cpu",
             )
 
-            self.assertEqual(1, metrics["val_samples"])
+            self.assertEqual(0, metrics["val_samples"])
+            self.assertEqual(1, metrics["reference_val_samples"])
             self.assertTrue(metrics["validation_require_teacher"])
             self.assertEqual(1, metrics["validation_records_with_teacher_value"])
             self.assertEqual(1, metrics["validation_records_with_raw_teacher_value"])
@@ -832,6 +1034,61 @@ class TorchBatchPackingTests(unittest.TestCase):
             self.assertEqual(
                 train_torch.train_stub.OBJECTIVE_SCHEMA,
                 resumed_payload["objective"]["schema"],
+            )
+
+    def test_optimizer_state_is_saved_from_the_selected_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(
+                root / "data",
+                [
+                    {
+                        "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                        "result": 1,
+                        "run_id": "run",
+                        "game_id": f"game-{idx}",
+                        "ply": 0,
+                    }
+                    for idx in range(4)
+                ],
+            )
+            # Epoch 1 train/primary, epoch 2 train/primary, then the
+            # authoritative selected-primary pass.
+            evaluations = [
+                (0.8, 1.0, 0.5, 0.0, 0.0),
+                (0.8, 1.0, 0.5, 0.0, 0.0),
+                (0.7, 1.0, 0.5, 0.0, 0.0),
+                (0.9, 1.0, 0.5, 0.0, 0.0),
+                (0.8, 1.0, 0.5, 0.0, 0.0),
+            ]
+            with mock.patch(
+                "training.nnue.train_torch._eval_split",
+                side_effect=evaluations,
+            ):
+                metrics = train_torch.train_model(
+                    jsonl_dir=root / "data",
+                    batch_size=8,
+                    max_samples=4,
+                    epochs=2,
+                    val_split=0.25,
+                    learning_rate=0.001,
+                    hidden_dim=1,
+                    seed=37,
+                    out_dir=root / "out",
+                    device="cpu",
+                )
+
+            self.assertEqual(1, metrics["best_epoch"])
+            optimizer_payload = train_torch._torch_load(root / "out" / "optimizer.pt")
+            self.assertEqual(1, optimizer_payload["best_epoch"])
+            steps = {
+                int(state["step"].item())
+                for state in optimizer_payload["state_dict"]["state"].values()
+            }
+            self.assertEqual({1}, steps)
+            self.assertEqual(
+                metrics["optimizer_state"]["model_parameters_sha256"],
+                optimizer_payload["model_parameters_sha256"],
             )
 
     def test_optimizer_rejects_adam_beta_or_epsilon_mismatch(self) -> None:

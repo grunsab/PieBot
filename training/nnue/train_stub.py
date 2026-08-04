@@ -192,6 +192,10 @@ TARGET_SCHEMA = "soft-cp-wdl-v2"
 OBJECTIVE_SCHEMA = "nnue-objective-v1"
 SAMPLING_SCHEMA = "source-teacher-stratified-v3-no-internal-leakage"
 FIXED_VALIDATION_SAMPLING_SCHEMA = "uniform-reservoir-v1"
+PRIMARY_VALIDATION_SAMPLING_SCHEMA = "game-hash-disjoint-training-mixture-v1"
+CHECKPOINT_SELECTION_SCHEMA = "aligned-primary-external-reference-v1"
+REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION = 0.01
+PRIMARY_VALIDATION_HASH_NAMESPACE = "piebot-primary-validation-partition-v1"
 
 
 def _active_halfkp_indices(fen: str) -> List[int]:
@@ -321,6 +325,7 @@ def _internal_validation_partition(
     val_split: float,
     *,
     min_teacher_depth: int = 0,
+    validation_seed: int = 20_260_802,
 ) -> Tuple[List[int], List[int]]:
     """Partition samples without placing a game or duplicate on both sides.
 
@@ -328,56 +333,69 @@ def _internal_validation_partition(
     intentionally repeat a scarce labeled position, so all exact copies of
     that position remain together as the strongest available fallback.
     """
-    count = len(records)
-    desired = int(count * min(0.9, max(0.0, float(val_split))))
-    if val_split > 0.0 and count > 1:
-        desired = max(1, desired)
-        desired = min(desired, count - 1)
-    else:
-        desired = 0
-    if desired <= 0:
+    return _internal_validation_partition_from_metadata(
+        [_validation_group_identity(record) for record in records],
+        [_teacher_available(record, min_teacher_depth) for record in records],
+        val_split,
+        validation_seed=validation_seed,
+    )
+
+
+def _internal_validation_partition_from_metadata(
+    identities: Sequence[str],
+    teacher_available: Sequence[bool],
+    val_split: float,
+    *,
+    validation_seed: int = 20_260_802,
+) -> Tuple[List[int], List[int]]:
+    """Partition compact metadata with a stable, whole-group hash assignment.
+
+    The assignment depends only on the namespace, validation seed, and group
+    identity. A game therefore remains held out when it is encountered through
+    replay or when input ordering/training seeds change. Tiny datasets receive
+    a deterministic non-empty fallback when the hash threshold puts every
+    group on the same side.
+    """
+    if len(identities) != len(teacher_available):
+        raise ValueError("validation partition metadata length mismatch")
+    count = len(identities)
+    split = min(0.9, max(0.0, float(val_split)))
+    if split <= 0.0 or count <= 1:
         return list(range(count)), []
 
-    identities = [_validation_group_identity(record) for record in records]
-    group_sizes: Dict[str, int] = {}
-    group_teacher_counts: Dict[str, int] = {}
-    for identity, record in zip(identities, records):
-        group_sizes[identity] = group_sizes.get(identity, 0) + 1
-        if _teacher_available(record, min_teacher_depth):
-            group_teacher_counts[identity] = group_teacher_counts.get(identity, 0) + 1
+    # Materialize unique identities in sorted order so even the tiny-set
+    # fallback is independent of source order.
+    unique_identities = sorted(set(identities))
+    if len(unique_identities) <= 1:
+        return list(range(count)), []
 
-    candidates = list(dict.fromkeys(reversed(identities)))
-    total_teacher = sum(group_teacher_counts.values())
-    desired_teacher = float(total_teacher) * float(desired) / float(count)
-    desired_outcome = float(desired) - desired_teacher
+    def group_hash(identity: str) -> int:
+        digest = hashlib.sha256()
+        digest.update(PRIMARY_VALIDATION_HASH_NAMESPACE.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(int(validation_seed)).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(identity.encode("utf-8"))
+        return int.from_bytes(digest.digest(), "big")
 
-    def partition_error(selected: int, selected_teacher: int) -> float:
-        selected_outcome = selected - selected_teacher
-        return (
-            abs(float(selected) - float(desired)) / max(1.0, float(desired))
-            + abs(float(selected_teacher) - desired_teacher)
-            / max(1.0, desired_teacher)
-            + abs(float(selected_outcome) - desired_outcome)
-            / max(1.0, desired_outcome)
+    group_hashes = {
+        identity: group_hash(identity) for identity in unique_identities
+    }
+    split_numerator, split_denominator = split.as_integer_ratio()
+    threshold = ((1 << 256) * split_numerator) // split_denominator
+    validation_identities = {
+        identity
+        for identity, identity_hash in group_hashes.items()
+        if identity_hash < threshold
+    }
+    if not validation_identities:
+        validation_identities.add(
+            min(unique_identities, key=lambda identity: group_hashes[identity])
         )
-
-    validation_identities: set[str] = set()
-    validation_count = 0
-    validation_teacher_count = 0
-    best_error = partition_error(0, 0)
-    for identity in candidates:
-        group_size = group_sizes[identity]
-        if validation_count + group_size >= count:
-            continue
-        group_teachers = group_teacher_counts.get(identity, 0)
-        candidate_count = validation_count + group_size
-        candidate_teachers = validation_teacher_count + group_teachers
-        candidate_error = partition_error(candidate_count, candidate_teachers)
-        if candidate_error + 1e-12 < best_error:
-            validation_identities.add(identity)
-            validation_count = candidate_count
-            validation_teacher_count = candidate_teachers
-            best_error = candidate_error
+    elif len(validation_identities) == len(unique_identities):
+        validation_identities.remove(
+            max(unique_identities, key=lambda identity: group_hashes[identity])
+        )
 
     train_indices = [
         idx for idx, identity in enumerate(identities)
@@ -1035,6 +1053,7 @@ def train_model(
     huber_delta_cp = max(1e-6, float(huber_delta_cp))
     wdl_scale_cp = max(1e-6, float(wdl_scale_cp))
     max_validation_samples = max(0, int(max_validation_samples))
+    validation_seed = int(validation_seed)
     validation_require_teacher = bool(validation_require_teacher)
     if validation_jsonl_dir is not None:
         _assert_validation_source_disjoint(
@@ -1055,12 +1074,10 @@ def train_model(
     xs: List[List[int]] = []
     cp_targets: List[float] = []
     wdl_targets: List[float] = []
-    # Fixed validation never uses the internal duplicate-aware split. Avoid
-    # retaining every parsed raw record in that production path: at 700k
-    # samples this otherwise consumes several unnecessary gigabytes.
-    sample_records: Optional[List[TrainingRecord]] = (
-        [] if validation_jsonl_dir is None else None
-    )
+    # Compact metadata is sufficient for the stable game/duplicate partition;
+    # retaining 700k complete TrainingRecord objects costs several GB.
+    validation_group_identities: List[str] = []
+    validation_teacher_flags: List[bool] = []
     best_move_available = 0
     teacher_value_available = 0
     raw_teacher_value_available = 0
@@ -1073,8 +1090,10 @@ def train_model(
         min_teacher_depth=min_teacher_depth,
     ):
         xs.append(feats)
-        if sample_records is not None:
-            sample_records.append(record)
+        validation_group_identities.append(_validation_group_identity(record))
+        validation_teacher_flags.append(
+            _teacher_available(record, min_teacher_depth)
+        )
         cp, probability = _targets_for_record(
             record,
             loss_kind=loss_kind,
@@ -1116,34 +1135,63 @@ def train_model(
     xs = [xs[i] for i in order]
     cp_targets = [cp_targets[i] for i in order]
     wdl_targets = [wdl_targets[i] for i in order]
-    if sample_records is not None:
-        sample_records = [sample_records[i] for i in order]
+    validation_group_identities = [
+        validation_group_identities[i] for i in order
+    ]
+    validation_teacher_flags = [validation_teacher_flags[i] for i in order]
 
+    fixed_validation = validation_jsonl_dir is not None
     validation_teacher_value_available: Optional[int] = None
     validation_raw_teacher_value_available: Optional[int] = None
     validation_sample_sha256: Optional[str] = None
-    internal_validation_record_overlap: Optional[int] = None
     validation_source: Optional[Dict[str, Any]] = None
-    if validation_jsonl_dir is not None:
+    train_indices, validation_indices = _internal_validation_partition_from_metadata(
+        validation_group_identities,
+        validation_teacher_flags,
+        val_split,
+        validation_seed=validation_seed,
+    )
+    train_x = [xs[idx] for idx in train_indices]
+    train_cp = [cp_targets[idx] for idx in train_indices]
+    train_wdl = [wdl_targets[idx] for idx in train_indices]
+    val_x = [xs[idx] for idx in validation_indices]
+    val_cp = [cp_targets[idx] for idx in validation_indices]
+    val_wdl = [wdl_targets[idx] for idx in validation_indices]
+    train_count = len(train_x)
+    val_count = len(val_x)
+    train_teacher_count = sum(
+        validation_teacher_flags[idx] for idx in train_indices
+    )
+    primary_validation_teacher_count = sum(
+        validation_teacher_flags[idx] for idx in validation_indices
+    )
+    train_groups = {
+        validation_group_identities[idx] for idx in train_indices
+    }
+    validation_groups = {
+        validation_group_identities[idx] for idx in validation_indices
+    }
+    internal_validation_record_overlap = len(
+        train_groups.intersection(validation_groups)
+    )
+
+    reference_val_x: List[List[int]] = []
+    reference_val_cp: List[float] = []
+    reference_val_wdl: List[float] = []
+    if fixed_validation:
         validation_teacher_value_available = 0
         validation_raw_teacher_value_available = 0
-        validation_path = Path(validation_jsonl_dir)
+        validation_path = Path(validation_jsonl_dir)  # type: ignore[arg-type]
         validation_source_before = {
             "path": validation_path.resolve().as_posix(),
             "sha256": _sha256_jsonl_source(validation_path),
             "records": _count_jsonl_source_records(validation_path),
             "max_samples": max_validation_samples,
-            "seed": int(validation_seed),
+            "seed": validation_seed,
         }
-        train_x = xs
-        train_cp = cp_targets
-        train_wdl = wdl_targets
-        val_x: List[List[int]] = []
-        val_cp: List[float] = []
-        val_wdl: List[float] = []
         validation_digest = hashlib.sha256()
         for feats, record in iterate_fixed_validation_samples(
-            Path(validation_jsonl_dir),
+            validation_path,
             max_validation_samples,
             seed=validation_seed,
             min_teacher_depth=min_teacher_depth,
@@ -1165,45 +1213,22 @@ def train_model(
                 min_teacher_depth=min_teacher_depth,
                 wdl_scale_cp=wdl_scale_cp,
             )
-            val_x.append(feats)
-            val_cp.append(cp)
-            val_wdl.append(probability)
-        if not val_x:
-            raise ValueError("external validation dataset contains no usable samples")
+            reference_val_x.append(feats)
+            reference_val_cp.append(cp)
+            reference_val_wdl.append(probability)
+        if not reference_val_x:
+            raise ValueError("external reference validation dataset contains no usable samples")
         validation_sample_sha256 = validation_digest.hexdigest()
         validation_source = {
             "path": validation_path.resolve().as_posix(),
             "sha256": _sha256_jsonl_source(validation_path),
             "records": _count_jsonl_source_records(validation_path),
             "max_samples": max_validation_samples,
-            "seed": int(validation_seed),
+            "seed": validation_seed,
         }
         if validation_source != validation_source_before:
             raise ValueError("fixed validation source changed while trainer was reading it")
-    else:
-        assert sample_records is not None
-        train_indices, validation_indices = _internal_validation_partition(
-            sample_records,
-            val_split,
-            min_teacher_depth=min_teacher_depth,
-        )
-        train_x = [xs[idx] for idx in train_indices]
-        train_cp = [cp_targets[idx] for idx in train_indices]
-        train_wdl = [wdl_targets[idx] for idx in train_indices]
-        val_x = [xs[idx] for idx in validation_indices]
-        val_cp = [cp_targets[idx] for idx in validation_indices]
-        val_wdl = [wdl_targets[idx] for idx in validation_indices]
-        train_identities = {
-            _record_identity(sample_records[idx]) for idx in train_indices
-        }
-        validation_identities = {
-            _record_identity(sample_records[idx]) for idx in validation_indices
-        }
-        internal_validation_record_overlap = len(
-            train_identities.intersection(validation_identities)
-        )
-    train_count = len(train_x)
-    val_count = len(val_x)
+    reference_val_count = len(reference_val_x)
 
     # Small random init.
     w1 = [(rng.random() - 0.5) * 0.01 for _ in range(hidden_dim * dim)]
@@ -1244,6 +1269,12 @@ def train_model(
     val_prediction_mean_abs_history: List[float] = []
     train_prediction_max_abs_history: List[float] = []
     val_prediction_max_abs_history: List[float] = []
+    reference_val_loss_history: List[float] = []
+    reference_val_cp_mse_history: List[float] = []
+    reference_val_acc_history: List[float] = []
+    reference_val_prediction_mean_abs_history: List[float] = []
+    reference_val_prediction_max_abs_history: List[float] = []
+    reference_val_checkpoint_eligible_history: List[bool] = []
     best_val_loss = float("inf")
     best_epoch = 0
     initial_train_loss = None
@@ -1256,6 +1287,16 @@ def train_model(
     initial_val_prediction_mean_abs = None
     initial_train_prediction_max_abs = None
     initial_val_prediction_max_abs = None
+    initial_reference_val_loss = None
+    initial_reference_val_cp_mse = None
+    initial_reference_val_acc = None
+    initial_reference_val_prediction_mean_abs = None
+    initial_reference_val_prediction_max_abs = None
+    best_reference_val_loss = None
+    best_reference_val_cp_mse = None
+    best_reference_val_acc = None
+    best_reference_val_prediction_mean_abs = None
+    best_reference_val_prediction_max_abs = None
     if initialized_from is not None:
         (
             initial_train_loss,
@@ -1301,6 +1342,35 @@ def train_model(
             initial_val_cp_mse = initial_train_cp_mse
             initial_val_prediction_mean_abs = initial_train_prediction_mean_abs
             initial_val_prediction_max_abs = initial_train_prediction_max_abs
+        if reference_val_count > 0:
+            (
+                initial_reference_val_loss,
+                initial_reference_val_cp_mse,
+                initial_reference_val_acc,
+                initial_reference_val_prediction_mean_abs,
+                initial_reference_val_prediction_max_abs,
+            ) = _eval_split(
+                w1,
+                b1,
+                w2,
+                b2,
+                dim,
+                reference_val_x,
+                reference_val_cp,
+                reference_val_wdl,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
+            best_reference_val_loss = initial_reference_val_loss
+            best_reference_val_cp_mse = initial_reference_val_cp_mse
+            best_reference_val_acc = initial_reference_val_acc
+            best_reference_val_prediction_mean_abs = (
+                initial_reference_val_prediction_mean_abs
+            )
+            best_reference_val_prediction_max_abs = (
+                initial_reference_val_prediction_max_abs
+            )
         best_val_loss = float(initial_val_loss)
 
     for epoch in range(epochs):
@@ -1459,6 +1529,44 @@ def train_model(
             val_cp_mse = train_cp_mse
             val_prediction_mean_abs = train_prediction_mean_abs
             val_prediction_max_abs = train_prediction_max_abs
+        if reference_val_count > 0:
+            (
+                reference_val_loss,
+                reference_val_cp_mse,
+                reference_val_acc,
+                reference_val_prediction_mean_abs,
+                reference_val_prediction_max_abs,
+            ) = _eval_split(
+                w1,
+                b1,
+                w2,
+                b2,
+                dim,
+                reference_val_x,
+                reference_val_cp,
+                reference_val_wdl,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
+        else:
+            reference_val_loss = None
+            reference_val_cp_mse = None
+            reference_val_acc = None
+            reference_val_prediction_mean_abs = None
+            reference_val_prediction_max_abs = None
+        reference_checkpoint_eligible = True
+        if (
+            reference_val_loss is not None
+            and initial_reference_val_loss is not None
+        ):
+            reference_limit = float(initial_reference_val_loss) * (
+                1.0 + REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+            )
+            reference_checkpoint_eligible = (
+                math.isfinite(float(reference_val_loss))
+                and float(reference_val_loss) <= reference_limit + 1e-12
+            )
 
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
@@ -1470,14 +1578,36 @@ def train_model(
         val_prediction_mean_abs_history.append(val_prediction_mean_abs)
         train_prediction_max_abs_history.append(train_prediction_max_abs)
         val_prediction_max_abs_history.append(val_prediction_max_abs)
+        if reference_val_loss is not None:
+            reference_val_loss_history.append(reference_val_loss)
+            reference_val_cp_mse_history.append(reference_val_cp_mse)
+            reference_val_acc_history.append(reference_val_acc)
+            reference_val_prediction_mean_abs_history.append(
+                reference_val_prediction_mean_abs
+            )
+            reference_val_prediction_max_abs_history.append(
+                reference_val_prediction_max_abs
+            )
+        reference_val_checkpoint_eligible_history.append(
+            reference_checkpoint_eligible
+        )
 
-        if val_loss < best_val_loss:
+        if val_loss < best_val_loss and reference_checkpoint_eligible:
             best_val_loss = val_loss
             best_epoch = epoch + 1
             best_w1 = list(w1)
             best_b1 = list(b1)
             best_w2 = list(w2)
             best_b2 = b2
+            best_reference_val_loss = reference_val_loss
+            best_reference_val_cp_mse = reference_val_cp_mse
+            best_reference_val_acc = reference_val_acc
+            best_reference_val_prediction_mean_abs = (
+                reference_val_prediction_mean_abs
+            )
+            best_reference_val_prediction_max_abs = (
+                reference_val_prediction_max_abs
+            )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = {
@@ -1502,7 +1632,14 @@ def train_model(
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
         "sampling_schema": SAMPLING_SCHEMA,
-        "validation_sampling_schema": FIXED_VALIDATION_SAMPLING_SCHEMA,
+        "validation_sampling_schema": PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+        "reference_validation_sampling_schema": FIXED_VALIDATION_SAMPLING_SCHEMA,
+        "checkpoint_selection_schema": CHECKPOINT_SELECTION_SCHEMA,
+        "reference_validation_max_relative_loss_regression": (
+            REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
+        "primary_validation_hash_namespace": PRIMARY_VALIDATION_HASH_NAMESPACE,
+        "validation_seed": validation_seed,
         "validation_require_teacher": validation_require_teacher,
         "validation_source": validation_source,
         "seed": seed,
@@ -1529,7 +1666,13 @@ def train_model(
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
         "sampling_schema": SAMPLING_SCHEMA,
-        "validation_sampling_schema": FIXED_VALIDATION_SAMPLING_SCHEMA,
+        "validation_sampling_schema": PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+        "reference_validation_sampling_schema": FIXED_VALIDATION_SAMPLING_SCHEMA,
+        "checkpoint_selection_schema": CHECKPOINT_SELECTION_SCHEMA,
+        "reference_validation_max_relative_loss_regression": (
+            REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
+        "primary_validation_hash_namespace": PRIMARY_VALIDATION_HASH_NAMESPACE,
         "min_teacher_depth": min_teacher_depth,
         "loss_kind": loss_kind,
         "huber_delta_cp": huber_delta_cp,
@@ -1540,9 +1683,20 @@ def train_model(
             else None
         ),
         "max_validation_samples": max_validation_samples,
-        "validation_seed": int(validation_seed),
+        "validation_seed": validation_seed,
         "validation_require_teacher": validation_require_teacher,
         "validation_source": validation_source,
+        "fixed_validation": fixed_validation,
+        "reference_val_samples": reference_val_count,
+        "train_records_with_teacher_value": train_teacher_count,
+        "primary_validation_records_with_teacher_value": (
+            primary_validation_teacher_count
+        ),
+        "primary_validation_teacher_sample_fraction": (
+            float(primary_validation_teacher_count) / float(val_count)
+            if val_count
+            else 0.0
+        ),
         "adam_beta1": adam_beta1,
         "adam_beta2": adam_beta2,
         "adam_eps": adam_eps,
@@ -1550,6 +1704,15 @@ def train_model(
         "seed": seed,
         "best_epoch": best_epoch,
         "best_val_loss": best_val_loss,
+        "best_reference_val_loss": best_reference_val_loss,
+        "best_reference_val_cp_mse": best_reference_val_cp_mse,
+        "best_reference_val_acc": best_reference_val_acc,
+        "best_reference_val_prediction_mean_abs": (
+            best_reference_val_prediction_mean_abs
+        ),
+        "best_reference_val_prediction_max_abs": (
+            best_reference_val_prediction_max_abs
+        ),
         "initial_train_loss": initial_train_loss,
         "initial_train_acc": initial_train_acc,
         "initial_val_loss": initial_val_loss,
@@ -1560,6 +1723,15 @@ def train_model(
         "initial_val_prediction_mean_abs": initial_val_prediction_mean_abs,
         "initial_train_prediction_max_abs": initial_train_prediction_max_abs,
         "initial_val_prediction_max_abs": initial_val_prediction_max_abs,
+        "initial_reference_val_loss": initial_reference_val_loss,
+        "initial_reference_val_cp_mse": initial_reference_val_cp_mse,
+        "initial_reference_val_acc": initial_reference_val_acc,
+        "initial_reference_val_prediction_mean_abs": (
+            initial_reference_val_prediction_mean_abs
+        ),
+        "initial_reference_val_prediction_max_abs": (
+            initial_reference_val_prediction_max_abs
+        ),
         "initialized_from": initialized_from,
         "optimizer_state_restored": False,
         "train_loss_history": train_loss_history,
@@ -1572,6 +1744,18 @@ def train_model(
         "val_prediction_mean_abs_history": val_prediction_mean_abs_history,
         "train_prediction_max_abs_history": train_prediction_max_abs_history,
         "val_prediction_max_abs_history": val_prediction_max_abs_history,
+        "reference_val_loss_history": reference_val_loss_history,
+        "reference_val_cp_mse_history": reference_val_cp_mse_history,
+        "reference_val_acc_history": reference_val_acc_history,
+        "reference_val_prediction_mean_abs_history": (
+            reference_val_prediction_mean_abs_history
+        ),
+        "reference_val_prediction_max_abs_history": (
+            reference_val_prediction_max_abs_history
+        ),
+        "reference_val_checkpoint_eligible_history": (
+            reference_val_checkpoint_eligible_history
+        ),
         "records_with_best_move": best_move_available,
         "records_with_teacher_value": teacher_value_available,
         "records_with_raw_teacher_value": raw_teacher_value_available,
@@ -1597,6 +1781,16 @@ def train_model(
             else 0.0
         ),
         "val_target_cp_max_abs": max((abs(value) for value in val_cp), default=0.0),
+        "reference_val_target_cp_mean_abs": (
+            sum(abs(value) for value in reference_val_cp)
+            / float(len(reference_val_cp))
+            if reference_val_cp
+            else 0.0
+        ),
+        "reference_val_target_cp_max_abs": max(
+            (abs(value) for value in reference_val_cp),
+            default=0.0,
+        ),
     }
     (out_dir / "checkpoint.json").write_text(json.dumps(checkpoint), encoding="utf-8")
     (out_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")

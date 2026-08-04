@@ -5,6 +5,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from training.nnue import train_stub
 from training.nnue.dataloader import TrainingRecord
@@ -573,10 +574,115 @@ class TrainStubTests(unittest.TestCase):
         self.assertTrue(validation_games)
         self.assertFalse(train_games.intersection(validation_games))
 
+    def test_internal_split_hash_is_order_invariant_and_stable_for_replay(self) -> None:
+        identities = [
+            f"game\0run-stable\0game-{game_idx:03}"
+            for game_idx in range(100)
+            for _ply in range(2)
+        ]
+        teacher_flags = [idx % 2 == 0 for idx in range(len(identities))]
+
+        def roles(
+            ordered_identities: list[str],
+            ordered_teacher_flags: list[bool],
+            *,
+            validation_seed: int,
+        ) -> dict[str, str]:
+            train_indices, validation_indices = (
+                train_stub._internal_validation_partition_from_metadata(
+                    ordered_identities,
+                    ordered_teacher_flags,
+                    0.2,
+                    validation_seed=validation_seed,
+                )
+            )
+            result = {
+                ordered_identities[idx]: "train" for idx in train_indices
+            }
+            result.update(
+                {
+                    ordered_identities[idx]: "validation"
+                    for idx in validation_indices
+                }
+            )
+            return result
+
+        baseline = roles(identities, teacher_flags, validation_seed=71)
+        order = list(reversed(range(len(identities))))
+        reordered = roles(
+            [identities[idx] for idx in order],
+            [teacher_flags[idx] for idx in order],
+            validation_seed=71,
+        )
+        expanded_identities = identities + [
+            f"game\0run-new\0game-{game_idx:03}"
+            for game_idx in range(100, 150)
+        ]
+        expanded = roles(
+            expanded_identities,
+            teacher_flags + [False] * 50,
+            validation_seed=71,
+        )
+        other_seed = roles(identities, teacher_flags, validation_seed=72)
+
+        self.assertEqual(baseline, reordered)
+        self.assertEqual(
+            baseline,
+            {identity: expanded[identity] for identity in set(identities)},
+        )
+        self.assertNotEqual(baseline, other_seed)
+        self.assertIn("train", baseline.values())
+        self.assertIn("validation", baseline.values())
+
+    def test_internal_split_tiny_fallback_keeps_both_sides_nonempty(self) -> None:
+        identities = ["game\0run-tiny\0game-a", "game\0run-tiny\0game-b"]
+        teacher_flags = [False, True]
+
+        train_indices, validation_indices = (
+            train_stub._internal_validation_partition_from_metadata(
+                identities,
+                teacher_flags,
+                1e-12,
+                validation_seed=91,
+            )
+        )
+
+        self.assertEqual(1, len(train_indices))
+        self.assertEqual(1, len(validation_indices))
+
+    def test_compact_partition_matches_training_record_wrapper(self) -> None:
+        records = [
+            train_stub.TrainingRecord(
+                fen="8/8/8/8/8/8/4K3/7k w - - 0 1",
+                result=0,
+                value_cp=25.0 if game_idx % 2 == 0 else None,
+                teacher_depth=6 if game_idx % 2 == 0 else None,
+                run_id="run-parity",
+                game_id=f"game-{game_idx}",
+                ply=ply,
+            )
+            for game_idx in range(20)
+            for ply in range(2)
+        ]
+        wrapped = train_stub._internal_validation_partition(
+            records,
+            0.2,
+            min_teacher_depth=6,
+            validation_seed=123,
+        )
+        compact = train_stub._internal_validation_partition_from_metadata(
+            [train_stub._validation_group_identity(record) for record in records],
+            [train_stub._teacher_available(record, 6) for record in records],
+            0.2,
+            validation_seed=123,
+        )
+
+        self.assertEqual(wrapped, compact)
+
     def test_internal_split_preserves_teacher_mix_when_groups_allow_it(self) -> None:
         records = []
         fen = "8/8/8/8/8/8/4K3/7k w - - 0 1"
-        for game_idx in range(8):
+        for game_idx in range(40):
             for ply in range(2):
                 teacher = game_idx % 2 == 0
                 records.append(
@@ -603,16 +709,18 @@ class TrainStubTests(unittest.TestCase):
             min_teacher_depth=6,
         )
 
-        self.assertEqual(4, len(validation_indices))
-        self.assertEqual(
+        self.assertGreater(len(validation_indices), 0)
+        self.assertAlmostEqual(
             0.5,
             sum(records[idx].teacher_depth == 6 for idx in validation_indices)
             / len(validation_indices),
+            delta=0.1,
         )
-        self.assertEqual(
+        self.assertAlmostEqual(
             0.5,
             sum(records[idx].teacher_depth == 6 for idx in train_indices)
             / len(train_indices),
+            delta=0.1,
         )
 
     def test_train_model_writes_metrics_and_checkpoint(self) -> None:
@@ -693,7 +801,7 @@ class TrainStubTests(unittest.TestCase):
             self.assertEqual(1, len(metrics["train_prediction_max_abs_history"]))
             self.assertTrue(metrics["train_loss_history"][0] >= 0.0)
 
-    def test_external_validation_is_fixed_and_not_part_of_training(self) -> None:
+    def test_external_validation_is_reference_only_for_epoch_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             train_dir = root / "train-data"
@@ -726,9 +834,112 @@ class TrainStubTests(unittest.TestCase):
                 out_dir=root / "out",
             )
 
-            self.assertEqual(12, metrics["train_samples"])
-            self.assertEqual(4, metrics["val_samples"])
+            self.assertEqual(12, metrics["train_samples"] + metrics["val_samples"])
+            self.assertGreater(metrics["val_samples"], 0)
+            self.assertEqual(4, metrics["reference_val_samples"])
             self.assertEqual(validation_dir.resolve().as_posix(), metrics["validation_jsonl_dir"])
+            self.assertEqual(
+                train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+                metrics["validation_sampling_schema"],
+            )
+            self.assertEqual(
+                train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+                metrics["reference_validation_sampling_schema"],
+            )
+            self.assertEqual(
+                train_stub.CHECKPOINT_SELECTION_SCHEMA,
+                metrics["checkpoint_selection_schema"],
+            )
+            self.assertEqual(1, len(metrics["reference_val_loss_history"]))
+
+    def test_reference_guard_allows_small_mismatch_but_blocks_large_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            train_dir = root / "train"
+            reference_dir = root / "reference"
+            train_dir.mkdir()
+            reference_dir.mkdir()
+            with (train_dir / "train.jsonl").open("w", encoding="utf-8") as handle:
+                for game_idx in range(4):
+                    handle.write(json.dumps({
+                        "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                        "result": 1,
+                        "run_id": "run-guard",
+                        "game_id": f"game-{game_idx}",
+                        "ply": 0,
+                    }) + "\n")
+            (reference_dir / "reference.jsonl").write_text(
+                json.dumps({
+                    "fen": "1k6/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "result": 1,
+                    "value_cp": 500.0,
+                    "teacher_depth": 6,
+                }) + "\n",
+                encoding="utf-8",
+            )
+            parent = {
+                "format": "piebot-halfkp-mse-v2",
+                "feature_set": train_stub.FEATURE_SET,
+                "target_schema": train_stub.TARGET_SCHEMA,
+                "objective": _objective(),
+                "input_dim": train_stub.HALFKP_DIM,
+                "hidden_dim": 1,
+                "w1": [0.0] * train_stub.HALFKP_DIM,
+                "b1": [0.0],
+                "w2": [0.0],
+                "b2": 0.0,
+            }
+            parent_path = root / "parent.json"
+            parent_path.write_text(json.dumps(parent), encoding="utf-8")
+
+            def run_case(name: str, epoch_reference_loss: float) -> dict:
+                evaluations = [
+                    (0.9, 1.0, 0.5, 0.0, 0.0),
+                    (1.0, 1.0, 0.5, 0.0, 0.0),
+                    (1.0, 1.0, 0.5, 0.0, 0.0),
+                    (0.8, 1.0, 0.5, 0.0, 0.0),
+                    (0.8, 1.0, 0.5, 0.0, 0.0),
+                    (epoch_reference_loss, 1.1, 0.4, 2.0, 3.0),
+                ]
+                with mock.patch(
+                    "training.nnue.train_stub._eval_split",
+                    side_effect=evaluations,
+                ):
+                    return train_stub.train_model(
+                        jsonl_dir=train_dir,
+                        batch_size=2,
+                        max_samples=4,
+                        epochs=1,
+                        val_split=0.25,
+                        learning_rate=0.0,
+                        hidden_dim=1,
+                        seed=17,
+                        validation_seed=31,
+                        out_dir=root / name,
+                        initial_checkpoint=parent_path,
+                        validation_jsonl_dir=reference_dir,
+                        max_validation_samples=1,
+                    )
+
+            allowed = run_case("allowed", 1.002)
+            blocked = run_case("blocked", 1.02)
+
+            self.assertEqual(1, allowed["best_epoch"])
+            self.assertEqual(1.002, allowed["best_reference_val_loss"])
+            self.assertEqual(1.1, allowed["best_reference_val_cp_mse"])
+            self.assertEqual(0.4, allowed["best_reference_val_acc"])
+            self.assertEqual(2.0, allowed["best_reference_val_prediction_mean_abs"])
+            self.assertEqual(3.0, allowed["best_reference_val_prediction_max_abs"])
+            self.assertEqual(
+                [True],
+                allowed["reference_val_checkpoint_eligible_history"],
+            )
+            self.assertEqual(0, blocked["best_epoch"])
+            self.assertEqual(1.0, blocked["best_reference_val_loss"])
+            self.assertEqual(
+                [False],
+                blocked["reference_val_checkpoint_eligible_history"],
+            )
 
     def test_external_validation_rejects_the_training_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -964,7 +1175,8 @@ class TrainStubTests(unittest.TestCase):
                 out_dir=root / "out",
             )
 
-            self.assertEqual(1, metrics["val_samples"])
+            self.assertEqual(3, metrics["train_samples"] + metrics["val_samples"])
+            self.assertEqual(1, metrics["reference_val_samples"])
             self.assertTrue(metrics["validation_require_teacher"])
             self.assertEqual(1, metrics["validation_records_with_teacher_value"])
             self.assertEqual(1, metrics["validation_records_with_raw_teacher_value"])
@@ -990,6 +1202,22 @@ class TrainStubTests(unittest.TestCase):
             self.assertEqual(train_stub.TARGET_SCHEMA, checkpoint["target_schema"])
             self.assertEqual(train_stub.OBJECTIVE_SCHEMA, checkpoint["objective"]["schema"])
             self.assertEqual(checkpoint["objective"], metrics["objective"])
+            self.assertEqual(
+                train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+                checkpoint["validation_sampling_schema"],
+            )
+            self.assertEqual(
+                train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+                checkpoint["reference_validation_sampling_schema"],
+            )
+            self.assertEqual(
+                train_stub.CHECKPOINT_SELECTION_SCHEMA,
+                checkpoint["checkpoint_selection_schema"],
+            )
+            self.assertEqual(
+                train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION,
+                checkpoint["reference_validation_max_relative_loss_regression"],
+            )
 
     def test_stub_warm_start_preserves_parent_when_zero_lr_cannot_improve(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

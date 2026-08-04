@@ -863,6 +863,58 @@ class AutopilotTests(unittest.TestCase):
             )
             self.assertEqual([1, 2, 3, 4], [c["cycle"] for c in completed])
 
+    def test_validation_partition_migration_cuts_replay_without_resetting_optimizer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            completed = []
+            for cycle in range(1, 5):
+                path = Path(tmp) / f"cycle-{cycle}" / "jsonl"
+                path.mkdir(parents=True)
+                paths.append(path)
+                completed.append({"cycle": cycle, "jsonl_dir": str(path)})
+            state = {
+                "next_cycle": 5,
+                "training_lineage_start_cycle": 1,
+                "training_checkpoint_path": "/live/cycle-4/train/checkpoint.json",
+                "training_checkpoint_sha256": "checkpoint-sha",
+                "training_model_identity": {"input_dim": 81_920},
+                "completed_cycles": completed,
+                "accepted_models": [],
+            }
+
+            self.assertTrue(autopilot._migrate_deployment_state(state))
+
+            self.assertEqual(
+                autopilot.run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+                state["validation_partition_schema"],
+            )
+            self.assertEqual(5, state["validation_partition_start_cycle"])
+            self.assertEqual(
+                "/live/cycle-4/train/checkpoint.json",
+                state["training_checkpoint_path"],
+            )
+            self.assertEqual("checkpoint-sha", state["training_checkpoint_sha256"])
+            self.assertEqual({"input_dim": 81_920}, state["training_model_identity"])
+            self.assertEqual([], autopilot._collect_replay_jsonl_dirs(state, 6))
+            migration = state["validation_partition_migration"]
+            self.assertEqual(5, migration["start_cycle"])
+            self.assertEqual(
+                "/live/cycle-4/train/checkpoint.json",
+                migration["preserved_checkpoint_path"],
+            )
+
+            clean_path = Path(tmp) / "cycle-5" / "jsonl"
+            clean_path.mkdir(parents=True)
+            state["completed_cycles"].append(
+                {"cycle": 5, "jsonl_dir": str(clean_path)}
+            )
+            state["next_cycle"] = 6
+            self.assertEqual(
+                [clean_path],
+                autopilot._collect_replay_jsonl_dirs(state, 6),
+            )
+            self.assertFalse(autopilot._migrate_deployment_state(state))
+
     def test_atomic_training_lineage_reset_clears_warm_start_but_keeps_audit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "autopilot_state.json"

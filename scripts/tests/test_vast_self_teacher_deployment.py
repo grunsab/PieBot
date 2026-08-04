@@ -140,6 +140,27 @@ class VastSelfTeacherDeploymentTests(unittest.TestCase):
             metadata["dataset_sha256"],
         )
 
+    def test_launcher_distinguishes_checkpoint_holdout_from_reference_envelope(self) -> None:
+        launcher = LAUNCHER.read_text(encoding="utf-8")
+        self.assertIn(
+            "--validation-jsonl-dir supplies the pinned depth-6 reference/safety envelope",
+            launcher,
+        )
+        self.assertIn(
+            "it never ranks epochs, but vetoes a >1% reference-loss regression",
+            launcher,
+        )
+        self.assertIn(
+            'log "reference/safety envelope: pinned depth-6 corpus at '
+            '$VALIDATION_JSONL_DIR (--validation-jsonl-dir; vetoes >1% loss regression)"',
+            launcher,
+        )
+        self.assertIn(
+            'log "checkpoint selection: stable game-hash-aligned depth-5 holdout '
+            'ranks eligible checkpoints"',
+            launcher,
+        )
+
     def test_launcher_uses_vm_and_gpu_capacity_fail_closed(self) -> None:
         launcher = LAUNCHER.read_text(encoding="utf-8")
         self.assertIn('PYTHON_BIN="${PYTHON_BIN:-/venv/main/bin/python}"', launcher)

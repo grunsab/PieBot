@@ -16,6 +16,9 @@ INITIAL_ACTIVE_MODEL_SOURCE="${INITIAL_ACTIVE_MODEL_SOURCE:-/workspace/piebot_ru
 INITIAL_ACTIVE_MODEL="$BOOTSTRAP_DIR/cycle_000083_nnue_quant.nnue"
 INITIAL_ACTIVE_MODEL_SHA256="${INITIAL_ACTIVE_MODEL_SHA256:-6a9c02212cd4b08c30e1797bf94b4742ea3cc8370aa2410f2a58be8924737101}"
 INITIAL_ACTIVE_MODEL_BLEND_PERCENT="${INITIAL_ACTIVE_MODEL_BLEND_PERCENT:-50}"
+# --validation-jsonl-dir supplies the pinned depth-6 reference/safety envelope;
+# it never ranks epochs, but vetoes a >1% reference-loss regression. A stable
+# game-hash-aligned depth-5 holdout ranks and selects eligible checkpoints.
 VALIDATION_SHARD_SOURCE="${VALIDATION_SHARD_SOURCE:-/workspace/piebot_runs/main_48h_20260802T081500Z/fixed_validation_softwdl_v2_seed20260803/jsonl_relabel/shard_000000.jsonl}"
 VALIDATION_JSONL_DIR="$BOOTSTRAP_DIR/validation"
 VALIDATION_SHARD="$VALIDATION_JSONL_DIR/shard_000000.jsonl"
@@ -319,6 +322,8 @@ AUTOPILOT_ARGS=(
 log "starting PieBot-only depth-$RELABEL_DEPTH self-relabel training"
 log "output root: $OUT_ROOT"
 log "deadline budget: $HOURS hours (persisted in autopilot_state.json)"
+log "reference/safety envelope: pinned depth-6 corpus at $VALIDATION_JSONL_DIR (--validation-jsonl-dir; vetoes >1% loss regression)"
+log "checkpoint selection: stable game-hash-aligned depth-5 holdout ranks eligible checkpoints"
 "$PYTHON_BIN" -m training.nnue.autopilot "${AUTOPILOT_ARGS[@]}"
 
 require_file "$OUT_ROOT/autopilot_state.json"

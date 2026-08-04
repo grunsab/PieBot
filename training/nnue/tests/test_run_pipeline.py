@@ -716,8 +716,26 @@ class RunPipelineTests(unittest.TestCase):
                 train_manifest["provenance"]["config"]["sampling_schema"],
             )
             self.assertEqual(
-                run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+                run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
                 train_manifest["provenance"]["config"]["validation_sampling_schema"],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+                train_manifest["provenance"]["config"][
+                    "reference_validation_sampling_schema"
+                ],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.CHECKPOINT_SELECTION_SCHEMA,
+                train_manifest["provenance"]["config"][
+                    "checkpoint_selection_schema"
+                ],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE,
+                train_manifest["provenance"]["config"][
+                    "primary_validation_hash_namespace"
+                ],
             )
 
     def test_pipeline_replay_jsonl_dirs_are_merged_for_training(self) -> None:
@@ -795,8 +813,12 @@ class RunPipelineTests(unittest.TestCase):
             )
             self.assertEqual(0.5, first["metrics"]["teacher_sample_fraction"])
             self.assertTrue(first["metrics"]["validation_require_teacher"])
-            self.assertEqual(12, first["metrics"]["train_samples"])
-            self.assertEqual(4, first["metrics"]["val_samples"])
+            self.assertEqual(
+                12,
+                first["metrics"]["train_samples"] + first["metrics"]["val_samples"],
+            )
+            self.assertGreater(first["metrics"]["val_samples"], 0)
+            self.assertEqual(4, first["metrics"]["reference_val_samples"])
             self.assertEqual(
                 validation_dir.resolve().as_posix(),
                 first["validation_dataset"]["path"],
@@ -832,7 +854,19 @@ class RunPipelineTests(unittest.TestCase):
         metrics = {
             "sampling_schema": run_pipeline.train_stub.SAMPLING_SCHEMA,
             "validation_sampling_schema": (
+                run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
+            ),
+            "reference_validation_sampling_schema": (
                 run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            ),
+            "checkpoint_selection_schema": (
+                run_pipeline.train_stub.CHECKPOINT_SELECTION_SCHEMA
+            ),
+            "reference_validation_max_relative_loss_regression": (
+                run_pipeline.train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+            ),
+            "primary_validation_hash_namespace": (
+                run_pipeline.train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
             ),
             "target_schema": run_pipeline.train_stub.TARGET_SCHEMA,
             "objective": objective,
@@ -842,6 +876,12 @@ class RunPipelineTests(unittest.TestCase):
                 {
                     "target_schema": "hard-outcome-v1",
                     "objective": objective,
+                    "checkpoint_selection_schema": (
+                        run_pipeline.train_stub.CHECKPOINT_SELECTION_SCHEMA
+                    ),
+                    "primary_validation_hash_namespace": (
+                        run_pipeline.train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+                    ),
                 },
                 metrics,
                 objective,
@@ -851,6 +891,75 @@ class RunPipelineTests(unittest.TestCase):
                 {
                     "target_schema": run_pipeline.train_stub.TARGET_SCHEMA,
                     "objective": {**objective, "target_cp": 200.0},
+                    "checkpoint_selection_schema": (
+                        run_pipeline.train_stub.CHECKPOINT_SELECTION_SCHEMA
+                    ),
+                    "primary_validation_hash_namespace": (
+                        run_pipeline.train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+                    ),
+                },
+                metrics,
+                objective,
+            )
+
+    def test_training_identity_validation_rejects_reference_guard_mismatch(self) -> None:
+        objective = run_pipeline.train_stub.objective_metadata(
+            loss_kind="wdl",
+            target_cp=100.0,
+            teacher_mix=0.8,
+            max_teacher_cp=1200.0,
+            outcome_decay=1.0,
+            min_teacher_depth=6,
+            huber_delta_cp=100.0,
+            wdl_scale_cp=400.0,
+        )
+        guard = (
+            run_pipeline.train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        )
+        checkpoint = {
+            "target_schema": run_pipeline.train_stub.TARGET_SCHEMA,
+            "objective": objective,
+            "checkpoint_selection_schema": (
+                run_pipeline.train_stub.CHECKPOINT_SELECTION_SCHEMA
+            ),
+            "reference_validation_max_relative_loss_regression": guard,
+            "primary_validation_hash_namespace": (
+                run_pipeline.train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+            ),
+        }
+        metrics = {
+            "sampling_schema": run_pipeline.train_stub.SAMPLING_SCHEMA,
+            "validation_sampling_schema": (
+                run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
+            ),
+            "reference_validation_sampling_schema": (
+                run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            ),
+            "checkpoint_selection_schema": (
+                run_pipeline.train_stub.CHECKPOINT_SELECTION_SCHEMA
+            ),
+            "reference_validation_max_relative_loss_regression": guard,
+            "primary_validation_hash_namespace": (
+                run_pipeline.train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+            ),
+            "target_schema": run_pipeline.train_stub.TARGET_SCHEMA,
+            "objective": objective,
+        }
+
+        with self.assertRaisesRegex(ValueError, "metrics reference validation guard"):
+            run_pipeline._validate_training_target_identity(
+                checkpoint,
+                {
+                    **metrics,
+                    "reference_validation_max_relative_loss_regression": guard * 2,
+                },
+                objective,
+            )
+        with self.assertRaisesRegex(ValueError, "checkpoint reference validation guard"):
+            run_pipeline._validate_training_target_identity(
+                {
+                    **checkpoint,
+                    "reference_validation_max_relative_loss_regression": guard * 2,
                 },
                 metrics,
                 objective,
@@ -1184,6 +1293,66 @@ class RunPipelineTests(unittest.TestCase):
             self.assertEqual(1, checkpoint["hidden_dim"])
             self.assertIsNotNone(
                 run_pipeline._validated_training_stage_manifest(out_dir / "train")
+            )
+
+    def test_resume_invalidates_old_checkpoint_selection_manifest_schema(self) -> None:
+        """A pre-dual-validation cache must not bypass the updated trainer."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            out_dir = root / "out"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            _write_dataset(data_dir, n=12)
+            kwargs = {
+                "jsonl_dir": data_dir,
+                "out_dir": out_dir,
+                "batch_size": 4,
+                "max_samples": 12,
+                "epochs": 1,
+                "val_split": 0.25,
+                "hidden_dim": 1,
+                "seed": 37,
+                "trainer_backend": "stub",
+                "resume": True,
+            }
+            run_pipeline.run_pipeline(**kwargs)
+
+            manifest_path = out_dir / "train" / run_pipeline._TRAIN_STAGE_MANIFEST
+            old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            old_config = old_manifest["provenance"]["config"]
+            old_config["validation_sampling_schema"] = (
+                run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            )
+            old_config.pop("reference_validation_sampling_schema")
+            old_config.pop("checkpoint_selection_schema")
+            old_config.pop("reference_validation_max_relative_loss_regression")
+            old_config.pop("primary_validation_hash_namespace")
+            manifest_path.write_text(json.dumps(old_manifest), encoding="utf-8")
+
+            with mock.patch(
+                "training.nnue.train_stub.train_model",
+                wraps=run_pipeline.train_stub.train_model,
+            ) as train:
+                run_pipeline.run_pipeline(**kwargs)
+
+            self.assertEqual(1, train.call_count)
+            rewritten = json.loads(manifest_path.read_text(encoding="utf-8"))
+            rewritten_config = rewritten["provenance"]["config"]
+            self.assertEqual(
+                run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+                rewritten_config["validation_sampling_schema"],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+                rewritten_config["reference_validation_sampling_schema"],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.CHECKPOINT_SELECTION_SCHEMA,
+                rewritten_config["checkpoint_selection_schema"],
+            )
+            self.assertEqual(
+                run_pipeline.train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE,
+                rewritten_config["primary_validation_hash_namespace"],
             )
 
     def test_resume_rebuilds_corrupt_export_artifact_without_retraining(self) -> None:

@@ -193,6 +193,32 @@ def _validate_training_lineage_floor(state: Dict[str, Any]) -> int:
     return floor
 
 
+def _validate_validation_partition_floor(state: Dict[str, Any]) -> int:
+    raw = state.get("validation_partition_start_cycle")
+    if isinstance(raw, bool):
+        raise ValueError("validation_partition_start_cycle must be an integer")
+    try:
+        floor = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "validation_partition_start_cycle must be an integer"
+        ) from exc
+    if floor < 1:
+        raise ValueError("validation_partition_start_cycle must be >= 1")
+    next_cycle = int(state.get("next_cycle", 1))
+    if floor > next_cycle:
+        raise ValueError(
+            f"validation_partition_start_cycle {floor} cannot exceed "
+            f"next_cycle {next_cycle}"
+        )
+    expected_schema = (
+        run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
+    )
+    if state.get("validation_partition_schema") != expected_schema:
+        raise ValueError("validation partition schema is not current")
+    return floor
+
+
 def _atomic_reset_training_lineage(
     *,
     state_path: Path,
@@ -838,8 +864,8 @@ def _migrate_deployment_state(state: Dict[str, Any]) -> bool:
     """Persist the exact deployed model tuple without discarding audit history."""
     changed = False
     prior_version = int(state.get("deployment_state_version", 1) or 1)
-    if prior_version != 3:
-        state["deployment_state_version"] = 3
+    if prior_version != 4:
+        state["deployment_state_version"] = 4
         changed = True
     if state.get("promotion_evidence_schema") != "paired-bootstrap-pst-v1":
         state["promotion_evidence_schema"] = "paired-bootstrap-pst-v1"
@@ -863,6 +889,39 @@ def _migrate_deployment_state(state: Dict[str, Any]) -> bool:
         state["training_lineage_start_cycle"] = 1
         changed = True
     _validate_training_lineage_floor(state)
+    expected_partition_schema = (
+        run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
+    )
+    partition_needs_migration = (
+        state.get("validation_partition_schema") != expected_partition_schema
+        or "validation_partition_start_cycle" not in state
+    )
+    if partition_needs_migration:
+        start_cycle = int(state.get("next_cycle", 1))
+        migration = {
+            "schema": expected_partition_schema,
+            "start_cycle": start_cycle,
+            "migrated_at": time.time(),
+            "prior_schema": state.get("validation_partition_schema"),
+            "prior_start_cycle": state.get("validation_partition_start_cycle"),
+            "preserved_checkpoint_path": state.get("training_checkpoint_path"),
+            "preserved_checkpoint_sha256": state.get(
+                "training_checkpoint_sha256"
+            ),
+            "preserved_model_identity": copy.deepcopy(
+                state.get("training_model_identity")
+            ),
+        }
+        history = state.get("validation_partition_migrations")
+        if not isinstance(history, list):
+            history = []
+        history.append(copy.deepcopy(migration))
+        state["validation_partition_migrations"] = history
+        state["validation_partition_migration"] = migration
+        state["validation_partition_schema"] = expected_partition_schema
+        state["validation_partition_start_cycle"] = start_cycle
+        changed = True
+    _validate_validation_partition_floor(state)
     if "training_model_identity" not in state or (
         state.get("training_checkpoint_path")
         and not isinstance(state.get("training_model_identity"), dict)
@@ -1033,7 +1092,11 @@ def _collect_replay_jsonl_dirs(state: Dict[str, Any], window_cycles: int) -> lis
     completed = state.get("completed_cycles")
     if not isinstance(completed, list):
         return []
-    lineage_floor = max(0, int(state.get("training_lineage_start_cycle", 0) or 0))
+    lineage_floor = max(
+        0,
+        int(state.get("training_lineage_start_cycle", 0) or 0),
+        int(state.get("validation_partition_start_cycle", 0) or 0),
+    )
     out: list[Path] = []
     for c in reversed(completed):
         if not isinstance(c, dict):
@@ -2145,9 +2208,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "active_model_sha256": None,
                 "active_model_blend_percent": 0,
                 "active_model_identity": None,
-                "deployment_state_version": 3,
+                "deployment_state_version": 4,
                 "promotion_evidence_schema": "paired-bootstrap-pst-v1",
                 "training_lineage_start_cycle": 1,
+                "validation_partition_schema": (
+                    run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
+                ),
+                "validation_partition_start_cycle": 1,
                 "training_model_identity": None,
                 "initial_active_model": copy.deepcopy(initial_active_model),
                 "last_error": None,

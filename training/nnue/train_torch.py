@@ -668,12 +668,11 @@ def train_model(
     xs: List[List[int]] = []
     ys_cp: List[float] = []
     ys_wdl: List[float] = []
-    # Production supplies a disjoint fixed holdout and does not need raw
-    # training records after target extraction. Retaining all 700k records here
-    # materially increases peak RAM without contributing to validation.
-    sample_records: Optional[List[train_stub.TrainingRecord]] = (
-        [] if validation_jsonl_dir is None else None
-    )
+    # Keep only compact partition metadata. Retaining all 700k TrainingRecord
+    # objects costs several GB, while these identities are sufficient to keep
+    # every game/duplicate wholly on one side of the aligned holdout.
+    validation_group_identities: List[str] = []
+    validation_teacher_flags: List[bool] = []
     best_move_available = 0
     teacher_value_available = 0
     raw_teacher_value_available = 0
@@ -686,8 +685,12 @@ def train_model(
         min_teacher_depth=min_teacher_depth,
     ):
         xs.append(feats)
-        if sample_records is not None:
-            sample_records.append(record)
+        validation_group_identities.append(
+            train_stub._validation_group_identity(record)
+        )
+        validation_teacher_flags.append(
+            train_stub._teacher_available(record, min_teacher_depth)
+        )
         cp, probability = train_stub._targets_for_record(
             record,
             loss_kind=loss_kind,
@@ -726,15 +729,51 @@ def train_model(
     xs = [xs[i] for i in order]
     ys_cp = [ys_cp[i] for i in order]
     ys_wdl = [ys_wdl[i] for i in order]
-    if sample_records is not None:
-        sample_records = [sample_records[i] for i in order]
+    validation_group_identities = [
+        validation_group_identities[i] for i in order
+    ]
+    validation_teacher_flags = [validation_teacher_flags[i] for i in order]
 
     fixed_validation = validation_jsonl_dir is not None
     validation_source = None
     validation_teacher_value_available: Optional[int] = None
     validation_raw_teacher_value_available: Optional[int] = None
     validation_sample_sha256: Optional[str] = None
-    internal_validation_record_overlap: Optional[int] = None
+    train_indices, validation_indices = (
+        train_stub._internal_validation_partition_from_metadata(
+            validation_group_identities,
+            validation_teacher_flags,
+            val_split,
+            validation_seed=validation_seed,
+        )
+    )
+    train_x = [xs[idx] for idx in train_indices]
+    train_y_cp = [ys_cp[idx] for idx in train_indices]
+    train_y_wdl = [ys_wdl[idx] for idx in train_indices]
+    val_x = [xs[idx] for idx in validation_indices]
+    val_y_cp = [ys_cp[idx] for idx in validation_indices]
+    val_y_wdl = [ys_wdl[idx] for idx in validation_indices]
+    train_count = len(train_x)
+    val_count = len(val_x)
+    train_teacher_count = sum(
+        validation_teacher_flags[idx] for idx in train_indices
+    )
+    primary_validation_teacher_count = sum(
+        validation_teacher_flags[idx] for idx in validation_indices
+    )
+    train_groups = {
+        validation_group_identities[idx] for idx in train_indices
+    }
+    validation_groups = {
+        validation_group_identities[idx] for idx in validation_indices
+    }
+    internal_validation_record_overlap = len(
+        train_groups.intersection(validation_groups)
+    )
+
+    reference_val_x: List[List[int]] = []
+    reference_val_y_cp: List[float] = []
+    reference_val_y_wdl: List[float] = []
     if fixed_validation:
         validation_teacher_value_available = 0
         validation_raw_teacher_value_available = 0
@@ -746,9 +785,6 @@ def train_model(
             "max_samples": max_validation_samples,
             "seed": validation_seed,
         }
-        val_x: List[List[int]] = []
-        val_y_cp: List[float] = []
-        val_y_wdl: List[float] = []
         validation_digest = hashlib.sha256()
         for feats, record in train_stub.iterate_fixed_validation_samples(
             validation_path,
@@ -765,7 +801,7 @@ def train_model(
                 validation_raw_teacher_value_available += 1
             if train_stub._teacher_available(record, min_teacher_depth):
                 validation_teacher_value_available += 1
-            val_x.append(feats)
+            reference_val_x.append(feats)
             cp, probability = train_stub._targets_for_record(
                 record,
                 loss_kind=loss_kind,
@@ -776,15 +812,10 @@ def train_model(
                 min_teacher_depth=min_teacher_depth,
                 wdl_scale_cp=wdl_scale_cp,
             )
-            val_y_cp.append(cp)
-            val_y_wdl.append(probability)
-        if not val_x:
-            raise ValueError("no fixed validation samples were loaded")
-        train_x = xs
-        train_y_cp = ys_cp
-        train_y_wdl = ys_wdl
-        train_count = len(train_x)
-        val_count = len(val_x)
+            reference_val_y_cp.append(cp)
+            reference_val_y_wdl.append(probability)
+        if not reference_val_x:
+            raise ValueError("no fixed reference validation samples were loaded")
         validation_source = {
             "path": validation_path.resolve().as_posix(),
             "sha256": _sha256_jsonl_source(validation_path),
@@ -795,31 +826,7 @@ def train_model(
         if validation_source != validation_source_before:
             raise ValueError("fixed validation source changed while trainer was reading it")
         validation_sample_sha256 = validation_digest.hexdigest()
-    else:
-        assert sample_records is not None
-        train_indices, validation_indices = train_stub._internal_validation_partition(
-            sample_records,
-            val_split,
-            min_teacher_depth=min_teacher_depth,
-        )
-        train_x = [xs[idx] for idx in train_indices]
-        train_y_cp = [ys_cp[idx] for idx in train_indices]
-        train_y_wdl = [ys_wdl[idx] for idx in train_indices]
-        val_x = [xs[idx] for idx in validation_indices]
-        val_y_cp = [ys_cp[idx] for idx in validation_indices]
-        val_y_wdl = [ys_wdl[idx] for idx in validation_indices]
-        train_count = len(train_x)
-        val_count = len(val_x)
-        train_identities = {
-            train_stub._record_identity(sample_records[idx]) for idx in train_indices
-        }
-        validation_identities = {
-            train_stub._record_identity(sample_records[idx])
-            for idx in validation_indices
-        }
-        internal_validation_record_overlap = len(
-            train_identities.intersection(validation_identities)
-        )
+    reference_val_count = len(reference_val_x)
 
     input_dim = train_stub.HALFKP_DIM
     model = TorchNnue(input_dim=input_dim, hidden_dim=hidden_dim).to(dev)
@@ -877,6 +884,16 @@ def train_model(
     initial_val_prediction_mean_abs = None
     initial_train_prediction_max_abs = None
     initial_val_prediction_max_abs = None
+    initial_reference_val_loss = None
+    initial_reference_val_cp_mse = None
+    initial_reference_val_acc = None
+    initial_reference_val_prediction_mean_abs = None
+    initial_reference_val_prediction_max_abs = None
+    best_reference_val_loss = None
+    best_reference_val_cp_mse = None
+    best_reference_val_acc = None
+    best_reference_val_prediction_mean_abs = None
+    best_reference_val_prediction_max_abs = None
     if initialized_from is not None:
         (
             initial_train_loss,
@@ -919,6 +936,33 @@ def train_model(
             initial_val_acc = initial_train_acc
             initial_val_prediction_mean_abs = initial_train_prediction_mean_abs
             initial_val_prediction_max_abs = initial_train_prediction_max_abs
+        if reference_val_count > 0:
+            (
+                initial_reference_val_loss,
+                initial_reference_val_cp_mse,
+                initial_reference_val_acc,
+                initial_reference_val_prediction_mean_abs,
+                initial_reference_val_prediction_max_abs,
+            ) = _eval_split(
+                model,
+                reference_val_x,
+                reference_val_y_cp,
+                reference_val_y_wdl,
+                batch_size,
+                dev,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
+            best_reference_val_loss = initial_reference_val_loss
+            best_reference_val_cp_mse = initial_reference_val_cp_mse
+            best_reference_val_acc = initial_reference_val_acc
+            best_reference_val_prediction_mean_abs = (
+                initial_reference_val_prediction_mean_abs
+            )
+            best_reference_val_prediction_max_abs = (
+                initial_reference_val_prediction_max_abs
+            )
         best_val = float(initial_val_loss)
         best_state = {
             key: value.detach().cpu().clone() for key, value in model.state_dict().items()
@@ -934,6 +978,12 @@ def train_model(
     val_prediction_mean_abs_history: List[float] = []
     train_prediction_max_abs_history: List[float] = []
     val_prediction_max_abs_history: List[float] = []
+    reference_val_loss_history: List[float] = []
+    reference_val_cp_mse_history: List[float] = []
+    reference_val_acc_history: List[float] = []
+    reference_val_prediction_mean_abs_history: List[float] = []
+    reference_val_prediction_max_abs_history: List[float] = []
+    reference_val_checkpoint_eligible_history: List[bool] = []
 
     for ep in range(epochs):
         idx = list(range(train_count))
@@ -1002,6 +1052,43 @@ def train_model(
             va_loss, va_cp_mse, va_acc = tr_loss, tr_cp_mse, tr_acc
             va_prediction_mean_abs = tr_prediction_mean_abs
             va_prediction_max_abs = tr_prediction_max_abs
+        if reference_val_count > 0:
+            (
+                reference_va_loss,
+                reference_va_cp_mse,
+                reference_va_acc,
+                reference_va_prediction_mean_abs,
+                reference_va_prediction_max_abs,
+            ) = _eval_split(
+                model,
+                reference_val_x,
+                reference_val_y_cp,
+                reference_val_y_wdl,
+                batch_size,
+                dev,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
+        else:
+            reference_va_loss = None
+            reference_va_cp_mse = None
+            reference_va_acc = None
+            reference_va_prediction_mean_abs = None
+            reference_va_prediction_max_abs = None
+        reference_checkpoint_eligible = True
+        if (
+            reference_va_loss is not None
+            and initial_reference_val_loss is not None
+        ):
+            reference_limit = float(initial_reference_val_loss) * (
+                1.0
+                + train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+            )
+            reference_checkpoint_eligible = (
+                math.isfinite(float(reference_va_loss))
+                and float(reference_va_loss) <= reference_limit + 1e-12
+            )
         train_loss_history.append(tr_loss)
         val_loss_history.append(va_loss)
         train_cp_mse_history.append(tr_cp_mse)
@@ -1012,17 +1099,92 @@ def train_model(
         val_prediction_mean_abs_history.append(va_prediction_mean_abs)
         train_prediction_max_abs_history.append(tr_prediction_max_abs)
         val_prediction_max_abs_history.append(va_prediction_max_abs)
-        if va_loss < best_val:
+        if reference_va_loss is not None:
+            reference_val_loss_history.append(reference_va_loss)
+            reference_val_cp_mse_history.append(reference_va_cp_mse)
+            reference_val_acc_history.append(reference_va_acc)
+            reference_val_prediction_mean_abs_history.append(
+                reference_va_prediction_mean_abs
+            )
+            reference_val_prediction_max_abs_history.append(
+                reference_va_prediction_max_abs
+            )
+        reference_val_checkpoint_eligible_history.append(
+            reference_checkpoint_eligible
+        )
+        if va_loss < best_val and reference_checkpoint_eligible:
             best_val = va_loss
             best_epoch = ep + 1
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             best_optimizer_state = _to_cpu_tree(opt.state_dict())
+            best_reference_val_loss = reference_va_loss
+            best_reference_val_cp_mse = reference_va_cp_mse
+            best_reference_val_acc = reference_va_acc
+            best_reference_val_prediction_mean_abs = (
+                reference_va_prediction_mean_abs
+            )
+            best_reference_val_prediction_max_abs = (
+                reference_va_prediction_max_abs
+            )
 
     if best_state is not None:
         model.load_state_dict(best_state)
 
     if best_optimizer_state is None:
         best_optimizer_state = _to_cpu_tree(opt.state_dict())
+
+    selected_eval_x = val_x if val_count > 0 else train_x
+    selected_eval_cp = val_y_cp if val_count > 0 else train_y_cp
+    selected_eval_wdl = val_y_wdl if val_count > 0 else train_y_wdl
+    (
+        selected_val_loss,
+        selected_val_cp_mse,
+        selected_val_acc,
+        selected_val_prediction_mean_abs,
+        selected_val_prediction_max_abs,
+    ) = _eval_split(
+        model,
+        selected_eval_x,
+        selected_eval_cp,
+        selected_eval_wdl,
+        batch_size,
+        dev,
+        loss_kind=loss_kind,
+        huber_delta_cp=huber_delta_cp,
+        wdl_scale_cp=wdl_scale_cp,
+    )
+    selected_reference_val_loss = None
+    selected_reference_val_cp_mse = None
+    selected_reference_val_acc = None
+    selected_reference_val_prediction_mean_abs = None
+    selected_reference_val_prediction_max_abs = None
+    if reference_val_count > 0:
+        (
+            selected_reference_val_loss,
+            selected_reference_val_cp_mse,
+            selected_reference_val_acc,
+            selected_reference_val_prediction_mean_abs,
+            selected_reference_val_prediction_max_abs,
+        ) = _eval_split(
+            model,
+            reference_val_x,
+            reference_val_y_cp,
+            reference_val_y_wdl,
+            batch_size,
+            dev,
+            loss_kind=loss_kind,
+            huber_delta_cp=huber_delta_cp,
+            wdl_scale_cp=wdl_scale_cp,
+        )
+        best_reference_val_loss = selected_reference_val_loss
+        best_reference_val_cp_mse = selected_reference_val_cp_mse
+        best_reference_val_acc = selected_reference_val_acc
+        best_reference_val_prediction_mean_abs = (
+            selected_reference_val_prediction_mean_abs
+        )
+        best_reference_val_prediction_max_abs = (
+            selected_reference_val_prediction_max_abs
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     optimizer_state = _save_optimizer_state(
@@ -1068,7 +1230,18 @@ def train_model(
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
         "sampling_schema": train_stub.SAMPLING_SCHEMA,
-        "validation_sampling_schema": train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+        "validation_sampling_schema": train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+        "reference_validation_sampling_schema": (
+            train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+        ),
+        "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
+        "reference_validation_max_relative_loss_regression": (
+            train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
+        "primary_validation_hash_namespace": (
+            train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+        ),
+        "validation_seed": validation_seed,
         "validation_require_teacher": validation_require_teacher,
         "validation_source": validation_source,
         "optimizer_state": optimizer_state,
@@ -1103,7 +1276,17 @@ def train_model(
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
         "sampling_schema": train_stub.SAMPLING_SCHEMA,
-        "validation_sampling_schema": train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+        "validation_sampling_schema": train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+        "reference_validation_sampling_schema": (
+            train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+        ),
+        "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
+        "reference_validation_max_relative_loss_regression": (
+            train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
+        "primary_validation_hash_namespace": (
+            train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+        ),
         "fixed_validation": fixed_validation,
         "validation_jsonl_dir": (
             Path(validation_jsonl_dir).resolve().as_posix()
@@ -1114,8 +1297,41 @@ def train_model(
         "validation_seed": validation_seed,
         "validation_require_teacher": validation_require_teacher,
         "validation_source": validation_source,
+        "reference_val_samples": reference_val_count,
+        "train_records_with_teacher_value": train_teacher_count,
+        "primary_validation_records_with_teacher_value": (
+            primary_validation_teacher_count
+        ),
+        "primary_validation_teacher_sample_fraction": (
+            float(primary_validation_teacher_count) / float(val_count)
+            if val_count
+            else 0.0
+        ),
         "best_epoch": best_epoch,
         "best_val_loss": best_val,
+        "selected_val_loss": selected_val_loss,
+        "selected_val_cp_mse": selected_val_cp_mse,
+        "selected_val_acc": selected_val_acc,
+        "selected_val_prediction_mean_abs": selected_val_prediction_mean_abs,
+        "selected_val_prediction_max_abs": selected_val_prediction_max_abs,
+        "selected_reference_val_loss": selected_reference_val_loss,
+        "selected_reference_val_cp_mse": selected_reference_val_cp_mse,
+        "selected_reference_val_acc": selected_reference_val_acc,
+        "selected_reference_val_prediction_mean_abs": (
+            selected_reference_val_prediction_mean_abs
+        ),
+        "selected_reference_val_prediction_max_abs": (
+            selected_reference_val_prediction_max_abs
+        ),
+        "best_reference_val_loss": best_reference_val_loss,
+        "best_reference_val_cp_mse": best_reference_val_cp_mse,
+        "best_reference_val_acc": best_reference_val_acc,
+        "best_reference_val_prediction_mean_abs": (
+            best_reference_val_prediction_mean_abs
+        ),
+        "best_reference_val_prediction_max_abs": (
+            best_reference_val_prediction_max_abs
+        ),
         "initial_train_loss": initial_train_loss,
         "initial_train_cp_mse": initial_train_cp_mse,
         "initial_train_acc": initial_train_acc,
@@ -1126,6 +1342,15 @@ def train_model(
         "initial_val_prediction_mean_abs": initial_val_prediction_mean_abs,
         "initial_train_prediction_max_abs": initial_train_prediction_max_abs,
         "initial_val_prediction_max_abs": initial_val_prediction_max_abs,
+        "initial_reference_val_loss": initial_reference_val_loss,
+        "initial_reference_val_cp_mse": initial_reference_val_cp_mse,
+        "initial_reference_val_acc": initial_reference_val_acc,
+        "initial_reference_val_prediction_mean_abs": (
+            initial_reference_val_prediction_mean_abs
+        ),
+        "initial_reference_val_prediction_max_abs": (
+            initial_reference_val_prediction_max_abs
+        ),
         "initialized_from": initialized_from,
         "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
         "optimizer_state": optimizer_state,
@@ -1142,6 +1367,18 @@ def train_model(
         "val_prediction_mean_abs_history": val_prediction_mean_abs_history,
         "train_prediction_max_abs_history": train_prediction_max_abs_history,
         "val_prediction_max_abs_history": val_prediction_max_abs_history,
+        "reference_val_loss_history": reference_val_loss_history,
+        "reference_val_cp_mse_history": reference_val_cp_mse_history,
+        "reference_val_acc_history": reference_val_acc_history,
+        "reference_val_prediction_mean_abs_history": (
+            reference_val_prediction_mean_abs_history
+        ),
+        "reference_val_prediction_max_abs_history": (
+            reference_val_prediction_max_abs_history
+        ),
+        "reference_val_checkpoint_eligible_history": (
+            reference_val_checkpoint_eligible_history
+        ),
         "records_with_best_move": best_move_available,
         "records_with_teacher_value": teacher_value_available,
         "records_with_raw_teacher_value": raw_teacher_value_available,
@@ -1171,6 +1408,16 @@ def train_model(
         ),
         "val_target_cp_max_abs": max(
             (abs(value) for value in val_y_cp),
+            default=0.0,
+        ),
+        "reference_val_target_cp_mean_abs": (
+            sum(abs(value) for value in reference_val_y_cp)
+            / float(len(reference_val_y_cp))
+            if reference_val_y_cp
+            else 0.0
+        ),
+        "reference_val_target_cp_max_abs": max(
+            (abs(value) for value in reference_val_y_cp),
             default=0.0,
         ),
         "backend": "torch",

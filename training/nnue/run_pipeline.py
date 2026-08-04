@@ -754,9 +754,35 @@ def _validate_training_target_identity(
         raise ValueError("trainer sampling schema does not match the pipeline")
     if (
         metrics.get("validation_sampling_schema")
-        != train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+        != train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
     ):
         raise ValueError("trainer validation sampling schema does not match the pipeline")
+    if (
+        metrics.get("reference_validation_sampling_schema")
+        != train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+    ):
+        raise ValueError(
+            "trainer reference validation sampling schema does not match the pipeline"
+        )
+    if (
+        metrics.get("checkpoint_selection_schema")
+        != train_stub.CHECKPOINT_SELECTION_SCHEMA
+    ):
+        raise ValueError("trainer checkpoint selection schema does not match the pipeline")
+    if (
+        metrics.get("reference_validation_max_relative_loss_regression")
+        != train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+    ):
+        raise ValueError(
+            "trainer metrics reference validation guard does not match the pipeline"
+        )
+    if (
+        metrics.get("primary_validation_hash_namespace")
+        != train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+    ):
+        raise ValueError(
+            "trainer primary validation hash namespace does not match the pipeline"
+        )
     if metrics.get("target_schema") != train_stub.TARGET_SCHEMA:
         raise ValueError("trainer target schema does not match the pipeline")
     if metrics.get("objective") != objective:
@@ -765,6 +791,27 @@ def _validate_training_target_identity(
         raise ValueError("training checkpoint target schema does not match the pipeline")
     if checkpoint.get("objective") != objective:
         raise ValueError("training checkpoint objective does not match the pipeline")
+    if (
+        checkpoint.get("checkpoint_selection_schema")
+        != train_stub.CHECKPOINT_SELECTION_SCHEMA
+    ):
+        raise ValueError(
+            "training checkpoint selection schema does not match the pipeline"
+        )
+    if (
+        checkpoint.get("reference_validation_max_relative_loss_regression")
+        != train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+    ):
+        raise ValueError(
+            "training checkpoint reference validation guard does not match the pipeline"
+        )
+    if (
+        checkpoint.get("primary_validation_hash_namespace")
+        != train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+    ):
+        raise ValueError(
+            "training checkpoint validation hash namespace does not match the pipeline"
+        )
 
 
 def _validate_validation_source_binding(
@@ -1542,7 +1589,17 @@ def run_pipeline(
     training_provenance_config = {
         **training_config,
         "sampling_schema": train_stub.SAMPLING_SCHEMA,
-        "validation_sampling_schema": train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
+        "validation_sampling_schema": train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
+        "reference_validation_sampling_schema": (
+            train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+        ),
+        "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
+        "reference_validation_max_relative_loss_regression": (
+            train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
+        "primary_validation_hash_namespace": (
+            train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
+        ),
         "objective": objective,
         "initial_checkpoint": initial_checkpoint_info,
         "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
