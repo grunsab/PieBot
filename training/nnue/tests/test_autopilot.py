@@ -34,6 +34,51 @@ def _write_fake_quant(
     return path
 
 
+def _paired_gate_payload(pair_deltas: list[float]) -> dict:
+    """Build compare_play evidence from experimental-minus-baseline pair deltas."""
+    game_results = []
+    baseline_wins = 0.0
+    experimental_wins = 0.0
+    draws = 0
+    game_index = 0
+    for pair_index, delta in enumerate(pair_deltas):
+        # The compact fixtures only need the five legal pentanomial outcomes.
+        score_by_delta = {
+            -2.0: (0.0, 0.0),
+            -1.0: (0.0, 0.5),
+            0.0: (0.5, 0.5),
+            1.0: (1.0, 0.5),
+            2.0: (1.0, 1.0),
+        }
+        first_exp, second_exp = score_by_delta[float(delta)]
+        for experimental_score in (first_exp, second_exp):
+            baseline_score = 1.0 - experimental_score
+            baseline_wins += float(baseline_score == 1.0)
+            experimental_wins += float(experimental_score == 1.0)
+            draws += int(experimental_score == 0.5)
+            game_results.append(
+                {
+                    "game_index": game_index,
+                    "pair_index": pair_index,
+                    "baseline_is_white": game_index % 2 == 0,
+                    "baseline_score": baseline_score,
+                    "experimental_score": experimental_score,
+                    "opening_id": f"opening-{pair_index}",
+                }
+            )
+            game_index += 1
+    return {
+        "games": len(game_results),
+        "paired_openings": True,
+        "points": {
+            "baseline": baseline_wins,
+            "experimental": experimental_wins,
+            "draws": draws,
+        },
+        "game_results": game_results,
+    }
+
+
 class _FakeLockBackend:
     name = "fake"
 
@@ -118,7 +163,16 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(0, profile["teacher_lag_cycles"])
         self.assertTrue(profile["gate_paired_openings"])
         self.assertEqual(96, profile["gate_confirmation_games"])
-        self.assertEqual(2.0, profile["gate_confirmation_min_score_delta"])
+        self.assertEqual(0.0, profile["gate_confirmation_min_score_delta"])
+        self.assertEqual(0.95, profile["gate_confidence_level"])
+        self.assertGreaterEqual(profile["gate_bootstrap_samples"], 10_000)
+        self.assertFalse(profile["gate_require_external_anchor"])
+        self.assertIsNone(profile["gate_external_anchor_json"])
+        self.assertIsNone(profile["validation_provenance_json"])
+        self.assertFalse(profile["initial_checkpoint_weights_only"])
+        self.assertIsNone(profile["initial_active_model"])
+        self.assertEqual(0, profile["initial_active_model_blend_percent"])
+
 
     def test_control_loop_cli_overrides_profile_values(self) -> None:
         validation_dir = Path("fixed-validation")
@@ -328,6 +382,46 @@ class AutopilotTests(unittest.TestCase):
                 )
             self.assertEqual(b"do-not-touch", outside_quant.read_bytes())
             self.assertTrue(cycle1.is_dir())
+
+    def test_cycle_retention_preserves_external_initial_active_after_rejections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            external = _write_fake_quant(root / "bootstrap.nnue", marker=b"external")
+            metadata = autopilot._initial_active_model_metadata(external, 40)
+            completed = []
+            for cycle in range(1, 4):
+                cycle_dir = out_root / "cycles" / f"cycle_{cycle:06d}"
+                cycle_dir.mkdir(parents=True)
+                (cycle_dir / "bulk.jsonl").write_text("data\n", encoding="utf-8")
+                completed.append(
+                    {
+                        "cycle": cycle,
+                        "out_dir": str(cycle_dir),
+                        "gate": {"accepted": False},
+                        "retention": "full",
+                    }
+                )
+            state = {
+                "completed_cycles": completed,
+                "accepted_models": [],
+                "initial_active_model": metadata,
+                "active_model_path": metadata["path"],
+                "active_model_sha256": metadata["sha256"],
+                "active_model_blend_percent": metadata["blend_percent"],
+                "active_model_identity": metadata["model_identity"],
+            }
+
+            report = autopilot._apply_cycle_retention(
+                out_root=out_root,
+                state=state,
+                retain_full_cycles=1,
+            )
+
+            self.assertEqual([1, 2], report["deleted_cycles"])
+            self.assertTrue(external.is_file())
+            self.assertEqual(metadata["path"], state["active_model_path"])
+            self.assertTrue((out_root / "cycles" / "cycle_000003").is_dir())
 
     def test_main_retries_retention_on_restart_before_starting_another_cycle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -721,13 +815,15 @@ class AutopilotTests(unittest.TestCase):
 
             self.assertEqual(0, rc)
             self.assertEqual(2, len(calls))
-            self.assertEqual(2, len(gate_calls))
+            self.assertEqual(3, len(gate_calls))
             first_quant = Path(calls[0]["out_dir"]) / "nnue_quant.nnue"
             self.assertEqual(first_quant, calls[1]["selfplay_nnue_quant_file"])
             self.assertEqual(first_quant, calls[1]["teacher_relabel_nnue_quant_file"])
             self.assertEqual(25, calls[1]["selfplay_nnue_blend_percent"])
             self.assertEqual(25, calls[1]["teacher_relabel_nnue_blend_percent"])
             self.assertIsNone(gate_calls[0][0])
+            self.assertEqual(first_quant, gate_calls[1][0])
+            self.assertIsNone(gate_calls[2][0], "every promotion gets a pure-PST gate")
 
     def test_collect_replay_jsonl_dirs_from_recent_cycles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1244,6 +1340,197 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual(0, rc)
             self.assertEqual(initial_checkpoint, calls[0]["initial_checkpoint"])
 
+    def test_external_checkpoint_is_weights_only_once_then_optimizer_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            external_checkpoint = root / "bootstrap-checkpoint.json"
+            external_checkpoint.write_text(
+                json.dumps({"external": True}),
+                encoding="utf-8",
+            )
+            calls = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                checkpoint = _write_fake_checkpoint(out_dir)
+                optimizer = checkpoint.parent / "optimizer.pt"
+                optimizer.write_bytes(f"optimizer-{len(calls)}".encode())
+                quant = _write_fake_quant(
+                    out_dir / "nnue_quant.nnue",
+                    input_dim=81_920,
+                    marker=f"candidate-{len(calls)}".encode(),
+                )
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                rc = autopilot.main(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--hours",
+                        "1",
+                        "--max-cycles",
+                        "2",
+                        "--gate-games",
+                        "0",
+                        "--initial-checkpoint",
+                        str(external_checkpoint),
+                        "--initial-checkpoint-weights-only",
+                    ]
+                )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(2, len(calls))
+            first_candidate = Path(calls[0]["out_dir"]) / "train" / "checkpoint.json"
+            self.assertEqual(external_checkpoint, calls[0]["initial_checkpoint"])
+            self.assertTrue(calls[0]["initial_checkpoint_weights_only"])
+            self.assertFalse(calls[0]["continue_optimizer_state"])
+            self.assertIsNone(calls[0].get("initial_optimizer_state"))
+            self.assertEqual(first_candidate, calls[1]["initial_checkpoint"])
+            self.assertFalse(calls[1]["initial_checkpoint_weights_only"])
+            self.assertTrue(calls[1]["continue_optimizer_state"])
+
+    def test_initial_active_model_seeds_cycle_one_selfplay_and_teacher(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            initial_active = _write_fake_quant(
+                root / "initial-active.nnue",
+                input_dim=81_920,
+                marker=b"bootstrap",
+            )
+            initial_sha = hashlib.sha256(initial_active.read_bytes()).hexdigest()
+            calls = []
+            state_writes = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant = _write_fake_quant(
+                    out_dir / "nnue_quant.nnue",
+                    input_dim=81_920,
+                    marker=b"candidate",
+                )
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                }
+
+            real_atomic_write = autopilot._atomic_write_json
+
+            def _record_atomic_write(path, value):
+                if Path(path).name == "autopilot_state.json":
+                    state_writes.append(json.loads(json.dumps(value)))
+                return real_atomic_write(path, value)
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._atomic_write_json",
+                    side_effect=_record_atomic_write,
+                ):
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "1",
+                            "--gate-games",
+                            "0",
+                            "--initial-active-model",
+                            str(initial_active),
+                            "--initial-active-model-blend-percent",
+                            "40",
+                        ]
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(1, len(calls))
+            resolved_initial = initial_active.resolve()
+            self.assertEqual(resolved_initial, calls[0]["selfplay_nnue_quant_file"])
+            self.assertEqual(resolved_initial, calls[0]["teacher_relabel_nnue_quant_file"])
+            self.assertEqual(40, calls[0]["selfplay_nnue_blend_percent"])
+            self.assertEqual(40, calls[0]["teacher_relabel_nnue_blend_percent"])
+            self.assertGreater(len(state_writes), 0)
+            self.assertEqual(
+                initial_active.resolve().as_posix(),
+                state_writes[0]["active_model_path"],
+            )
+            self.assertEqual(initial_sha, state_writes[0]["active_model_sha256"])
+            self.assertEqual(40, state_writes[0]["active_model_blend_percent"])
+            self.assertEqual(
+                initial_sha,
+                state_writes[0]["initial_active_model"]["sha256"],
+            )
+            state = json.loads(
+                (out_root / "autopilot_state.json").read_text(encoding="utf-8")
+            )
+            initial_metadata = state["initial_active_model"]
+            self.assertEqual(resolved_initial.as_posix(), initial_metadata["path"])
+            self.assertEqual(initial_sha, initial_metadata["sha256"])
+            self.assertEqual(40, initial_metadata["blend_percent"])
+            self.assertEqual("PIENNQ01", initial_metadata["model_identity"]["quant_format"])
+
+    def test_initial_active_model_validation_is_strict_but_not_current_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            initial = _write_fake_quant(root / "initial.nnue", marker=b"initial")
+            other = _write_fake_quant(root / "other.nnue", marker=b"other")
+            invalid = root / "invalid.nnue"
+            invalid.write_bytes(b"not-a-quant-model")
+
+            with self.assertRaisesRegex(ValueError, "without.*model"):
+                autopilot._initial_active_model_metadata(None, 25)
+            for blend in (-1, 101):
+                with self.subTest(blend=blend), self.assertRaisesRegex(
+                    ValueError,
+                    "between 0 and 100",
+                ):
+                    autopilot._initial_active_model_metadata(initial, blend)
+            with self.assertRaisesRegex(ValueError, "missing"):
+                autopilot._initial_active_model_metadata(root / "missing.nnue", 25)
+            with self.assertRaisesRegex(ValueError, "quantized model format"):
+                autopilot._initial_active_model_metadata(invalid, 25)
+
+            configured = autopilot._initial_active_model_metadata(initial, 25)
+            advanced_identity = autopilot._quant_model_identity(other)
+            state = {
+                "initial_active_model": configured,
+                "active_model_path": str(other),
+                "active_model_sha256": hashlib.sha256(other.read_bytes()).hexdigest(),
+                "active_model_blend_percent": 50,
+                "active_model_identity": advanced_identity,
+            }
+            self.assertFalse(
+                autopilot._initialize_or_validate_initial_active_model(
+                    state,
+                    initial_active_model=initial,
+                    blend_percent=25,
+                    fresh=False,
+                )
+            )
+            self.assertEqual(str(other), state["active_model_path"])
+            with self.assertRaisesRegex(ValueError, "bootstrap identity"):
+                autopilot._initialize_or_validate_initial_active_model(
+                    state,
+                    initial_active_model=other,
+                    blend_percent=25,
+                    fresh=False,
+                )
+
     def test_unchanged_training_checkpoint_is_not_repeatedly_gated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out_root = Path(tmp) / "runs"
@@ -1449,7 +1736,10 @@ class AutopilotTests(unittest.TestCase):
             self.assertIsNone(calls[1]["initial_checkpoint"])
             state = json.loads((out_root / "autopilot_state.json").read_text())
             self.assertEqual([1], [cycle["cycle"] for cycle in state["completed_cycles"]])
-            self.assertEqual([1], [model["cycle"] for model in state["accepted_models"]])
+            self.assertEqual([], state["accepted_models"])
+            self.assertEqual(
+                "gate-disabled-promotion-ineligible", state["last_gate"]["reason"]
+            )
             self.assertEqual(2, state["next_cycle"])
 
     def test_model_gate_command_has_one_cargo_separator_and_forwards_flags(self) -> None:
@@ -1463,12 +1753,7 @@ class AutopilotTests(unittest.TestCase):
             def _fake_run(cmd, **kwargs):
                 commands.append((cmd, kwargs))
                 out_json.write_text(
-                    json.dumps(
-                        {
-                            "games": 6,
-                            "points": {"baseline": 2.0, "experimental": 4.0},
-                        }
-                    ),
+                    json.dumps(_paired_gate_payload([2.0, 2.0, 2.0])),
                     encoding="utf-8",
                 )
 
@@ -1505,6 +1790,256 @@ class AutopilotTests(unittest.TestCase):
             self.assertIn("--paired-openings", cmd)
             self.assertEqual(str(root), kwargs["cwd"])
             self.assertTrue(kwargs["check"])
+
+    def test_gate_statistics_require_complete_game_level_pairs(self) -> None:
+        payload = _paired_gate_payload([2.0, 2.0])
+        without_games = dict(payload)
+        without_games.pop("game_results")
+        status = autopilot._paired_gate_statistics(
+            without_games,
+            confidence_level=0.95,
+            bootstrap_samples=2_000,
+            seed=17,
+            minimum_mean_pair_delta=0.0,
+        )
+        self.assertFalse(status["eligible"])
+        self.assertFalse(status["accepted"])
+        self.assertEqual("missing-game-level-evidence", status["reason"])
+
+        incomplete = _paired_gate_payload([2.0, 2.0])
+        incomplete["game_results"].pop()
+        with self.assertRaisesRegex(ValueError, "complete.*pair"):
+            autopilot._paired_gate_statistics(
+                incomplete,
+                confidence_level=0.95,
+                bootstrap_samples=2_000,
+                seed=17,
+                minimum_mean_pair_delta=0.0,
+            )
+
+    def test_paired_bootstrap_is_reproducible_and_requires_positive_lower_bound(self) -> None:
+        strong = _paired_gate_payload([2.0] * 12)
+        first = autopilot._paired_gate_statistics(
+            strong,
+            confidence_level=0.95,
+            bootstrap_samples=2_000,
+            seed=99,
+            minimum_mean_pair_delta=0.0,
+        )
+        second = autopilot._paired_gate_statistics(
+            strong,
+            confidence_level=0.95,
+            bootstrap_samples=2_000,
+            seed=99,
+            minimum_mean_pair_delta=0.0,
+        )
+        self.assertEqual(first, second)
+        self.assertTrue(first["eligible"])
+        self.assertTrue(first["accepted"])
+        self.assertGreater(first["confidence_interval"]["lower"], 0.0)
+
+        inconclusive = autopilot._paired_gate_statistics(
+            _paired_gate_payload([2.0, -2.0] * 8),
+            confidence_level=0.95,
+            bootstrap_samples=2_000,
+            seed=99,
+            minimum_mean_pair_delta=0.0,
+        )
+        self.assertFalse(inconclusive["accepted"])
+        self.assertEqual("confidence-lower-bound-not-positive", inconclusive["reason"])
+
+        drawn = autopilot._paired_gate_statistics(
+            _paired_gate_payload([0.0] * 4),
+            confidence_level=0.95,
+            bootstrap_samples=500,
+            seed=99,
+            minimum_mean_pair_delta=0.0,
+        )
+        self.assertTrue(drawn["eligible"])
+        self.assertFalse(drawn["accepted"])
+        self.assertEqual(4, drawn["complete_pairs"])
+
+    def test_model_gate_missing_game_evidence_is_promotion_ineligible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_json = root / "gate.json"
+            candidate = _write_fake_quant(root / "candidate.nnue")
+
+            def _fake_run(_cmd, **_kwargs):
+                out_json.write_text(
+                    json.dumps(
+                        {
+                            "games": 6,
+                            "points": {"baseline": 0.0, "experimental": 6.0},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            with mock.patch("training.nnue.autopilot.subprocess.run", side_effect=_fake_run):
+                gate = autopilot._run_model_gate(
+                    piebot_dir=root,
+                    out_json=out_json,
+                    base_quant=None,
+                    candidate_quant=candidate,
+                    games=6,
+                    movetime_ms=1,
+                    noise_plies=0,
+                    noise_topk=1,
+                    threads=1,
+                    seed=1,
+                    min_score_delta=0.0,
+                )
+            self.assertFalse(gate["accepted"])
+            self.assertFalse(gate["evidence_eligible"])
+            self.assertEqual("missing-game-level-evidence", gate["reason"])
+
+    def test_relative_candidate_must_also_pass_pure_pst_absolute_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = _write_fake_quant(root / "active.nnue", marker=b"active")
+            candidate = _write_fake_quant(root / "candidate.nnue", marker=b"candidate")
+            calls = []
+            results = iter(
+                [
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {
+                        "accepted": False,
+                        "baseline_kind": "pure-pst",
+                        "reason": "confidence-lower-bound-not-positive",
+                    },
+                ]
+            )
+
+            def _gate(**kwargs):
+                calls.append(kwargs)
+                return next(results)
+
+            with mock.patch("training.nnue.autopilot._run_model_gate", side_effect=_gate):
+                attempt = autopilot._run_confirmed_gate_attempt(
+                    piebot_dir=root,
+                    screen_json=root / "screen.json",
+                    confirmation_json=root / "confirmation.json",
+                    base_quant=active,
+                    candidate_quant=candidate,
+                    screen_games=24,
+                    confirmation_games=96,
+                    movetime_ms=100,
+                    noise_plies=12,
+                    noise_topk=5,
+                    threads=1,
+                    seed=7,
+                    screen_min_score_delta=0.0,
+                    confirmation_min_score_delta=0.0,
+                    base_blend_percent=25,
+                    candidate_blend_percent=50,
+                    paired_openings=True,
+                )
+
+            self.assertFalse(attempt["accepted"])
+            self.assertEqual("absolute-pst-rejected", attempt["reason"])
+            self.assertEqual(3, len(calls))
+            self.assertIsNone(calls[-1]["base_quant"])
+            self.assertEqual("pure-pst", attempt["absolute"]["baseline_kind"])
+
+    def test_validation_provenance_never_calls_piebot_teacher_data_absolute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            validation = root / "validation"
+            validation.mkdir()
+            (validation / "shard.jsonl").write_text(
+                json.dumps({"fen": "startpos", "teacher_depth": 6}) + "\n",
+                encoding="utf-8",
+            )
+            piebot_metadata = root / "piebot-validation.json"
+            piebot_metadata.write_text(
+                json.dumps(
+                    {
+                        "schema": "piebot-validation-provenance-v1",
+                        "independent_of_piebot": False,
+                        "source": {"kind": "piebot-relabel", "name": "PieBot"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            circular = autopilot._validation_strength_status(
+                validation_jsonl_dir=validation,
+                provenance_json=piebot_metadata,
+            )
+            self.assertFalse(circular["absolute_strength_eligible"])
+            self.assertEqual("circular-piebot-validation", circular["reason"])
+
+            missing = autopilot._validation_strength_status(
+                validation_jsonl_dir=validation,
+                provenance_json=None,
+            )
+            self.assertFalse(missing["absolute_strength_eligible"])
+            self.assertEqual("validation-provenance-unverified", missing["reason"])
+
+    def test_independent_validation_and_external_anchor_metadata_are_bound_by_sha(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            validation = root / "validation"
+            validation.mkdir()
+            (validation / "shard.jsonl").write_text(
+                json.dumps({"fen": "startpos", "teacher_depth": 18}) + "\n",
+                encoding="utf-8",
+            )
+            dataset_sha = autopilot._jsonl_dataset_sha256(validation)
+            metadata = root / "validation.json"
+            metadata.write_text(
+                json.dumps(
+                    {
+                        "schema": "piebot-validation-provenance-v1",
+                        "independent_of_piebot": True,
+                        "dataset_sha256": dataset_sha,
+                        "source": {
+                            "kind": "stockfish",
+                            "name": "Stockfish 17",
+                            "binary_sha256": "a" * 64,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            status = autopilot._validation_strength_status(
+                validation_jsonl_dir=validation,
+                provenance_json=metadata,
+            )
+            self.assertTrue(status["absolute_strength_eligible"])
+            self.assertEqual("independent-validation-verified", status["reason"])
+
+            candidate_sha = "b" * 64
+            anchor = root / "anchor.json"
+            anchor.write_text(
+                json.dumps(
+                    {
+                        "schema": "piebot-uci-elo-arena-v1",
+                        "config": {
+                            "piebot": {"model_sha256": candidate_sha},
+                            "stockfish": {"options": {"UCI_Elo": 2200}},
+                        },
+                        "games": [
+                            {"game_index": 0, "pair_index": 0, "piebot_score": 1.0},
+                            {"game_index": 1, "pair_index": 0, "piebot_score": 0.5},
+                        ],
+                        "summary": {"complete_pairs": 1, "games": 2},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            verified = autopilot._external_anchor_status(
+                anchor_json=anchor,
+                candidate_sha256=candidate_sha,
+            )
+            self.assertTrue(verified["eligible"])
+            mismatch = autopilot._external_anchor_status(
+                anchor_json=anchor,
+                candidate_sha256="c" * 64,
+            )
+            self.assertFalse(mismatch["eligible"])
+            self.assertEqual("external-anchor-model-sha-mismatch", mismatch["reason"])
 
     def test_model_gate_cannot_reuse_stale_json_when_runner_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1952,6 +2487,14 @@ class AutopilotTests(unittest.TestCase):
                         "delta_points": 6.0,
                         "games": 96,
                     },
+                    {
+                        "accepted": True,
+                        "baseline_kind": "pure-pst",
+                        "baseline_points": 42.0,
+                        "experimental_points": 54.0,
+                        "delta_points": 12.0,
+                        "games": 96,
+                    },
                 ]
             )
 
@@ -1978,7 +2521,7 @@ class AutopilotTests(unittest.TestCase):
 
             self.assertEqual(0, rc)
             self.assertEqual(
-                [50, 25, 25],
+                [50, 25, 25, 25],
                 [call["candidate_blend_percent"] for call in gate_calls],
             )
             self.assertEqual("gate_compare.json", Path(gate_calls[0]["out_json"]).name)
@@ -1991,7 +2534,12 @@ class AutopilotTests(unittest.TestCase):
                 Path(gate_calls[2]["out_json"]).name,
             )
             self.assertEqual(96, gate_calls[2]["games"])
-            self.assertEqual(2.0, gate_calls[2]["min_score_delta"])
+            self.assertEqual(0.0, gate_calls[2]["min_score_delta"])
+            self.assertIsNone(gate_calls[3]["base_quant"])
+            self.assertEqual(
+                "gate_compare_same_blend_confirmation_absolute_pst.json",
+                Path(gate_calls[3]["out_json"]).name,
+            )
             loaded = json.loads((out_root / "autopilot_state.json").read_text())
             self.assertEqual(str(candidate_paths[0]), loaded["active_model_path"])
             self.assertEqual(25, loaded["active_model_blend_percent"])

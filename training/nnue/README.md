@@ -60,6 +60,9 @@ End-to-end pipeline
   - Optional cumulative Torch initialization:
     - `--initial-checkpoint <train/checkpoint.json>` loads compatible float HalfKP weights
       before creating a fresh optimizer.
+    - `--initial-checkpoint-weights-only` permits an explicit Torch objective transition;
+      it cannot be combined with `--initial-optimizer-state` or
+      `--continue-optimizer-state`, and the mode is bound into resume provenance.
     - The checkpoint path, SHA-256, format, and dimensions are part of resume provenance;
       a missing, changed, corrupt, or incompatible parent fails closed instead of silently
       restarting from random weights.
@@ -139,10 +142,17 @@ Set-and-forget autopilot
   - cumulative float training lineage: every completed candidate checkpoint initializes the
     next trainer even if its quantized model fails the chess gate; this training checkpoint is
     deliberately separate from the gate-accepted model used for play and teacher search
+  - one-time objective transition: combine `--initial-checkpoint PATH` with
+    `--initial-checkpoint-weights-only` to load only external bootstrap weights in cycle 1;
+    cycle 2 onward automatically returns to strict checkpoint and Adam-state continuation
+  - optional play bootstrap: `--initial-active-model PATH` plus
+    `--initial-active-model-blend-percent N` seeds cycle-1 self-play and PieBot teacher
+    relabeling from a verified quantized model; its immutable path/SHA/format identity is
+    resume-checked
   - epoch-zero protection: a warm-start parent is evaluated on the current validation split
     before updates and remains the output if neither new epoch improves validation loss
-  - fresh Adam state per cycle, with a lower continuation rate (`0.001` by default) than the
-    random-bootstrap rate (`0.03`); use `--warm-start-learning-rate` to tune it explicitly
+  - strict warm starts continue the matching Adam state at a lower rate (`0.001` by default);
+    the one-time weights-only objective transition always starts a fresh optimizer
   - bootstrap gate: until a candidate NNUE beats the default non-NNUE eval in same-search head-to-head, self-play and relabel stay on the default engine
   - automatic NNUE handoff after acceptance: once a candidate is accepted, later cycles use the accepted `nnue_quant.nnue` for self-play + relabel teacher search
   - gradual NNUE ramp after acceptance: accepted model generations are used at 25%, 50%, 75%, then 100% blend for later cycles
@@ -155,11 +165,27 @@ Set-and-forget autopilot
   - automatic model gate: candidate NNUE is promoted only after head-to-head `compare_play` passes
     - before the first acceptance, the candidate is compared against the default PST eval
     - after the first acceptance, the candidate is compared against the active accepted NNUE
+    - every promotion, including later NNUE-vs-NNUE promotions, must also pass a separate
+      same-search comparison against pure PST; aggregate points without per-game, complete
+      color-reversed opening-pair evidence are promotion-ineligible
+    - gates use a reproducible paired bootstrap (20,000 samples, 95% confidence by default),
+      and require the lower confidence bound on mean score difference per opening pair to be
+      strictly positive; `--gate-confirmation-min-score-delta` now configures this confidence
+      bound threshold rather than a raw total-points margin
     - baseline and candidate blends match the configuration that is active before and after
       promotion (0% vs 25% for bootstrap, then 25% vs 50%, 50% vs 75%, and 75% vs 100%)
     - an unchanged quantized candidate is not repeatedly gated under an identical baseline and
       blend configuration, preventing noisy re-tests from promoting unchanged weights
     - gate runs in model-only mode (`compare_play --same-search`) to avoid search-code confounding
+    - optional `--gate-require-external-anchor --gate-external-anchor-json PATH` verifies an
+      existing `uci_elo_arena.py` result against the exact candidate model SHA and blend before
+      promotion; Stockfish is not launched implicitly by the training loop
+  - fixed-validation metrics explicitly distinguish independent strength validation from
+    circular PieBot labels. To qualify, pass `--validation-provenance-json PATH` using schema
+    `piebot-validation-provenance-v1`, bind it to the JSONL dataset SHA, identify the external
+    teacher, and set `independent_of_piebot` true. Missing, unverifiable, or PieBot-relabel
+    provenance remains usable as an optimization holdout but is reported as ineligible for an
+    absolute-strength claim.
 
 Zen5 9755 (7-day) profile:
 ```bash
@@ -171,11 +197,12 @@ python -m training.nnue.autopilot \
 
 Notes:
 - Profile defaults favor throughput with periodic stronger-teacher relabeling.
-- Current default relabel depth in autopilot is 5.
+- Current default relabel depth in autopilot is 6.
 - For high-core machines, leave `--selfplay-parallel-games 0` (auto) and keep `--selfplay-threads 1` unless you intentionally trade game count for deeper per-move search.
 - Generic `--trainer-backend auto` runs still fall back to the CPU stub when PyTorch or the requested accelerator is unavailable.
 - The Zen5 + RTX 3090 production launchers under `scripts/` default to `torch` + `cuda` and fail before a long run if CUDA is unavailable. Set `TRAINER_BACKEND=auto TRAINER_DEVICE=auto` explicitly only when a CPU-stub fallback is intentional.
-- For quick validation runs, you can disable promotion gating by setting `--gate-games 0`.
+- For quick validation runs, `--gate-games 0` keeps training enabled but makes candidates
+  promotion-ineligible; it no longer silently promotes without game evidence.
 
 Windows 11 quick start
 ----------------------

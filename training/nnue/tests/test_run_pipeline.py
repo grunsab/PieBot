@@ -21,6 +21,130 @@ def _write_dataset(root: Path, n: int = 90, teacher_depth: int | None = None) ->
 
 
 class RunPipelineTests(unittest.TestCase):
+    def test_weights_only_checkpoint_cli_and_invalid_combinations(self) -> None:
+        parsed = run_pipeline._parse_args(
+            [
+                "--out",
+                "out",
+                "--jsonl-dir",
+                "data",
+                "--initial-checkpoint",
+                "bootstrap.json",
+                "--initial-checkpoint-weights-only",
+            ]
+        )
+        self.assertTrue(parsed.initial_checkpoint_weights_only)
+
+        common = {
+            "out_dir": Path("out"),
+            "jsonl_dir": Path("data"),
+            "initial_checkpoint": Path("bootstrap.json"),
+            "initial_checkpoint_weights_only": True,
+        }
+        with self.assertRaisesRegex(ValueError, "only.*torch"):
+            run_pipeline.run_pipeline(**common, trainer_backend="stub")
+        with mock.patch.object(
+            run_pipeline,
+            "_resolve_trainer_backend",
+            return_value="torch",
+        ):
+            with self.assertRaisesRegex(ValueError, "optimizer.*weights.only"):
+                run_pipeline.run_pipeline(
+                    **common,
+                    trainer_backend="torch",
+                    initial_optimizer_state=Path("optimizer.pt"),
+                )
+            with self.assertRaisesRegex(ValueError, "optimizer.*weights.only"):
+                run_pipeline.run_pipeline(
+                    **common,
+                    trainer_backend="torch",
+                    continue_optimizer_state=True,
+                )
+
+    def test_explicit_optimizer_continuation_fails_if_sibling_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=3)
+            checkpoint = root / "parent" / "checkpoint.json"
+            checkpoint.parent.mkdir()
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "format": "piebot-halfkp-mse-v2-torch",
+                        "input_dim": 1,
+                        "hidden_dim": 1,
+                        "w1": [0.0],
+                        "b1": [0.0],
+                        "w2": [0.0],
+                        "b2": 0.0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                run_pipeline,
+                "_resolve_trainer_backend",
+                return_value="torch",
+            ):
+                with mock.patch(
+                    "training.nnue.run_pipeline._build_training_jsonl_dir",
+                    side_effect=AssertionError(
+                        "missing optimizer must fail before data-stage work"
+                    ),
+                ):
+                    with self.assertRaisesRegex(ValueError, "optimizer.*missing"):
+                        run_pipeline.run_pipeline(
+                            out_dir=root / "out",
+                            jsonl_dir=data_dir,
+                            max_samples=3,
+                            epochs=1,
+                            hidden_dim=1,
+                            trainer_backend="torch",
+                            initial_checkpoint=checkpoint,
+                            continue_optimizer_state=True,
+                        )
+
+    def test_missing_initial_checkpoint_fails_before_data_stage_work(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=3)
+            missing_checkpoint = root / "missing" / "checkpoint.json"
+
+            with mock.patch(
+                "training.nnue.run_pipeline._build_training_jsonl_dir",
+                side_effect=AssertionError(
+                    "missing checkpoint must fail before data-stage work"
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "initial checkpoint.*does not exist"):
+                    run_pipeline.run_pipeline(
+                        out_dir=root / "out",
+                        jsonl_dir=data_dir,
+                        max_samples=3,
+                        epochs=1,
+                        hidden_dim=1,
+                        trainer_backend="stub",
+                        initial_checkpoint=missing_checkpoint,
+                    )
+
+    def test_external_teacher_relabel_engine_is_not_a_pipeline_option(self) -> None:
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            run_pipeline._parse_args(
+                [
+                    "--out",
+                    "out",
+                    "--jsonl-dir",
+                    "data",
+                    "--teacher-relabel-engine",
+                    "stockfish",
+                ]
+            )
+
     def test_resolve_trainer_backend_stub(self) -> None:
         self.assertEqual("stub", run_pipeline._resolve_trainer_backend("stub"))
 
@@ -757,6 +881,73 @@ class RunPipelineTests(unittest.TestCase):
                     trainer_backend="stub",
                 )
 
+    @unittest.skipUnless(
+        run_pipeline.train_torch is not None
+        and run_pipeline.train_torch.torch_available(),
+        "torch is not installed",
+    )
+    def test_pipeline_rejects_validation_mutation_between_snapshot_and_trainer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            training_dir = root / "training"
+            validation_dir = root / "validation"
+            training_dir.mkdir()
+            validation_dir.mkdir()
+            _write_dataset(training_dir, n=3)
+            validation_shard = validation_dir / "validation.jsonl"
+            validation_shard.write_text(
+                "\n".join(
+                    json.dumps(record)
+                    for record in (
+                        {
+                            "fen": "1k6/8/8/8/8/8/8/KQ6 w - - 0 1",
+                            "result": 1,
+                        },
+                        {
+                            "fen": "1kq5/8/8/8/8/8/8/K7 w - - 0 1",
+                            "result": -1,
+                        },
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            real_train = run_pipeline.train_torch.train_model
+
+            def _mutate_then_train(**kwargs):
+                with validation_shard.open("a", encoding="utf-8") as handle:
+                    handle.write(
+                        json.dumps(
+                            {
+                                "fen": "2k5/8/8/8/8/8/8/KR6 w - - 0 1",
+                                "result": 1,
+                            }
+                        )
+                        + "\n"
+                    )
+                return real_train(**kwargs)
+
+            with mock.patch(
+                "training.nnue.train_torch.train_model",
+                side_effect=_mutate_then_train,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "validation source.*(SHA-256|record count) mismatch",
+                ):
+                    run_pipeline.run_pipeline(
+                        out_dir=root / "out",
+                        jsonl_dir=training_dir,
+                        validation_jsonl_dir=validation_dir,
+                        batch_size=2,
+                        max_samples=3,
+                        max_validation_samples=10,
+                        epochs=1,
+                        hidden_dim=1,
+                        trainer_backend="torch",
+                        trainer_device="cpu",
+                    )
+
     def test_validation_isolation_rejects_copied_shards_and_game_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -875,6 +1066,91 @@ class RunPipelineTests(unittest.TestCase):
                 first["initial_checkpoint"]["sha256"],
                 changed["initial_checkpoint"]["sha256"],
             )
+
+    @unittest.skipUnless(
+        run_pipeline.train_torch is not None
+        and run_pipeline.train_torch.torch_available(),
+        "torch is not installed",
+    )
+    def test_weights_only_transition_is_forwarded_and_bound_to_resume_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            _write_dataset(data_dir, n=12, teacher_depth=6)
+
+            parent = run_pipeline.run_pipeline(
+                jsonl_dir=data_dir,
+                out_dir=root / "parent",
+                batch_size=4,
+                max_samples=12,
+                epochs=1,
+                val_split=0.25,
+                learning_rate=0.0,
+                hidden_dim=1,
+                min_teacher_depth=0,
+                trainer_backend="torch",
+                trainer_device="cpu",
+            )
+            child_kwargs = {
+                "jsonl_dir": data_dir,
+                "out_dir": root / "child",
+                "batch_size": 4,
+                "max_samples": 12,
+                "epochs": 1,
+                "val_split": 0.25,
+                "learning_rate": 0.0,
+                "hidden_dim": 1,
+                "min_teacher_depth": 6,
+                "trainer_backend": "torch",
+                "trainer_device": "cpu",
+                "initial_checkpoint": Path(parent["checkpoint_path"]),
+                "initial_checkpoint_weights_only": True,
+                "resume": True,
+            }
+
+            first = run_pipeline.run_pipeline(**child_kwargs)
+            self.assertTrue(first["initial_checkpoint_weights_only"])
+            self.assertIsNone(first["initial_optimizer_state"])
+            self.assertTrue(first["metrics"]["initial_checkpoint_weights_only"])
+            self.assertTrue(
+                first["metrics"]["initialized_from"][
+                    "weights_only_objective_transition"
+                ]
+            )
+            manifest = json.loads(
+                (
+                    root
+                    / "child"
+                    / "train"
+                    / run_pipeline._TRAIN_STAGE_MANIFEST
+                ).read_text(encoding="utf-8")
+            )
+            self.assertTrue(
+                manifest["provenance"]["config"][
+                    "initial_checkpoint_weights_only"
+                ]
+            )
+
+            with mock.patch(
+                "training.nnue.train_torch.train_model",
+                side_effect=AssertionError("matching transition provenance should resume"),
+            ):
+                resumed = run_pipeline.run_pipeline(**child_kwargs)
+            self.assertEqual(first["checkpoint_path"], resumed["checkpoint_path"])
+
+            with mock.patch(
+                "training.nnue.train_torch.train_model",
+                wraps=run_pipeline.train_torch.train_model,
+            ) as train:
+                with self.assertRaisesRegex(ValueError, "objective"):
+                    run_pipeline.run_pipeline(
+                        **{
+                            **child_kwargs,
+                            "initial_checkpoint_weights_only": False,
+                        }
+                    )
+            self.assertEqual(1, train.call_count)
 
     def test_resume_rebuilds_corrupt_training_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

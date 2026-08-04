@@ -1,21 +1,6 @@
 use cozy_chess::{Board, Color, Piece};
 use std::sync::OnceLock;
 
-fn square_index_from_str(s: &str) -> Option<usize> {
-    let b = s.as_bytes();
-    if b.len() != 2 {
-        return None;
-    }
-    let f = b[0];
-    let r = b[1];
-    if !(b'a'..=b'h').contains(&f) || !(b'1'..=b'8').contains(&r) {
-        return None;
-    }
-    let file = (f - b'a') as usize;
-    let rank = (r - b'1') as usize;
-    Some(rank * 8 + file)
-}
-
 fn piece_index(color: Color, piece: Piece) -> usize {
     let p = match piece {
         Piece::Pawn => 0,
@@ -39,6 +24,8 @@ fn splitmix64(mut x: u64) -> u64 {
 
 static TABLE: OnceLock<[u64; 12 * 64]> = OnceLock::new();
 static SIDE_KEY: OnceLock<u64> = OnceLock::new();
+static CASTLING_KEYS: OnceLock<[u64; 2 * 2 * 8]> = OnceLock::new();
+static EN_PASSANT_KEYS: OnceLock<[u64; 8]> = OnceLock::new();
 
 fn init_table() -> &'static [u64; 12 * 64] {
     TABLE.get_or_init(|| {
@@ -56,6 +43,30 @@ fn init_side() -> u64 {
     *SIDE_KEY.get_or_init(|| splitmix64(0xABCDEF1234567890))
 }
 
+fn init_castling() -> &'static [u64; 2 * 2 * 8] {
+    CASTLING_KEYS.get_or_init(|| {
+        let mut keys = [0u64; 2 * 2 * 8];
+        let mut seed = 0xCA57_1E00_CAFE_BABE;
+        for key in &mut keys {
+            seed = splitmix64(seed);
+            *key = seed;
+        }
+        keys
+    })
+}
+
+fn init_en_passant() -> &'static [u64; 8] {
+    EN_PASSANT_KEYS.get_or_init(|| {
+        let mut keys = [0u64; 8];
+        let mut seed = 0xE0A5_5A17_DEAD_BEEF;
+        for key in &mut keys {
+            seed = splitmix64(seed);
+            *key = seed;
+        }
+        keys
+    })
+}
+
 pub fn compute(board: &Board) -> u64 {
     let table = init_table();
     let mut key = 0u64;
@@ -70,16 +81,29 @@ pub fn compute(board: &Board) -> u64 {
         ] {
             let bb = board.colors(color) & board.pieces(piece);
             for sq in bb {
-                let s = format!("{}", sq);
-                if let Some(idx) = square_index_from_str(&s) {
-                    let pi = piece_index(color, piece);
-                    key ^= table[pi * 64 + idx];
-                }
+                let pi = piece_index(color, piece);
+                key ^= table[pi * 64 + sq as usize];
             }
         }
     }
     if board.side_to_move() == Color::Black {
         key ^= init_side();
     }
+
+    let castling = init_castling();
+    for (color_index, &color) in [Color::White, Color::Black].iter().enumerate() {
+        let rights = board.castle_rights(color);
+        if let Some(file) = rights.short {
+            key ^= castling[color_index * 16 + file as usize];
+        }
+        if let Some(file) = rights.long {
+            key ^= castling[color_index * 16 + 8 + file as usize];
+        }
+    }
+
+    if let Some(file) = board.en_passant() {
+        key ^= init_en_passant()[file as usize];
+    }
+
     key
 }

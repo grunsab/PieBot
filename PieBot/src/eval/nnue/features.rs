@@ -89,6 +89,86 @@ impl HalfKpSchema {
             Self::FullPerspective => full_perspective_active_indices(board),
         }
     }
+
+    /// Return only the active feature(s) contributed by one non-king piece.
+    ///
+    /// The legacy schema contributes one feature, keyed by the piece owner's
+    /// king.  The full-perspective schema contributes two, one keyed by each
+    /// king.  Keeping this mapping beside the full extractors prevents the
+    /// incremental evaluator from duplicating the schema arithmetic.
+    #[inline]
+    pub(super) fn piece_indices(
+        self,
+        white_king: usize,
+        black_king: usize,
+        piece_color: Color,
+        piece: Piece,
+        square: Square,
+    ) -> PieceFeatureIndices {
+        let piece_idx = non_king_piece_index(piece)
+            .expect("HalfKP features are defined only for non-king pieces");
+        let square_idx = square_to_index(square);
+        match self {
+            Self::Legacy => {
+                let king = if piece_color == Color::White {
+                    white_king
+                } else {
+                    black_king
+                };
+                PieceFeatureIndices::one(legacy_idx_for(piece_color, king, piece_idx, square_idx))
+            }
+            Self::FullPerspective => PieceFeatureIndices::two(
+                full_idx_for(Color::White, white_king, piece_color, piece_idx, square_idx),
+                full_idx_for(Color::Black, black_king, piece_color, piece_idx, square_idx),
+            ),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct PieceFeatureIndices {
+    indices: [usize; 2],
+    len: u8,
+}
+
+impl PieceFeatureIndices {
+    #[inline]
+    const fn one(index: usize) -> Self {
+        Self {
+            indices: [index, 0],
+            len: 1,
+        }
+    }
+
+    #[inline]
+    const fn two(first: usize, second: usize) -> Self {
+        Self {
+            indices: [first, second],
+            len: 2,
+        }
+    }
+
+    #[inline]
+    pub(super) fn len(self) -> usize {
+        self.len as usize
+    }
+
+    #[inline]
+    pub(super) fn as_slice(&self) -> &[usize] {
+        &self.indices[..self.len()]
+    }
+}
+
+#[inline]
+fn non_king_piece_index(piece: Piece) -> Option<usize> {
+    match piece {
+        Piece::Pawn => Some(0),
+        Piece::Knight => Some(1),
+        Piece::Bishop => Some(2),
+        Piece::Rook => Some(3),
+        Piece::Queen => Some(4),
+        Piece::King => None,
+    }
 }
 
 fn king_square_index(board: &Board, color: Color) -> usize {
@@ -165,5 +245,32 @@ impl HalfKpV2 {
 
     pub fn active_indices(&self, board: &Board) -> Vec<usize> {
         HalfKpSchema::FullPerspective.active_indices(board)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direct_piece_indices_match_full_extractors() {
+        let board = Board::from_fen("4k3/8/8/8/8/7r/4P3/4K3 w - - 0 1", false).unwrap();
+        let white_king = king_square_index(&board, Color::White);
+        let black_king = king_square_index(&board, Color::Black);
+
+        for schema in [HalfKpSchema::Legacy, HalfKpSchema::FullPerspective] {
+            let all = schema.active_indices(&board);
+            for (color, piece, square) in [
+                (Color::White, Piece::Pawn, Square::E2),
+                (Color::Black, Piece::Rook, Square::H3),
+            ] {
+                let direct = schema.piece_indices(white_king, black_king, color, piece, square);
+                assert_eq!(
+                    direct.len(),
+                    if schema == HalfKpSchema::Legacy { 1 } else { 2 }
+                );
+                assert!(direct.as_slice().iter().all(|idx| all.contains(idx)));
+            }
+        }
     }
 }

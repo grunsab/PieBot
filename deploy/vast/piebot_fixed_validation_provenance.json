@@ -1,0 +1,22 @@
+{
+  "schema": "piebot-validation-provenance-v1",
+  "independent_of_piebot": false,
+  "dataset_sha256": "3b6b3668ef68d66b19dade18eedb7ec987762f7f46521664f5006f7da07de41a",
+  "source": {
+    "kind": "piebot-relabel",
+    "name": "PieBot self-teacher",
+    "teacher_depth": 6,
+    "records": 92642
+  },
+  "dataset": {
+    "selection": "fixed holdout",
+    "shards": [
+      {
+        "name": "shard_000000.jsonl",
+        "size": 40158840,
+        "records": 92642,
+        "sha256": "d6f4a72a356bb516f62f76488b89c4c70519acca93c625f55709e958485bc8d8"
+      }
+    ]
+  }
+}

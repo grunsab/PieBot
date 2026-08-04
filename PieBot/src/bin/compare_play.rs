@@ -4,6 +4,8 @@ use cozy_chess::{Board, Move};
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
+use serde::Serialize;
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 const PAIRED_OPENING_POLICY: &str = "neutral-pst-topk-v2";
@@ -268,6 +270,105 @@ struct PairedOpening {
     opening_id: String,
     moves: Vec<String>,
     positions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct GameResultRecord {
+    game_index: usize,
+    pair_index: Option<usize>,
+    baseline_is_white: bool,
+    result_baseline_pov: f64,
+    baseline_score: f64,
+    experimental_score: f64,
+    plies: usize,
+    opening_id: Option<String>,
+}
+
+impl GameResultRecord {
+    fn new(
+        game_index: usize,
+        pair_index: usize,
+        baseline_is_white: bool,
+        result_baseline_pov: f64,
+        plies: usize,
+        opening_id: Option<&str>,
+    ) -> Self {
+        let (baseline_score, experimental_score) = match result_baseline_pov
+            .partial_cmp(&0.0)
+            .expect("finite game result")
+        {
+            std::cmp::Ordering::Greater => (1.0, 0.0),
+            std::cmp::Ordering::Less => (0.0, 1.0),
+            std::cmp::Ordering::Equal => (0.5, 0.5),
+        };
+        Self {
+            game_index,
+            pair_index: Some(pair_index),
+            baseline_is_white,
+            result_baseline_pov,
+            baseline_score,
+            experimental_score,
+            plies,
+            opening_id: opening_id.map(str::to_owned),
+        }
+    }
+
+    fn unpaired(
+        game_index: usize,
+        baseline_is_white: bool,
+        result_baseline_pov: f64,
+        plies: usize,
+    ) -> Self {
+        let mut record = Self::new(
+            game_index,
+            game_index / 2,
+            baseline_is_white,
+            result_baseline_pov,
+            plies,
+            None,
+        );
+        record.pair_index = None;
+        record
+    }
+}
+
+fn pair_outcome_payload(games: &[GameResultRecord]) -> Result<Vec<serde_json::Value>, String> {
+    let mut grouped: BTreeMap<usize, Vec<&GameResultRecord>> = BTreeMap::new();
+    for game in games {
+        if let Some(pair_index) = game.pair_index {
+            grouped.entry(pair_index).or_default().push(game);
+        }
+    }
+    let mut outcomes = Vec::with_capacity(grouped.len());
+    for (pair_index, pair) in grouped {
+        if pair.len() != 2 {
+            return Err(format!(
+                "opening pair {pair_index} has {} games instead of two",
+                pair.len()
+            ));
+        }
+        if pair[0].baseline_is_white == pair[1].baseline_is_white {
+            return Err(format!("opening pair {pair_index} did not reverse colors"));
+        }
+        if pair[0].opening_id != pair[1].opening_id {
+            return Err(format!(
+                "opening pair {pair_index} has mismatched opening ids"
+            ));
+        }
+        let baseline_points = pair.iter().map(|game| game.baseline_score).sum::<f64>();
+        let experimental_points = pair.iter().map(|game| game.experimental_score).sum::<f64>();
+        let mut game_indices = pair.iter().map(|game| game.game_index).collect::<Vec<_>>();
+        game_indices.sort_unstable();
+        outcomes.push(serde_json::json!({
+            "pair_index": pair_index,
+            "opening_id": pair[0].opening_id.as_deref(),
+            "baseline_points": baseline_points,
+            "experimental_points": experimental_points,
+            "delta_points": experimental_points - baseline_points,
+            "game_indices": game_indices,
+        }));
+    }
+    Ok(outcomes)
 }
 
 fn splitmix64(mut value: u64) -> u64 {
@@ -553,9 +654,11 @@ fn build_experimental_engine(args: &Args) -> ExperimentalEngine {
 
 fn decide_move_baseline(
     board: &Board,
+    position_history: &[Board],
     args: &Args,
     engine: &mut BaselineEngine,
 ) -> (Option<Move>, u32, u64, f64) {
+    engine.searcher.set_position_history(position_history);
     let t0 = Instant::now();
     let (bm, nodes) = if let Some(depth) = args.depth {
         let mut params = piebot::search::alphabeta::SearchParams::default();
@@ -588,11 +691,13 @@ fn decide_move_baseline(
 
 fn decide_move_experimental(
     board: &Board,
+    position_history: &[Board],
     args: &Args,
     engine: &mut ExperimentalEngine,
 ) -> (Option<Move>, u32, u64, f64) {
     match &mut engine.inner {
         ExperimentalEngineKind::Temp(s) => {
+            s.set_position_history(position_history);
             let t0 = Instant::now();
             let (bm, nodes) = if let Some(depth) = args.depth {
                 let mut params = piebot::search::alphabeta_temp::SearchParams::default();
@@ -623,6 +728,7 @@ fn decide_move_experimental(
             )
         }
         ExperimentalEngineKind::Base(s) => {
+            s.set_position_history(position_history);
             let t0 = Instant::now();
             let (bm, nodes) = if let Some(depth) = args.depth {
                 let mut params = piebot::search::alphabeta::SearchParams::default();
@@ -727,6 +833,7 @@ fn main() {
     let mut sum_time_exp: f64 = 0.0;
     let mut sum_depth_exp: u64 = 0;
     let mut cnt_exp: u64 = 0;
+    let mut game_results: Vec<GameResultRecord> = Vec::with_capacity(args.games);
 
     let mut pgn_buf = String::new();
 
@@ -788,7 +895,8 @@ fn main() {
                 }
             } else {
                 if baseline_to_move {
-                    let (m, d, n, dt) = decide_move_baseline(&board, &args, &mut base_engine);
+                    let (m, d, n, dt) =
+                        decide_move_baseline(&board, &position_history, &args, &mut base_engine);
                     if let Some(_) = m {
                         sum_nodes_base += n;
                         sum_time_base += dt;
@@ -797,7 +905,8 @@ fn main() {
                     }
                     m
                 } else {
-                    let (m, d, n, dt) = decide_move_experimental(&board, &args, &mut exp_engine);
+                    let (m, d, n, dt) =
+                        decide_move_experimental(&board, &position_history, &args, &mut exp_engine);
                     if let Some(_) = m {
                         sum_nodes_exp += n;
                         sum_time_exp += dt;
@@ -829,6 +938,18 @@ fn main() {
             std::cmp::Ordering::Less => experimental_points += 1.0,
             std::cmp::Ordering::Equal => draws += 1,
         }
+        game_results.push(if let Some(opening) = paired_opening {
+            GameResultRecord::new(
+                g,
+                opening.pair_index,
+                baseline_is_white,
+                result,
+                plies,
+                Some(&opening.opening_id),
+            )
+        } else {
+            GameResultRecord::unpaired(g, baseline_is_white, result, plies)
+        });
 
         if let Some(opening) = paired_opening {
             println!(
@@ -978,6 +1099,12 @@ fn main() {
             "base_seed": args.seed,
         })
     };
+    let pair_results = if args.paired_openings {
+        pair_outcome_payload(&game_results)
+            .unwrap_or_else(|message| panic!("invalid paired result evidence: {message}"))
+    } else {
+        Vec::new()
+    };
 
     // Optional machine-readable outputs
     if let Some(path) = args.json_out.as_deref() {
@@ -994,6 +1121,8 @@ fn main() {
             "self_compare": self_compare,
             "engines": {"baseline": tn_base, "experimental": tn_exp},
             "points": {"baseline": baseline_points, "experimental": experimental_points, "draws": draws},
+            "game_results": game_results,
+            "pair_results": pair_results,
             "baseline": {
                 "moves": cnt_base, "nodes": sum_nodes_base, "time_s": sum_time_base,
                 "avg_nps": avg_nps_base, "avg_depth": avg_depth_base
@@ -1122,6 +1251,24 @@ mod tests {
             positions.push(format!("{}", board));
         }
         assert_eq!(opening.positions, positions);
+    }
+
+    #[test]
+    fn paired_result_serialization_preserves_games_and_pair_scores() {
+        let games = vec![
+            GameResultRecord::new(0, 0, true, -1.0, 40, Some("opening-a")),
+            GameResultRecord::new(1, 0, false, 0.0, 44, Some("opening-a")),
+        ];
+        let pairs = pair_outcome_payload(&games).expect("complete color-reversed pair");
+
+        assert_eq!(games[0].baseline_score, 0.0);
+        assert_eq!(games[0].experimental_score, 1.0);
+        assert_eq!(games[1].baseline_score, 0.5);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0]["baseline_points"], 0.5);
+        assert_eq!(pairs[0]["experimental_points"], 1.5);
+        assert_eq!(pairs[0]["delta_points"], 1.0);
+        assert_eq!(pairs[0]["game_indices"], serde_json::json!([0, 1]));
     }
 
     #[test]

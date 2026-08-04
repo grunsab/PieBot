@@ -1,7 +1,7 @@
 use crate::eval::nnue::loader::QuantNnue;
 use crate::search::alphabeta::{EvalMode, SearchParams, Searcher};
 use crate::search::zobrist;
-use cozy_chess::{Board, Color, GameStatus, Move, Piece};
+use cozy_chess::{Board, Color, GameStatus, Move};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Gamma};
@@ -170,6 +170,10 @@ fn generate_single_game(
         }
         // choose move
         let mv = if params.use_engine {
+            searcher
+                .as_mut()
+                .expect("engine searcher available")
+                .set_position_history(&position_history);
             select_engine_move(
                 &board,
                 params,
@@ -240,24 +244,7 @@ pub fn adjudicate_position(
 }
 
 fn has_insufficient_material(board: &Board) -> bool {
-    if !(board.pieces(Piece::Pawn) | board.pieces(Piece::Rook) | board.pieces(Piece::Queen))
-        .is_empty()
-    {
-        return false;
-    }
-
-    let knights = board.pieces(Piece::Knight).len();
-    let bishops: Vec<_> = board.pieces(Piece::Bishop).into_iter().collect();
-    if knights == 0 {
-        if bishops.len() <= 1 {
-            return true;
-        }
-        let first_color = ((bishops[0] as usize / 8) + (bishops[0] as usize % 8)) % 2;
-        return bishops
-            .iter()
-            .all(|sq| (((*sq as usize) / 8) + ((*sq as usize) % 8)) % 2 == first_color);
-    }
-    bishops.is_empty() && knights == 1
+    crate::search::draw::is_insufficient_material(board)
 }
 
 fn game_seed(base_seed: u64, game_idx: usize) -> u64 {

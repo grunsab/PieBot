@@ -48,6 +48,34 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_jsonl_source(path: Path) -> str:
+    root = Path(path)
+    files = [root] if root.is_file() else sorted(root.glob("*.jsonl"))
+    digest = hashlib.sha256()
+    for file_path in files:
+        name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        with file_path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _count_jsonl_source_records(path: Path) -> int:
+    root = Path(path)
+    files = [root] if root.is_file() else sorted(root.glob("*.jsonl"))
+    records = 0
+    for file_path in files:
+        with file_path.open("rb") as handle:
+            records += sum(1 for line in handle if line.strip())
+    return records
+
+
 def _load_initial_checkpoint(
     checkpoint_path: Path,
     *,
@@ -1095,9 +1123,18 @@ def train_model(
     validation_raw_teacher_value_available: Optional[int] = None
     validation_sample_sha256: Optional[str] = None
     internal_validation_record_overlap: Optional[int] = None
+    validation_source: Optional[Dict[str, Any]] = None
     if validation_jsonl_dir is not None:
         validation_teacher_value_available = 0
         validation_raw_teacher_value_available = 0
+        validation_path = Path(validation_jsonl_dir)
+        validation_source_before = {
+            "path": validation_path.resolve().as_posix(),
+            "sha256": _sha256_jsonl_source(validation_path),
+            "records": _count_jsonl_source_records(validation_path),
+            "max_samples": max_validation_samples,
+            "seed": int(validation_seed),
+        }
         train_x = xs
         train_cp = cp_targets
         train_wdl = wdl_targets
@@ -1134,6 +1171,15 @@ def train_model(
         if not val_x:
             raise ValueError("external validation dataset contains no usable samples")
         validation_sample_sha256 = validation_digest.hexdigest()
+        validation_source = {
+            "path": validation_path.resolve().as_posix(),
+            "sha256": _sha256_jsonl_source(validation_path),
+            "records": _count_jsonl_source_records(validation_path),
+            "max_samples": max_validation_samples,
+            "seed": int(validation_seed),
+        }
+        if validation_source != validation_source_before:
+            raise ValueError("fixed validation source changed while trainer was reading it")
     else:
         assert sample_records is not None
         train_indices, validation_indices = _internal_validation_partition(
@@ -1458,6 +1504,7 @@ def train_model(
         "sampling_schema": SAMPLING_SCHEMA,
         "validation_sampling_schema": FIXED_VALIDATION_SAMPLING_SCHEMA,
         "validation_require_teacher": validation_require_teacher,
+        "validation_source": validation_source,
         "seed": seed,
         "epochs": epochs,
         "best_epoch": best_epoch,
@@ -1495,6 +1542,7 @@ def train_model(
         "max_validation_samples": max_validation_samples,
         "validation_seed": int(validation_seed),
         "validation_require_teacher": validation_require_teacher,
+        "validation_source": validation_source,
         "adam_beta1": adam_beta1,
         "adam_beta2": adam_beta2,
         "adam_eps": adam_eps,

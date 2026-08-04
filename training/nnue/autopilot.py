@@ -10,6 +10,7 @@ import inspect
 import json
 import math
 import os
+import random
 import shutil
 import struct
 import subprocess
@@ -147,12 +148,23 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "gate_noise_topk": 5,
         "gate_threads": 1,
         "gate_seed": 1,
+        "gate_confidence_level": 0.95,
+        "gate_bootstrap_samples": 20_000,
         "gate_min_score_delta": 0.0,
         "gate_paired_openings": True,
         "gate_confirmation_games": 96,
-        "gate_confirmation_min_score_delta": 2.0,
+        # Thresholds are mean experimental-minus-baseline points per opening
+        # pair. Promotion is strict: the paired-bootstrap lower confidence
+        # bound must exceed this threshold.
+        "gate_confirmation_min_score_delta": 0.0,
+        "gate_require_external_anchor": False,
+        "gate_external_anchor_json": None,
+        "validation_provenance_json": None,
         "warm_start": True,
         "initial_checkpoint": None,
+        "initial_checkpoint_weights_only": False,
+        "initial_active_model": None,
+        "initial_active_model_blend_percent": 0,
     }
 
 
@@ -365,6 +377,27 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         help="Bootstrap checkpoint for the first cumulative training cycle",
     )
+    ap.add_argument(
+        "--initial-checkpoint-weights-only",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "use the explicit bootstrap checkpoint as weights-only for cycle 1; "
+            "later cycles resume strict checkpoints and optimizer state"
+        ),
+    )
+    ap.add_argument(
+        "--initial-active-model",
+        type=Path,
+        default=None,
+        help="Quantized PieBot model used by cycle-1 selfplay and teacher relabeling",
+    )
+    ap.add_argument(
+        "--initial-active-model-blend-percent",
+        type=int,
+        default=None,
+        help="Evaluation blend for --initial-active-model (0-100)",
+    )
     ap.add_argument("--trainer-backend", choices=["stub", "torch", "auto"], default=None)
     ap.add_argument("--trainer-device", choices=["auto", "cpu", "cuda"], default=None)
     ap.add_argument(
@@ -381,6 +414,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--gate-noise-topk", type=int, default=None)
     ap.add_argument("--gate-threads", type=int, default=None)
     ap.add_argument("--gate-seed", type=int, default=None)
+    ap.add_argument("--gate-confidence-level", type=float, default=None)
+    ap.add_argument("--gate-bootstrap-samples", type=int, default=None)
     ap.add_argument("--gate-min-score-delta", type=float, default=None)
     ap.add_argument(
         "--gate-paired-openings",
@@ -389,6 +424,19 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument("--gate-confirmation-games", type=int, default=None)
     ap.add_argument("--gate-confirmation-min-score-delta", type=float, default=None)
+    ap.add_argument(
+        "--gate-require-external-anchor",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Require existing uci_elo_arena evidence bound to the candidate SHA",
+    )
+    ap.add_argument("--gate-external-anchor-json", type=Path, default=None)
+    ap.add_argument(
+        "--validation-provenance-json",
+        type=Path,
+        default=None,
+        help="Independent fixed-validation provenance metadata",
+    )
     return ap.parse_args(argv)
 
 
@@ -549,6 +597,9 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "warm_start_learning_rate": args.warm_start_learning_rate,
         "warm_start": args.warm_start,
         "initial_checkpoint": args.initial_checkpoint,
+        "initial_checkpoint_weights_only": args.initial_checkpoint_weights_only,
+        "initial_active_model": args.initial_active_model,
+        "initial_active_model_blend_percent": args.initial_active_model_blend_percent,
         "trainer_backend": args.trainer_backend,
         "trainer_device": args.trainer_device,
         "retain_full_cycles": args.retain_full_cycles,
@@ -560,10 +611,15 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "gate_noise_topk": args.gate_noise_topk,
         "gate_threads": args.gate_threads,
         "gate_seed": args.gate_seed,
+        "gate_confidence_level": args.gate_confidence_level,
+        "gate_bootstrap_samples": args.gate_bootstrap_samples,
         "gate_min_score_delta": args.gate_min_score_delta,
         "gate_paired_openings": args.gate_paired_openings,
         "gate_confirmation_games": args.gate_confirmation_games,
         "gate_confirmation_min_score_delta": args.gate_confirmation_min_score_delta,
+        "gate_require_external_anchor": args.gate_require_external_anchor,
+        "gate_external_anchor_json": args.gate_external_anchor_json,
+        "validation_provenance_json": args.validation_provenance_json,
     }
     for k, v in mapping.items():
         if v is not None:
@@ -640,6 +696,113 @@ def _quant_model_identity(
     return identity
 
 
+def _initial_active_model_metadata(
+    initial_active_model: Optional[Path],
+    blend_percent: Any,
+) -> Optional[Dict[str, Any]]:
+    if isinstance(blend_percent, bool):
+        raise ValueError("initial active model blend must be between 0 and 100")
+    try:
+        blend = int(blend_percent)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("initial active model blend must be between 0 and 100") from exc
+    try:
+        exact_blend = float(blend_percent)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("initial active model blend must be between 0 and 100") from exc
+    if not math.isfinite(exact_blend) or exact_blend != float(blend) or not 0 <= blend <= 100:
+        raise ValueError("initial active model blend must be between 0 and 100")
+
+    if initial_active_model is None:
+        if blend != 0:
+            raise ValueError("initial active model blend cannot be set without a model")
+        return None
+
+    path = Path(initial_active_model)
+    if not path.is_file():
+        raise ValueError(f"initial active model is missing: {path}")
+    resolved = path.resolve()
+    identity = _quant_model_identity(resolved)
+    if identity is None:
+        raise ValueError(
+            f"initial active model has an invalid quantized model format: {resolved}"
+        )
+    return {
+        "path": resolved.as_posix(),
+        "sha256": _sha256_file(resolved),
+        "blend_percent": blend,
+        "model_identity": identity,
+    }
+
+
+def _initialize_or_validate_initial_active_model(
+    state: Dict[str, Any],
+    *,
+    initial_active_model: Optional[Path],
+    blend_percent: Any,
+    fresh: bool,
+) -> bool:
+    configured = _initial_active_model_metadata(
+        initial_active_model,
+        blend_percent,
+    )
+    if fresh:
+        state["initial_active_model"] = copy.deepcopy(configured)
+        if configured is not None:
+            state["active_model_path"] = configured["path"]
+            state["active_model_sha256"] = configured["sha256"]
+            state["active_model_blend_percent"] = configured["blend_percent"]
+            state["active_model_identity"] = copy.deepcopy(
+                configured["model_identity"]
+            )
+        return True
+
+    if "initial_active_model" not in state:
+        if configured is not None:
+            raise ValueError(
+                "configured initial active model has no stored bootstrap identity"
+            )
+        state["initial_active_model"] = None
+        return True
+
+    stored = state.get("initial_active_model")
+    if stored != configured:
+        raise ValueError(
+            "configured initial active model bootstrap identity does not match state"
+        )
+    # The active model is intentionally not compared here: accepted candidates
+    # are allowed to advance it while the immutable bootstrap remains auditable.
+    return False
+
+
+def _uses_external_weights_only_checkpoint(
+    state: Dict[str, Any],
+    *,
+    configured_checkpoint: Optional[Path],
+    resolved_checkpoint: Optional[Path],
+    enabled: bool,
+) -> bool:
+    if not enabled or configured_checkpoint is None or resolved_checkpoint is None:
+        return False
+    if "training_checkpoint_path" in state:
+        return False
+    completed = state.get("completed_cycles")
+    if isinstance(completed, list) and completed:
+        return False
+    return Path(configured_checkpoint).resolve() == Path(resolved_checkpoint).resolve()
+
+
+def _validate_initial_checkpoint_transition_config(defaults: Dict[str, Any]) -> None:
+    if not bool(defaults.get("initial_checkpoint_weights_only", False)):
+        return
+    if defaults.get("initial_checkpoint") is None:
+        raise ValueError(
+            "initial checkpoint weights-only mode requires --initial-checkpoint"
+        )
+    if not bool(defaults.get("warm_start", True)):
+        raise ValueError("initial checkpoint weights-only mode requires warm start")
+
+
 def _infer_training_model_identity(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     explicit = state.get("training_model_identity")
     if isinstance(explicit, dict):
@@ -674,9 +837,28 @@ def _infer_training_model_identity(state: Dict[str, Any]) -> Optional[Dict[str, 
 def _migrate_deployment_state(state: Dict[str, Any]) -> bool:
     """Persist the exact deployed model tuple without discarding audit history."""
     changed = False
-    if state.get("deployment_state_version") != 2:
-        state["deployment_state_version"] = 2
+    prior_version = int(state.get("deployment_state_version", 1) or 1)
+    if prior_version != 3:
+        state["deployment_state_version"] = 3
         changed = True
+    if state.get("promotion_evidence_schema") != "paired-bootstrap-pst-v1":
+        state["promotion_evidence_schema"] = "paired-bootstrap-pst-v1"
+        changed = True
+    accepted_models = state.get("accepted_models")
+    if isinstance(accepted_models, list):
+        for model in accepted_models:
+            if not isinstance(model, dict) or "promotion_evidence_status" in model:
+                continue
+            gate = model.get("gate")
+            absolute = gate.get("absolute") if isinstance(gate, dict) else None
+            statistics = absolute.get("statistics") if isinstance(absolute, dict) else None
+            model["promotion_evidence_status"] = (
+                "paired-bootstrap-pst-verified"
+                if isinstance(statistics, dict)
+                and statistics.get("schema") == "paired-bootstrap-gate-v1"
+                else "legacy-unverified"
+            )
+            changed = True
     if "training_lineage_start_cycle" not in state:
         state["training_lineage_start_cycle"] = 1
         changed = True
@@ -1055,13 +1237,38 @@ def _apply_cycle_retention(
     active_raw = state.get("active_model_path")
     if active_raw:
         active_path = _retention_path(active_raw, label="active model")
-        _require_within(active_path, cycles_root, label="active model")
-        relative = active_path.relative_to(cycles_root)
-        try:
-            active_cycle = int(relative.parts[0].removeprefix("cycle_"))
-        except (IndexError, ValueError) as exc:
-            raise ValueError(f"retention cannot identify active model cycle: {active_path}") from exc
-        protect_quant(active_cycle, active_raw, label="active model")
+        if not active_path.is_relative_to(cycles_root):
+            initial_active = state.get("initial_active_model")
+            if not isinstance(initial_active, dict):
+                raise ValueError(
+                    f"retention refuses active model outside {cycles_root}: {active_path}"
+                )
+            configured_path = _retention_path(
+                initial_active.get("path"),
+                label="initial active model",
+            )
+            if configured_path != active_path:
+                raise ValueError(
+                    "retention external active model does not match initial bootstrap"
+                )
+            if not active_path.is_file():
+                raise ValueError(
+                    f"retention initial active model is missing: {active_path}"
+                )
+            if _sha256_file(active_path) != initial_active.get("sha256"):
+                raise ValueError("retention initial active model SHA-256 mismatch")
+            if _quant_model_identity(active_path) != initial_active.get("model_identity"):
+                raise ValueError("retention initial active model identity mismatch")
+            # Immutable external bootstrap artifacts are never deletion targets.
+        else:
+            relative = active_path.relative_to(cycles_root)
+            try:
+                active_cycle = int(relative.parts[0].removeprefix("cycle_"))
+            except (IndexError, ValueError) as exc:
+                raise ValueError(
+                    f"retention cannot identify active model cycle: {active_path}"
+                ) from exc
+            protect_quant(active_cycle, active_raw, label="active model")
 
     full_cycles = set(ordered_cycles[-retain:])
     old_cycles = ordered_cycles[:-retain]
@@ -1134,8 +1341,13 @@ def _apply_cycle_retention(
                 (cycle_dir / "pipeline_summary.json").resolve(),
                 (cycle_dir / "gate_compare.json").resolve(),
                 (cycle_dir / "gate_compare_confirmation.json").resolve(),
+                (cycle_dir / "gate_compare_confirmation_absolute_pst.json").resolve(),
                 (cycle_dir / "gate_compare_same_blend.json").resolve(),
                 (cycle_dir / "gate_compare_same_blend_confirmation.json").resolve(),
+                (
+                    cycle_dir
+                    / "gate_compare_same_blend_confirmation_absolute_pst.json"
+                ).resolve(),
             }
         )
         if _prune_cycle_directory(cycle_dir, keep_files):
@@ -1167,6 +1379,401 @@ def _enforce_cycle_retention(
     return report
 
 
+def _percentile(sorted_values: list[float], probability: float) -> float:
+    if not sorted_values:
+        raise ValueError("cannot compute a percentile of an empty sample")
+    if not 0.0 <= probability <= 1.0:
+        raise ValueError("percentile probability must be between zero and one")
+    if len(sorted_values) == 1:
+        return float(sorted_values[0])
+    rank = probability * (len(sorted_values) - 1)
+    lower = math.floor(rank)
+    upper = math.ceil(rank)
+    if lower == upper:
+        return float(sorted_values[lower])
+    fraction = rank - lower
+    return float(
+        sorted_values[lower] * (1.0 - fraction)
+        + sorted_values[upper] * fraction
+    )
+
+
+def _paired_gate_statistics(
+    payload: Dict[str, Any],
+    *,
+    confidence_level: float,
+    bootstrap_samples: int,
+    seed: int,
+    minimum_mean_pair_delta: float,
+) -> Dict[str, Any]:
+    """Validate game evidence and bootstrap opening-pair score differences.
+
+    A pair delta is experimental points minus baseline points across the two
+    color-reversed games, so it lies in [-2, 2]. Resampling complete opening
+    pairs, rather than individual games, preserves the pairing dependency.
+    """
+    confidence = float(confidence_level)
+    samples = int(bootstrap_samples)
+    threshold = float(minimum_mean_pair_delta)
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("gate confidence level must be between zero and one")
+    if samples <= 0:
+        raise ValueError("gate bootstrap sample count must be positive")
+    if not math.isfinite(threshold):
+        raise ValueError("gate confidence threshold must be finite")
+
+    raw_games = payload.get("game_results")
+    if not isinstance(raw_games, list) or not raw_games:
+        return {
+            "schema": "paired-bootstrap-gate-v1",
+            "eligible": False,
+            "accepted": False,
+            "reason": "missing-game-level-evidence",
+            "confidence_level": confidence,
+            "bootstrap_samples": samples,
+            "minimum_mean_pair_delta": threshold,
+            "complete_pairs": 0,
+        }
+    if payload.get("paired_openings") is not True:
+        return {
+            "schema": "paired-bootstrap-gate-v1",
+            "eligible": False,
+            "accepted": False,
+            "reason": "unpaired-game-level-evidence",
+            "confidence_level": confidence,
+            "bootstrap_samples": samples,
+            "minimum_mean_pair_delta": threshold,
+            "complete_pairs": 0,
+        }
+
+    by_pair: Dict[int, list[Dict[str, Any]]] = {}
+    seen_game_indices: set[int] = set()
+    normalized_games: list[Dict[str, Any]] = []
+    for raw in raw_games:
+        if not isinstance(raw, dict):
+            raise ValueError("model gate game evidence entries must be objects")
+        try:
+            game_index = int(raw["game_index"])
+            pair_index = int(raw["pair_index"])
+            baseline_score = float(raw["baseline_score"])
+            experimental_score = float(raw["experimental_score"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("model gate game evidence is missing score identity") from exc
+        if game_index in seen_game_indices:
+            raise ValueError(f"duplicate model gate game index: {game_index}")
+        seen_game_indices.add(game_index)
+        if baseline_score not in (0.0, 0.5, 1.0) or experimental_score not in (
+            0.0,
+            0.5,
+            1.0,
+        ):
+            raise ValueError("model gate game scores must be 0, 0.5, or 1")
+        if not math.isclose(baseline_score + experimental_score, 1.0, abs_tol=1e-12):
+            raise ValueError("model gate game scores must sum to one")
+        baseline_is_white = raw.get("baseline_is_white")
+        if not isinstance(baseline_is_white, bool):
+            raise ValueError("model gate game evidence must record baseline color")
+        normalized = {
+            "game_index": game_index,
+            "pair_index": pair_index,
+            "baseline_is_white": baseline_is_white,
+            "baseline_score": baseline_score,
+            "experimental_score": experimental_score,
+            "opening_id": raw.get("opening_id"),
+        }
+        normalized_games.append(normalized)
+        by_pair.setdefault(pair_index, []).append(normalized)
+
+    incomplete = [pair for pair, games in by_pair.items() if len(games) != 2]
+    if incomplete:
+        raise ValueError(
+            "paired model gate evidence must contain exactly two games per complete pair"
+        )
+    reported_games = int(payload.get("games", -1))
+    if reported_games != len(normalized_games):
+        raise ValueError(
+            "model gate game-level evidence count does not match reported games"
+        )
+
+    pair_outcomes: list[Dict[str, Any]] = []
+    pair_deltas: list[float] = []
+    for pair_index, games in sorted(by_pair.items()):
+        colors = {bool(game["baseline_is_white"]) for game in games}
+        if colors != {False, True}:
+            raise ValueError("complete model gate pair must reverse engine colors")
+        opening_ids = {
+            game["opening_id"] for game in games if game.get("opening_id") is not None
+        }
+        if len(opening_ids) > 1:
+            raise ValueError("complete model gate pair must use the same opening")
+        baseline_points = sum(float(game["baseline_score"]) for game in games)
+        experimental_points = sum(
+            float(game["experimental_score"]) for game in games
+        )
+        delta = experimental_points - baseline_points
+        pair_deltas.append(delta)
+        pair_outcomes.append(
+            {
+                "pair_index": pair_index,
+                "opening_id": next(iter(opening_ids), None),
+                "baseline_points": baseline_points,
+                "experimental_points": experimental_points,
+                "delta_points": delta,
+                "game_indices": sorted(int(game["game_index"]) for game in games),
+            }
+        )
+
+    points = payload.get("points")
+    if not isinstance(points, dict):
+        raise ValueError("model gate JSON is missing aggregate points")
+    try:
+        aggregate_baseline = float(points["baseline"])
+        aggregate_experimental = float(points["experimental"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("model gate JSON is missing baseline/experimental points") from exc
+    # compare_play's legacy aggregate fields count decisive wins and report
+    # draws separately. Pair statistics below use standard 1/0.5/0 scores.
+    evidence_baseline = sum(
+        float(game["baseline_score"] == 1.0) for game in normalized_games
+    )
+    evidence_experimental = sum(
+        float(game["experimental_score"] == 1.0) for game in normalized_games
+    )
+    evidence_draws = sum(
+        int(game["experimental_score"] == 0.5) for game in normalized_games
+    )
+    if not math.isclose(aggregate_baseline, evidence_baseline, abs_tol=1e-9) or not math.isclose(
+        aggregate_experimental, evidence_experimental, abs_tol=1e-9
+    ):
+        raise ValueError("model gate aggregate points disagree with game-level evidence")
+    try:
+        aggregate_draws = int(points["draws"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("model gate JSON is missing aggregate draw evidence") from exc
+    if aggregate_draws != evidence_draws:
+        raise ValueError("model gate aggregate draws disagree with game-level evidence")
+
+    rng = random.Random(int(seed))
+    bootstrap_means = [
+        sum(rng.choice(pair_deltas) for _ in pair_deltas) / len(pair_deltas)
+        for _ in range(samples)
+    ]
+    bootstrap_means.sort()
+    tail = (1.0 - confidence) / 2.0
+    lower = _percentile(bootstrap_means, tail)
+    upper = _percentile(bootstrap_means, 1.0 - tail)
+    mean_delta = sum(pair_deltas) / len(pair_deltas)
+    accepted = lower > threshold
+    return {
+        "schema": "paired-bootstrap-gate-v1",
+        "eligible": True,
+        "accepted": accepted,
+        "reason": (
+            "confidence-lower-bound-passed"
+            if accepted
+            else "confidence-lower-bound-not-positive"
+        ),
+        "confidence_level": confidence,
+        "bootstrap_samples": samples,
+        "bootstrap_seed": int(seed),
+        "minimum_mean_pair_delta": threshold,
+        "complete_pairs": len(pair_deltas),
+        "mean_pair_delta": mean_delta,
+        "confidence_interval": {"lower": lower, "upper": upper},
+        "pair_outcomes": pair_outcomes,
+        "game_results": sorted(normalized_games, key=lambda game: game["game_index"]),
+    }
+
+
+def _jsonl_dataset_sha256(path: Path) -> str:
+    entries = []
+    for shard in sorted(Path(path).glob("*.jsonl")):
+        entries.append(
+            {
+                "name": shard.name,
+                "size": shard.stat().st_size,
+                "sha256": _sha256_file(shard),
+            }
+        )
+    canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _validation_strength_status(
+    *,
+    validation_jsonl_dir: Optional[Path],
+    provenance_json: Optional[Path],
+) -> Dict[str, Any]:
+    """Classify fixed validation without treating PieBot self-labels as absolute."""
+    base: Dict[str, Any] = {
+        "schema": "validation-strength-status-v1",
+        "absolute_strength_eligible": False,
+    }
+    if validation_jsonl_dir is None:
+        return {**base, "reason": "fixed-validation-not-configured"}
+    validation_dir = Path(validation_jsonl_dir)
+    if not validation_dir.is_dir() or not any(validation_dir.glob("*.jsonl")):
+        return {**base, "reason": "fixed-validation-missing"}
+    dataset_sha = _jsonl_dataset_sha256(validation_dir)
+    base.update(
+        {
+            "validation_path": str(validation_dir.resolve()),
+            "validation_dataset_sha256": dataset_sha,
+        }
+    )
+    if provenance_json is None:
+        return {**base, "reason": "validation-provenance-unverified"}
+    metadata_path = Path(provenance_json)
+    if not metadata_path.is_file():
+        return {**base, "reason": "validation-provenance-missing"}
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {**base, "reason": "validation-provenance-invalid"}
+    base.update(
+        {
+            "provenance_path": str(metadata_path.resolve()),
+            "provenance_sha256": _sha256_file(metadata_path),
+        }
+    )
+    if not isinstance(metadata, dict) or metadata.get("schema") != (
+        "piebot-validation-provenance-v1"
+    ):
+        return {**base, "reason": "validation-provenance-invalid"}
+    source = metadata.get("source")
+    source_kind = (
+        str(source.get("kind", "")).strip().lower()
+        if isinstance(source, dict)
+        else ""
+    )
+    if (
+        not bool(metadata.get("independent_of_piebot"))
+        or "piebot" in source_kind
+        or source_kind in {"selfplay", "relabel"}
+    ):
+        return {
+            **base,
+            "reason": "circular-piebot-validation",
+            "source": source,
+        }
+    allowed_kinds = {"stockfish", "external-engine", "human-games", "curated-external"}
+    if source_kind not in allowed_kinds:
+        return {**base, "reason": "validation-source-not-independent", "source": source}
+    if metadata.get("dataset_sha256") != dataset_sha:
+        return {**base, "reason": "validation-dataset-sha-mismatch", "source": source}
+    if source_kind in {"stockfish", "external-engine"}:
+        binary_sha = source.get("binary_sha256") if isinstance(source, dict) else None
+        try:
+            valid_binary_sha = (
+                isinstance(binary_sha, str)
+                and len(binary_sha) == 64
+                and int(binary_sha, 16) >= 0
+            )
+        except ValueError:
+            valid_binary_sha = False
+        if not valid_binary_sha:
+            return {**base, "reason": "validation-teacher-identity-incomplete", "source": source}
+    return {
+        **base,
+        "absolute_strength_eligible": True,
+        "reason": "independent-validation-verified",
+        "source": source,
+    }
+
+
+def _external_anchor_status(
+    *,
+    anchor_json: Optional[Path],
+    candidate_sha256: Optional[str],
+    candidate_blend_percent: Optional[int] = None,
+) -> Dict[str, Any]:
+    base: Dict[str, Any] = {
+        "schema": "external-anchor-status-v1",
+        "eligible": False,
+    }
+    if anchor_json is None:
+        return {**base, "reason": "external-anchor-not-configured"}
+    path = Path(anchor_json)
+    if not path.is_file():
+        return {**base, "reason": "external-anchor-missing", "path": str(path)}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {**base, "reason": "external-anchor-invalid", "path": str(path)}
+    if not isinstance(payload, dict) or payload.get("schema") != "piebot-uci-elo-arena-v1":
+        return {**base, "reason": "external-anchor-invalid", "path": str(path)}
+    config = payload.get("config")
+    piebot = config.get("piebot") if isinstance(config, dict) else None
+    recorded_sha = piebot.get("model_sha256") if isinstance(piebot, dict) else None
+    if not candidate_sha256 or recorded_sha != candidate_sha256:
+        return {
+            **base,
+            "reason": "external-anchor-model-sha-mismatch",
+            "path": str(path.resolve()),
+            "recorded_model_sha256": recorded_sha,
+            "candidate_model_sha256": candidate_sha256,
+        }
+    options = piebot.get("options") if isinstance(piebot, dict) else None
+    if candidate_blend_percent is not None:
+        try:
+            recorded_blend = int(options["EvalBlend"])
+        except (KeyError, TypeError, ValueError):
+            return {
+                **base,
+                "reason": "external-anchor-deployment-config-incomplete",
+                "path": str(path.resolve()),
+            }
+        if recorded_blend != int(candidate_blend_percent):
+            return {
+                **base,
+                "reason": "external-anchor-blend-mismatch",
+                "path": str(path.resolve()),
+                "recorded_blend_percent": recorded_blend,
+                "candidate_blend_percent": int(candidate_blend_percent),
+            }
+    games = payload.get("games")
+    if not isinstance(games, list) or not games:
+        return {**base, "reason": "external-anchor-has-no-games", "path": str(path.resolve())}
+    pairs: Dict[int, set[int]] = {}
+    try:
+        for game in games:
+            pair_index = int(game["pair_index"])
+            game_index = int(game["game_index"])
+            score = float(game["piebot_score"])
+            if score not in (0.0, 0.5, 1.0):
+                raise ValueError
+            pairs.setdefault(pair_index, set()).add(game_index)
+    except (KeyError, TypeError, ValueError):
+        return {**base, "reason": "external-anchor-game-evidence-invalid", "path": str(path.resolve())}
+    complete_pairs = sum(len(indices) == 2 for indices in pairs.values())
+    if complete_pairs <= 0 or complete_pairs != len(pairs):
+        return {**base, "reason": "external-anchor-pairs-incomplete", "path": str(path.resolve())}
+    summary = payload.get("summary")
+    if not isinstance(summary, dict) or int(summary.get("complete_pairs", -1)) != complete_pairs:
+        return {**base, "reason": "external-anchor-summary-invalid", "path": str(path.resolve())}
+    stockfish = config.get("stockfish") if isinstance(config, dict) else None
+    stockfish_options = stockfish.get("options") if isinstance(stockfish, dict) else None
+    try:
+        stockfish_elo = int(stockfish_options["UCI_Elo"])
+    except (KeyError, TypeError, ValueError):
+        return {**base, "reason": "external-anchor-stockfish-identity-incomplete", "path": str(path.resolve())}
+    if stockfish_elo <= 0:
+        return {**base, "reason": "external-anchor-stockfish-identity-incomplete", "path": str(path.resolve())}
+    return {
+        **base,
+        "eligible": True,
+        "reason": "external-anchor-verified",
+        "path": str(path.resolve()),
+        "sha256": _sha256_file(path),
+        "candidate_model_sha256": candidate_sha256,
+        "complete_pairs": complete_pairs,
+        "stockfish": stockfish,
+        "summary": summary,
+    }
+
+
 def _run_model_gate(
     *,
     piebot_dir: Path,
@@ -1183,10 +1790,13 @@ def _run_model_gate(
     base_blend_percent: int = 100,
     candidate_blend_percent: int = 100,
     paired_openings: bool = True,
+    confidence_level: float = 0.95,
+    bootstrap_samples: int = 20_000,
 ) -> Dict[str, Any]:
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.unlink(missing_ok=True)
     expected_games = max(2, int(games))
+    effective_seed = max(1, int(seed))
     if paired_openings and expected_games % 2 != 0:
         raise ValueError(
             f"paired model gate requires an even game count; got {expected_games}"
@@ -1210,7 +1820,7 @@ def _run_model_gate(
         "--threads",
         str(max(1, int(threads))),
         "--seed",
-        str(max(1, int(seed))),
+        str(effective_seed),
         "--json-out",
         str(out_json),
         "--same-search",
@@ -1266,9 +1876,19 @@ def _run_model_gate(
             f"model gate JSON reports {reported_games} games, expected {expected_games}"
         )
     delta = experimental - baseline
-    accepted = delta >= float(min_score_delta)
+    statistics = _paired_gate_statistics(
+        payload,
+        confidence_level=confidence_level,
+        bootstrap_samples=bootstrap_samples,
+        seed=effective_seed,
+        minimum_mean_pair_delta=min_score_delta,
+    )
+    accepted = bool(statistics.get("eligible")) and bool(statistics.get("accepted"))
     return {
         "accepted": accepted,
+        "reason": statistics.get("reason"),
+        "evidence_eligible": bool(statistics.get("eligible")),
+        "evidence_schema": statistics.get("schema"),
         "baseline_points": baseline,
         "experimental_points": experimental,
         "delta_points": delta,
@@ -1280,6 +1900,10 @@ def _run_model_gate(
         "experimental_blend_percent": max(
             0, min(100, int(candidate_blend_percent))
         ),
+        "baseline_kind": "pure-pst" if base_quant is None else "active-model",
+        "statistics": statistics,
+        "pair_outcomes": statistics.get("pair_outcomes", []),
+        "game_results": statistics.get("game_results", []),
     }
 
 
@@ -1302,6 +1926,8 @@ def _run_confirmed_gate_attempt(
     base_blend_percent: int,
     candidate_blend_percent: int,
     paired_openings: bool,
+    confidence_level: float = 0.95,
+    bootstrap_samples: int = 20_000,
 ) -> Dict[str, Any]:
     screen = _run_model_gate(
         piebot_dir=piebot_dir,
@@ -1318,6 +1944,8 @@ def _run_confirmed_gate_attempt(
         base_blend_percent=base_blend_percent,
         candidate_blend_percent=candidate_blend_percent,
         paired_openings=paired_openings,
+        confidence_level=confidence_level,
+        bootstrap_samples=bootstrap_samples,
     )
     screen = dict(screen)
     screen["baseline_blend_percent"] = (
@@ -1331,44 +1959,88 @@ def _run_confirmed_gate_attempt(
         "accepted": False,
         "screen": screen,
         "confirmation": None,
+        "absolute": None,
     }
     if not bool(screen.get("accepted")):
         attempt["reason"] = "screen-rejected"
         return attempt
 
     if int(confirmation_games) <= 0:
-        attempt["accepted"] = True
-        attempt["reason"] = "confirmation-disabled"
+        relative = screen
+    else:
+        confirmation = _run_model_gate(
+            piebot_dir=piebot_dir,
+            out_json=confirmation_json,
+            base_quant=base_quant,
+            candidate_quant=candidate_quant,
+            games=confirmation_games,
+            movetime_ms=movetime_ms,
+            noise_plies=noise_plies,
+            noise_topk=noise_topk,
+            threads=threads,
+            seed=seed + 1_000_003,
+            min_score_delta=confirmation_min_score_delta,
+            base_blend_percent=base_blend_percent,
+            candidate_blend_percent=candidate_blend_percent,
+            paired_openings=paired_openings,
+            confidence_level=confidence_level,
+            bootstrap_samples=bootstrap_samples,
+        )
+        confirmation = dict(confirmation)
+        confirmation["baseline_blend_percent"] = (
+            0 if base_quant is None else max(0, min(100, int(base_blend_percent)))
+        )
+        confirmation["experimental_blend_percent"] = max(
+            0, min(100, int(candidate_blend_percent))
+        )
+        attempt["confirmation"] = confirmation
+        relative = confirmation
+
+    if not bool(relative.get("accepted")):
+        attempt["reason"] = (
+            "confirmation-rejected" if int(confirmation_games) > 0 else "screen-rejected"
+        )
         return attempt
 
-    confirmation = _run_model_gate(
-        piebot_dir=piebot_dir,
-        out_json=confirmation_json,
-        base_quant=base_quant,
-        candidate_quant=candidate_quant,
-        games=confirmation_games,
-        movetime_ms=movetime_ms,
-        noise_plies=noise_plies,
-        noise_topk=noise_topk,
-        threads=threads,
-        seed=seed + 1_000_003,
-        min_score_delta=confirmation_min_score_delta,
-        base_blend_percent=base_blend_percent,
-        candidate_blend_percent=candidate_blend_percent,
-        paired_openings=paired_openings,
-    )
-    confirmation = dict(confirmation)
-    confirmation["baseline_blend_percent"] = (
-        0 if base_quant is None else max(0, min(100, int(base_blend_percent)))
-    )
-    confirmation["experimental_blend_percent"] = max(
-        0, min(100, int(candidate_blend_percent))
-    )
-    attempt["confirmation"] = confirmation
-    attempt["accepted"] = bool(confirmation.get("accepted"))
-    attempt["reason"] = (
-        "confirmation-accepted" if attempt["accepted"] else "confirmation-rejected"
-    )
+    if base_quant is None:
+        absolute = dict(relative)
+    else:
+        suffix = confirmation_json.suffix or ".json"
+        absolute_json = confirmation_json.with_name(
+            f"{confirmation_json.stem}_absolute_pst{suffix}"
+        )
+        absolute_games = (
+            int(confirmation_games) if int(confirmation_games) > 0 else int(screen_games)
+        )
+        absolute = _run_model_gate(
+            piebot_dir=piebot_dir,
+            out_json=absolute_json,
+            base_quant=None,
+            candidate_quant=candidate_quant,
+            games=absolute_games,
+            movetime_ms=movetime_ms,
+            noise_plies=noise_plies,
+            noise_topk=noise_topk,
+            threads=threads,
+            seed=seed + 2_000_033,
+            min_score_delta=confirmation_min_score_delta,
+            base_blend_percent=0,
+            candidate_blend_percent=candidate_blend_percent,
+            paired_openings=paired_openings,
+            confidence_level=confidence_level,
+            bootstrap_samples=bootstrap_samples,
+        )
+        absolute = dict(absolute)
+    attempt["absolute"] = absolute
+    attempt["accepted"] = bool(absolute.get("accepted"))
+    if attempt["accepted"]:
+        attempt["reason"] = (
+            "confirmation-accepted"
+            if int(confirmation_games) > 0
+            else "confirmation-disabled"
+        )
+    else:
+        attempt["reason"] = "absolute-pst-rejected"
     return attempt
 
 
@@ -1383,6 +2055,7 @@ def _gate_from_attempts(attempts: list[Dict[str, Any]]) -> Dict[str, Any]:
     gate["experimental_blend_percent"] = int(selected["blend_percent"])
     gate["screen"] = selected.get("screen")
     gate["confirmation"] = selected.get("confirmation")
+    gate["absolute"] = selected.get("absolute")
     gate["attempts"] = attempts
     return gate
 
@@ -1418,6 +2091,7 @@ def _record_acceptance(
                 dict(model_identity) if isinstance(model_identity, dict) else None
             ),
             "accepted_at": time.time(),
+            "promotion_evidence_status": "paired-bootstrap-pst-verified",
             "gate": gate,
         }
     )
@@ -1442,6 +2116,23 @@ def main(argv: Optional[list[str]] = None) -> int:
         state = _load_state(state_path)
         now = time.time()
         if state is None:
+            fresh_defaults = _apply_cli_overrides(
+                _profile_defaults(args.profile),
+                args,
+            )
+            try:
+                _validate_initial_checkpoint_transition_config(fresh_defaults)
+                initial_active_model = _initial_active_model_metadata(
+                    (
+                        Path(fresh_defaults["initial_active_model"])
+                        if fresh_defaults.get("initial_active_model") is not None
+                        else None
+                    ),
+                    fresh_defaults.get("initial_active_model_blend_percent", 0),
+                )
+            except ValueError as exc:
+                print(f"autopilot refusing bootstrap configuration: {exc}", file=sys.stderr)
+                return 2
             state = {
                 "version": 1,
                 "profile": args.profile,
@@ -1454,11 +2145,22 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "active_model_sha256": None,
                 "active_model_blend_percent": 0,
                 "active_model_identity": None,
-                "deployment_state_version": 2,
+                "deployment_state_version": 3,
+                "promotion_evidence_schema": "paired-bootstrap-pst-v1",
                 "training_lineage_start_cycle": 1,
                 "training_model_identity": None,
+                "initial_active_model": copy.deepcopy(initial_active_model),
                 "last_error": None,
             }
+            if initial_active_model is not None:
+                state["active_model_path"] = initial_active_model["path"]
+                state["active_model_sha256"] = initial_active_model["sha256"]
+                state["active_model_blend_percent"] = initial_active_model[
+                    "blend_percent"
+                ]
+                state["active_model_identity"] = copy.deepcopy(
+                    initial_active_model["model_identity"]
+                )
             _atomic_write_json(state_path, state)
 
         try:
@@ -1484,10 +2186,31 @@ def main(argv: Optional[list[str]] = None) -> int:
         defaults = _profile_defaults(str(state.get("profile", args.profile)))
         defaults = _apply_cli_overrides(defaults, args)
         try:
+            _validate_initial_checkpoint_transition_config(defaults)
+            bootstrap_state_is_uncommitted = (
+                "initial_active_model" not in state
+                and int(state.get("next_cycle", 1)) == 1
+                and not state.get("completed_cycles")
+                and not state.get("training_checkpoint_path")
+            )
+            if _initialize_or_validate_initial_active_model(
+                state,
+                initial_active_model=(
+                    Path(defaults["initial_active_model"])
+                    if defaults.get("initial_active_model") is not None
+                    else None
+                ),
+                blend_percent=defaults.get(
+                    "initial_active_model_blend_percent",
+                    0,
+                ),
+                fresh=bootstrap_state_is_uncommitted,
+            ):
+                _atomic_write_json(state_path, state)
             _validate_training_checkpoint_identity(state, defaults)
         except ValueError as exc:
             state["last_error"] = {
-                "stage": "training-lineage-validation",
+                "stage": "bootstrap-or-training-lineage-validation",
                 "error": str(exc),
                 "ts": time.time(),
             }
@@ -1565,9 +2288,33 @@ def main(argv: Optional[list[str]] = None) -> int:
                             state,
                             defaults.get("initial_checkpoint"),
                         )
+                    initial_checkpoint_weights_only = (
+                        _uses_external_weights_only_checkpoint(
+                            state,
+                            configured_checkpoint=(
+                                Path(defaults["initial_checkpoint"])
+                                if defaults.get("initial_checkpoint") is not None
+                                else None
+                            ),
+                            resolved_checkpoint=initial_checkpoint,
+                            enabled=bool(
+                                defaults.get(
+                                    "initial_checkpoint_weights_only",
+                                    False,
+                                )
+                            ),
+                        )
+                    )
+                    continue_optimizer_state = bool(
+                        defaults.get("continue_optimizer_state", False)
+                    ) and not initial_checkpoint_weights_only
                     cycle_state["initial_checkpoint_path"] = (
                         str(initial_checkpoint) if initial_checkpoint is not None else None
                     )
+                    cycle_state["initial_checkpoint_weights_only"] = (
+                        initial_checkpoint_weights_only
+                    )
+                    cycle_state["continue_optimizer_state"] = continue_optimizer_state
                     cycle_learning_rate = float(defaults.get("learning_rate", 0.03))
                     if initial_checkpoint is not None:
                         cycle_learning_rate = float(
@@ -1586,6 +2333,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                             "teacher_relabel_nnue_blend_percent": teacher_blend,
                             "replay_jsonl_dirs": replay_dirs,
                             "initial_checkpoint": initial_checkpoint,
+                            "initial_checkpoint_weights_only": (
+                                initial_checkpoint_weights_only
+                            ),
+                            "continue_optimizer_state": continue_optimizer_state,
                             "learning_rate": cycle_learning_rate,
                         }
                     )
@@ -1640,6 +2391,29 @@ def main(argv: Optional[list[str]] = None) -> int:
                         active_identity,
                         candidate_identity,
                     )
+                    validation_strength = _validation_strength_status(
+                        validation_jsonl_dir=(
+                            Path(defaults["validation_jsonl_dir"])
+                            if defaults.get("validation_jsonl_dir") is not None
+                            else None
+                        ),
+                        provenance_json=(
+                            Path(defaults["validation_provenance_json"])
+                            if defaults.get("validation_provenance_json") is not None
+                            else None
+                        ),
+                    )
+                    external_anchor = _external_anchor_status(
+                        anchor_json=(
+                            Path(defaults["gate_external_anchor_json"])
+                            if defaults.get("gate_external_anchor_json") is not None
+                            else None
+                        ),
+                        candidate_sha256=candidate_quant_sha,
+                    )
+                    if isinstance(summary, dict):
+                        summary["validation_strength"] = validation_strength
+                        _atomic_write_json(cycle_dir / "pipeline_summary.json", summary)
                     candidate_blends = [candidate_blend]
                     if (
                         bootstrap_quant is not None
@@ -1663,8 +2437,20 @@ def main(argv: Optional[list[str]] = None) -> int:
                             defaults.get("gate_confirmation_games", 96)
                         ),
                         "confirmation_min_score_delta": float(
-                            defaults.get("gate_confirmation_min_score_delta", 2.0)
+                            defaults.get("gate_confirmation_min_score_delta", 0.0)
                         ),
+                        "confidence_level": float(
+                            defaults.get("gate_confidence_level", 0.95)
+                        ),
+                        "bootstrap_samples": int(
+                            defaults.get("gate_bootstrap_samples", 20_000)
+                        ),
+                        "absolute_baseline": "pure-pst-same-search",
+                        "require_external_anchor": bool(
+                            defaults.get("gate_require_external_anchor", False)
+                        ),
+                        "external_anchor_sha256": external_anchor.get("sha256"),
+                        "validation_strength_reason": validation_strength.get("reason"),
                         "movetime_ms": int(defaults.get("gate_movetime_ms", 150)),
                         "noise_plies": int(defaults.get("gate_noise_plies", 12)),
                         "noise_topk": int(defaults.get("gate_noise_topk", 5)),
@@ -1677,12 +2463,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                     gate_was_run = False
                     if gate_games <= 0:
                         gate = {
-                            "accepted": True,
-                            "reason": "gate-disabled",
+                            "accepted": False,
+                            "reason": "gate-disabled-promotion-ineligible",
                             "baseline_blend_percent": active_blend,
                             "experimental_blend_percent": candidate_blend,
                             "screen": None,
                             "confirmation": None,
+                            "absolute": None,
                             "attempts": [],
                         }
                     elif candidate_quant is None:
@@ -1728,6 +2515,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                         "reason": "candidate-identical-to-active-model",
                                         "screen": None,
                                         "confirmation": None,
+                                        "absolute": None,
                                     }
                                 )
                                 continue
@@ -1755,7 +2543,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 confirmation_min_score_delta=float(
                                     defaults.get(
                                         "gate_confirmation_min_score_delta",
-                                        2.0,
+                                        0.0,
                                     )
                                 ),
                                 base_blend_percent=active_blend,
@@ -1763,11 +2551,40 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 paired_openings=bool(
                                     defaults.get("gate_paired_openings", True)
                                 ),
+                                confidence_level=float(
+                                    defaults.get("gate_confidence_level", 0.95)
+                                ),
+                                bootstrap_samples=int(
+                                    defaults.get("gate_bootstrap_samples", 20_000)
+                                ),
                             )
                             gate_attempts.append(gate_attempt)
                             if gate_attempt.get("accepted"):
                                 break
                         gate = _gate_from_attempts(gate_attempts)
+                    selected_blend = int(
+                        gate.get("experimental_blend_percent", candidate_blend)
+                    )
+                    external_anchor = _external_anchor_status(
+                        anchor_json=(
+                            Path(defaults["gate_external_anchor_json"])
+                            if defaults.get("gate_external_anchor_json") is not None
+                            else None
+                        ),
+                        candidate_sha256=candidate_quant_sha,
+                        candidate_blend_percent=selected_blend,
+                    )
+                    gate["validation_strength"] = validation_strength
+                    gate["external_anchor"] = external_anchor
+                    if (
+                        gate.get("accepted")
+                        and bool(defaults.get("gate_require_external_anchor", False))
+                        and not bool(external_anchor.get("eligible"))
+                    ):
+                        gate["accepted"] = False
+                        gate["reason"] = external_anchor.get(
+                            "reason", "external-anchor-required"
+                        )
                     next_state = copy.deepcopy(state)
                     if gate_was_run and candidate_quant_sha:
                         next_state["last_gate_identity"] = gate_identity

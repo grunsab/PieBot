@@ -118,6 +118,198 @@ class TorchBatchPackingTests(unittest.TestCase):
             self.assertEqual(400.0, metrics["wdl_scale_cp"])
             self.assertEqual(20_260_802, metrics["validation_seed"])
             self.assertFalse(metrics["optimizer_state_restored"])
+            self.assertFalse(metrics["initial_checkpoint_weights_only"])
+            self.assertFalse(checkpoint["initial_checkpoint_weights_only"])
+            self.assertEqual("strict", checkpoint["initialized_from"]["mode"])
+            self.assertFalse(
+                checkpoint["initialized_from"]["objective_transition"]
+            )
+
+    def test_strict_warm_start_still_rejects_objective_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(
+                root / "data",
+                [{
+                    "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "result": 1,
+                    "value_cp": 75.0,
+                    "teacher_depth": 6,
+                }],
+            )
+            input_dim = train_torch.train_stub.HALFKP_DIM
+            parent_path = root / "parent.json"
+            parent_path.write_text(
+                json.dumps({
+                    "format": "piebot-halfkp-mse-v2-torch",
+                    "feature_set": train_torch.train_stub.FEATURE_SET,
+                    "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                    "objective": _objective(min_teacher_depth=0),
+                    "input_dim": input_dim,
+                    "hidden_dim": 1,
+                    "w1": [0.0] * input_dim,
+                    "b1": [0.5],
+                    "w2": [1.5],
+                    "b2": 2.0,
+                }),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "objective"):
+                train_torch.train_model(
+                    jsonl_dir=root / "data",
+                    max_samples=1,
+                    epochs=1,
+                    val_split=0.0,
+                    learning_rate=0.0,
+                    hidden_dim=1,
+                    loss_kind="huber",
+                    min_teacher_depth=6,
+                    teacher_sample_fraction=1.0,
+                    initial_checkpoint=parent_path,
+                    out_dir=root / "out",
+                    device="cpu",
+                )
+
+    def test_weights_only_warm_start_loads_exact_weights_across_objectives(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(
+                root / "data",
+                [{
+                    "fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1",
+                    "result": 1,
+                    "value_cp": 75.0,
+                    "teacher_depth": 6,
+                }],
+            )
+            input_dim = train_torch.train_stub.HALFKP_DIM
+            parent_w1 = [0.0] * input_dim
+            parent_w1[0] = 1.0
+            parent_w1[-1] = -2.0
+            source_objective = _objective(min_teacher_depth=0)
+            requested_objective = _objective(
+                loss_kind="huber",
+                min_teacher_depth=6,
+            )
+            parent = {
+                "format": "piebot-halfkp-mse-v2-torch",
+                "feature_set": train_torch.train_stub.FEATURE_SET,
+                "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                "objective": source_objective,
+                "input_dim": input_dim,
+                "hidden_dim": 1,
+                "w1": parent_w1,
+                "b1": [0.5],
+                "w2": [1.5],
+                "b2": 2.0,
+            }
+            parent_path = root / "parent.json"
+            parent_path.write_text(json.dumps(parent), encoding="utf-8")
+
+            metrics = train_torch.train_model(
+                jsonl_dir=root / "data",
+                max_samples=1,
+                epochs=1,
+                val_split=0.0,
+                learning_rate=0.0,
+                hidden_dim=1,
+                loss_kind="huber",
+                min_teacher_depth=6,
+                teacher_sample_fraction=1.0,
+                initial_checkpoint=parent_path,
+                initial_checkpoint_weights_only=True,
+                out_dir=root / "out",
+                device="cpu",
+            )
+
+            checkpoint = json.loads((root / "out" / "checkpoint.json").read_text())
+            self.assertEqual(parent["w1"], checkpoint["w1"])
+            self.assertEqual(parent["b1"], checkpoint["b1"])
+            self.assertEqual(parent["w2"], checkpoint["w2"])
+            self.assertEqual(parent["b2"], checkpoint["b2"])
+            self.assertEqual(requested_objective, checkpoint["objective"])
+            self.assertTrue(checkpoint["initial_checkpoint_weights_only"])
+            self.assertTrue(metrics["initial_checkpoint_weights_only"])
+            for provenance in (
+                checkpoint["initialized_from"],
+                metrics["initialized_from"],
+            ):
+                self.assertEqual("weights-only", provenance["mode"])
+                self.assertTrue(provenance["weights_only"])
+                self.assertTrue(provenance["objective_transition"])
+                self.assertTrue(provenance["weights_only_objective_transition"])
+                self.assertEqual(source_objective, provenance["source_objective"])
+                self.assertEqual(
+                    requested_objective,
+                    provenance["requested_objective"],
+                )
+            self.assertFalse(metrics["optimizer_state_restored"])
+
+    def test_weights_only_warm_start_categorically_rejects_optimizer_restore(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_records(
+                root / "data",
+                [{"fen": "k7/8/8/8/8/8/8/KQ6 w - - 0 1", "result": 1}],
+            )
+            parent_path = root / "parent.json"
+            parent_path.write_text("{}", encoding="utf-8")
+            optimizer_path = root / "optimizer.pt"
+            optimizer_path.write_bytes(b"stale Adam moments")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "weights.only.*optimizer|optimizer.*weights.only",
+            ):
+                train_torch.train_model(
+                    jsonl_dir=root / "data",
+                    max_samples=1,
+                    epochs=1,
+                    hidden_dim=1,
+                    initial_checkpoint=parent_path,
+                    initial_checkpoint_weights_only=True,
+                    initial_optimizer_state=optimizer_path,
+                    out_dir=root / "out",
+                    device="cpu",
+                )
+
+    def test_weights_only_warm_start_rejects_non_finite_model_tensors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_dim = train_torch.train_stub.HALFKP_DIM
+            parent_w1 = [0.0] * input_dim
+            # Finite as a JSON/Python float, but not representable by the
+            # float32 model tensor. Validation must happen after conversion.
+            parent_w1[0] = 1e100
+            parent_path = root / "parent.json"
+            parent_path.write_text(
+                json.dumps({
+                    "format": "piebot-halfkp-mse-v2-torch",
+                    "feature_set": train_torch.train_stub.FEATURE_SET,
+                    "target_schema": train_torch.train_stub.TARGET_SCHEMA,
+                    "objective": _objective(),
+                    "input_dim": input_dim,
+                    "hidden_dim": 1,
+                    "w1": parent_w1,
+                    "b1": [0.0],
+                    "w2": [0.0],
+                    "b2": 0.0,
+                }),
+                encoding="utf-8",
+            )
+            model = train_torch.TorchNnue(input_dim=input_dim, hidden_dim=1)
+
+            with self.assertRaisesRegex(ValueError, "finite model tensor"):
+                train_torch._load_initial_checkpoint(
+                    model,
+                    parent_path,
+                    input_dim=input_dim,
+                    hidden_dim=1,
+                    device=train_torch.torch.device("cpu"),
+                    objective=_objective(min_teacher_depth=6),
+                    weights_only=True,
+                )
 
     def test_warm_start_rejects_incompatible_hidden_dimension(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

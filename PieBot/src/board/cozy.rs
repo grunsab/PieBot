@@ -3,18 +3,24 @@ use cozy_chess::{Board as CozyBoard, Color};
 #[derive(Clone, Debug)]
 pub struct Position {
     board: CozyBoard,
+    history: Vec<CozyBoard>,
 }
 
 impl Position {
     pub fn startpos() -> Self {
+        let board = CozyBoard::default();
         Self {
-            board: CozyBoard::default(),
+            history: vec![board.clone()],
+            board,
         }
     }
 
     pub fn from_fen(fen: &str) -> Result<Self, String> {
         CozyBoard::from_fen(fen, false)
-            .map(|b| Self { board: b })
+            .map(|board| Self {
+                history: vec![board.clone()],
+                board,
+            })
             .map_err(|e| format!("FEN error: {e:?}"))
     }
 
@@ -22,11 +28,17 @@ impl Position {
         &self.board
     }
 
+    /// Boards from the loaded root through the current position, inclusive.
+    /// Search uses this history to recognize claimable repetitions.
+    pub fn history(&self) -> &[CozyBoard] {
+        &self.history
+    }
+
     pub fn make_move_uci(&mut self, mv_uci: &str) -> Result<(), String> {
         let mut found = None;
         self.board.generate_moves(|moves| {
             for m in moves {
-                if format!("{}", m) == mv_uci {
+                if format!("{m}") == mv_uci {
                     found = Some(m);
                     break;
                 }
@@ -35,9 +47,10 @@ impl Position {
         });
         if let Some(m) = found {
             self.board.play_unchecked(m);
+            self.history.push(self.board.clone());
             Ok(())
         } else {
-            Err(format!("Illegal move: {}", mv_uci))
+            Err(format!("Illegal move: {mv_uci}"))
         }
     }
 

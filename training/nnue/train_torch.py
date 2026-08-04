@@ -96,6 +96,16 @@ def _sha256_jsonl_source(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _count_jsonl_source_records(path: Path) -> int:
+    root = Path(path)
+    files = [root] if root.is_file() else sorted(root.glob("*.jsonl"))
+    records = 0
+    for file_path in files:
+        with file_path.open("rb") as handle:
+            records += sum(1 for line in handle if line.strip())
+    return records
+
+
 def _load_initial_checkpoint(
     model: TorchNnue,
     checkpoint_path: Path,
@@ -104,6 +114,7 @@ def _load_initial_checkpoint(
     hidden_dim: int,
     device: "torch.device",
     objective: Dict[str, Any],
+    weights_only: bool = False,
 ) -> Dict[str, Any]:
     path = Path(checkpoint_path)
     if not path.is_file():
@@ -139,7 +150,11 @@ def _load_initial_checkpoint(
             f"initial checkpoint target_schema mismatch: expected "
             f"{train_stub.TARGET_SCHEMA!r}, got {checkpoint_target_schema!r}"
         )
-    if checkpoint.get("objective") != objective:
+    checkpoint_objective = checkpoint.get("objective")
+    if not isinstance(checkpoint_objective, dict):
+        raise ValueError("initial checkpoint objective metadata is missing or invalid")
+    objective_transition = checkpoint_objective != objective
+    if objective_transition and not weights_only:
         raise ValueError("initial checkpoint objective does not match this training run")
 
     expected_lengths = {
@@ -168,20 +183,40 @@ def _load_initial_checkpoint(
     if not math.isfinite(b2):
         raise ValueError("initial checkpoint b2 contains a non-finite value")
 
+    try:
+        w1_tensor = torch.tensor(
+            values["w1"], dtype=model.embed.weight.dtype, device=device
+        )
+        b1_tensor = torch.tensor(values["b1"], dtype=model.b1.dtype, device=device)
+        w2_tensor = torch.tensor(
+            values["w2"], dtype=model.out.weight.dtype, device=device
+        )
+        b2_tensor = torch.tensor([b2], dtype=model.out.bias.dtype, device=device)
+    except (TypeError, ValueError, OverflowError, RuntimeError) as exc:
+        raise ValueError(
+            "initial checkpoint weights cannot be represented as finite model tensors"
+        ) from exc
+    tensors = {
+        "w1": w1_tensor,
+        "b1": b1_tensor,
+        "w2": w2_tensor,
+        "b2": b2_tensor,
+    }
+    for key, tensor in tensors.items():
+        if not bool(torch.isfinite(tensor).all().item()):
+            raise ValueError(
+                f"initial checkpoint {key} contains non-finite model tensor values"
+            )
+
     with torch.no_grad():
         # Serialized w1 is row-major [hidden][input], while EmbeddingBag stores
         # [input][hidden]. The transpose is required for an exact warm start.
-        w1 = torch.tensor(values["w1"], dtype=model.embed.weight.dtype, device=device)
-        model.embed.weight.copy_(w1.view(hidden_dim, input_dim).transpose(0, 1))
-        model.b1.copy_(torch.tensor(values["b1"], dtype=model.b1.dtype, device=device))
-        model.out.weight.copy_(
-            torch.tensor(values["w2"], dtype=model.out.weight.dtype, device=device).view(
-                1, hidden_dim
-            )
+        model.embed.weight.copy_(
+            w1_tensor.view(hidden_dim, input_dim).transpose(0, 1)
         )
-        model.out.bias.copy_(
-            torch.tensor([b2], dtype=model.out.bias.dtype, device=device)
-        )
+        model.b1.copy_(b1_tensor)
+        model.out.weight.copy_(w2_tensor.view(1, hidden_dim))
+        model.out.bias.copy_(b2_tensor)
 
     optimizer_state = checkpoint.get("optimizer_state")
     optimizer_state_sha256 = (
@@ -196,7 +231,18 @@ def _load_initial_checkpoint(
         "hidden_dim": int(hidden_dim),
         "feature_set": checkpoint_feature_set,
         "target_schema": checkpoint_target_schema,
-        "objective": objective,
+        # ``objective`` remains the requested objective as a compatibility
+        # alias. The explicit source/requested fields make transitions
+        # auditable without changing existing provenance consumers.
+        "objective": copy.deepcopy(objective),
+        "source_objective": copy.deepcopy(checkpoint_objective),
+        "requested_objective": copy.deepcopy(objective),
+        "mode": "weights-only" if weights_only else "strict",
+        "weights_only": bool(weights_only),
+        "objective_transition": bool(objective_transition),
+        "weights_only_objective_transition": bool(
+            weights_only and objective_transition
+        ),
         "optimizer_state_sha256": optimizer_state_sha256,
     }
 
@@ -547,6 +593,7 @@ def train_model(
     out_dir: Path = Path("out/nnue_torch_train"),
     device: str = "auto",
     initial_checkpoint: Optional[Path] = None,
+    initial_checkpoint_weights_only: bool = False,
     loss_kind: str = "mse",
     huber_delta_cp: float = 100.0,
     wdl_scale_cp: float = 400.0,
@@ -561,6 +608,16 @@ def train_model(
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
+    initial_checkpoint_weights_only = bool(initial_checkpoint_weights_only)
+    if initial_checkpoint_weights_only and initial_optimizer_state is not None:
+        raise ValueError(
+            "weights-only initial checkpoint mode categorically forbids "
+            "initial optimizer state restore"
+        )
+    if initial_checkpoint_weights_only and initial_checkpoint is None:
+        raise ValueError(
+            "initial_checkpoint_weights_only requires an initial checkpoint"
+        )
     if initial_optimizer_state is not None and initial_checkpoint is None:
         raise ValueError("initial optimizer state requires an initial checkpoint")
     dev = _select_device(device)
@@ -682,6 +739,13 @@ def train_model(
         validation_teacher_value_available = 0
         validation_raw_teacher_value_available = 0
         validation_path = Path(validation_jsonl_dir)  # type: ignore[arg-type]
+        validation_source_before = {
+            "path": validation_path.resolve().as_posix(),
+            "sha256": _sha256_jsonl_source(validation_path),
+            "records": _count_jsonl_source_records(validation_path),
+            "max_samples": max_validation_samples,
+            "seed": validation_seed,
+        }
         val_x: List[List[int]] = []
         val_y_cp: List[float] = []
         val_y_wdl: List[float] = []
@@ -724,9 +788,12 @@ def train_model(
         validation_source = {
             "path": validation_path.resolve().as_posix(),
             "sha256": _sha256_jsonl_source(validation_path),
+            "records": _count_jsonl_source_records(validation_path),
             "max_samples": max_validation_samples,
             "seed": validation_seed,
         }
+        if validation_source != validation_source_before:
+            raise ValueError("fixed validation source changed while trainer was reading it")
         validation_sample_sha256 = validation_digest.hexdigest()
     else:
         assert sample_records is not None
@@ -765,6 +832,7 @@ def train_model(
             hidden_dim=hidden_dim,
             device=dev,
             objective=objective,
+            weights_only=initial_checkpoint_weights_only,
         )
     opt = torch.optim.Adam(
         model.parameters(),
@@ -992,6 +1060,7 @@ def train_model(
         "best_epoch": best_epoch,
         "device": str(dev),
         "initialized_from": initialized_from,
+        "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
         "loss_kind": loss_kind,
         "huber_delta_cp": huber_delta_cp,
         "wdl_scale_cp": wdl_scale_cp,
@@ -1058,6 +1127,7 @@ def train_model(
         "initial_train_prediction_max_abs": initial_train_prediction_max_abs,
         "initial_val_prediction_max_abs": initial_val_prediction_max_abs,
         "initialized_from": initialized_from,
+        "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
         "optimizer_state": optimizer_state,
         "optimizer_initialized_from": optimizer_initialized_from,
         "initialized_optimizer_state": optimizer_initialized_from,
@@ -1120,6 +1190,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--learning-rate", type=float, default=0.05)
     ap.add_argument("--initial-checkpoint", type=Path, default=None)
+    ap.add_argument(
+        "--initial-checkpoint-weights-only",
+        action="store_true",
+        help=(
+            "load only model weights for an explicit objective transition; "
+            "optimizer state restore is forbidden"
+        ),
+    )
     ap.add_argument("--initial-optimizer-state", type=Path, default=None)
     ap.add_argument("--hidden-dim", type=int, default=64)
     ap.add_argument("--target-cp", type=float, default=100.0)
@@ -1175,6 +1253,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         out_dir=args.out,
         device=args.device,
         initial_checkpoint=args.initial_checkpoint,
+        initial_checkpoint_weights_only=args.initial_checkpoint_weights_only,
         initial_optimizer_state=args.initial_optimizer_state,
     )
     print(f"Train samples: {metrics['train_samples']}")

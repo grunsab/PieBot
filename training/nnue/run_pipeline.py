@@ -434,6 +434,25 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_jsonl_source(path: Path) -> str:
+    """Hash JSONL contents together with stable source-relative names."""
+    root = Path(path)
+    files = [root] if root.is_file() else sorted(root.glob("*.jsonl"))
+    digest = hashlib.sha256()
+    for file_path in files:
+        name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        with file_path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def _artifact_snapshot(base_dir: Path, paths: Sequence[Path]) -> Dict[str, Any]:
     base_resolved = base_dir.resolve()
     files: List[Dict[str, Any]] = []
@@ -748,6 +767,30 @@ def _validate_training_target_identity(
         raise ValueError("training checkpoint objective does not match the pipeline")
 
 
+def _validate_validation_source_binding(
+    metrics: Dict[str, Any],
+    expected: Optional[Dict[str, Any]],
+) -> None:
+    recorded = metrics.get("validation_source")
+    if expected is None:
+        if recorded is not None:
+            raise ValueError("trainer recorded an unexpected fixed validation source")
+        return
+    if not isinstance(recorded, dict):
+        raise ValueError("trainer did not record fixed validation source provenance")
+    if recorded.get("path") != expected.get("path"):
+        raise ValueError("trainer validation source path mismatch")
+    if recorded.get("sha256") != expected.get("source_sha256"):
+        raise ValueError("trainer validation source SHA-256 mismatch")
+    try:
+        recorded_count = int(recorded.get("records", -1))
+        expected_count = int(expected.get("records", -1))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("trainer validation source record count is invalid") from exc
+    if recorded_count != expected_count:
+        raise ValueError("trainer validation source record count mismatch")
+
+
 def _training_provenance(
     *,
     train_jsonl_dir: Path,
@@ -788,6 +831,9 @@ def _initial_checkpoint_provenance(
         "input_dim": input_dim,
         "hidden_dim": hidden_dim,
         "output_dim": output_dim,
+        "feature_set": checkpoint.get("feature_set"),
+        "target_schema": checkpoint.get("target_schema"),
+        "objective": checkpoint.get("objective"),
     }
 
 
@@ -1231,9 +1277,52 @@ def run_pipeline(
     trainer_backend: str = "stub",
     trainer_device: str = "auto",
     initial_checkpoint: Optional[Path] = None,
+    initial_checkpoint_weights_only: bool = False,
     initial_optimizer_state: Optional[Path] = None,
     continue_optimizer_state: bool = False,
 ) -> Dict[str, Any]:
+    resolved_backend = _resolve_trainer_backend(
+        trainer_backend,
+        trainer_device=trainer_device,
+    )
+    initial_checkpoint_weights_only = bool(initial_checkpoint_weights_only)
+    if initial_checkpoint_weights_only:
+        if resolved_backend != "torch":
+            raise ValueError(
+                "initial checkpoint weights-only mode is supported only by the torch trainer"
+            )
+        if initial_checkpoint is None:
+            raise ValueError(
+                "initial checkpoint weights-only mode requires an initial checkpoint"
+            )
+        if initial_optimizer_state is not None or continue_optimizer_state:
+            raise ValueError(
+                "optimizer continuation cannot be combined with weights-only "
+                "initial checkpoint mode"
+            )
+    if initial_checkpoint is not None and not Path(initial_checkpoint).is_file():
+        raise ValueError(f"initial checkpoint does not exist: {initial_checkpoint}")
+    resolved_initial_optimizer: Optional[Path] = None
+    if resolved_backend == "torch":
+        if initial_optimizer_state is not None:
+            resolved_initial_optimizer = Path(initial_optimizer_state)
+            if not resolved_initial_optimizer.is_file():
+                raise ValueError(
+                    f"initial optimizer state does not exist: {resolved_initial_optimizer}"
+                )
+        elif continue_optimizer_state and initial_checkpoint is not None:
+            checkpoint_parent = Path(initial_checkpoint)
+            if not checkpoint_parent.is_file():
+                raise ValueError(
+                    f"initial checkpoint does not exist: {checkpoint_parent}"
+                )
+            sibling = checkpoint_parent.parent / "optimizer.pt"
+            if not sibling.is_file():
+                raise ValueError(
+                    "requested optimizer continuation but sibling optimizer state "
+                    f"is missing: {sibling}"
+                )
+            resolved_initial_optimizer = sibling
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1389,25 +1478,24 @@ def run_pipeline(
     train_out = out_dir / "train"
     checkpoint_path = train_out / "checkpoint.json"
     metrics_path = train_out / "metrics.json"
-    resolved_backend = _resolve_trainer_backend(trainer_backend, trainer_device=trainer_device)
     validation_dataset = None
     if validation_jsonl_dir is not None:
         validation_dataset = _merged_source_provenance(
             [Path(validation_jsonl_dir)]
         )[0]
+        validation_dataset["source_sha256"] = _sha256_jsonl_source(
+            Path(validation_jsonl_dir)
+        )
+        validation_snapshot_after_hash = _merged_source_provenance(
+            [Path(validation_jsonl_dir)]
+        )[0]
+        if {
+            key: value
+            for key, value in validation_dataset.items()
+            if key != "source_sha256"
+        } != validation_snapshot_after_hash:
+            raise ValueError("validation source changed while pipeline was snapshotting it")
 
-    resolved_initial_optimizer: Optional[Path] = None
-    if resolved_backend == "torch":
-        if initial_optimizer_state is not None:
-            resolved_initial_optimizer = Path(initial_optimizer_state)
-            if not resolved_initial_optimizer.is_file():
-                raise ValueError(
-                    f"initial optimizer state does not exist: {resolved_initial_optimizer}"
-                )
-        elif continue_optimizer_state and initial_checkpoint is not None:
-            sibling = Path(initial_checkpoint).parent / "optimizer.pt"
-            if sibling.is_file():
-                resolved_initial_optimizer = sibling
     initial_optimizer_info = _file_content_identity(resolved_initial_optimizer)
     objective = train_stub.objective_metadata(
         loss_kind=loss_kind,
@@ -1457,6 +1545,7 @@ def run_pipeline(
         "validation_sampling_schema": train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA,
         "objective": objective,
         "initial_checkpoint": initial_checkpoint_info,
+        "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
         "initial_optimizer_state": initial_optimizer_info,
         "validation_dataset": validation_dataset,
     }
@@ -1492,6 +1581,7 @@ def run_pipeline(
             train_torch.train_model(  # type: ignore[union-attr]
                 device=trainer_device,
                 initial_checkpoint=initial_checkpoint,
+                initial_checkpoint_weights_only=initial_checkpoint_weights_only,
                 initial_optimizer_state=resolved_initial_optimizer,
                 **train_kwargs,
             )
@@ -1504,6 +1594,7 @@ def run_pipeline(
         _write_training_stage_manifest(train_out, provenance=training_provenance)
 
     _validate_training_target_identity(checkpoint, metrics, objective)
+    _validate_validation_source_binding(metrics, validation_dataset)
 
     if initial_checkpoint_info is not None:
         initialized_from = metrics.get("initialized_from")
@@ -1513,6 +1604,20 @@ def run_pipeline(
             raise ValueError("trainer warm-start checkpoint SHA-256 mismatch")
         if initialized_from.get("path") != initial_checkpoint_info["path"]:
             raise ValueError("trainer warm-start checkpoint path mismatch")
+        if bool(metrics.get("initial_checkpoint_weights_only")) != (
+            initial_checkpoint_weights_only
+        ):
+            raise ValueError("trainer warm-start mode provenance mismatch")
+        expected_mode = "weights-only" if initial_checkpoint_weights_only else "strict"
+        recorded_mode = initialized_from.get("mode")
+        if (
+            initial_checkpoint_weights_only
+            and recorded_mode != expected_mode
+        ) or (
+            not initial_checkpoint_weights_only
+            and recorded_mode not in {None, expected_mode}
+        ):
+            raise ValueError("trainer warm-start initialization mode mismatch")
     if initial_optimizer_info is not None:
         initialized_optimizer = metrics.get("initialized_optimizer_state")
         if not isinstance(initialized_optimizer, dict):
@@ -1594,6 +1699,7 @@ def run_pipeline(
         "checkpoint_path": str(checkpoint_path),
         "checkpoint_sha256": _sha256_file(checkpoint_path),
         "initial_checkpoint": initial_checkpoint_info,
+        "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
         "initial_optimizer_state": initial_optimizer_info,
         "validation_dataset": validation_dataset,
         "metrics_path": str(metrics_path),
@@ -1675,6 +1781,15 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Compatible float checkpoint used to initialize Torch training",
+    )
+    ap.add_argument(
+        "--initial-checkpoint-weights-only",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "load only model weights for an explicit objective transition; "
+            "cannot be combined with optimizer continuation"
+        ),
     )
     ap.add_argument("--hidden-dim", type=int, default=16)
     ap.add_argument("--target-cp", type=float, default=100.0)
@@ -1800,6 +1915,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         trainer_backend=args.trainer_backend,
         trainer_device=args.trainer_device,
         initial_checkpoint=args.initial_checkpoint,
+        initial_checkpoint_weights_only=args.initial_checkpoint_weights_only,
         initial_optimizer_state=args.initial_optimizer_state,
         continue_optimizer_state=args.continue_optimizer_state,
         resume=args.resume,

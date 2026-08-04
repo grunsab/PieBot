@@ -5,10 +5,18 @@ use crate::eval::nnue::loader::QuantNnue;
 #[cfg(not(feature = "board-pleco"))]
 use crate::eval::nnue::Nnue;
 #[cfg(not(feature = "board-pleco"))]
-use crate::search::alphabeta::{SearchParams, Searcher};
+use crate::search::alphabeta::{SearchParams, SearchResult, Searcher};
 #[cfg(not(feature = "board-pleco"))]
 use cozy_chess::{Color, Piece, Square};
+#[cfg(not(feature = "board-pleco"))]
+use std::collections::VecDeque;
 use std::io::{self, BufRead};
+#[cfg(not(feature = "board-pleco"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(feature = "board-pleco"))]
+use std::sync::{mpsc, Arc};
+#[cfg(not(feature = "board-pleco"))]
+use std::thread;
 #[cfg(not(feature = "board-pleco"))]
 use std::time::Duration;
 
@@ -25,12 +33,14 @@ const MOVE_OVERHEAD_MS: u64 = 10;
 #[derive(Debug, Default, PartialEq, Eq)]
 struct GoOptions {
     depth: Option<u32>,
+    nodes: Option<u64>,
     movetime_ms: Option<u64>,
     wtime_ms: Option<u64>,
     btime_ms: Option<u64>,
     winc_ms: Option<u64>,
     binc_ms: Option<u64>,
     moves_to_go: Option<u64>,
+    infinite: bool,
 }
 
 #[cfg(not(feature = "board-pleco"))]
@@ -45,6 +55,12 @@ impl GoOptions {
                         .next()
                         .and_then(|value| value.parse::<u32>().ok())
                         .map(|depth| depth.max(1));
+                }
+                "nodes" => {
+                    options.nodes = tokens
+                        .next()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .map(|nodes| nodes.max(1));
                 }
                 "movetime" => {
                     options.movetime_ms = tokens
@@ -70,6 +86,7 @@ impl GoOptions {
                         .and_then(|value| value.parse::<u64>().ok())
                         .map(|moves| moves.max(1));
                 }
+                "infinite" => options.infinite = true,
                 _ => {}
             }
         }
@@ -91,12 +108,41 @@ impl GoOptions {
         let requested_ms = base_ms.saturating_add(increment_share_ms).max(1);
         Some(requested_ms.min(usable_ms.max(1)))
     }
+
+    fn allocated_time_for(&self, board: &cozy_chess::Board) -> Option<u64> {
+        if self.movetime_ms.is_some() || self.moves_to_go.is_some() {
+            return self.allocated_time_ms(board.side_to_move());
+        }
+
+        let (remaining_ms, increment_ms) = match board.side_to_move() {
+            Color::White => (self.wtime_ms?, self.winc_ms.unwrap_or(0)),
+            Color::Black => (self.btime_ms?, self.binc_ms.unwrap_or(0)),
+        };
+        let reserve_ms = (remaining_ms / 20).clamp(50, 1_000);
+        let usable_ms = remaining_ms.saturating_sub(reserve_ms).max(1);
+        let non_king_pieces = (board.occupied().len() as u64).saturating_sub(2);
+        let estimated_moves = match non_king_pieces {
+            24.. => 24,
+            12..=23 => 20,
+            6..=11 => 16,
+            _ => 12,
+        };
+        let base_ms = usable_ms / estimated_moves;
+        let increment_share_ms = increment_ms.saturating_mul(4) / 5;
+        let requested_ms = base_ms.saturating_add(increment_share_ms).max(1);
+        Some(requested_ms.min((usable_ms / 3).max(1)))
+    }
 }
 
 #[cfg(not(feature = "board-pleco"))]
-fn search_params_for_go(options: &GoOptions, side_to_move: Color, threads: usize) -> SearchParams {
+fn search_params_for_go(
+    options: &GoOptions,
+    board: &cozy_chess::Board,
+    threads: usize,
+) -> SearchParams {
     let mut params = SearchParams::default();
     params.depth = options.depth.unwrap_or(0);
+    params.max_nodes = options.nodes;
     params.use_tt = true;
     params.order_captures = true;
     params.use_history = true;
@@ -108,13 +154,17 @@ fn search_params_for_go(options: &GoOptions, side_to_move: Color, threads: usize
     params.use_nullmove = true;
     params.deterministic = params.threads == 1;
 
-    let allocated_ms = options.allocated_time_ms(side_to_move).or_else(|| {
-        if options.depth.is_none() {
-            Some(DEFAULT_GO_MOVETIME_MS)
-        } else {
-            None
-        }
-    });
+    let allocated_ms = if options.infinite {
+        None
+    } else {
+        options.allocated_time_for(board).or_else(|| {
+            if options.depth.is_none() && options.nodes.is_none() {
+                Some(DEFAULT_GO_MOVETIME_MS)
+            } else {
+                None
+            }
+        })
+    };
     params.movetime = allocated_ms.map(Duration::from_millis);
     params
 }
@@ -388,6 +438,26 @@ pub struct UciEngine {
 }
 
 #[cfg(not(feature = "board-pleco"))]
+impl Default for UciEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "board-pleco"))]
+struct SearchOutcome {
+    searcher: Searcher,
+    position: Position,
+    result: SearchResult,
+}
+
+#[cfg(not(feature = "board-pleco"))]
+struct ActiveSearch {
+    stop: Arc<AtomicBool>,
+    outcome_rx: mpsc::Receiver<SearchOutcome>,
+}
+
+#[cfg(not(feature = "board-pleco"))]
 impl UciEngine {
     pub fn new() -> Self {
         let mut searcher = Searcher::default();
@@ -559,40 +629,150 @@ impl UciEngine {
             }
         }
         let name = name_parts.join(" ");
-        let val = value.unwrap_or_else(|| "".to_string());
+        let val = value.unwrap_or_default();
         if let Some(message) = self.apply_setoption(&name, &val) {
             println!("{message}");
         }
     }
 
-    fn cmd_go(&mut self, args: &str) {
+    fn start_search(&mut self, args: &str) -> ActiveSearch {
         let options = GoOptions::parse(args);
-        let params = search_params_for_go(&options, self.pos.side_to_move(), self.threads);
-        let res = self.searcher.search_with_params(self.pos.board(), params);
+        let params = search_params_for_go(&options, self.pos.board(), self.threads);
+        let position = self.pos.clone();
+        let mut searcher = std::mem::take(&mut self.searcher);
+        searcher.set_position_history(position.history());
+
+        let stop = Arc::new(AtomicBool::new(false));
+        searcher.set_stop_flag(Some(stop.clone()));
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        thread::Builder::new()
+            .name("piebot-uci-search".to_string())
+            .spawn(move || {
+                let result = searcher.search_with_params(position.board(), params);
+                searcher.clear_stop_flag();
+                let _ = outcome_tx.send(SearchOutcome {
+                    searcher,
+                    position,
+                    result,
+                });
+            })
+            .expect("failed to start UCI search worker");
+
+        ActiveSearch { stop, outcome_rx }
+    }
+
+    fn finish_search(&mut self, outcome: SearchOutcome) {
+        self.searcher = outcome.searcher;
+        let result = outcome.result;
         println!(
             "info depth {} seldepth {} score cp {} nodes {}",
             self.searcher.last_depth(),
             self.searcher.last_seldepth(),
-            res.score_cp,
-            res.nodes
+            result.score_cp,
+            result.nodes
         );
-        if let Some(best) = res.bestmove {
-            println!("bestmove {}", format_uci_move(&self.pos, &best));
+        if let Some(best) = result.bestmove {
+            println!("bestmove {}", format_uci_move(&outcome.position, &best));
         } else {
             println!("bestmove 0000");
         }
     }
 
     pub fn run_loop(&mut self) {
-        let stdin = io::stdin();
-        for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(s) => s.trim().to_string(),
-                Err(_) => break,
+        // Reading commands on a dedicated thread lets the protocol loop observe
+        // `stop` while search is running. Search itself remains owned by one
+        // worker and cooperatively polls the shared stop flag at every node.
+        let (command_tx, command_rx) = mpsc::channel();
+        thread::Builder::new()
+            .name("piebot-uci-input".to_string())
+            .spawn(move || {
+                let stdin = io::stdin();
+                for line in stdin.lock().lines() {
+                    match line {
+                        Ok(line) => {
+                            if command_tx.send(line.trim().to_string()).is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+            .expect("failed to start UCI input worker");
+
+        let mut active: Option<ActiveSearch> = None;
+        let mut pending = VecDeque::new();
+        let mut quitting = false;
+
+        loop {
+            if let Some(search) = active.as_ref() {
+                match search.outcome_rx.try_recv() {
+                    Ok(outcome) => {
+                        active = None;
+                        self.finish_search(outcome);
+                        if quitting {
+                            break;
+                        }
+                        continue;
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        active = None;
+                        println!("info string search worker terminated unexpectedly");
+                        println!("bestmove 0000");
+                        if quitting {
+                            break;
+                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                }
+            }
+
+            let line = if active.is_some() {
+                match command_rx.recv_timeout(Duration::from_millis(5)) {
+                    Ok(line) => line,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        if let Some(search) = active.as_ref() {
+                            search.stop.store(true, Ordering::Relaxed);
+                            quitting = true;
+                            continue;
+                        }
+                        break;
+                    }
+                }
+            } else if let Some(line) = pending.pop_front() {
+                line
+            } else {
+                match command_rx.recv() {
+                    Ok(line) => line,
+                    Err(_) => break,
+                }
             };
+
             if line.is_empty() {
                 continue;
             }
+
+            if let Some(search) = active.as_ref() {
+                match line.as_str() {
+                    "stop" => search.stop.store(true, Ordering::Relaxed),
+                    "quit" => {
+                        search.stop.store(true, Ordering::Relaxed);
+                        quitting = true;
+                    }
+                    "isready" if pending.is_empty() => self.cmd_isready(),
+                    "isready" => pending.push_back(line),
+                    "uci" => self.cmd_uci(),
+                    _ => {
+                        // State-changing commands must be applied to the real
+                        // searcher after it returns from the worker thread.
+                        search.stop.store(true, Ordering::Relaxed);
+                        pending.push_back(line);
+                    }
+                }
+                continue;
+            }
+
             if line == "uci" {
                 self.cmd_uci();
                 continue;
@@ -616,12 +796,15 @@ impl UciEngine {
                 self.cmd_position(rest);
                 continue;
             }
+            if line == "go" {
+                active = Some(self.start_search(""));
+                continue;
+            }
             if let Some(rest) = line.strip_prefix("go ") {
-                self.cmd_go(rest);
+                active = Some(self.start_search(rest));
                 continue;
             }
             if line == "stop" {
-                // Search is synchronous, so stop can only be observed after it returns.
                 continue;
             }
         }
@@ -632,7 +815,7 @@ impl UciEngine {
 mod tests {
     use super::*;
     use crate::eval::nnue::features::{halfkp_dim, halfkp_v2_dim};
-    use cozy_chess::{Color, Piece, Square};
+    use cozy_chess::{Piece, Square};
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
@@ -692,7 +875,7 @@ mod tests {
     #[test]
     fn movetime_search_is_iterative_and_uses_standard_heuristics() {
         let go = GoOptions::parse("movetime 25");
-        let params = search_params_for_go(&go, Color::White, 1);
+        let params = search_params_for_go(&go, &cozy_chess::Board::default(), 1);
 
         assert_eq!(
             params.depth, 0,
@@ -712,18 +895,57 @@ mod tests {
     #[test]
     fn depth_search_has_an_exact_depth_and_no_deadline() {
         let go = GoOptions::parse("depth 4");
-        let params = search_params_for_go(&go, Color::White, 1);
+        let params = search_params_for_go(&go, &cozy_chess::Board::default(), 1);
 
         assert_eq!(params.depth, 4);
         assert_eq!(params.movetime, None);
     }
 
     #[test]
+    fn infinite_and_node_limited_go_commands_do_not_get_a_default_deadline() {
+        let board = cozy_chess::Board::default();
+        let infinite = search_params_for_go(&GoOptions::parse("infinite"), &board, 1);
+        let nodes = search_params_for_go(&GoOptions::parse("nodes 12345"), &board, 1);
+
+        assert_eq!(infinite.depth, 0);
+        assert_eq!(infinite.movetime, None);
+        assert_eq!(infinite.max_nodes, None);
+        assert_eq!(nodes.max_nodes, Some(12_345));
+        assert_eq!(nodes.movetime, None);
+    }
+
+    #[test]
     fn clock_allocation_uses_side_to_move_clock_and_increment() {
         let go = GoOptions::parse("wtime 60000 btime 30000 winc 1000 binc 0 movestogo 30");
+        let white = cozy_chess::Board::default();
+        let black = cozy_chess::Board::from_fen(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+            false,
+        )
+        .unwrap();
 
-        assert_eq!(go.allocated_time_ms(Color::White), Some(2749));
-        assert_eq!(go.allocated_time_ms(Color::Black), Some(999));
+        assert_eq!(go.allocated_time_for(&white), Some(2749));
+        assert_eq!(go.allocated_time_for(&black), Some(999));
+    }
+
+    #[test]
+    fn automatic_clock_allocation_uses_more_time_late_and_keeps_a_reserve() {
+        let go = GoOptions::parse("wtime 60000 btime 60000 winc 500 binc 500");
+        let opening = cozy_chess::Board::default();
+        let ending =
+            cozy_chess::Board::from_fen("8/8/8/3k4/8/4K3/4P3/8 w - - 0 50", false).unwrap();
+
+        let opening_ms = go.allocated_time_for(&opening).unwrap();
+        let ending_ms = go.allocated_time_for(&ending).unwrap();
+        assert!((2_500..=3_500).contains(&opening_ms), "{opening_ms}");
+        assert!(
+            ending_ms > opening_ms,
+            "opening={opening_ms} ending={ending_ms}"
+        );
+        assert!(
+            ending_ms < 30_000,
+            "must preserve recovery time: {ending_ms}"
+        );
     }
 
     #[test]
