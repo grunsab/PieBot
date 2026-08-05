@@ -161,6 +161,11 @@ class VastSelfTeacherDeploymentTests(unittest.TestCase):
             launcher,
         )
 
+    def test_launcher_stops_after_the_observed_useful_epoch_window(self) -> None:
+        launcher = LAUNCHER.read_text(encoding="utf-8")
+        self.assertIn('EPOCHS="${EPOCHS:-1}"', launcher)
+        self.assertNotIn('EPOCHS="${EPOCHS:-8}"', launcher)
+
     def test_launcher_uses_vm_and_gpu_capacity_fail_closed(self) -> None:
         launcher = LAUNCHER.read_text(encoding="utf-8")
         self.assertIn('PYTHON_BIN="${PYTHON_BIN:-/venv/main/bin/python}"', launcher)
@@ -185,6 +190,22 @@ class VastSelfTeacherDeploymentTests(unittest.TestCase):
         self.assertIn("torch.cuda.is_available()", launcher)
         self.assertIn("46", launcher)
         self.assertIn("-C target-cpu=native", launcher)
+
+    def test_launcher_explicitly_opts_into_incremental_pst_regression_veto(self) -> None:
+        launcher = LAUNCHER.read_text(encoding="utf-8")
+        self.assertIn(
+            'require_autopilot_flag "--gate-incremental-pst-policy"',
+            launcher,
+        )
+        self.assertIn(
+            'require_autopilot_flag "--gate-pst-veto-margin"',
+            launcher,
+        )
+        self.assertIn(
+            '"--gate-incremental-pst-policy" "regression-veto"',
+            launcher,
+        )
+        self.assertIn('"--gate-pst-veto-margin" "0.0"', launcher)
 
     def test_supervisor_template_has_safe_long_job_semantics(self) -> None:
         self.assertTrue(SUPERVISOR.is_file())

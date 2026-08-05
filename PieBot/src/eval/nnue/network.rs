@@ -1,13 +1,32 @@
 use crate::eval::nnue::features::{HalfKpSchema, PieceFeatureIndices};
 use crate::eval::nnue::loader::QuantNnue;
 use cozy_chess::{Board, Color, Move, Piece, Square};
+use std::sync::Arc;
 
 const MAX_MOVE_FEATURES: usize = 4;
 
 /// Quantized NNUE wrapper with full refresh + incremental apply/revert support.
+///
+/// The immutable source model is intentionally not mutable through the runtime
+/// wrapper: changing it would invalidate the feature-major cache.
+///
+/// ```compile_fail
+/// use piebot::eval::nnue::network::QuantNetwork;
+/// use std::sync::Arc;
+///
+/// fn invalidate_runtime_cache(network: &mut QuantNetwork) {
+///     let _ = Arc::get_mut(&mut network.model);
+/// }
+/// ```
 pub struct QuantNetwork {
-    pub model: QuantNnue,
+    model: Arc<QuantNnue>,
     pub schema: HalfKpSchema,
+    // PIENNQ01 stores W1 hidden-major for compatibility with the dense
+    // exporter. Incremental updates instead need all hidden weights for one
+    // active feature, so keep a feature-major runtime copy to make each delta
+    // a pair of contiguous 64-byte reads rather than 64 cache-line-strided
+    // reads through the multi-megabyte model.
+    w1_feature_major: Arc<[i8]>,
     // Incremental state
     acc: Vec<i32>,
     wk_idx: usize,
@@ -67,13 +86,31 @@ impl QuantNetwork {
                 model.meta.input_dim
             )
         });
+        let w1_feature_major =
+            transpose_w1_feature_major(&model.w1, model.meta.input_dim, model.meta.hidden_dim)
+                .into();
         let acc = vec![0i32; model.meta.hidden_dim];
+        let model = Arc::new(model);
         Self {
             model,
             schema,
+            w1_feature_major,
             acc,
             wk_idx: 0,
             bk_idx: 0,
+        }
+    }
+
+    /// Clone mutable accumulator state for a search worker while sharing both
+    /// immutable allocations: the source model and runtime-transposed W1.
+    pub(crate) fn clone_for_search(&self) -> Self {
+        Self {
+            model: Arc::clone(&self.model),
+            schema: self.schema,
+            w1_feature_major: Arc::clone(&self.w1_feature_major),
+            acc: self.acc.clone(),
+            wk_idx: self.wk_idx,
+            bk_idx: self.bk_idx,
         }
     }
 
@@ -225,17 +262,19 @@ impl QuantNetwork {
     #[inline]
     fn apply_delta(&mut self, added: &FeatureDelta, removed: &FeatureDelta) {
         let h = self.model.meta.hidden_dim;
-        let n = self.model.meta.input_dim;
-        for j in 0..h {
-            let row = &self.model.w1[j * n..(j + 1) * n];
-            let mut value = self.acc[j];
-            for &idx in removed.as_slice() {
-                value -= row[idx] as i32;
+        for &idx in removed.as_slice() {
+            let start = idx * h;
+            let weights = &self.w1_feature_major[start..start + h];
+            for (value, &weight) in self.acc.iter_mut().zip(weights) {
+                *value -= weight as i32;
             }
-            for &idx in added.as_slice() {
-                value += row[idx] as i32;
+        }
+        for &idx in added.as_slice() {
+            let start = idx * h;
+            let weights = &self.w1_feature_major[start..start + h];
+            for (value, &weight) in self.acc.iter_mut().zip(weights) {
+                *value += weight as i32;
             }
-            self.acc[j] = value;
         }
     }
 
@@ -260,6 +299,18 @@ impl QuantNetwork {
     }
 }
 
+fn transpose_w1_feature_major(row_major: &[i8], input_dim: usize, hidden_dim: usize) -> Vec<i8> {
+    assert_eq!(row_major.len(), input_dim * hidden_dim);
+    let mut feature_major = vec![0; row_major.len()];
+    for hidden in 0..hidden_dim {
+        let row = &row_major[hidden * input_dim..(hidden + 1) * input_dim];
+        for (feature, &weight) in row.iter().enumerate() {
+            feature_major[feature * hidden_dim + hidden] = weight;
+        }
+    }
+    feature_major
+}
+
 fn square_index(board: &Board, side: Color, piece: Piece) -> usize {
     let sq = (board.colors(side) & board.pieces(piece))
         .into_iter()
@@ -267,4 +318,61 @@ fn square_index(board: &Board, side: Color, piece: Piece) -> usize {
         .unwrap();
     // Cozy-chess Square implements Into<u8>, returns 0-63 in row-major order
     sq as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{transpose_w1_feature_major, QuantNetwork};
+    use crate::eval::nnue::features::halfkp_v2_dim;
+    use crate::eval::nnue::loader::{QuantMeta, QuantNnue};
+    use std::sync::Arc;
+
+    #[test]
+    fn feature_major_runtime_layout_preserves_every_weight() {
+        let hidden_dim = 3;
+        let input_dim = 5;
+        let row_major: Vec<i8> = (0..hidden_dim * input_dim)
+            .map(|value| value as i8 - 7)
+            .collect();
+
+        let feature_major = transpose_w1_feature_major(&row_major, input_dim, hidden_dim);
+
+        for hidden in 0..hidden_dim {
+            for feature in 0..input_dim {
+                assert_eq!(
+                    feature_major[feature * hidden_dim + hidden],
+                    row_major[hidden * input_dim + feature],
+                    "feature={feature} hidden={hidden}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn search_clone_shares_immutable_allocations_without_cache_invalidation() {
+        let input_dim = halfkp_v2_dim();
+        let hidden_dim = 2;
+        let network = QuantNetwork::new(QuantNnue {
+            meta: QuantMeta {
+                version: 1,
+                input_dim,
+                hidden_dim,
+                output_dim: 1,
+            },
+            w1_scale: 1.0,
+            w2_scale: 1.0,
+            w1: vec![0; input_dim * hidden_dim],
+            b1: vec![0; hidden_dim],
+            w2: vec![0; hidden_dim],
+            b2: vec![0],
+        });
+
+        let worker = network.clone_for_search();
+
+        assert!(Arc::ptr_eq(&network.model, &worker.model));
+        assert!(Arc::ptr_eq(
+            &network.w1_feature_major,
+            &worker.w1_feature_major,
+        ));
+    }
 }

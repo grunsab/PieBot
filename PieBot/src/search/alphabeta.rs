@@ -757,7 +757,7 @@ impl Searcher {
         // Root PV-split: seed first move, search tail in parallel with shared alpha.
         let deadline = self.deadline;
         let shared_tt = self.tt.clone();
-        let quant_model = self.nnue_quant.as_ref().map(|qn| qn.model.clone());
+        let quant_network = self.nnue_quant.as_ref().map(QuantNetwork::clone_for_search);
         let eval_mode = self.eval_mode;
         let use_nnue = self.use_nnue;
         let eval_blend_percent = self.eval_blend_percent;
@@ -786,8 +786,8 @@ impl Searcher {
             w.threads = 1;
             w.external_stop = external_stop.clone();
             w.search_history = search_history.clone();
-            if let Some(model) = &quant_model {
-                w.nnue_quant = Some(QuantNetwork::new(model.clone()));
+            if let Some(network) = &quant_network {
+                w.nnue_quant = Some(network.clone_for_search());
             }
             w
         };

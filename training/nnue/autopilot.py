@@ -37,6 +37,7 @@ except Exception:  # pragma: no cover
 
 
 GATE_PARALLELISM_SCHEMA = "bounded-pair-workers-v1"
+INCREMENTAL_PST_POLICIES = ("strict-superiority", "regression-veto")
 
 
 class _FileLockBackend:
@@ -161,6 +162,8 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         # pair. Promotion is strict: the paired-bootstrap lower confidence
         # bound must exceed this threshold.
         "gate_confirmation_min_score_delta": 0.0,
+        "gate_incremental_pst_policy": "strict-superiority",
+        "gate_pst_veto_margin": 0.0,
         "gate_require_external_anchor": False,
         "gate_external_anchor_json": None,
         "validation_provenance_json": None,
@@ -464,6 +467,24 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--gate-confirmation-games", type=int, default=None)
     ap.add_argument("--gate-confirmation-min-score-delta", type=float, default=None)
     ap.add_argument(
+        "--gate-incremental-pst-policy",
+        choices=INCREMENTAL_PST_POLICIES,
+        default=None,
+        help=(
+            "Absolute PST policy for an incumbent successor; first promotion "
+            "always requires strict superiority"
+        ),
+    )
+    ap.add_argument(
+        "--gate-pst-veto-margin",
+        type=float,
+        default=None,
+        help=(
+            "Allowed mean pair-score regression under regression-veto; veto "
+            "when the PST confidence upper bound is <= -margin"
+        ),
+    )
+    ap.add_argument(
         "--gate-require-external-anchor",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -657,6 +678,8 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "gate_paired_openings": args.gate_paired_openings,
         "gate_confirmation_games": args.gate_confirmation_games,
         "gate_confirmation_min_score_delta": args.gate_confirmation_min_score_delta,
+        "gate_incremental_pst_policy": args.gate_incremental_pst_policy,
+        "gate_pst_veto_margin": args.gate_pst_veto_margin,
         "gate_require_external_anchor": args.gate_require_external_anchor,
         "gate_external_anchor_json": args.gate_external_anchor_json,
         "validation_provenance_json": args.validation_provenance_json,
@@ -665,6 +688,18 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         if v is not None:
             out[k] = v
     return out
+
+
+def _validate_gate_promotion_policy(defaults: Dict[str, Any]) -> None:
+    policy = str(defaults.get("gate_incremental_pst_policy", "strict-superiority"))
+    if policy not in INCREMENTAL_PST_POLICIES:
+        raise ValueError(f"unsupported incremental PST policy: {policy}")
+    try:
+        margin = float(defaults.get("gate_pst_veto_margin", 0.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("gate PST veto margin must be a finite non-negative number") from exc
+    if not math.isfinite(margin) or margin < 0.0:
+        raise ValueError("gate PST veto margin must be a finite non-negative number")
 
 
 def _path_if_exists(raw: Any) -> Optional[Path]:
@@ -874,31 +909,49 @@ def _infer_training_model_identity(state: Dict[str, Any]) -> Optional[Dict[str, 
     return identity or None
 
 
+def _promotion_evidence_status(gate: Any) -> str:
+    if not isinstance(gate, dict):
+        return "legacy-unverified"
+    absolute = gate.get("absolute")
+    if not isinstance(absolute, dict):
+        return "legacy-unverified"
+    decision = absolute.get("pst_decision")
+    if isinstance(decision, dict) and bool(decision.get("accepted")):
+        if bool(decision.get("strict_pst_superiority_passed")):
+            return "paired-bootstrap-pst-superior"
+        if decision.get("schema") == "incremental-pst-regression-veto-v1":
+            relative = gate.get("confirmation") or gate.get("screen")
+            if isinstance(relative, dict) and bool(relative.get("accepted")):
+                return "paired-bootstrap-relative-verified-pst-not-vetoed"
+    statistics = absolute.get("statistics")
+    if (
+        bool(absolute.get("accepted"))
+        and isinstance(statistics, dict)
+        and statistics.get("schema") == "paired-bootstrap-gate-v1"
+    ):
+        return "paired-bootstrap-pst-superior"
+    return "legacy-unverified"
+
+
 def _migrate_deployment_state(state: Dict[str, Any]) -> bool:
     """Persist the exact deployed model tuple without discarding audit history."""
     changed = False
     prior_version = int(state.get("deployment_state_version", 1) or 1)
-    if prior_version != 4:
-        state["deployment_state_version"] = 4
+    if prior_version != 5:
+        state["deployment_state_version"] = 5
         changed = True
-    if state.get("promotion_evidence_schema") != "paired-bootstrap-pst-v1":
-        state["promotion_evidence_schema"] = "paired-bootstrap-pst-v1"
+    if state.get("promotion_evidence_schema") != "paired-bootstrap-pst-v2":
+        state["promotion_evidence_schema"] = "paired-bootstrap-pst-v2"
         changed = True
     accepted_models = state.get("accepted_models")
     if isinstance(accepted_models, list):
         for model in accepted_models:
-            if not isinstance(model, dict) or "promotion_evidence_status" in model:
+            if not isinstance(model, dict):
                 continue
-            gate = model.get("gate")
-            absolute = gate.get("absolute") if isinstance(gate, dict) else None
-            statistics = absolute.get("statistics") if isinstance(absolute, dict) else None
-            model["promotion_evidence_status"] = (
-                "paired-bootstrap-pst-verified"
-                if isinstance(statistics, dict)
-                and statistics.get("schema") == "paired-bootstrap-gate-v1"
-                else "legacy-unverified"
-            )
-            changed = True
+            status = _promotion_evidence_status(model.get("gate"))
+            if model.get("promotion_evidence_status") != status:
+                model["promotion_evidence_status"] = status
+                changed = True
     if "training_lineage_start_cycle" not in state:
         state["training_lineage_start_cycle"] = 1
         changed = True
@@ -1424,6 +1477,12 @@ def _apply_cycle_retention(
                 (
                     cycle_dir
                     / "gate_compare_same_blend_confirmation_absolute_pst.json"
+                ).resolve(),
+                (cycle_dir / "gate_compare_fallback.json").resolve(),
+                (cycle_dir / "gate_compare_fallback_confirmation.json").resolve(),
+                (
+                    cycle_dir
+                    / "gate_compare_fallback_confirmation_absolute_pst.json"
                 ).resolve(),
             }
         )
@@ -2033,10 +2092,18 @@ def _run_confirmed_gate_attempt(
     base_blend_percent: int,
     candidate_blend_percent: int,
     paired_openings: bool,
+    incremental_pst_policy: str = "strict-superiority",
+    pst_veto_margin: float = 0.0,
     confidence_level: float = 0.95,
     bootstrap_samples: int = 20_000,
     parallel_games: int = 1,
 ) -> Dict[str, Any]:
+    policy = str(incremental_pst_policy)
+    if policy not in INCREMENTAL_PST_POLICIES:
+        raise ValueError(f"unsupported incremental PST policy: {policy}")
+    margin = float(pst_veto_margin)
+    if not math.isfinite(margin) or margin < 0.0:
+        raise ValueError("gate PST veto margin must be a finite non-negative number")
     screen = _run_model_gate(
         piebot_dir=piebot_dir,
         out_json=screen_json,
@@ -2063,6 +2130,46 @@ def _run_confirmed_gate_attempt(
     screen["experimental_blend_percent"] = max(
         0, min(100, int(candidate_blend_percent))
     )
+    # With a separate confirmation stage, the short screen is only a resource
+    # filter. Requiring its wide confidence interval to clear the promotion
+    # threshold prevents small positive candidates from ever collecting the
+    # larger confirmation sample. The confirmation below retains the strict
+    # paired-bootstrap confidence decision used for promotion.
+    if int(confirmation_games) > 0 and isinstance(screen.get("statistics"), dict):
+        statistics = screen["statistics"]
+        try:
+            mean_pair_delta = float(statistics["mean_pair_delta"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "model gate screen statistics are missing mean pair delta"
+            ) from exc
+        if not math.isfinite(mean_pair_delta):
+            raise ValueError("model gate screen mean pair delta must be finite")
+        threshold = float(screen_min_score_delta)
+        evidence_eligible = bool(screen.get("evidence_eligible")) and bool(
+            statistics.get("eligible")
+        )
+        screen_passed = evidence_eligible and mean_pair_delta > threshold
+        screen["confidence_gate_accepted"] = bool(screen.get("accepted"))
+        screen["confidence_gate_reason"] = screen.get("reason")
+        screen["screen_filter"] = {
+            "schema": "mean-pair-delta-screen-v1",
+            "eligible": evidence_eligible,
+            "accepted": screen_passed,
+            "mean_pair_delta": mean_pair_delta,
+            "minimum_mean_pair_delta": threshold,
+            "reason": (
+                "mean-pair-delta-passed"
+                if screen_passed
+                else (
+                    "screen-evidence-ineligible"
+                    if not evidence_eligible
+                    else "mean-pair-delta-not-above-threshold"
+                )
+            ),
+        }
+        screen["accepted"] = screen_passed
+        screen["reason"] = screen["screen_filter"]["reason"]
     attempt: Dict[str, Any] = {
         "blend_percent": max(0, min(100, int(candidate_blend_percent))),
         "accepted": False,
@@ -2142,16 +2249,83 @@ def _run_confirmed_gate_attempt(
             parallel_games=parallel_games,
         )
         absolute = dict(absolute)
+    strict_pst_superiority = bool(absolute.get("accepted"))
+    strict_pst_reason = absolute.get("reason")
+    absolute["strict_pst_superiority_passed"] = strict_pst_superiority
+    regression_veto = base_quant is not None and policy == "regression-veto"
+    if not regression_veto:
+        absolute["pst_decision"] = {
+            "schema": "strict-pst-superiority-v1",
+            "policy": "strict-superiority",
+            "accepted": strict_pst_superiority,
+            "strict_pst_superiority_passed": strict_pst_superiority,
+            "minimum_mean_pair_delta": float(confirmation_min_score_delta),
+        }
+    else:
+        statistics = absolute.get("statistics")
+        evidence_eligible = bool(absolute.get("evidence_eligible")) and isinstance(
+            statistics, dict
+        ) and bool(statistics.get("eligible"))
+        confidence_upper: Optional[float] = None
+        if evidence_eligible:
+            interval = statistics.get("confidence_interval")
+            try:
+                confidence_upper = float(interval["upper"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    "absolute PST gate statistics are missing confidence upper bound"
+                ) from exc
+            if not math.isfinite(confidence_upper):
+                raise ValueError(
+                    "absolute PST gate confidence upper bound must be finite"
+                )
+        strict_threshold = float(confirmation_min_score_delta)
+        veto_threshold = -margin
+        vetoed = bool(evidence_eligible and confidence_upper <= veto_threshold)
+        pst_not_vetoed = bool(evidence_eligible and not vetoed)
+        absolute["strict_pst_superiority_reason"] = strict_pst_reason
+        absolute["pst_decision"] = {
+            "schema": "incremental-pst-regression-veto-v1",
+            "policy": "regression-veto",
+            "eligible": evidence_eligible,
+            "accepted": pst_not_vetoed,
+            "vetoed": vetoed,
+            "strict_pst_superiority_passed": strict_pst_superiority,
+            "pst_veto_margin": margin,
+            "veto_threshold": veto_threshold,
+            "strict_minimum_mean_pair_delta": strict_threshold,
+            "confidence_interval_upper": confidence_upper,
+            "proves_pst_non_inferiority": False,
+            "reason": (
+                "pst-regression-veto-not-triggered"
+                if pst_not_vetoed
+                else (
+                    "pst-regression-veto-triggered"
+                    if vetoed
+                    else "pst-regression-veto-evidence-ineligible"
+                )
+            ),
+        }
+        absolute["accepted"] = pst_not_vetoed
+        absolute["reason"] = absolute["pst_decision"]["reason"]
     attempt["absolute"] = absolute
     attempt["accepted"] = bool(absolute.get("accepted"))
     if attempt["accepted"]:
-        attempt["reason"] = (
-            "confirmation-accepted"
-            if int(confirmation_games) > 0
-            else "confirmation-disabled"
-        )
+        if regression_veto and not strict_pst_superiority:
+            attempt["reason"] = "confirmation-accepted-pst-not-vetoed"
+        else:
+            attempt["reason"] = (
+                "confirmation-accepted"
+                if int(confirmation_games) > 0
+                else "confirmation-disabled"
+            )
     else:
-        attempt["reason"] = "absolute-pst-rejected"
+        attempt["reason"] = (
+            "absolute-pst-regression-vetoed"
+            if regression_veto
+            and bool(absolute.get("pst_decision", {}).get("vetoed"))
+            else "absolute-pst-rejected"
+        )
     return attempt
 
 
@@ -2202,7 +2376,7 @@ def _record_acceptance(
                 dict(model_identity) if isinstance(model_identity, dict) else None
             ),
             "accepted_at": time.time(),
-            "promotion_evidence_status": "paired-bootstrap-pst-verified",
+            "promotion_evidence_status": _promotion_evidence_status(gate),
             "gate": gate,
         }
     )
@@ -2233,6 +2407,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             )
             try:
                 _validate_initial_checkpoint_transition_config(fresh_defaults)
+                _validate_gate_promotion_policy(fresh_defaults)
                 initial_active_model = _initial_active_model_metadata(
                     (
                         Path(fresh_defaults["initial_active_model"])
@@ -2256,8 +2431,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "active_model_sha256": None,
                 "active_model_blend_percent": 0,
                 "active_model_identity": None,
-                "deployment_state_version": 4,
-                "promotion_evidence_schema": "paired-bootstrap-pst-v1",
+                "deployment_state_version": 5,
+                "promotion_evidence_schema": "paired-bootstrap-pst-v2",
                 "training_lineage_start_cycle": 1,
                 "validation_partition_schema": (
                     run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
@@ -2302,6 +2477,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         defaults = _apply_cli_overrides(defaults, args)
         try:
             _validate_initial_checkpoint_transition_config(defaults)
+            _validate_gate_promotion_policy(defaults)
             bootstrap_state_is_uncommitted = (
                 "initial_active_model" not in state
                 and int(state.get("next_cycle", 1)) == 1
@@ -2532,11 +2708,29 @@ def main(argv: Optional[list[str]] = None) -> int:
                     candidate_blends = [candidate_blend]
                     if (
                         bootstrap_quant is not None
-                        and same_lineage
                         and active_blend > 0
-                        and candidate_blend > active_blend
+                        and candidate_blend != active_blend
                     ):
-                        candidate_blends.append(active_blend)
+                        if same_lineage:
+                            candidate_blends.append(active_blend)
+                        else:
+                            # Certify a new lineage against the incumbent at the
+                            # same deployed blend before trying its conservative
+                            # blend-ramp fallback.
+                            candidate_blends = [active_blend, candidate_blend]
+                    incremental_pst_policy = str(
+                        defaults.get(
+                            "gate_incremental_pst_policy",
+                            "strict-superiority",
+                        )
+                    )
+                    pst_veto_margin = float(
+                        defaults.get("gate_pst_veto_margin", 0.0)
+                    )
+                    use_regression_veto = (
+                        bootstrap_quant is not None
+                        and incremental_pst_policy == "regression-veto"
+                    )
                     gate_identity = {
                         "quant_sha256": candidate_quant_sha,
                         "baseline_quant_sha256": baseline_quant_sha,
@@ -2544,6 +2738,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                         "candidate_model_identity": candidate_identity,
                         "baseline_blend_percent": active_blend,
                         "candidate_blend_percents": candidate_blends,
+                        "screen_decision_rule": (
+                            "mean-pair-delta-screen-v1"
+                            if int(defaults.get("gate_confirmation_games", 96)) > 0
+                            else "paired-bootstrap-gate-v1"
+                        ),
+                        "absolute_decision_rule": (
+                            "incremental-pst-regression-veto-v1"
+                            if use_regression_veto
+                            else "strict-pst-superiority-v1"
+                        ),
+                        "incremental_pst_policy": incremental_pst_policy,
+                        "pst_veto_margin": pst_veto_margin,
                         "games": int(defaults.get("gate_games", 0)),
                         "paired_openings": bool(
                             defaults.get("gate_paired_openings", True)
@@ -2622,8 +2828,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         gate_attempts: list[Dict[str, Any]] = []
                         for blend_idx, blend in enumerate(candidate_blends):
                             if (
-                                blend_idx > 0
-                                and baseline_quant_sha
+                                baseline_quant_sha
                                 and candidate_quant_sha == baseline_quant_sha
                                 and blend == active_blend
                             ):
@@ -2638,8 +2843,15 @@ def main(argv: Optional[list[str]] = None) -> int:
                                     }
                                 )
                                 continue
-                            fallback = blend_idx > 0
-                            stem = "gate_compare_same_blend" if fallback else "gate_compare"
+                            same_blend = (
+                                bootstrap_quant is not None and blend == active_blend
+                            )
+                            if same_blend:
+                                stem = "gate_compare_same_blend"
+                            elif blend_idx > 0:
+                                stem = "gate_compare_fallback"
+                            else:
+                                stem = "gate_compare"
                             gate_was_run = True
                             gate_attempt = _run_confirmed_gate_attempt(
                                 piebot_dir=args.piebot_dir,
@@ -2670,6 +2882,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 paired_openings=bool(
                                     defaults.get("gate_paired_openings", True)
                                 ),
+                                incremental_pst_policy=incremental_pst_policy,
+                                pst_veto_margin=pst_veto_margin,
                                 confidence_level=float(
                                     defaults.get("gate_confidence_level", 0.95)
                                 ),

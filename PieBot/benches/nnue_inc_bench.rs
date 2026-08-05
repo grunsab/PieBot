@@ -1,11 +1,11 @@
 use cozy_chess::Board;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use piebot::eval::nnue::features::halfkp_dim;
+use piebot::eval::nnue::features::halfkp_v2_dim;
 use piebot::eval::nnue::loader::{QuantMeta, QuantNnue};
 use piebot::eval::nnue::network::QuantNetwork;
 
 fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
-    let input_dim = halfkp_dim();
+    let input_dim = halfkp_v2_dim();
     let mut seed = 0xfeedfacecafebeefu64;
     let mut next_i8 = || {
         seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
@@ -39,70 +39,88 @@ fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
     }
 }
 
-fn prepare_sequence(max_plies: usize) -> Vec<(Board, String, Board)> {
+fn find_move(board: &Board, uci: &str) -> cozy_chess::Move {
+    let mut found = None;
+    board.generate_moves(|moves| {
+        for mv in moves {
+            if mv.to_string() == uci {
+                found = Some(mv);
+                break;
+            }
+        }
+        found.is_some()
+    });
+    found.unwrap_or_else(|| panic!("move {uci} must be legal in {board}"))
+}
+
+fn prepare_sequence() -> Vec<(Board, cozy_chess::Move, Board)> {
     let mut out = Vec::new();
     let mut b = Board::default();
-    for _ in 0..max_plies {
-        // Pick the first legal move (if any)
-        let mut chosen: Option<String> = None;
-        b.generate_moves(|ml| {
-            if let Some(m) = ml.into_iter().next() {
-                chosen = Some(format!("{}", m));
-            }
-            chosen.is_some()
-        });
-        let Some(mstr) = chosen else { break };
+    for uci in [
+        "e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6", "d2d3", "f8c5", "c2c3", "d7d6", "b1d2",
+        "c8g4",
+    ] {
+        let mv = find_move(&b, uci);
         let mut nb = b.clone();
-        let mut found = None;
-        b.generate_moves(|ml| {
-            for m in ml {
-                if format!("{}", m) == mstr {
-                    found = Some(m);
-                    break;
-                }
-            }
-            found.is_some()
-        });
-        if let Some(mv) = found {
-            nb.play_unchecked(mv);
-            out.push((b.clone(), mstr.clone(), nb.clone()));
-            b = nb;
-        } else {
-            break;
-        }
+        nb.play_unchecked(mv);
+        out.push((b.clone(), mv, nb.clone()));
+        b = nb;
     }
     out
 }
 
 fn bench_nnue_incremental(c: &mut Criterion) {
-    let seq = prepare_sequence(64);
+    let seq = prepare_sequence();
     let model = make_random_quant_model(64);
     let mut net = QuantNetwork::new(model);
-    if let Some((ref b0, _, _)) = seq.first() {
-        net.refresh(b0);
-    }
+    let (quiet_before, quiet_move, quiet_after) = &seq[0];
+    net.refresh(quiet_before);
 
-    c.bench_function("nnue_incremental_apply_revert", |ben| {
+    c.bench_function("nnue_v2_eval_current", |ben| {
+        ben.iter(|| black_box(net.eval_current()))
+    });
+
+    c.bench_function("nnue_v2_quiet_apply_revert", |ben| {
         ben.iter(|| {
-            let mut acc = 0i32;
-            for (before, mstr, after) in &seq {
-                // find move again (string → move)
-                let mut chosen = None;
-                before.generate_moves(|ml| {
-                    for m in ml {
-                        if format!("{}", m) == *mstr {
-                            chosen = Some(m);
-                            break;
-                        }
-                    }
-                    chosen.is_some()
-                });
-                let mv = chosen.expect("move should be legal");
-                let change = net.apply_move(before, mv, after);
-                acc ^= net.eval_current();
+            let change = net.apply_move(
+                black_box(quiet_before),
+                black_box(*quiet_move),
+                black_box(quiet_after),
+            );
+            net.revert(change);
+        })
+    });
+
+    c.bench_function("nnue_v2_quiet_apply_eval_revert", |ben| {
+        ben.iter(|| {
+            let change = net.apply_move(
+                black_box(quiet_before),
+                black_box(*quiet_move),
+                black_box(quiet_after),
+            );
+            let value = net.eval_current();
+            net.revert(change);
+            black_box(value)
+        })
+    });
+
+    c.bench_function("nnue_v2_refresh_startpos", |ben| {
+        ben.iter(|| net.refresh(black_box(quiet_before)))
+    });
+
+    let mut changes = Vec::with_capacity(seq.len());
+    c.bench_function("nnue_v2_opening_line_apply_eval_unwind", |ben| {
+        ben.iter(|| {
+            net.refresh(quiet_before);
+            let mut checksum = 0;
+            for (before, mv, after) in &seq {
+                changes.push(net.apply_move(before, *mv, after));
+                checksum ^= net.eval_current();
+            }
+            while let Some(change) = changes.pop() {
                 net.revert(change);
             }
-            black_box(acc)
+            black_box(checksum)
         })
     });
 }

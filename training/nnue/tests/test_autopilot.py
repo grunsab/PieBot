@@ -168,6 +168,11 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(1, profile["gate_parallel_games"])
         self.assertEqual(96, profile["gate_confirmation_games"])
         self.assertEqual(0.0, profile["gate_confirmation_min_score_delta"])
+        self.assertEqual(
+            "strict-superiority",
+            profile["gate_incremental_pst_policy"],
+        )
+        self.assertEqual(0.0, profile["gate_pst_veto_margin"])
         self.assertEqual(0.95, profile["gate_confidence_level"])
         self.assertGreaterEqual(profile["gate_bootstrap_samples"], 10_000)
         self.assertFalse(profile["gate_require_external_anchor"])
@@ -211,6 +216,10 @@ class AutopilotTests(unittest.TestCase):
                 "48",
                 "--gate-confirmation-min-score-delta",
                 "3",
+                "--gate-incremental-pst-policy",
+                "regression-veto",
+                "--gate-pst-veto-margin",
+                "0.125",
             ]
         )
 
@@ -233,6 +242,37 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(7, resolved["gate_parallel_games"])
         self.assertEqual(48, resolved["gate_confirmation_games"])
         self.assertEqual(3.0, resolved["gate_confirmation_min_score_delta"])
+        self.assertEqual("regression-veto", resolved["gate_incremental_pst_policy"])
+        self.assertEqual(0.125, resolved["gate_pst_veto_margin"])
+
+    def test_incremental_pst_policy_configuration_is_fail_closed(self) -> None:
+        autopilot._validate_gate_promotion_policy(
+            {
+                "gate_incremental_pst_policy": "strict-superiority",
+                "gate_pst_veto_margin": 0.0,
+            }
+        )
+        autopilot._validate_gate_promotion_policy(
+            {
+                "gate_incremental_pst_policy": "regression-veto",
+                "gate_pst_veto_margin": 0.25,
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported incremental PST policy"):
+            autopilot._validate_gate_promotion_policy(
+                {"gate_incremental_pst_policy": "always-promote"}
+            )
+        for invalid in (-0.01, float("nan"), float("inf"), "not-a-number"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                ValueError,
+                "finite non-negative",
+            ):
+                autopilot._validate_gate_promotion_policy(
+                    {
+                        "gate_incremental_pst_policy": "regression-veto",
+                        "gate_pst_veto_margin": invalid,
+                    }
+                )
 
     def test_cycle_retention_prunes_old_cycles_and_preserves_accepted_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -258,6 +298,14 @@ class AutopilotTests(unittest.TestCase):
                 (cycle_dir / "gate_compare.json").write_text(
                     json.dumps({"cycle": cycle}), encoding="utf-8"
                 )
+                for name in (
+                    "gate_compare_fallback.json",
+                    "gate_compare_fallback_confirmation.json",
+                    "gate_compare_fallback_confirmation_absolute_pst.json",
+                ):
+                    (cycle_dir / name).write_text(
+                        json.dumps({"cycle": cycle}), encoding="utf-8"
+                    )
                 completed.append(
                     {
                         "cycle": cycle,
@@ -292,6 +340,16 @@ class AutopilotTests(unittest.TestCase):
             self.assertTrue(quant_paths[2].is_file())
             self.assertTrue((accepted_old / "pipeline_summary.json").is_file())
             self.assertTrue((accepted_old / "gate_compare.json").is_file())
+            self.assertTrue((accepted_old / "gate_compare_fallback.json").is_file())
+            self.assertTrue(
+                (accepted_old / "gate_compare_fallback_confirmation.json").is_file()
+            )
+            self.assertTrue(
+                (
+                    accepted_old
+                    / "gate_compare_fallback_confirmation_absolute_pst.json"
+                ).is_file()
+            )
             self.assertTrue((accepted_old / "retained_cycle.json").is_file())
             self.assertFalse((accepted_old / "selfplay_jsonl").exists())
             self.assertFalse((accepted_old / "jsonl_relabel").exists())
@@ -775,7 +833,162 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual(40_960, state["active_model_identity"]["input_dim"])
             self.assertEqual(64, state["active_model_identity"]["hidden_dim"])
             self.assertEqual(3, len(state["accepted_models"]))
+            self.assertEqual(5, state["deployment_state_version"])
+            self.assertEqual(
+                "paired-bootstrap-pst-v2",
+                state["promotion_evidence_schema"],
+            )
+            self.assertTrue(
+                all(
+                    model["promotion_evidence_status"] == "legacy-unverified"
+                    for model in state["accepted_models"]
+                )
+            )
             self.assertFalse(autopilot._migrate_deployment_state(state))
+
+    def test_acceptance_records_incremental_pst_not_vetoed_evidence_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            quant = _write_fake_quant(Path(tmp) / "candidate.nnue")
+            state = {"accepted_models": []}
+            gate = {
+                "confirmation": {"accepted": True},
+                "absolute": {
+                    "pst_decision": {
+                        "schema": "incremental-pst-regression-veto-v1",
+                        "accepted": True,
+                        "vetoed": False,
+                        "strict_pst_superiority_passed": False,
+                        "proves_pst_non_inferiority": False,
+                    }
+                }
+            }
+
+            autopilot._record_acceptance(
+                state=state,
+                cycle_idx=9,
+                quant_path=quant,
+                quant_sha256="candidate-sha",
+                gate=gate,
+                blend_percent=50,
+                model_identity={"input_dim": 81_920},
+            )
+
+            self.assertEqual(
+                "paired-bootstrap-relative-verified-pst-not-vetoed",
+                state["accepted_models"][-1]["promotion_evidence_status"],
+            )
+
+            strict_state = {"accepted_models": []}
+            autopilot._record_acceptance(
+                state=strict_state,
+                cycle_idx=1,
+                quant_path=quant,
+                quant_sha256="candidate-sha",
+                gate={
+                    "absolute": {
+                        "pst_decision": {
+                            "schema": "strict-pst-superiority-v1",
+                            "accepted": True,
+                            "strict_pst_superiority_passed": True,
+                        }
+                    }
+                },
+                blend_percent=25,
+                model_identity={"input_dim": 81_920},
+            )
+            self.assertEqual(
+                "paired-bootstrap-pst-superior",
+                strict_state["accepted_models"][-1]["promotion_evidence_status"],
+            )
+
+    def test_v4_strict_accepted_evidence_migrates_to_v5_superiority(self) -> None:
+        state = {
+            "deployment_state_version": 4,
+            "promotion_evidence_schema": "paired-bootstrap-pst-v1",
+            "next_cycle": 2,
+            "completed_cycles": [{"cycle": 1}],
+            "accepted_models": [
+                {
+                    "cycle": 1,
+                    "promotion_evidence_status": "paired-bootstrap-pst-verified",
+                    "gate": {
+                        "confirmation": {"accepted": True},
+                        "absolute": {
+                            "accepted": True,
+                            "statistics": {
+                                "schema": "paired-bootstrap-gate-v1",
+                                "eligible": True,
+                                "accepted": True,
+                                "confidence_interval": {
+                                    "lower": 0.0625,
+                                    "upper": 0.4375,
+                                },
+                            },
+                        },
+                    },
+                },
+                {"cycle": 0, "gate": {"reason": "legacy-aggregate-only"}},
+            ],
+            "active_model_path": None,
+        }
+
+        self.assertTrue(autopilot._migrate_deployment_state(state))
+        self.assertEqual(5, state["deployment_state_version"])
+        self.assertEqual("paired-bootstrap-pst-v2", state["promotion_evidence_schema"])
+        self.assertEqual(
+            "paired-bootstrap-pst-superior",
+            state["accepted_models"][0]["promotion_evidence_status"],
+        )
+        self.assertEqual(
+            "legacy-unverified",
+            state["accepted_models"][1]["promotion_evidence_status"],
+        )
+        self.assertFalse(autopilot._migrate_deployment_state(state))
+
+    def test_v5_pst_not_vetoed_evidence_migration_is_idempotent(self) -> None:
+        partition_schema = (
+            autopilot.run_pipeline.train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA
+        )
+        state = {
+            "deployment_state_version": 5,
+            "promotion_evidence_schema": "paired-bootstrap-pst-v2",
+            "next_cycle": 2,
+            "completed_cycles": [{"cycle": 1}],
+            "accepted_models": [
+                {
+                    "cycle": 1,
+                    "gate": {
+                        "confirmation": {"accepted": True},
+                        "absolute": {
+                            "accepted": True,
+                            "strict_pst_superiority_passed": False,
+                            "pst_decision": {
+                                "schema": "incremental-pst-regression-veto-v1",
+                                "accepted": True,
+                                "vetoed": False,
+                                "strict_pst_superiority_passed": False,
+                                "proves_pst_non_inferiority": False,
+                            },
+                        },
+                    },
+                }
+            ],
+            "training_lineage_start_cycle": 1,
+            "validation_partition_schema": partition_schema,
+            "validation_partition_start_cycle": 1,
+            "training_model_identity": None,
+            "active_model_path": None,
+            "active_model_sha256": None,
+            "active_model_blend_percent": 0,
+            "active_model_identity": None,
+        }
+
+        self.assertTrue(autopilot._migrate_deployment_state(state))
+        self.assertEqual(
+            "paired-bootstrap-relative-verified-pst-not-vetoed",
+            state["accepted_models"][0]["promotion_evidence_status"],
+        )
+        self.assertFalse(autopilot._migrate_deployment_state(state))
 
     def test_cycle_uses_previous_quant_for_bootstrap_after_first_accept(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1653,6 +1866,15 @@ class AutopilotTests(unittest.TestCase):
                 "bounded-pair-workers-v1",
                 state["last_gate_identity"]["parallelism_schema"],
             )
+            self.assertEqual(
+                "strict-pst-superiority-v1",
+                state["last_gate_identity"]["absolute_decision_rule"],
+            )
+            self.assertEqual(
+                "strict-superiority",
+                state["last_gate_identity"]["incremental_pst_policy"],
+            )
+            self.assertEqual(0.0, state["last_gate_identity"]["pst_veto_margin"])
             self.assertEqual(3, gate_calls[0]["parallel_games"])
 
             with mock.patch(
@@ -2049,7 +2271,7 @@ class AutopilotTests(unittest.TestCase):
             self.assertFalse(gate["evidence_eligible"])
             self.assertEqual("missing-game-level-evidence", gate["reason"])
 
-    def test_relative_candidate_must_also_pass_pure_pst_absolute_gate(self) -> None:
+    def test_incremental_successor_defaults_to_strict_pst_superiority(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             active = _write_fake_quant(root / "active.nnue", marker=b"active")
@@ -2063,6 +2285,13 @@ class AutopilotTests(unittest.TestCase):
                         "accepted": False,
                         "baseline_kind": "pure-pst",
                         "reason": "confidence-lower-bound-not-positive",
+                        "evidence_eligible": True,
+                        "statistics": {
+                            "eligible": True,
+                            "accepted": False,
+                            "minimum_mean_pair_delta": 0.0,
+                            "confidence_interval": {"lower": -0.25, "upper": 0.25},
+                        },
                     },
                 ]
             )
@@ -2099,6 +2328,248 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual([5, 5, 5], [call["parallel_games"] for call in calls])
             self.assertIsNone(calls[-1]["base_quant"])
             self.assertEqual("pure-pst", attempt["absolute"]["baseline_kind"])
+            self.assertEqual(
+                "strict-pst-superiority-v1",
+                attempt["absolute"]["pst_decision"]["schema"],
+            )
+
+    def test_incremental_successor_passes_within_configured_pst_regression_margin(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = _write_fake_quant(root / "active.nnue", marker=b"active")
+            candidate = _write_fake_quant(root / "candidate.nnue", marker=b"candidate")
+            results = iter(
+                [
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {
+                        "accepted": False,
+                        "baseline_kind": "pure-pst",
+                        "reason": "confidence-lower-bound-not-positive",
+                        "evidence_eligible": True,
+                        "statistics": {
+                            "eligible": True,
+                            "accepted": False,
+                            "minimum_mean_pair_delta": 0.25,
+                            "confidence_interval": {
+                                "lower": -0.3125,
+                                "upper": -0.05,
+                            },
+                        },
+                    },
+                ]
+            )
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate",
+                side_effect=lambda **_kwargs: next(results),
+            ):
+                attempt = autopilot._run_confirmed_gate_attempt(
+                    piebot_dir=root,
+                    screen_json=root / "screen.json",
+                    confirmation_json=root / "confirmation.json",
+                    base_quant=active,
+                    candidate_quant=candidate,
+                    screen_games=24,
+                    confirmation_games=96,
+                    movetime_ms=100,
+                    noise_plies=12,
+                    noise_topk=5,
+                    threads=1,
+                    seed=7,
+                    screen_min_score_delta=0.0,
+                    confirmation_min_score_delta=0.25,
+                    incremental_pst_policy="regression-veto",
+                    pst_veto_margin=0.1,
+                    base_blend_percent=50,
+                    candidate_blend_percent=50,
+                    paired_openings=True,
+                )
+
+            self.assertTrue(attempt["accepted"])
+            self.assertEqual("confirmation-accepted-pst-not-vetoed", attempt["reason"])
+            absolute = attempt["absolute"]
+            self.assertFalse(absolute["strict_pst_superiority_passed"])
+            self.assertTrue(absolute["accepted"])
+            self.assertEqual(
+                "incremental-pst-regression-veto-v1",
+                absolute["pst_decision"]["schema"],
+            )
+            self.assertFalse(absolute["pst_decision"]["vetoed"])
+            self.assertEqual(0.1, absolute["pst_decision"]["pst_veto_margin"])
+            self.assertEqual(-0.1, absolute["pst_decision"]["veto_threshold"])
+            self.assertEqual(
+                0.25,
+                absolute["pst_decision"]["strict_minimum_mean_pair_delta"],
+            )
+            self.assertFalse(
+                absolute["pst_decision"]["proves_pst_non_inferiority"]
+            )
+
+    def test_incremental_successor_is_vetoed_when_confidently_worse_than_pst(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = _write_fake_quant(root / "active.nnue", marker=b"active")
+            candidate = _write_fake_quant(root / "candidate.nnue", marker=b"candidate")
+            results = iter(
+                [
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {
+                        "accepted": False,
+                        "baseline_kind": "pure-pst",
+                        "reason": "confidence-lower-bound-not-positive",
+                        "evidence_eligible": True,
+                        "statistics": {
+                            "eligible": True,
+                            "accepted": False,
+                            "minimum_mean_pair_delta": 0.0,
+                            "confidence_interval": {
+                                "lower": -0.375,
+                                "upper": 0.0,
+                            },
+                        },
+                    },
+                ]
+            )
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate",
+                side_effect=lambda **_kwargs: next(results),
+            ):
+                attempt = autopilot._run_confirmed_gate_attempt(
+                    piebot_dir=root,
+                    screen_json=root / "screen.json",
+                    confirmation_json=root / "confirmation.json",
+                    base_quant=active,
+                    candidate_quant=candidate,
+                    screen_games=24,
+                    confirmation_games=96,
+                    movetime_ms=100,
+                    noise_plies=12,
+                    noise_topk=5,
+                    threads=1,
+                    seed=7,
+                    screen_min_score_delta=0.0,
+                    confirmation_min_score_delta=0.0,
+                    incremental_pst_policy="regression-veto",
+                    pst_veto_margin=0.0,
+                    base_blend_percent=50,
+                    candidate_blend_percent=50,
+                    paired_openings=True,
+                )
+
+            self.assertFalse(attempt["accepted"])
+            self.assertEqual("absolute-pst-regression-vetoed", attempt["reason"])
+            self.assertFalse(attempt["absolute"]["strict_pst_superiority_passed"])
+            self.assertTrue(attempt["absolute"]["pst_decision"]["vetoed"])
+
+    def test_incremental_pst_regression_veto_requires_eligible_absolute_evidence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = _write_fake_quant(root / "active.nnue", marker=b"active")
+            candidate = _write_fake_quant(root / "candidate.nnue", marker=b"candidate")
+            results = iter(
+                [
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {"accepted": True, "baseline_kind": "pure-pst"},
+                ]
+            )
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate",
+                side_effect=lambda **_kwargs: next(results),
+            ):
+                attempt = autopilot._run_confirmed_gate_attempt(
+                    piebot_dir=root,
+                    screen_json=root / "screen.json",
+                    confirmation_json=root / "confirmation.json",
+                    base_quant=active,
+                    candidate_quant=candidate,
+                    screen_games=24,
+                    confirmation_games=96,
+                    movetime_ms=100,
+                    noise_plies=12,
+                    noise_topk=5,
+                    threads=1,
+                    seed=7,
+                    screen_min_score_delta=0.0,
+                    confirmation_min_score_delta=0.0,
+                    base_blend_percent=50,
+                    candidate_blend_percent=50,
+                    paired_openings=True,
+                    incremental_pst_policy="regression-veto",
+                    pst_veto_margin=0.0,
+                )
+
+            self.assertFalse(attempt["accepted"])
+            self.assertEqual("absolute-pst-rejected", attempt["reason"])
+            self.assertFalse(attempt["absolute"]["pst_decision"]["eligible"])
+            self.assertEqual(
+                "pst-regression-veto-evidence-ineligible",
+                attempt["absolute"]["reason"],
+            )
+
+    def test_incremental_pst_regression_veto_never_bypasses_relative_confirmation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = _write_fake_quant(root / "active.nnue", marker=b"active")
+            candidate = _write_fake_quant(root / "candidate.nnue", marker=b"candidate")
+            calls = []
+            results = iter(
+                [
+                    {"accepted": True, "baseline_kind": "active-model"},
+                    {
+                        "accepted": False,
+                        "baseline_kind": "active-model",
+                        "reason": "confidence-lower-bound-not-positive",
+                    },
+                ]
+            )
+
+            def _gate(**kwargs):
+                calls.append(kwargs)
+                return next(results)
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate",
+                side_effect=_gate,
+            ):
+                attempt = autopilot._run_confirmed_gate_attempt(
+                    piebot_dir=root,
+                    screen_json=root / "screen.json",
+                    confirmation_json=root / "confirmation.json",
+                    base_quant=active,
+                    candidate_quant=candidate,
+                    screen_games=24,
+                    confirmation_games=96,
+                    movetime_ms=100,
+                    noise_plies=12,
+                    noise_topk=5,
+                    threads=1,
+                    seed=7,
+                    screen_min_score_delta=0.0,
+                    confirmation_min_score_delta=0.0,
+                    incremental_pst_policy="regression-veto",
+                    pst_veto_margin=0.0,
+                    base_blend_percent=50,
+                    candidate_blend_percent=50,
+                    paired_openings=True,
+                )
+
+            self.assertEqual([24, 96], [call["games"] for call in calls])
+            self.assertFalse(attempt["accepted"])
+            self.assertEqual("confirmation-rejected", attempt["reason"])
+            self.assertIsNone(attempt["absolute"])
 
     def test_validation_provenance_never_calls_piebot_teacher_data_absolute(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2286,7 +2757,17 @@ class AutopilotTests(unittest.TestCase):
             results = iter(
                 [
                     {"accepted": True, "delta_points": 1.0, "games": 24},
-                    {"accepted": False, "delta_points": 0.0, "games": 96},
+                    {
+                        "accepted": False,
+                        "delta_points": 0.0,
+                        "games": 96,
+                        "evidence_eligible": True,
+                        "statistics": {
+                            "eligible": True,
+                            "accepted": False,
+                            "confidence_interval": {"lower": -1.0, "upper": 3.0},
+                        },
+                    },
                 ]
             )
 
@@ -2322,9 +2803,85 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual("confirmation-rejected", attempt["reason"])
             self.assertTrue(attempt["screen"]["accepted"])
             self.assertFalse(attempt["confirmation"]["accepted"])
+            self.assertIsNone(attempt["absolute"])
             self.assertEqual([24, 96], [call["games"] for call in calls])
             self.assertEqual([0.0, 2.0], [call["min_score_delta"] for call in calls])
             self.assertTrue(all(call["paired_openings"] for call in calls))
+
+    def test_positive_mean_screen_reaches_strict_confirmation_despite_wide_ci(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            quant = _write_fake_quant(root / "candidate.nnue")
+            calls = []
+            results = iter(
+                [
+                    {
+                        "accepted": False,
+                        "reason": "confidence-lower-bound-not-positive",
+                        "evidence_eligible": True,
+                        "statistics": {
+                            "eligible": True,
+                            "accepted": False,
+                            "mean_pair_delta": 1.0 / 12.0,
+                            "minimum_mean_pair_delta": 0.0,
+                            "confidence_interval": {
+                                "lower": -0.25,
+                                "upper": 5.0 / 12.0,
+                            },
+                        },
+                    },
+                    {
+                        "accepted": False,
+                        "reason": "confidence-lower-bound-not-positive",
+                        "evidence_eligible": True,
+                        "statistics": {
+                            "eligible": True,
+                            "accepted": False,
+                            "mean_pair_delta": 0.0,
+                            "minimum_mean_pair_delta": 0.0,
+                        },
+                    },
+                ]
+            )
+
+            def _gate(**kwargs):
+                calls.append(kwargs)
+                return next(results)
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate",
+                side_effect=_gate,
+            ):
+                attempt = autopilot._run_confirmed_gate_attempt(
+                    piebot_dir=root,
+                    screen_json=root / "screen.json",
+                    confirmation_json=root / "confirmation.json",
+                    base_quant=None,
+                    candidate_quant=quant,
+                    screen_games=24,
+                    confirmation_games=96,
+                    movetime_ms=100,
+                    noise_plies=12,
+                    noise_topk=5,
+                    threads=1,
+                    seed=7,
+                    screen_min_score_delta=0.0,
+                    confirmation_min_score_delta=0.0,
+                    base_blend_percent=0,
+                    candidate_blend_percent=25,
+                    paired_openings=True,
+                )
+
+            self.assertEqual([24, 96], [call["games"] for call in calls])
+            self.assertTrue(attempt["screen"]["accepted"])
+            self.assertFalse(attempt["screen"]["confidence_gate_accepted"])
+            self.assertEqual(
+                "mean-pair-delta-screen-v1",
+                attempt["screen"]["screen_filter"]["schema"],
+            )
+            self.assertFalse(attempt["confirmation"]["accepted"])
+            self.assertFalse(attempt["accepted"])
+            self.assertEqual("confirmation-rejected", attempt["reason"])
 
     def test_gate_reject_after_accept_keeps_previous_active_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2453,7 +3010,7 @@ class AutopilotTests(unittest.TestCase):
             self.assertEqual(50, created[2][0]["selfplay_nnue_blend_percent"])
             self.assertEqual(25, created[2][0]["teacher_relabel_nnue_blend_percent"])
 
-    def test_cross_lineage_candidate_starts_at_25_and_keeps_legacy_active_on_reject(self) -> None:
+    def test_cross_lineage_checks_equal_blend_before_conservative_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             out_root = root / "runs"
@@ -2537,13 +3094,28 @@ class AutopilotTests(unittest.TestCase):
                             str(out_root),
                             "--max-cycles",
                             "4",
+                            "--gate-incremental-pst-policy",
+                            "regression-veto",
+                            "--gate-pst-veto-margin",
+                            "0.0",
                         ]
                     )
 
             self.assertEqual(0, rc)
             self.assertEqual(75, pipeline_calls[0]["selfplay_nnue_blend_percent"])
             self.assertEqual(75, pipeline_calls[0]["teacher_relabel_nnue_blend_percent"])
-            self.assertEqual([25], [call["candidate_blend_percent"] for call in gate_calls])
+            self.assertEqual(
+                [75, 25],
+                [call["candidate_blend_percent"] for call in gate_calls],
+            )
+            self.assertEqual(
+                "gate_compare_same_blend.json",
+                Path(gate_calls[0]["out_json"]).name,
+            )
+            self.assertEqual(
+                "gate_compare_fallback.json",
+                Path(gate_calls[1]["out_json"]).name,
+            )
             loaded = json.loads((out_root / "autopilot_state.json").read_text())
             self.assertEqual(str(active), loaded["active_model_path"])
             self.assertEqual(75, loaded["active_model_blend_percent"])
@@ -2552,7 +3124,26 @@ class AutopilotTests(unittest.TestCase):
                 81_920,
                 loaded["last_gate_identity"]["candidate_model_identity"]["input_dim"],
             )
-            self.assertEqual([25], loaded["last_gate_identity"]["candidate_blend_percents"])
+            self.assertEqual(
+                [75, 25],
+                loaded["last_gate_identity"]["candidate_blend_percents"],
+            )
+            self.assertEqual(
+                "mean-pair-delta-screen-v1",
+                loaded["last_gate_identity"]["screen_decision_rule"],
+            )
+            self.assertEqual(
+                "incremental-pst-regression-veto-v1",
+                loaded["last_gate_identity"]["absolute_decision_rule"],
+            )
+            self.assertEqual(
+                "regression-veto",
+                loaded["last_gate_identity"]["incremental_pst_policy"],
+            )
+            self.assertEqual(
+                0.0,
+                loaded["last_gate_identity"]["pst_veto_margin"],
+            )
 
     def test_same_lineage_ramp_failure_falls_back_to_current_blend_and_promotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

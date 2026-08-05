@@ -36,7 +36,11 @@ RELABEL_DEPTH="${RELABEL_DEPTH:-5}"
 RELABEL_EVERY="${RELABEL_EVERY:-2}"
 RELABEL_THREADS="${RELABEL_THREADS:-46}"
 RELABEL_HASH_MB="${RELABEL_HASH_MB:-4096}"
-EPOCHS="${EPOCHS:-8}"
+# Production override from retained cycles 80-87: across eight cycle seeds,
+# every selected checkpoint was the incoming state (epoch 0) or epoch 1, and
+# no later epoch won the game-disjoint validation gate. EPOCHS remains
+# externally overridable for a future distribution/teacher change.
+EPOCHS="${EPOCHS:-1}"
 BATCH_SIZE="${BATCH_SIZE:-4096}"
 MAX_SAMPLES="${MAX_SAMPLES:-700000}"
 HIDDEN_DIM="${HIDDEN_DIM:-64}"
@@ -243,6 +247,8 @@ require_autopilot_flag "--initial-checkpoint-weights-only"
 require_autopilot_flag "--initial-active-model"
 require_autopilot_flag "--initial-active-model-blend-percent"
 require_autopilot_flag "--gate-parallel-games"
+require_autopilot_flag "--gate-incremental-pst-policy"
+require_autopilot_flag "--gate-pst-veto-margin"
 verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
 verify_sha256 "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 
@@ -328,6 +334,8 @@ AUTOPILOT_ARGS=(
   "--gate-parallel-games" "$GATE_PARALLEL_GAMES"
   "--gate-min-score-delta" "0.0"
   "--gate-confirmation-min-score-delta" "0.0"
+  "--gate-incremental-pst-policy" "regression-veto"
+  "--gate-pst-veto-margin" "0.0"
   "--gate-paired-openings"
   "--trainer-backend" "torch"
   "--trainer-device" "cuda"

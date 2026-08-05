@@ -1,12 +1,12 @@
 use cozy_chess::Board;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use piebot::eval::nnue::features::halfkp_dim;
+use piebot::eval::nnue::features::halfkp_v2_dim;
 use piebot::eval::nnue::loader::{QuantMeta, QuantNnue};
 use piebot::search::alphabeta::{SearchParams, Searcher};
 use std::time::{Duration, Instant};
 
 fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
-    let input_dim = halfkp_dim();
+    let input_dim = halfkp_v2_dim();
     let mut seed = 0x1234_5678_9abc_def0u64;
     let mut next_i8 = || {
         seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
