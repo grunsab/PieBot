@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Static contract checks for the campaign_v2 Vast.ai deployment (plan section 4)."""
+
+from __future__ import annotations
+
+import configparser
+import os
+import subprocess
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+LAUNCHER = ROOT / "scripts" / "run_vast_campaign_v2.sh"
+SUPERVISOR = ROOT / "deploy" / "vast" / "piebot_campaign_v2.conf"
+BOOK = ROOT / "books" / "openings_v1.fen"
+
+
+class CampaignV2DeploymentTests(unittest.TestCase):
+    def _launcher(self) -> str:
+        return LAUNCHER.read_text(encoding="utf-8")
+
+    def test_launcher_is_executable_and_has_valid_bash_syntax(self) -> None:
+        self.assertTrue(LAUNCHER.is_file())
+        self.assertTrue(os.access(LAUNCHER, os.X_OK))
+        subprocess.run(["bash", "-n", str(LAUNCHER)], check=True)
+
+    def test_launcher_is_piebot_self_teacher_only(self) -> None:
+        launcher = self._launcher()
+        self.assertNotIn("--teacher-relabel-engine", launcher)
+        external_engine_name = "".join(("stock", "fish"))
+        self.assertNotIn(external_engine_name, launcher.lower())
+
+    def test_root_and_deadline_are_minted_for_the_full_campaign(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('OUT_ROOT="${OUT_ROOT:-/workspace/piebot_campaign_v2}"', launcher)
+        # 60 days = campaign + 15-day reserve; deadline is minted exactly once.
+        self.assertIn('HOURS="${HOURS:-1440}"', launcher)
+        self.assertIn(
+            "/workspace/piebot_runs/main_72h_self_teacher_repair_v1", launcher
+        )
+        for forbidden_root in (
+            'OUT_ROOT:-/workspace/piebot_runs/main_72h_self_teacher_repair_v1',
+            'OUT_ROOT:-/workspace/piebot_runs/main_48h_20260802T081500Z',
+        ):
+            self.assertNotIn(forbidden_root, launcher)
+
+    def test_bootstrap_sources_are_the_verified_artifacts(self) -> None:
+        launcher = self._launcher()
+        self.assertIn(
+            'PRIOR_RUN_ROOT="/workspace/piebot_runs/main_72h_self_teacher_repair_v1"',
+            launcher,
+        )
+        self.assertIn(
+            "$PRIOR_RUN_ROOT/bootstrap/cycle_000086_checkpoint.json",
+            launcher,
+        )
+        self.assertIn(
+            "0ce48cc1299d5750bd43512793e843d8363e1e09a5c4a72c3b22e024951f367c",
+            launcher,
+        )
+        self.assertIn(
+            "$PRIOR_RUN_ROOT/cycles/cycle_000098/nnue_quant.nnue",
+            launcher,
+        )
+        self.assertIn(
+            "3fa9bae3127319930ec16ebb1ee3117656abe7001984f6c8655108a08d278c3a",
+            launcher,
+        )
+        self.assertIn('"--initial-checkpoint-weights-only"', launcher)
+        self.assertIn(
+            'INITIAL_ACTIVE_MODEL_BLEND_PERCENT="${INITIAL_ACTIVE_MODEL_BLEND_PERCENT:-25}"',
+            launcher,
+        )
+
+    def test_teacher_is_depth_seven_with_mandatory_node_cap(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('RELABEL_DEPTH="${RELABEL_DEPTH:-7}"', launcher)
+        self.assertIn('[[ "$RELABEL_DEPTH" -eq 7 ]]', launcher)
+        # The node cap has no default: it must come from the measured p95 of
+        # depth-5 node cost, so an unset value refuses to launch.
+        self.assertIn('RELABEL_MAX_NODES="${RELABEL_MAX_NODES:-}"', launcher)
+        self.assertIn("RELABEL_MAX_NODES must be set", launcher)
+        self.assertIn('"--teacher-relabel-max-nodes" "$RELABEL_MAX_NODES"', launcher)
+        self.assertIn('require_autopilot_flag "--teacher-relabel-max-nodes"', launcher)
+        # min_teacher_depth stays 5 (objective-identity field; achieved-depth
+        # stamping keeps it honest under the cap).
+        self.assertIn('"--min-teacher-depth" "5"', launcher)
+
+    def test_opening_book_is_staged_by_sha_and_wired(self) -> None:
+        launcher = self._launcher()
+        self.assertIn("books/openings_v1.fen", launcher)
+        self.assertIn(
+            "d35b81a1a75d03d6172c40f94c9e8626e3f3b6ed8995f935f5bce1e1c5550294",
+            launcher,
+        )
+        self.assertIn('"--selfplay-openings" "$SELFPLAY_OPENINGS"', launcher)
+        self.assertIn('require_autopilot_flag "--selfplay-openings"', launcher)
+
+    def test_book_on_disk_matches_the_pinned_sha(self) -> None:
+        import hashlib
+
+        digest = hashlib.sha256(BOOK.read_bytes()).hexdigest()
+        self.assertEqual(
+            "d35b81a1a75d03d6172c40f94c9e8626e3f3b6ed8995f935f5bce1e1c5550294",
+            digest,
+        )
+
+    def test_sprt_gate_is_enabled_with_plan_parameters(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('require_autopilot_flag "--gate-sprt"', launcher)
+        self.assertIn('"--gate-sprt"', launcher)
+        self.assertIn('"--gate-sprt-delta1" "0.25"', launcher)
+        self.assertIn('"--gate-sprt-alpha" "0.05"', launcher)
+        self.assertIn('"--gate-sprt-beta" "0.05"', launcher)
+        self.assertIn('"--gate-sprt-min-pairs" "48"', launcher)
+        self.assertIn('"--gate-sprt-batch-pairs" "24"', launcher)
+        self.assertIn('"--gate-sprt-max-pairs" "300"', launcher)
+
+    def test_slot_partition_reserves_arena_and_ab_lanes(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('SELFPLAY_PARALLEL_GAMES="${SELFPLAY_PARALLEL_GAMES:-32}"', launcher)
+        self.assertIn('RELABEL_THREADS="${RELABEL_THREADS:-32}"', launcher)
+
+    def test_learning_rates_and_width_are_explicit(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('LEARNING_RATE="${LEARNING_RATE:-0.002}"', launcher)
+        self.assertIn('WARM_START_LEARNING_RATE="${WARM_START_LEARNING_RATE:-0.001}"', launcher)
+        self.assertIn('HIDDEN_DIM="${HIDDEN_DIM:-64}"', launcher)
+        self.assertIn('"--hidden-dim" "$HIDDEN_DIM"', launcher)
+        self.assertIn('"--learning-rate" "$LEARNING_RATE"', launcher)
+
+    def test_retention_keeps_replay_window_covered(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('RETAIN_FULL_CYCLES="${RETAIN_FULL_CYCLES:-8}"', launcher)
+        self.assertIn('REPLAY_WINDOW_CYCLES="${REPLAY_WINDOW_CYCLES:-6}"', launcher)
+        self.assertIn("REPLAY_WINDOW_CYCLES must not exceed RETAIN_FULL_CYCLES", launcher)
+
+    def test_supervisor_conf_is_restart_safe(self) -> None:
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        section = "program:piebot_campaign_v2"
+        self.assertIn(section, parser)
+        self.assertEqual("unexpected", parser[section]["autorestart"])
+        self.assertEqual("0", parser[section]["exitcodes"])
+        self.assertIn("run_vast_campaign_v2.sh", parser[section]["command"])
+
+
+if __name__ == "__main__":
+    unittest.main()
