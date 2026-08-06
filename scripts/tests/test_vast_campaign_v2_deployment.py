@@ -165,6 +165,18 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # engine (600 positions from book-opened self-play): 143,917 -> 144000.
         self.assertIn('RELABEL_MAX_NODES="144000"', environment)
 
+    def test_supervisor_conf_carries_the_threadripper_resource_profile(self) -> None:
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        # 7995WX host: 184 effective threads; 160 for the training lane,
+        # 24 reserved for arena/A-B lanes and SSH responsiveness. Gate knobs
+        # are identity-frozen and must NOT appear here.
+        self.assertIn('SELFPLAY_PARALLEL_GAMES="160"', environment)
+        self.assertIn('RELABEL_THREADS="160"', environment)
+        self.assertIn('RELABEL_HASH_MB="8192"', environment)
+        self.assertNotIn("GATE_", environment)
+
 
 if __name__ == "__main__":
     unittest.main()
