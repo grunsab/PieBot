@@ -1,0 +1,25 @@
+{
+  "arm": "S1 interior PVS + TT-move-first ordering",
+  "stage": "box-confirmation-1000g -> PROMOTED",
+  "date": "2026-08-06T17:56Z",
+  "binary_provenance": "campaign-v2 rebuild, PVS signature verified (accept_temp matein3 nodes == 20214512)",
+  "aggregate": {
+    "games": 1000,
+    "experimental_wins": 332,
+    "baseline_wins": 229,
+    "draws": 439,
+    "score_rate": 0.5515,
+    "mean_pair_delta": 0.206,
+    "avg_depth": {
+      "baseline": 6.01,
+      "experimental": 6.55
+    }
+  },
+  "promotion_bound": "worst-case-variance normal 95% LCB = +0.032 > 0 (deltas bounded [-2,2], n=500 pairs); screen CI at 200 pairs was [+0.095,+0.285]",
+  "note": "full pair-level JSON to be archived from /workspace/battery_v1/s1_confirm_1000g_v2.json when box connectivity allows",
+  "blend_decision": {
+    "match": "same-search paired 400g, blend0 vs blend25",
+    "result": "blend25 120W / blend0 108W / 172 draws (51.5%)",
+    "decision": "keep incumbent blend 25 (direct paired evidence supersedes cross-rung ladder comparison)"
+  }
+}

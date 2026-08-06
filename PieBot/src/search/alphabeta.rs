@@ -1107,11 +1107,13 @@ impl Searcher {
             return Ok(self.eval_terminal(board, ply));
         }
         // TT move first
+        let mut tt_best: Option<Move> = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_best = Some(mv);
                 }
             }
         }
@@ -1176,7 +1178,10 @@ impl Searcher {
                 } else {
                     0
                 };
-                let score = -(is_cap * 1000 + mvv + see_b + kb + hist + cm);
+                // The TT move must stay first: the capture/history sort below
+                // would otherwise bury it and defeat the PVS first-move bet.
+                let ttb = if tt_best == Some(m) { 1_000_000 } else { 0 };
+                let score = -(ttb + is_cap * 1000 + mvv + see_b + kb + hist + cm);
                 scored.push((m, score));
             }
             scored.sort_by_key(|&(_, score)| score);
@@ -1198,50 +1203,12 @@ impl Searcher {
             self.search_history.push(child.clone());
             let gives_check = !(child.checkers()).is_empty();
             let ext = if gives_check { 1 } else { 0 };
+            // Principal variation search: the first move is searched with the
+            // full window; every later move is scouted with a zero window
+            // (optionally LMR-reduced) and re-searched at the full window only
+            // when the scout fails high inside the window.
             let score_result: SearchScore;
-            if self.use_lmr && depth >= 3 {
-                // Simple LMR: reduce late quiet moves
-                let is_cap = self.is_capture(board, m);
-                if !is_cap && !gives_check && idx >= 3 {
-                    let r = 1; // basic reduction
-                    let reduced = self.alphabeta(
-                        &child,
-                        depth - 1 - r + ext,
-                        -alpha - 1,
-                        -alpha,
-                        ply + 1,
-                        move_index(m),
-                        true,
-                    );
-                    score_result = match reduced {
-                        Ok(value) if -value > alpha => self
-                            .alphabeta(
-                                &child,
-                                depth - 1 + ext,
-                                -beta,
-                                -alpha,
-                                ply + 1,
-                                move_index(m),
-                                true,
-                            )
-                            .map(|value| -value),
-                        Ok(value) => Ok(-value),
-                        Err(reason) => Err(reason),
-                    };
-                } else {
-                    score_result = self
-                        .alphabeta(
-                            &child,
-                            depth - 1 + ext,
-                            -beta,
-                            -alpha,
-                            ply + 1,
-                            move_index(m),
-                            true,
-                        )
-                        .map(|value| -value);
-                }
-            } else {
+            if idx == 0 {
                 score_result = self
                     .alphabeta(
                         &child,
@@ -1253,6 +1220,58 @@ impl Searcher {
                         true,
                     )
                     .map(|value| -value);
+            } else {
+                let r = if self.use_lmr
+                    && depth >= 3
+                    && idx >= 3
+                    && !gives_check
+                    && !self.is_capture(board, m)
+                {
+                    1
+                } else {
+                    0
+                };
+                let mut scout = self.alphabeta(
+                    &child,
+                    depth - 1 - r + ext,
+                    -alpha - 1,
+                    -alpha,
+                    ply + 1,
+                    move_index(m),
+                    true,
+                );
+                // A reduced fail-high is only evidence, not proof: verify at
+                // full depth (still zero window) before trusting it.
+                if r > 0 {
+                    if let Ok(value) = scout {
+                        if -value > alpha {
+                            scout = self.alphabeta(
+                                &child,
+                                depth - 1 + ext,
+                                -alpha - 1,
+                                -alpha,
+                                ply + 1,
+                                move_index(m),
+                                true,
+                            );
+                        }
+                    }
+                }
+                score_result = match scout {
+                    Ok(value) if -value > alpha && -value < beta => self
+                        .alphabeta(
+                            &child,
+                            depth - 1 + ext,
+                            -beta,
+                            -alpha,
+                            ply + 1,
+                            move_index(m),
+                            true,
+                        )
+                        .map(|value| -value),
+                    Ok(value) => Ok(-value),
+                    Err(reason) => Err(reason),
+                };
             }
             self.search_history.pop();
             if let Some(change) = change {
