@@ -116,6 +116,19 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--gate-sprt-batch-pairs" "24"', launcher)
         self.assertIn('"--gate-sprt-max-pairs" "300"', launcher)
 
+    def test_adjudication_is_explicit_with_plan_values(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('RESIGN_CP="${RESIGN_CP:-900}"', launcher)
+        self.assertIn('RESIGN_PLIES="${RESIGN_PLIES:-8}"', launcher)
+        self.assertIn('NO_RESIGN_FRACTION="${NO_RESIGN_FRACTION:-0.15}"', launcher)
+        self.assertIn('DRAW_ADJ_CP="${DRAW_ADJ_CP:-10}"', launcher)
+        self.assertIn('DRAW_ADJ_PLIES="${DRAW_ADJ_PLIES:-40}"', launcher)
+        self.assertIn('DRAW_ADJ_MIN_PLY="${DRAW_ADJ_MIN_PLY:-80}"', launcher)
+        self.assertIn('"--selfplay-resign-cp" "$RESIGN_CP"', launcher)
+        self.assertIn('"--selfplay-no-resign-fraction" "$NO_RESIGN_FRACTION"', launcher)
+        self.assertIn('"--selfplay-draw-adj-min-ply" "$DRAW_ADJ_MIN_PLY"', launcher)
+        self.assertIn('require_autopilot_flag "--selfplay-resign-cp"', launcher)
+
     def test_slot_partition_reserves_arena_and_ab_lanes(self) -> None:
         launcher = self._launcher()
         self.assertIn('SELFPLAY_PARALLEL_GAMES="${SELFPLAY_PARALLEL_GAMES:-32}"', launcher)
