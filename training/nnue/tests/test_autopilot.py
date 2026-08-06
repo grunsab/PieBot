@@ -189,6 +189,34 @@ class AutopilotTests(unittest.TestCase):
         self.assertIsNone(profile["selfplay_openings"])
         self.assertEqual(0, profile["teacher_relabel_max_nodes"])
 
+    def test_profile_and_cli_expose_adjudication_knobs(self) -> None:
+        profile = autopilot.zen5_9755_7d_profile()
+        self.assertEqual(900.0, profile["selfplay_resign_cp"])
+        self.assertEqual(8, profile["selfplay_resign_plies"])
+        self.assertEqual(0.15, profile["selfplay_no_resign_fraction"])
+        self.assertEqual(10.0, profile["selfplay_draw_adj_cp"])
+        self.assertEqual(40, profile["selfplay_draw_adj_plies"])
+        self.assertEqual(80, profile["selfplay_draw_adj_min_ply"])
+
+        args = autopilot._parse_args(
+            [
+                "--out-root",
+                "runs",
+                "--selfplay-resign-cp",
+                "0",
+                "--selfplay-no-resign-fraction",
+                "0.5",
+                "--selfplay-draw-adj-min-ply",
+                "100",
+            ]
+        )
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+        self.assertEqual(0.0, resolved["selfplay_resign_cp"])
+        self.assertEqual(0.5, resolved["selfplay_no_resign_fraction"])
+        self.assertEqual(100, resolved["selfplay_draw_adj_min_ply"])
+
     def test_cli_overrides_selfplay_openings_and_teacher_node_cap(self) -> None:
         args = autopilot._parse_args(
             [

@@ -107,6 +107,12 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_dirichlet_plies": 12,
         "selfplay_seed": 42,
         "selfplay_openings": None,
+        "selfplay_resign_cp": 900.0,
+        "selfplay_resign_plies": 8,
+        "selfplay_no_resign_fraction": 0.15,
+        "selfplay_draw_adj_cp": 10.0,
+        "selfplay_draw_adj_plies": 40,
+        "selfplay_draw_adj_min_ply": 80,
         "teacher_relabel_depth": 6,
         "teacher_relabel_every": 4,
         "teacher_relabel_threads": 48,
@@ -392,6 +398,12 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         help="FEN/EPD suite of self-play start positions (loud failure if unusable)",
     )
+    ap.add_argument("--selfplay-resign-cp", type=float, default=None)
+    ap.add_argument("--selfplay-resign-plies", type=int, default=None)
+    ap.add_argument("--selfplay-no-resign-fraction", type=float, default=None)
+    ap.add_argument("--selfplay-draw-adj-cp", type=float, default=None)
+    ap.add_argument("--selfplay-draw-adj-plies", type=int, default=None)
+    ap.add_argument("--selfplay-draw-adj-min-ply", type=int, default=None)
     ap.add_argument("--batch-size", type=int, default=None)
     ap.add_argument("--max-samples", type=int, default=None)
     ap.add_argument(
@@ -680,6 +692,12 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "teacher_relabel_hash_mb": args.teacher_relabel_hash_mb,
         "teacher_relabel_max_nodes": args.teacher_relabel_max_nodes,
         "selfplay_openings": args.selfplay_openings,
+        "selfplay_resign_cp": args.selfplay_resign_cp,
+        "selfplay_resign_plies": args.selfplay_resign_plies,
+        "selfplay_no_resign_fraction": args.selfplay_no_resign_fraction,
+        "selfplay_draw_adj_cp": args.selfplay_draw_adj_cp,
+        "selfplay_draw_adj_plies": args.selfplay_draw_adj_plies,
+        "selfplay_draw_adj_min_ply": args.selfplay_draw_adj_min_ply,
         "batch_size": args.batch_size,
         "max_samples": args.max_samples,
         "primary_sample_fraction": args.primary_sample_fraction,

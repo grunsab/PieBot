@@ -260,6 +260,44 @@ class RunPipelineTests(unittest.TestCase):
         self.assertIn("--nnue-blend-percent", cmd)
         self.assertIn("95", cmd)
 
+    def test_build_selfplay_command_passes_adjudication_knobs(self) -> None:
+        cmd = run_pipeline.build_selfplay_command(
+            piebot_dir=Path("/tmp/repo/PieBot"),
+            jsonl_out=Path("/tmp/out/jsonl"),
+            games=12,
+            max_plies=80,
+            threads=2,
+            parallel_games=6,
+            depth=5,
+            movetime_ms=None,
+            seed=42,
+            max_records_per_shard=1000,
+            use_engine=True,
+            openings=None,
+            temperature_tau=1.0,
+            temp_cp_scale=200.0,
+            dirichlet_alpha=0.3,
+            dirichlet_epsilon=0.25,
+            dirichlet_plies=8,
+            temperature_moves=20,
+            temperature_tau_final=0.1,
+            nnue_quant_file=None,
+            nnue_blend_percent=100,
+            resign_cp=900.0,
+            resign_plies=8,
+            no_resign_fraction=0.15,
+            draw_adj_cp=10.0,
+            draw_adj_plies=40,
+            draw_adj_min_ply=80,
+        )
+        joined = " ".join(cmd)
+        self.assertIn("--resign-cp 900.0", joined)
+        self.assertIn("--resign-plies 8", joined)
+        self.assertIn("--no-resign-fraction 0.15", joined)
+        self.assertIn("--draw-adj-cp 10.0", joined)
+        self.assertIn("--draw-adj-plies 40", joined)
+        self.assertIn("--draw-adj-min-ply 80", joined)
+
     def test_build_relabel_command_with_node_cap(self) -> None:
         cmd = run_pipeline.build_relabel_command(
             piebot_dir=Path("/tmp/repo/PieBot"),

@@ -223,6 +223,12 @@ def build_selfplay_command(
     temperature_tau_final: float,
     nnue_quant_file: Optional[Path],
     nnue_blend_percent: int,
+    resign_cp: float = 900.0,
+    resign_plies: int = 8,
+    no_resign_fraction: float = 0.15,
+    draw_adj_cp: float = 10.0,
+    draw_adj_plies: int = 40,
+    draw_adj_min_ply: int = 80,
 ) -> List[str]:
     cmd: List[str] = [
         "cargo",
@@ -278,6 +284,22 @@ def build_selfplay_command(
         cmd.extend(["--movetime-ms", str(movetime_ms)])
     if openings is not None:
         cmd.extend(["--openings", str(openings)])
+    cmd.extend(
+        [
+            "--resign-cp",
+            str(resign_cp),
+            "--resign-plies",
+            str(resign_plies),
+            "--no-resign-fraction",
+            str(no_resign_fraction),
+            "--draw-adj-cp",
+            str(draw_adj_cp),
+            "--draw-adj-plies",
+            str(draw_adj_plies),
+            "--draw-adj-min-ply",
+            str(draw_adj_min_ply),
+        ]
+    )
     return cmd
 
 
@@ -354,9 +376,21 @@ def _generate_selfplay_jsonl(
     temperature_tau_final: float,
     nnue_quant_file: Optional[Path],
     nnue_blend_percent: int,
+    resign_cp: float = 900.0,
+    resign_plies: int = 8,
+    no_resign_fraction: float = 0.15,
+    draw_adj_cp: float = 10.0,
+    draw_adj_plies: int = 40,
+    draw_adj_min_ply: int = 80,
 ) -> List[str]:
     jsonl_out.mkdir(parents=True, exist_ok=True)
     cmd = build_selfplay_command(
+        resign_cp=resign_cp,
+        resign_plies=resign_plies,
+        no_resign_fraction=no_resign_fraction,
+        draw_adj_cp=draw_adj_cp,
+        draw_adj_plies=draw_adj_plies,
+        draw_adj_min_ply=draw_adj_min_ply,
         piebot_dir=piebot_dir,
         jsonl_out=jsonl_out,
         games=games,
@@ -527,6 +561,12 @@ def _selfplay_stage_provenance(
     temperature_tau_final: float,
     nnue_quant_file: Optional[Path],
     nnue_blend_percent: int,
+    resign_cp: float = 900.0,
+    resign_plies: int = 8,
+    no_resign_fraction: float = 0.15,
+    draw_adj_cp: float = 10.0,
+    draw_adj_plies: int = 40,
+    draw_adj_min_ply: int = 80,
 ) -> Dict[str, Any]:
     return {
         "version": 1,
@@ -536,6 +576,12 @@ def _selfplay_stage_provenance(
             "games": int(games),
             "max_plies": int(max_plies),
             "threads": int(threads),
+            "resign_cp": float(resign_cp),
+            "resign_plies": int(resign_plies),
+            "no_resign_fraction": float(no_resign_fraction),
+            "draw_adj_cp": float(draw_adj_cp),
+            "draw_adj_plies": int(draw_adj_plies),
+            "draw_adj_min_ply": int(draw_adj_min_ply),
             "parallel_games": int(parallel_games),
             "depth": int(depth),
             "movetime_ms": None if movetime_ms is None else int(movetime_ms),
@@ -1290,6 +1336,12 @@ def run_pipeline(
     selfplay_temperature_tau_final: float = 0.1,
     selfplay_nnue_quant_file: Optional[Path] = None,
     selfplay_nnue_blend_percent: int = 100,
+    selfplay_resign_cp: float = 900.0,
+    selfplay_resign_plies: int = 8,
+    selfplay_no_resign_fraction: float = 0.15,
+    selfplay_draw_adj_cp: float = 10.0,
+    selfplay_draw_adj_plies: int = 40,
+    selfplay_draw_adj_min_ply: int = 80,
     replay_jsonl_dirs: Optional[Sequence[Path]] = None,
     teacher_relabel_depth: int = 0,
     teacher_relabel_every: int = 4,
@@ -1406,6 +1458,12 @@ def run_pipeline(
             max_records_per_shard=shard_size,
             use_engine=selfplay_use_engine,
             openings=selfplay_openings,
+                resign_cp=selfplay_resign_cp,
+                resign_plies=selfplay_resign_plies,
+                no_resign_fraction=selfplay_no_resign_fraction,
+                draw_adj_cp=selfplay_draw_adj_cp,
+                draw_adj_plies=selfplay_draw_adj_plies,
+                draw_adj_min_ply=selfplay_draw_adj_min_ply,
             temperature_tau=selfplay_temperature_tau,
             temp_cp_scale=selfplay_temp_cp_scale,
             dirichlet_alpha=selfplay_dirichlet_alpha,
@@ -1442,6 +1500,12 @@ def run_pipeline(
                 max_records_per_shard=shard_size,
                 use_engine=selfplay_use_engine,
                 openings=selfplay_openings,
+                resign_cp=selfplay_resign_cp,
+                resign_plies=selfplay_resign_plies,
+                no_resign_fraction=selfplay_no_resign_fraction,
+                draw_adj_cp=selfplay_draw_adj_cp,
+                draw_adj_plies=selfplay_draw_adj_plies,
+                draw_adj_min_ply=selfplay_draw_adj_min_ply,
                 temperature_tau=selfplay_temperature_tau,
                 temp_cp_scale=selfplay_temp_cp_scale,
                 dirichlet_alpha=selfplay_dirichlet_alpha,
