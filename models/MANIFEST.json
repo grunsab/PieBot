@@ -1,0 +1,15 @@
+{
+  "cycle_000094_quant.nnue": {
+    "sha256": "7a922154c40e276197caf4ffd933e5bc6172bf84c6511b4afc4db3574feb9b0f",
+    "bytes": 5243106
+  },
+  "cycle_000098_quant.nnue": {
+    "sha256": "3fa9bae3127319930ec16ebb1ee3117656abe7001984f6c8655108a08d278c3a",
+    "bytes": 5243106
+  },
+  "_provenance": {
+    "cycle_000098_quant.nnue": "last promotion-accepted model of run main_72h_self_teacher_repair_v1 (confirmed +0.25, CI [+0.042,+0.458]); campaign_v2 incumbent at blend 25",
+    "cycle_000094_quant.nnue": "prior accepted model (confirmed +0.3125, CI [+0.125,+0.5])",
+    "dense_bootstrap": "cycle_000086_checkpoint.json (108MB, exceeds git limits): sha256 0ce48cc1299d5750bd43512793e843d8363e1e09a5c4a72c3b22e024951f367c, kept on box at /workspace/piebot_campaign_v2/bootstrap/ and backed up to the operator Mac"
+  }
+}
