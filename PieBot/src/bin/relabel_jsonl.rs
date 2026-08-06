@@ -67,7 +67,7 @@ fn teacher_label(
     searcher: &mut Searcher,
     board: &Board,
     params: SearchParams,
-) -> Option<(String, f32)> {
+) -> Option<(String, f32, u32)> {
     let res = searcher.search_with_params(board, params);
     let best = res.bestmove?;
     let score_white = if board.side_to_move() == Color::White {
@@ -75,7 +75,7 @@ fn teacher_label(
     } else {
         -(res.score_cp as f32)
     };
-    Some((best, score_white))
+    Some((best, score_white, res.depth))
 }
 
 fn build_teacher_search_params(depth: u32, max_nodes: u64) -> SearchParams {
@@ -218,14 +218,20 @@ fn process_batch_line(
         let fen = map.get("fen").and_then(|x| x.as_str());
         if let Some(fen_str) = fen {
             if let Ok(board) = Board::from_fen(fen_str, false) {
-                if let Some((best, cpw)) = teacher_label(teacher, &board, teacher_params) {
+                if let Some((best, cpw, achieved_depth)) =
+                    teacher_label(teacher, &board, teacher_params)
+                {
+                    // Stamp the depth the search actually completed, not the
+                    // requested depth: under a node budget the two differ and
+                    // min_teacher_depth filtering must see the honest value.
+                    let stamped_depth = achieved_depth.min(teacher_depth).max(1);
                     map.insert("target_best_move".to_string(), Value::String(best.clone()));
                     map.insert("best_move".to_string(), Value::String(best));
                     map.insert("value_cp".to_string(), Value::from(cpw));
                     map.insert("target_value_cp".to_string(), Value::from(cpw));
                     map.insert(
                         "teacher_depth".to_string(),
-                        Value::from(teacher_depth as u64),
+                        Value::from(stamped_depth as u64),
                     );
                     let out = serde_json::to_string(&map).unwrap_or(task.original);
                     return (out, 1usize);
@@ -440,6 +446,36 @@ mod tests {
     }
 
     #[test]
+    fn node_capped_relabel_stamps_achieved_depth_not_requested() {
+        let original = json!({
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "ply": 0,
+            "run_id": "run-achieved",
+            "game_id": "game-achieved",
+            "teacher_depth": 2
+        });
+        let task = BatchLine {
+            original: original.to_string(),
+            parsed: original.as_object().cloned(),
+            should_relabel: true,
+        };
+        let mut teacher = build_teacher_searcher(1, None, 100);
+        // A 300-node budget cannot complete a depth-8 search from the start
+        // position; the stamped teacher_depth must be the depth actually
+        // reached so min_teacher_depth filtering stays honest.
+        let params = build_teacher_search_params(8, 300);
+        let (line, relabeled) = process_batch_line(task, &mut teacher, params, 8);
+        let output: Value = serde_json::from_str(&line).expect("valid relabeled JSON");
+
+        assert_eq!(relabeled, 1);
+        let stamped = output["teacher_depth"].as_u64().expect("teacher_depth");
+        assert!(
+            (1..8).contains(&stamped),
+            "expected achieved depth in 1..8, got {stamped}"
+        );
+    }
+
+    #[test]
     fn node_capped_teacher_still_produces_a_label() {
         let original = json!({
             "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -460,7 +496,11 @@ mod tests {
         let output: Value = serde_json::from_str(&line).expect("valid relabeled JSON");
 
         assert_eq!(relabeled, 1);
-        assert_eq!(output["teacher_depth"], 6);
+        let stamped = output["teacher_depth"].as_u64().expect("teacher_depth");
+        assert!(
+            (1..=6).contains(&stamped),
+            "achieved depth under a 20k-node cap must be in 1..=6, got {stamped}"
+        );
         assert!(output.get("value_cp").is_some());
     }
 
@@ -611,7 +651,9 @@ mod tests {
         assert_eq!(output["run_id"], "run-abc");
         assert_eq!(output["game_id"], "game-xyz");
         assert_eq!(output["custom"]["kept"], true);
-        assert_eq!(output["teacher_depth"], 6);
+        // The stamp reflects the depth actually searched (params depth 1),
+        // not the requested provenance depth.
+        assert_eq!(output["teacher_depth"], 1);
         assert!(output.get("value_cp").is_some());
     }
 

@@ -73,6 +73,9 @@ pub struct SearchResult {
     pub bestmove: Option<String>,
     pub score_cp: i32,
     pub nodes: u64,
+    /// Deepest fully completed iteration; can trail the requested depth
+    /// when a node budget or deadline interrupts the search.
+    pub depth: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -275,7 +278,7 @@ impl Searcher {
         } else {
             self.eval_current(board)
         };
-        SearchResult {
+        SearchResult { depth: 0,
             bestmove: moves.first().map(|mv| format!("{mv}")),
             score_cp,
             nodes: self.nodes,
@@ -506,14 +509,14 @@ impl Searcher {
             false
         });
         if moves.is_empty() {
-            return Ok(SearchResult {
+            return Ok(SearchResult { depth: 0,
                 bestmove: None,
                 score_cp: self.eval_terminal(board, 0),
                 nodes: self.nodes,
             });
         }
         if self.rule_draw(board) {
-            return Ok(SearchResult {
+            return Ok(SearchResult { depth: 0,
                 bestmove: moves.first().map(|mv| format!("{mv}")),
                 score_cp: DRAW_SCORE,
                 nodes: self.nodes,
@@ -638,7 +641,7 @@ impl Searcher {
         self.tt_put(board, depth, best_score, bestmove, root_bound, 0);
 
         let bestmove_uci = bestmove.map(|m| format!("{m}"));
-        Ok(SearchResult {
+        Ok(SearchResult { depth: 0,
             bestmove: bestmove_uci,
             score_cp: best_score,
             nodes: self.nodes,
@@ -671,14 +674,14 @@ impl Searcher {
             false
         });
         if moves.is_empty() {
-            return Ok(SearchResult {
+            return Ok(SearchResult { depth: 0,
                 bestmove: None,
                 score_cp: self.eval_terminal(board, 0),
                 nodes: self.nodes,
             });
         }
         if self.rule_draw(board) {
-            return Ok(SearchResult {
+            return Ok(SearchResult { depth: 0,
                 bestmove: moves.first().map(|mv| format!("{mv}")),
                 score_cp: DRAW_SCORE,
                 nodes: self.nodes,
@@ -869,7 +872,7 @@ impl Searcher {
                 Bound::Exact
             };
             self.tt_put(board, depth, best_score, bestmove, root_bound, 0);
-            return Ok(SearchResult {
+            return Ok(SearchResult { depth: 0,
                 bestmove: bestmove.map(|m| format!("{m}")),
                 score_cp: best_score,
                 nodes: self.nodes,
@@ -978,7 +981,7 @@ impl Searcher {
             Bound::Exact
         };
         self.tt_put(board, depth, best_score, bestmove, root_bound, 0);
-        Ok(SearchResult {
+        Ok(SearchResult { depth: 0,
             bestmove: bestmove.map(|m| format!("{m}")),
             score_cp: best_score,
             nodes: self.nodes,
@@ -1549,6 +1552,7 @@ impl Searcher {
             }
         }
         committed.nodes = self.nodes;
+        committed.depth = self.last_depth;
         committed
     }
 
@@ -1582,14 +1586,14 @@ impl Searcher {
             false
         });
         if moves.is_empty() {
-            return Ok(SearchResult {
+            return Ok(SearchResult { depth: 0,
                 bestmove: None,
                 score_cp: self.eval_terminal(board, 0),
                 nodes: self.nodes,
             });
         }
         if self.rule_draw(board) {
-            return Ok(SearchResult {
+            return Ok(SearchResult { depth: 0,
                 bestmove: moves.first().map(|mv| format!("{mv}")),
                 score_cp: DRAW_SCORE,
                 nodes: self.nodes,
@@ -1690,7 +1694,7 @@ impl Searcher {
             }
         }
         let bestmove_uci = bestmove.map(|m| format!("{m}"));
-        Ok(SearchResult {
+        Ok(SearchResult { depth: 0,
             bestmove: bestmove_uci,
             score_cp: best_score,
             nodes: self.nodes,
