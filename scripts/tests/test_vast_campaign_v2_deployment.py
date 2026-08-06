@@ -157,6 +157,14 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertEqual("0", parser[section]["exitcodes"])
         self.assertIn("run_vast_campaign_v2.sh", parser[section]["command"])
 
+    def test_supervisor_conf_supplies_the_measured_node_cap(self) -> None:
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        # p95 of depth-5 node cost measured 2026-08-06 with the promoted PVS
+        # engine (600 positions from book-opened self-play): 143,917 -> 144000.
+        self.assertIn('RELABEL_MAX_NODES="144000"', environment)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,31 @@
+{
+  "date": "2026-08-06",
+  "engine": "promoted S1 PVS (58f7b6b)",
+  "model": "cycle-98 quant blend 25",
+  "sample": "600 positions from 120 book-opened depth-2 selfplay games (seed 20260810)",
+  "depth5_nodes": {
+    "p50": 25763,
+    "p90": 93296,
+    "p95": 143917,
+    "max": 390097
+  },
+  "depth7_nodes": {
+    "p50": 312817,
+    "p90": 1421777,
+    "p95": 2485767,
+    "max": 12918883,
+    "n": 200
+  },
+  "RELABEL_MAX_NODES": 144000,
+  "depth7_completion_under_cap": 0.29,
+  "adjudication_pilot": {
+    "games": 120,
+    "terminations": {
+      "threefold": 0.42,
+      "resigned": 0.32,
+      "checkmate": 0.2,
+      "max_plies": 0.05
+    },
+    "note": "resign works; passive draw-adjudication rarely beats a repetition at depth-2 actor strength; actor-budget raise (Pilot C) queued as first post-mint gated change"
+  }
+}
