@@ -1,0 +1,27 @@
+{
+  "arm": "S1 interior PVS + TT-move-first ordering",
+  "stage": "mac-screen",
+  "date": "2026-08-06T04:00Z",
+  "games": 400,
+  "points": {
+    "baseline": 106.0,
+    "draws": 150,
+    "experimental": 144.0
+  },
+  "mean_pair_delta": 0.19,
+  "bootstrap_95": [
+    0.095,
+    0.285
+  ],
+  "avg_depth": {
+    "baseline": 6.245738942826321,
+    "experimental": 6.82499057061264
+  },
+  "engine_commit": "ee7c4cf",
+  "model": "cycle098_quant sha 3fa9bae3",
+  "blend": 25,
+  "movetime_ms": 150,
+  "noise": "12 plies top-5",
+  "seed": 20260806,
+  "next": "box 1000-game confirmation post-deadline; promote only on LCB>0"
+}
