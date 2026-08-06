@@ -1,0 +1,13 @@
+{
+  "legal_lines": 311,
+  "legal_per_volume": {
+    "A": 61,
+    "B": 64,
+    "C": 60,
+    "D": 65,
+    "E": 61
+  },
+  "illegal_lines": 0,
+  "unique_positions": 1279,
+  "illegal_details": []
+}
