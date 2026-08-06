@@ -293,6 +293,7 @@ def build_relabel_command(
     max_records: int,
     nnue_quant_file: Optional[Path],
     nnue_blend_percent: int,
+    max_nodes: int = 0,
 ) -> List[str]:
     cmd: List[str] = [
         "cargo",
@@ -325,6 +326,8 @@ def build_relabel_command(
         )
     if max_records > 0:
         cmd.extend(["--max-records", str(max_records)])
+    if max_nodes > 0:
+        cmd.extend(["--max-nodes", str(max_nodes)])
     return cmd
 
 
@@ -392,6 +395,7 @@ def _relabel_jsonl(
     max_records: int,
     nnue_quant_file: Optional[Path],
     nnue_blend_percent: int,
+    max_nodes: int = 0,
 ) -> List[str]:
     jsonl_out.mkdir(parents=True, exist_ok=True)
     cmd = build_relabel_command(
@@ -400,6 +404,7 @@ def _relabel_jsonl(
         jsonl_out=jsonl_out,
         depth=depth,
         every=every,
+        max_nodes=max_nodes,
         threads=threads,
         hash_mb=hash_mb,
         max_records=max_records,
@@ -562,10 +567,22 @@ def _relabel_stage_provenance(
     max_records: int,
     nnue_quant_file: Optional[Path],
     nnue_blend_percent: int,
+    max_nodes: int = 0,
 ) -> Dict[str, Any]:
     input_snapshot = _jsonl_stage_snapshot(jsonl_in)
     if not input_snapshot["files"] or int(input_snapshot["records"]) <= 0:
         raise ValueError("relabel input contains no JSONL records")
+    args: Dict[str, Any] = {
+        "depth": int(depth),
+        "every": int(every),
+        "threads": int(threads),
+        "hash_mb": int(hash_mb),
+        "max_records": int(max_records),
+        "nnue_blend_percent": int(nnue_blend_percent),
+    }
+    # Uncapped (0) omits the key so pre-node-cap stage markers keep their identity.
+    if max_nodes > 0:
+        args["max_nodes"] = int(max_nodes)
     return {
         "version": _RELABEL_STAGE_PROVENANCE_VERSION,
         "generator": "relabel",
@@ -575,14 +592,7 @@ def _relabel_stage_provenance(
             "path": _normalized_path(jsonl_in),
             **input_snapshot,
         },
-        "args": {
-            "depth": int(depth),
-            "every": int(every),
-            "threads": int(threads),
-            "hash_mb": int(hash_mb),
-            "max_records": int(max_records),
-            "nnue_blend_percent": int(nnue_blend_percent),
-        },
+        "args": args,
         "nnue_quant_file": _file_content_identity(nnue_quant_file),
     }
 
@@ -1286,6 +1296,7 @@ def run_pipeline(
     teacher_relabel_threads: int = 1,
     teacher_relabel_hash_mb: int = 64,
     teacher_relabel_max_records: int = 0,
+    teacher_relabel_max_nodes: int = 0,
     teacher_relabel_nnue_quant_file: Optional[Path] = None,
     teacher_relabel_nnue_blend_percent: int = 100,
     bin_glob: str = "*.bin*",
@@ -1475,6 +1486,7 @@ def run_pipeline(
             max_records=teacher_relabel_max_records,
             nnue_quant_file=teacher_relabel_nnue_quant_file,
             nnue_blend_percent=teacher_relabel_nnue_blend_percent,
+            max_nodes=teacher_relabel_max_nodes,
         )
         relabel_manifest = (
             _validated_jsonl_stage_manifest(
@@ -1500,6 +1512,7 @@ def run_pipeline(
                 max_records=teacher_relabel_max_records,
                 nnue_quant_file=teacher_relabel_nnue_quant_file,
                 nnue_blend_percent=teacher_relabel_nnue_blend_percent,
+                max_nodes=teacher_relabel_max_nodes,
             )
             relabel_manifest = _write_jsonl_stage_manifest(
                 relabeled_dir,
@@ -1813,6 +1826,7 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--teacher-relabel-every", type=int, default=4)
     ap.add_argument("--teacher-relabel-threads", type=int, default=1)
     ap.add_argument("--teacher-relabel-hash-mb", type=int, default=64)
+    ap.add_argument("--teacher-relabel-max-nodes", type=int, default=0)
     ap.add_argument("--teacher-relabel-max-records", type=int, default=0)
     ap.add_argument("--teacher-relabel-nnue-quant-file", type=Path, default=None)
     ap.add_argument("--teacher-relabel-nnue-blend-percent", type=int, default=100)
@@ -1937,6 +1951,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         teacher_relabel_every=args.teacher_relabel_every,
         teacher_relabel_threads=args.teacher_relabel_threads,
         teacher_relabel_hash_mb=args.teacher_relabel_hash_mb,
+        teacher_relabel_max_nodes=args.teacher_relabel_max_nodes,
         teacher_relabel_max_records=args.teacher_relabel_max_records,
         teacher_relabel_nnue_quant_file=args.teacher_relabel_nnue_quant_file,
         teacher_relabel_nnue_blend_percent=args.teacher_relabel_nnue_blend_percent,

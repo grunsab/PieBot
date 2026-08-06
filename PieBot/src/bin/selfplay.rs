@@ -97,7 +97,7 @@ fn main() -> anyhow::Result<()> {
         a.dirichlet_epsilon,
         a.nnue_quant_file.is_some()
     );
-    let games = generate_games(&params);
+    let games = generate_games(&params).map_err(|e| anyhow::anyhow!(e))?;
     if !a.skip_bin {
         eprintln!("Writing binary shards to {}", a.out.display());
         let shards = write_shards(&games, &a.out, a.max_records_per_shard)?;

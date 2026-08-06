@@ -62,6 +62,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     paired_openings: bool,
 
+    /// Optional FEN/EPD suite of paired-opening start positions (requires --paired-openings).
+    #[arg(long)]
+    openings_file: Option<std::path::PathBuf>,
+
     /// Force both sides to use baseline search implementation (model-only A/B).
     #[arg(long, default_value_t = false)]
     same_search: bool,
@@ -509,6 +513,67 @@ fn validate_paired_game_count(games: usize, paired_openings: bool) -> Result<(),
     Ok(())
 }
 
+fn validate_openings_file_usage(args: &Args) -> Result<(), String> {
+    if args.openings_file.is_some() && !args.paired_openings {
+        return Err("--openings-file requires --paired-openings".to_string());
+    }
+    Ok(())
+}
+
+fn suite_opening_fingerprint(fen: &str) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in b"piebot-suite-opening-v1\0"
+        .iter()
+        .copied()
+        .chain(fen.bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn build_paired_openings_from_suite(
+    games: usize,
+    suite_path: &std::path::Path,
+    base_seed: u64,
+) -> Result<Vec<PairedOpening>, String> {
+    validate_paired_game_count(games, true)?;
+    let suite = piebot::io::openings::load_fen_suite(suite_path)?;
+    // A seeded permutation gives every pair a distinct suite position until
+    // the suite is exhausted, then wraps deterministically.
+    let mut order: Vec<usize> = (0..suite.len()).collect();
+    let mut rng = SmallRng::seed_from_u64(splitmix64(base_seed ^ 0x5EED_0011_D00D_BEEF));
+    order.shuffle(&mut rng);
+    Ok((0..games / 2)
+        .map(|pair_index| {
+            let fen = format!("{}", suite[order[pair_index % order.len()]]);
+            PairedOpening {
+                pair_index,
+                seed: paired_opening_seed(base_seed, pair_index),
+                opening_id: suite_opening_fingerprint(&fen),
+                moves: Vec::new(),
+                positions: vec![fen],
+            }
+        })
+        .collect())
+}
+
+fn opening_start_board(opening: &PairedOpening) -> Board {
+    opening
+        .positions
+        .first()
+        .map(|fen| {
+            Board::from_fen(fen, false).unwrap_or_else(|e| {
+                panic!(
+                    "paired opening {} has invalid start position {fen:?}: {e}",
+                    opening.opening_id
+                )
+            })
+        })
+        .unwrap_or_default()
+}
+
 fn baseline_search_threads(args: &Args) -> usize {
     args.base_threads.unwrap_or(args.threads).max(1)
 }
@@ -893,7 +958,9 @@ fn play_single_game(
     exp_engine: &mut ExperimentalEngine,
     rng: &mut SmallRng,
 ) -> PlayedGame {
-    let mut board = Board::default();
+    let mut board = paired_opening
+        .map(opening_start_board)
+        .unwrap_or_default();
     let mut position_history = vec![board.clone()];
     let baseline_is_white = game_index % 2 == 0;
     let mut plies = 0usize;
@@ -1060,9 +1127,20 @@ fn main() {
         eprintln!("error: {message}");
         std::process::exit(2);
     }
+    if let Err(message) = validate_openings_file_usage(&args) {
+        eprintln!("error: {message}");
+        std::process::exit(2);
+    }
     let paired_openings = if args.paired_openings {
-        build_paired_openings(args.games, args.noise_plies, args.noise_topk, args.seed)
-            .expect("paired game count was validated")
+        match args.openings_file.as_deref() {
+            Some(suite_path) => build_paired_openings_from_suite(args.games, suite_path, args.seed)
+                .unwrap_or_else(|message| {
+                    eprintln!("error: {message}");
+                    std::process::exit(2);
+                }),
+            None => build_paired_openings(args.games, args.noise_plies, args.noise_topk, args.seed)
+                .expect("paired game count was validated"),
+        }
     } else {
         Vec::new()
     };
@@ -1445,6 +1523,98 @@ mod tests {
         let args = Args::try_parse_from(["compare_play", "--games", "8", "--paired-openings"])
             .expect("--paired-openings should be supported");
         assert!(args.paired_openings);
+    }
+
+    #[test]
+    fn openings_file_requires_paired_openings() {
+        let unpaired = Args::try_parse_from([
+            "compare_play",
+            "--games",
+            "8",
+            "--openings-file",
+            "book.fen",
+        ])
+        .expect("--openings-file should parse");
+        assert!(validate_openings_file_usage(&unpaired).is_err());
+
+        let paired = Args::try_parse_from([
+            "compare_play",
+            "--games",
+            "8",
+            "--paired-openings",
+            "--openings-file",
+            "book.fen",
+        ])
+        .expect("--openings-file with --paired-openings should parse");
+        assert!(validate_openings_file_usage(&paired).is_ok());
+    }
+
+    fn write_temp_suite(name: &str, contents: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "piebot_compare_suite_{}_{}.fen",
+            name,
+            std::process::id()
+        ));
+        std::fs::write(&path, contents).expect("write suite file");
+        path
+    }
+
+    const SUITE_FENS: [&str; 3] = [
+        "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+        "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    ];
+
+    #[test]
+    fn suite_paired_openings_are_deterministic_distinct_and_fen_seeded() {
+        let path = write_temp_suite("det", &SUITE_FENS.join("\n"));
+        let first = build_paired_openings_from_suite(6, &path, 99).expect("suite openings");
+        let second = build_paired_openings_from_suite(6, &path, 99).expect("suite openings");
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(3, first.len());
+        for (a, b) in first.iter().zip(second.iter()) {
+            assert_eq!(a.opening_id, b.opening_id);
+            assert_eq!(a.positions, b.positions);
+        }
+        for opening in &first {
+            assert!(opening.moves.is_empty());
+            assert_eq!(1, opening.positions.len());
+            assert!(SUITE_FENS.contains(&opening.positions[0].as_str()));
+            assert!(!opening.opening_id.is_empty());
+        }
+        // With a suite at least as large as the pair count, every pair gets a
+        // distinct opening position.
+        let mut fens: Vec<&str> = first.iter().map(|o| o.positions[0].as_str()).collect();
+        fens.sort_unstable();
+        fens.dedup();
+        assert_eq!(3, fens.len());
+    }
+
+    #[test]
+    fn missing_or_empty_suite_is_a_hard_error() {
+        let missing = build_paired_openings_from_suite(
+            4,
+            std::path::Path::new("/nonexistent/compare_suite.fen"),
+            7,
+        );
+        assert!(missing.is_err());
+
+        let path = write_temp_suite("empty", "# nothing\n");
+        let empty = build_paired_openings_from_suite(4, &path, 7);
+        std::fs::remove_file(&path).ok();
+        assert!(empty.is_err());
+    }
+
+    #[test]
+    fn suite_opening_games_start_from_the_suite_fen() {
+        let path = write_temp_suite("start", &SUITE_FENS.join("\n"));
+        let openings = build_paired_openings_from_suite(2, &path, 5).expect("suite openings");
+        std::fs::remove_file(&path).ok();
+
+        let board = opening_start_board(&openings[0]);
+        assert_eq!(openings[0].positions[0], format!("{}", board));
+        assert_ne!(format!("{}", Board::default()), format!("{}", board));
     }
 
     #[test]

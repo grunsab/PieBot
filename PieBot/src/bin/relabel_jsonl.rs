@@ -37,6 +37,9 @@ struct Args {
     /// Optional cap on number of records relabeled across all shards.
     #[arg(long, default_value_t = 0)]
     max_records: usize,
+    /// Optional per-position teacher node budget (0 = uncapped, depth-limited only).
+    #[arg(long, default_value_t = 0)]
+    max_nodes: u64,
     /// Optional quantized NNUE model used by the relabel teacher search.
     #[arg(long)]
     nnue_quant_file: Option<PathBuf>,
@@ -75,9 +78,10 @@ fn teacher_label(
     Some((best, score_white))
 }
 
-fn build_teacher_search_params(depth: u32) -> SearchParams {
+fn build_teacher_search_params(depth: u32, max_nodes: u64) -> SearchParams {
     let mut p = SearchParams::default();
     p.depth = depth.max(1);
+    p.max_nodes = (max_nodes > 0).then_some(max_nodes);
     p.use_tt = true;
     p.order_captures = true;
     p.use_history = true;
@@ -330,7 +334,7 @@ fn main() -> anyhow::Result<()> {
         None
     };
     let period = args.every.max(1);
-    let teacher_params = build_teacher_search_params(args.depth);
+    let teacher_params = build_teacher_search_params(args.depth, args.max_nodes);
     let worker_count = args.threads.max(1);
     let worker_hash_mb = per_worker_hash_mb(args.hash_mb, worker_count);
     let pool = rayon::ThreadPoolBuilder::new()
@@ -415,7 +419,7 @@ mod tests {
 
     #[test]
     fn teacher_search_params_clamp_depth_and_use_single_search_thread() {
-        let p = build_teacher_search_params(0);
+        let p = build_teacher_search_params(0, 0);
         assert_eq!(1, p.depth);
         assert_eq!(1, p.threads);
         assert!(p.use_tt);
@@ -424,6 +428,40 @@ mod tests {
         assert!(p.use_lmr);
         assert!(p.use_killers);
         assert!(p.use_nullmove);
+    }
+
+    #[test]
+    fn teacher_search_params_apply_optional_node_cap() {
+        let capped = build_teacher_search_params(5, 200_000);
+        assert_eq!(Some(200_000), capped.max_nodes);
+
+        let uncapped = build_teacher_search_params(5, 0);
+        assert_eq!(None, uncapped.max_nodes);
+    }
+
+    #[test]
+    fn node_capped_teacher_still_produces_a_label() {
+        let original = json!({
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "ply": 0,
+            "run_id": "run-cap",
+            "game_id": "game-cap",
+            "teacher_depth": 2
+        });
+        let task = BatchLine {
+            original: original.to_string(),
+            parsed: original.as_object().cloned(),
+            should_relabel: true,
+        };
+        let mut teacher = build_teacher_searcher(1, None, 100);
+        let params = build_teacher_search_params(6, 20_000);
+        assert_eq!(Some(20_000), params.max_nodes);
+        let (line, relabeled) = process_batch_line(task, &mut teacher, params, 6);
+        let output: Value = serde_json::from_str(&line).expect("valid relabeled JSON");
+
+        assert_eq!(relabeled, 1);
+        assert_eq!(output["teacher_depth"], 6);
+        assert!(output.get("value_cp").is_some());
     }
 
     #[test]
@@ -566,7 +604,7 @@ mod tests {
         };
         let mut teacher = build_teacher_searcher(1, None, 100);
         let (line, relabeled) =
-            process_batch_line(task, &mut teacher, build_teacher_search_params(1), 6);
+            process_batch_line(task, &mut teacher, build_teacher_search_params(1, 0), 6);
         let output: Value = serde_json::from_str(&line).expect("valid relabeled JSON");
 
         assert_eq!(relabeled, 1);
@@ -593,7 +631,7 @@ mod tests {
         };
         let mut teacher = build_teacher_searcher(1, None, 100);
         let (line, relabeled) =
-            process_batch_line(task, &mut teacher, build_teacher_search_params(1), 6);
+            process_batch_line(task, &mut teacher, build_teacher_search_params(1, 0), 6);
         let output: Value = serde_json::from_str(&line).expect("valid preserved JSON");
 
         assert_eq!(relabeled, 0);

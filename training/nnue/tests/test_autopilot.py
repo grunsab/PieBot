@@ -183,6 +183,28 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(0, profile["initial_active_model_blend_percent"])
 
 
+    def test_profile_exposes_selfplay_openings_and_teacher_node_cap(self) -> None:
+        profile = autopilot.zen5_9755_7d_profile()
+        self.assertIsNone(profile["selfplay_openings"])
+        self.assertEqual(0, profile["teacher_relabel_max_nodes"])
+
+    def test_cli_overrides_selfplay_openings_and_teacher_node_cap(self) -> None:
+        args = autopilot._parse_args(
+            [
+                "--out-root",
+                "runs",
+                "--selfplay-openings",
+                "book/openings.fen",
+                "--teacher-relabel-max-nodes",
+                "250000",
+            ]
+        )
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+        self.assertEqual(Path("book/openings.fen"), resolved["selfplay_openings"])
+        self.assertEqual(250_000, resolved["teacher_relabel_max_nodes"])
+
     def test_control_loop_cli_overrides_profile_values(self) -> None:
         validation_dir = Path("fixed-validation")
         args = autopilot._parse_args(

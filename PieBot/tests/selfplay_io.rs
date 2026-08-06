@@ -76,7 +76,7 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
         nnue_quant_model: None,
         nnue_blend_percent: 100,
     };
-    let games = generate_games(&params);
+    let games = generate_games(&params).expect("selfplay games");
     let outdir = std::path::Path::new("target/selfplay_jsonl_test");
     create_dir_all(outdir).unwrap();
     let shards = write_jsonl_shards(&games, outdir, 10).unwrap();
@@ -125,7 +125,7 @@ fn write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games() {
         nnue_quant_model: None,
         nnue_blend_percent: 100,
     };
-    let games = generate_games(&params);
+    let games = generate_games(&params).expect("selfplay games");
     let outdir = std::path::Path::new("target/selfplay_jsonl_value_test");
     create_dir_all(outdir).unwrap();
     let shards = write_jsonl_shards(&games, outdir, 10).unwrap();
@@ -170,7 +170,7 @@ fn selfplay_preserves_opening_start_fen() {
         nnue_quant_model: None,
         nnue_blend_percent: 100,
     };
-    let games = generate_games(&params);
+    let games = generate_games(&params).expect("selfplay games");
     assert_eq!(games.len(), 1);
     assert_eq!(games[0].start_fen, opening_fen);
 }

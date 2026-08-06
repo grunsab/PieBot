@@ -80,20 +80,20 @@ struct MoveChoice {
     policy_top: Vec<(String, f32)>,
 }
 
-pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
-    let openings = load_openings(params);
+pub fn generate_games(params: &SelfPlayParams) -> Result<Vec<GameRecord>, String> {
+    let openings = load_openings(params)?;
     if params.games == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let parallel_games = effective_parallel_games(params);
     if parallel_games <= 1 || params.games <= 1 {
-        return (0..params.games)
+        return Ok((0..params.games)
             .map(|game_idx| generate_single_game(params, &openings, game_idx))
-            .collect();
+            .collect());
     }
 
-    match rayon::ThreadPoolBuilder::new()
+    let games = match rayon::ThreadPoolBuilder::new()
         .num_threads(parallel_games)
         .build()
     {
@@ -106,7 +106,8 @@ pub fn generate_games(params: &SelfPlayParams) -> Vec<GameRecord> {
         Err(_) => (0..params.games)
             .map(|game_idx| generate_single_game(params, &openings, game_idx))
             .collect(),
-    }
+    };
+    Ok(games)
 }
 
 pub fn effective_parallel_games(params: &SelfPlayParams) -> usize {
@@ -489,37 +490,11 @@ fn select_engine_move(
     })
 }
 
-fn load_openings(params: &SelfPlayParams) -> Vec<Board> {
-    let mut out = Vec::new();
-    if let Some(ref p) = params.openings_path {
-        if let Ok(mut f) = std::fs::File::open(p) {
-            let mut s = String::new();
-            if f.read_to_string(&mut s).is_ok() {
-                for line in s.lines() {
-                    let raw = line.trim();
-                    if raw.is_empty() || raw.starts_with('#') {
-                        continue;
-                    }
-                    // Support EPD (4 fields) by padding halfmove/fullmove
-                    let parts: Vec<&str> = raw.split_whitespace().collect();
-                    let fen = if parts.len() >= 6 {
-                        parts[0..6].join(" ")
-                    } else if parts.len() >= 4 {
-                        let mut v = parts[0..4].to_vec();
-                        v.push("0");
-                        v.push("1");
-                        v.join(" ")
-                    } else {
-                        raw.to_string()
-                    };
-                    if let Ok(b) = Board::from_fen(&fen, false) {
-                        out.push(b);
-                    }
-                }
-            }
-        }
+fn load_openings(params: &SelfPlayParams) -> Result<Vec<Board>, String> {
+    match params.openings_path {
+        Some(ref p) => crate::io::openings::load_fen_suite(p),
+        None => Ok(Vec::new()),
     }
-    out
 }
 
 #[repr(C)]

@@ -260,6 +260,64 @@ class RunPipelineTests(unittest.TestCase):
         self.assertIn("--nnue-blend-percent", cmd)
         self.assertIn("95", cmd)
 
+    def test_build_relabel_command_with_node_cap(self) -> None:
+        cmd = run_pipeline.build_relabel_command(
+            piebot_dir=Path("/tmp/repo/PieBot"),
+            jsonl_in=Path("/tmp/in_jsonl"),
+            jsonl_out=Path("/tmp/out_jsonl"),
+            depth=8,
+            every=4,
+            threads=2,
+            hash_mb=256,
+            max_records=1000,
+            nnue_quant_file=None,
+            nnue_blend_percent=100,
+            max_nodes=250_000,
+        )
+        self.assertIn("--max-nodes", cmd)
+        self.assertIn("250000", cmd)
+
+    def test_build_relabel_command_without_node_cap_omits_flag(self) -> None:
+        cmd = run_pipeline.build_relabel_command(
+            piebot_dir=Path("/tmp/repo/PieBot"),
+            jsonl_in=Path("/tmp/in_jsonl"),
+            jsonl_out=Path("/tmp/out_jsonl"),
+            depth=8,
+            every=4,
+            threads=2,
+            hash_mb=256,
+            max_records=1000,
+            nnue_quant_file=None,
+            nnue_blend_percent=100,
+        )
+        self.assertNotIn("--max-nodes", cmd)
+
+    def test_relabel_stage_provenance_node_cap_preserves_legacy_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jsonl_in = Path(tmp) / "jsonl"
+            jsonl_in.mkdir()
+            (jsonl_in / "shard_000000.jsonl").write_text(
+                '{"fen":"x","ply":0}\n', encoding="utf-8"
+            )
+            common = dict(
+                piebot_dir=Path("/tmp/repo/PieBot"),
+                jsonl_in=jsonl_in,
+                depth=8,
+                every=4,
+                threads=2,
+                hash_mb=256,
+                max_records=0,
+                nnue_quant_file=None,
+                nnue_blend_percent=100,
+            )
+            legacy = run_pipeline._relabel_stage_provenance(**common)
+            uncapped = run_pipeline._relabel_stage_provenance(**common, max_nodes=0)
+            capped = run_pipeline._relabel_stage_provenance(**common, max_nodes=250_000)
+
+        self.assertEqual(legacy, uncapped)
+        self.assertNotEqual(legacy, capped)
+        self.assertEqual(250_000, capped["args"]["max_nodes"])
+
     def test_bin_ingest_resets_stale_shards_before_rebuilding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

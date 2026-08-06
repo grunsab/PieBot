@@ -106,11 +106,13 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_dirichlet_epsilon": 0.25,
         "selfplay_dirichlet_plies": 12,
         "selfplay_seed": 42,
+        "selfplay_openings": None,
         "teacher_relabel_depth": 6,
         "teacher_relabel_every": 4,
         "teacher_relabel_threads": 48,
         "teacher_relabel_hash_mb": 4096,
         "teacher_relabel_max_records": 0,
+        "teacher_relabel_max_nodes": 0,
         "batch_size": 4096,
         "max_samples": 700_000,
         "epochs": 2,
@@ -367,6 +369,18 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--teacher-relabel-every", type=int, default=None)
     ap.add_argument("--teacher-relabel-threads", type=int, default=None)
     ap.add_argument("--teacher-relabel-hash-mb", type=int, default=None)
+    ap.add_argument(
+        "--teacher-relabel-max-nodes",
+        type=int,
+        default=None,
+        help="Per-position teacher node budget (0 = uncapped, depth-limited only)",
+    )
+    ap.add_argument(
+        "--selfplay-openings",
+        type=Path,
+        default=None,
+        help="FEN/EPD suite of self-play start positions (loud failure if unusable)",
+    )
     ap.add_argument("--batch-size", type=int, default=None)
     ap.add_argument("--max-samples", type=int, default=None)
     ap.add_argument(
@@ -638,6 +652,8 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "teacher_relabel_every": args.teacher_relabel_every,
         "teacher_relabel_threads": args.teacher_relabel_threads,
         "teacher_relabel_hash_mb": args.teacher_relabel_hash_mb,
+        "teacher_relabel_max_nodes": args.teacher_relabel_max_nodes,
+        "selfplay_openings": args.selfplay_openings,
         "batch_size": args.batch_size,
         "max_samples": args.max_samples,
         "primary_sample_fraction": args.primary_sample_fraction,
