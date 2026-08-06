@@ -30,6 +30,12 @@ pub struct SelfPlayParams {
     pub temperature_tau_final: f32,     // anneal temperature to this by temperature_moves
     pub nnue_quant_model: Option<QuantNnue>,
     pub nnue_blend_percent: u8, // 0..100, only used when nnue_quant_model is Some
+    pub resign_cp: f32,         // white-perspective cp threshold; 0 disables resignation
+    pub resign_plies: usize,    // consecutive plies past the threshold before resigning
+    pub no_resign_fraction: f32, // fraction of games with resignation disabled (0..=1)
+    pub draw_adj_cp: f32,       // |cp| threshold for draw adjudication; 0 disables
+    pub draw_adj_plies: usize,  // consecutive quiet plies before adjudicating a draw
+    pub draw_adj_min_ply: usize, // earliest ply index a draw adjudication may fire
 }
 
 pub struct GameRecord {
@@ -56,6 +62,8 @@ pub enum GameTermination {
     ThreefoldRepetition,
     MaxPlies,
     NoMove,
+    Resigned,
+    AdjudicatedDraw,
 }
 
 impl GameTermination {
@@ -68,7 +76,93 @@ impl GameTermination {
             Self::ThreefoldRepetition => "threefold_repetition",
             Self::MaxPlies => "max_plies",
             Self::NoMove => "no_move",
+            Self::Resigned => "resigned",
+            Self::AdjudicatedDraw => "adjudicated_draw",
         }
+    }
+}
+
+/// Verdict produced by the ply-by-ply adjudication state machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdjudicationVerdict {
+    ResignWhiteWins,
+    ResignBlackWins,
+    AdjudicatedDraw,
+}
+
+/// Pure resign/draw adjudication state machine fed white-perspective evals.
+///
+/// A cp threshold of 0 disables the corresponding rule.
+pub struct Adjudicator {
+    resign_cp: f32,
+    resign_plies: usize,
+    draw_adj_cp: f32,
+    draw_adj_plies: usize,
+    draw_adj_min_ply: usize,
+    white_resign_streak: usize,
+    black_resign_streak: usize,
+    draw_streak: usize,
+}
+
+impl Adjudicator {
+    pub fn new(
+        resign_cp: f32,
+        resign_plies: usize,
+        draw_adj_cp: f32,
+        draw_adj_plies: usize,
+        draw_adj_min_ply: usize,
+    ) -> Self {
+        Self {
+            resign_cp,
+            resign_plies,
+            draw_adj_cp,
+            draw_adj_plies,
+            draw_adj_min_ply,
+            white_resign_streak: 0,
+            black_resign_streak: 0,
+            draw_streak: 0,
+        }
+    }
+
+    pub fn observe(&mut self, ply: usize, white_cp: Option<f32>) -> Option<AdjudicationVerdict> {
+        let cp = match white_cp {
+            Some(cp) => cp,
+            None => {
+                self.white_resign_streak = 0;
+                self.black_resign_streak = 0;
+                self.draw_streak = 0;
+                return None;
+            }
+        };
+        if self.resign_cp > 0.0 && self.resign_plies > 0 {
+            if cp >= self.resign_cp {
+                self.white_resign_streak += 1;
+                self.black_resign_streak = 0;
+            } else if cp <= -self.resign_cp {
+                self.black_resign_streak += 1;
+                self.white_resign_streak = 0;
+            } else {
+                self.white_resign_streak = 0;
+                self.black_resign_streak = 0;
+            }
+            if self.white_resign_streak >= self.resign_plies {
+                return Some(AdjudicationVerdict::ResignWhiteWins);
+            }
+            if self.black_resign_streak >= self.resign_plies {
+                return Some(AdjudicationVerdict::ResignBlackWins);
+            }
+        }
+        if self.draw_adj_cp > 0.0 && self.draw_adj_plies > 0 {
+            if cp.abs() <= self.draw_adj_cp {
+                self.draw_streak += 1;
+            } else {
+                self.draw_streak = 0;
+            }
+            if self.draw_streak >= self.draw_adj_plies && ply >= self.draw_adj_min_ply {
+                return Some(AdjudicationVerdict::AdjudicatedDraw);
+            }
+        }
+        None
     }
 }
 
@@ -157,6 +251,14 @@ fn generate_single_game(
         outcome_valid: false,
         termination: GameTermination::MaxPlies,
     };
+    let resign_allowed = !resign_disabled_for_game(params.no_resign_fraction, game_seed);
+    let mut adjudicator = Adjudicator::new(
+        if resign_allowed { params.resign_cp } else { 0.0 },
+        params.resign_plies,
+        params.draw_adj_cp,
+        params.draw_adj_plies,
+        params.draw_adj_min_ply,
+    );
     let mut position_history = vec![board.clone()];
     let mut plies = 0usize;
     loop {
@@ -186,6 +288,7 @@ fn generate_single_game(
             select_random_move(&board, &mut rng)
         };
         if let Some(m) = mv {
+            let value_cp = m.value_cp;
             let mstr = format!("{}", m.played_mv);
             record.moves.push(mstr);
             record
@@ -197,6 +300,17 @@ fn generate_single_game(
             board.play_unchecked(m.played_mv);
             position_history.push(board.clone());
             plies += 1;
+            if let Some(verdict) = adjudicator.observe(plies - 1, value_cp) {
+                let (result, termination) = match verdict {
+                    AdjudicationVerdict::ResignWhiteWins => (1, GameTermination::Resigned),
+                    AdjudicationVerdict::ResignBlackWins => (-1, GameTermination::Resigned),
+                    AdjudicationVerdict::AdjudicatedDraw => (0, GameTermination::AdjudicatedDraw),
+                };
+                record.result = result;
+                record.outcome_valid = true;
+                record.termination = termination;
+                break;
+            }
         } else {
             record.termination = GameTermination::NoMove;
             break;
@@ -250,6 +364,18 @@ fn has_insufficient_material(board: &Board) -> bool {
 
 fn game_seed(base_seed: u64, game_idx: usize) -> u64 {
     mix_u64(base_seed ^ ((game_idx as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)))
+}
+
+fn resign_disabled_for_game(no_resign_fraction: f32, game_seed: u64) -> bool {
+    if no_resign_fraction <= 0.0 {
+        return false;
+    }
+    if no_resign_fraction >= 1.0 {
+        return true;
+    }
+    const NO_RESIGN_DOMAIN: u64 = 0x4E4F_5245_5349_474E; // "NORESIGN"
+    let bucket = mix_u64(game_seed ^ NO_RESIGN_DOMAIN) % 10_000;
+    (bucket as f32) < no_resign_fraction * 10_000.0
 }
 
 fn run_id(base_seed: u64) -> String {

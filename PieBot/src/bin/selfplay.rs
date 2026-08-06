@@ -55,6 +55,18 @@ struct Args {
     nnue_quant_file: Option<PathBuf>,
     #[arg(long, default_value_t = 100)]
     nnue_blend_percent: u8,
+    #[arg(long, default_value_t = 900.0)]
+    resign_cp: f32,
+    #[arg(long, default_value_t = 8)]
+    resign_plies: usize,
+    #[arg(long, default_value_t = 0.15)]
+    no_resign_fraction: f32,
+    #[arg(long, default_value_t = 10.0)]
+    draw_adj_cp: f32,
+    #[arg(long, default_value_t = 40)]
+    draw_adj_plies: usize,
+    #[arg(long, default_value_t = 80)]
+    draw_adj_min_ply: usize,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -83,6 +95,12 @@ fn main() -> anyhow::Result<()> {
         temperature_tau_final: a.temperature_tau_final,
         nnue_quant_model,
         nnue_blend_percent: a.nnue_blend_percent,
+        resign_cp: a.resign_cp,
+        resign_plies: a.resign_plies,
+        no_resign_fraction: a.no_resign_fraction,
+        draw_adj_cp: a.draw_adj_cp,
+        draw_adj_plies: a.draw_adj_plies,
+        draw_adj_min_ply: a.draw_adj_min_ply,
     };
     let effective_parallel = effective_parallel_games(&params);
     eprintln!(

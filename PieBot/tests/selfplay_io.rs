@@ -75,6 +75,12 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
         temperature_tau_final: 0.1,
         nnue_quant_model: None,
         nnue_blend_percent: 100,
+        resign_cp: 900.0,
+        resign_plies: 8,
+        no_resign_fraction: 0.15,
+        draw_adj_cp: 10.0,
+        draw_adj_plies: 40,
+        draw_adj_min_ply: 80,
     };
     let games = generate_games(&params).expect("selfplay games");
     let outdir = std::path::Path::new("target/selfplay_jsonl_test");
@@ -124,6 +130,12 @@ fn write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games() {
         temperature_tau_final: 0.1,
         nnue_quant_model: None,
         nnue_blend_percent: 100,
+        resign_cp: 900.0,
+        resign_plies: 8,
+        no_resign_fraction: 0.15,
+        draw_adj_cp: 10.0,
+        draw_adj_plies: 40,
+        draw_adj_min_ply: 80,
     };
     let games = generate_games(&params).expect("selfplay games");
     let outdir = std::path::Path::new("target/selfplay_jsonl_value_test");
@@ -169,6 +181,12 @@ fn selfplay_preserves_opening_start_fen() {
         temperature_tau_final: 0.1,
         nnue_quant_model: None,
         nnue_blend_percent: 100,
+        resign_cp: 900.0,
+        resign_plies: 8,
+        no_resign_fraction: 0.15,
+        draw_adj_cp: 10.0,
+        draw_adj_plies: 40,
+        draw_adj_min_ply: 80,
     };
     let games = generate_games(&params).expect("selfplay games");
     assert_eq!(games.len(), 1);
