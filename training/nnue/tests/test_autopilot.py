@@ -1,6 +1,7 @@
 import json
 import hashlib
 import inspect
+import math
 import struct
 import tempfile
 import unittest
@@ -2904,6 +2905,658 @@ class AutopilotTests(unittest.TestCase):
             self.assertFalse(attempt["confirmation"]["accepted"])
             self.assertFalse(attempt["accepted"])
             self.assertEqual("confirmation-rejected", attempt["reason"])
+
+    def test_gsprt_decision_accepts_strong_positive_pair_deltas(self) -> None:
+        record = autopilot._gsprt_decision(
+            [1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0] * 6,
+            delta1=0.25,
+            alpha=0.05,
+            beta=0.05,
+        )
+        self.assertEqual("accept", record["decision"])
+        self.assertEqual(48, record["pairs"])
+        self.assertGreaterEqual(record["llr"], record["upper_bound"])
+        self.assertAlmostEqual(0.75, record["mean_pair_delta"])
+        self.assertGreater(record["variance"], 0.0)
+
+    def test_gsprt_decision_rejects_strong_negative_pair_deltas(self) -> None:
+        record = autopilot._gsprt_decision(
+            [-1.0, -1.0, 0.0, -1.0] * 12,
+            delta1=0.25,
+            alpha=0.05,
+            beta=0.05,
+        )
+        self.assertEqual("reject", record["decision"])
+        self.assertEqual(48, record["pairs"])
+        self.assertLessEqual(record["llr"], record["lower_bound"])
+
+    def test_gsprt_decision_requires_minimum_pairs_before_deciding(self) -> None:
+        for deltas in ([], [2.0]):
+            with self.subTest(pairs=len(deltas)):
+                record = autopilot._gsprt_decision(
+                    deltas,
+                    delta1=0.25,
+                    alpha=0.05,
+                    beta=0.05,
+                )
+                self.assertEqual("continue", record["decision"])
+                self.assertEqual(len(deltas), record["pairs"])
+
+    def test_gsprt_decision_guards_zero_variance_with_floor(self) -> None:
+        constant_positive = autopilot._gsprt_decision(
+            [0.5] * 10,
+            delta1=0.25,
+            alpha=0.05,
+            beta=0.05,
+        )
+        self.assertEqual("accept", constant_positive["decision"])
+        self.assertTrue(math.isfinite(constant_positive["llr"]))
+        self.assertGreaterEqual(constant_positive["variance"], 1e-6)
+
+        constant_zero = autopilot._gsprt_decision(
+            [0.0] * 10,
+            delta1=0.25,
+            alpha=0.05,
+            beta=0.05,
+        )
+        self.assertEqual("reject", constant_zero["decision"])
+        self.assertTrue(math.isfinite(constant_zero["llr"]))
+        self.assertGreaterEqual(constant_zero["variance"], 1e-6)
+
+        with self.assertRaises(ValueError):
+            autopilot._gsprt_decision(
+                [float("nan")] * 4,
+                delta1=0.25,
+                alpha=0.05,
+                beta=0.05,
+            )
+
+    def test_gsprt_decision_bounds_are_monotonic_in_alpha_and_beta(self) -> None:
+        # Mean 0.1667 over 48 pairs sits between the loose and strict accept
+        # bounds, so tightening alpha/beta must flip accept back to continue.
+        deltas = [1.0] * 8 + [0.0] * 40
+        loose = autopilot._gsprt_decision(deltas, delta1=0.25, alpha=0.2, beta=0.2)
+        strict = autopilot._gsprt_decision(deltas, delta1=0.25, alpha=0.01, beta=0.01)
+        self.assertGreater(strict["upper_bound"], loose["upper_bound"])
+        self.assertLess(strict["lower_bound"], loose["lower_bound"])
+        self.assertAlmostEqual(loose["llr"], strict["llr"])
+        self.assertEqual("accept", loose["decision"])
+        self.assertEqual("continue", strict["decision"])
+
+    def test_gsprt_accepts_historical_promotion_magnitudes_at_defaults(self) -> None:
+        # Cycle 94 confirmed at mean +0.3125 and cycle 98 at +0.25 over 48
+        # pairs; the SPRT defaults must reproduce both LCB acceptances.
+        cycle94 = [1.0] * 15 + [0.0] * 33
+        cycle98 = [1.0] * 12 + [0.0] * 36
+        for name, deltas in (("cycle94", cycle94), ("cycle98", cycle98)):
+            with self.subTest(cycle=name):
+                record = autopilot._gsprt_decision(
+                    deltas,
+                    delta1=0.25,
+                    alpha=0.05,
+                    beta=0.05,
+                )
+                self.assertEqual("accept", record["decision"])
+                self.assertEqual(48, record["pairs"])
+
+    def test_gsprt_mean_zero_evidence_rejects_at_defaults(self) -> None:
+        record = autopilot._gsprt_decision(
+            [1.0, -1.0] * 150,
+            delta1=0.25,
+            alpha=0.05,
+            beta=0.05,
+        )
+        self.assertEqual("reject", record["decision"])
+        self.assertEqual(300, record["pairs"])
+
+    def test_sprt_batch_merge_reindexes_overlapping_indices_for_validation(self) -> None:
+        # Both batches use raw indices 0..47 / pairs 0..23; the merge must
+        # re-index them so the strict paired evidence validator still passes.
+        first = _paired_gate_payload([1.0] * 24)
+        second = _paired_gate_payload([0.0] * 24)
+        merged = autopilot._merge_paired_gate_batches([first, second])
+        self.assertEqual(96, merged["games"])
+        self.assertIs(True, merged["paired_openings"])
+        self.assertEqual(
+            set(range(96)),
+            {game["game_index"] for game in merged["game_results"]},
+        )
+        self.assertEqual(
+            set(range(48)),
+            {game["pair_index"] for game in merged["game_results"]},
+        )
+        self.assertEqual(
+            {"baseline": 0.0, "experimental": 24.0, "draws": 72},
+            merged["points"],
+        )
+        statistics = autopilot._paired_gate_statistics(
+            merged,
+            confidence_level=0.95,
+            bootstrap_samples=500,
+            seed=7,
+            minimum_mean_pair_delta=0.0,
+        )
+        self.assertTrue(statistics["eligible"])
+        self.assertEqual(48, statistics["complete_pairs"])
+        self.assertAlmostEqual(0.5, statistics["mean_pair_delta"])
+
+    def test_sprt_confirmation_accepts_after_min_pairs_and_merges_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_json = root / "confirmation.json"
+            quant = _write_fake_quant(root / "candidate.nnue")
+            commands = []
+            payloads = iter(
+                [
+                    _paired_gate_payload([1.0] * 8 + [0.0] * 16),
+                    _paired_gate_payload([1.0] * 7 + [0.0] * 17),
+                ]
+            )
+
+            def _fake_run(cmd, **_kwargs):
+                commands.append(cmd)
+                batch_json = Path(cmd[cmd.index("--json-out") + 1])
+                batch_json.write_text(json.dumps(next(payloads)), encoding="utf-8")
+
+            with mock.patch(
+                "training.nnue.autopilot.subprocess.run", side_effect=_fake_run
+            ):
+                result = autopilot._run_sprt_confirmation(
+                    piebot_dir=root,
+                    out_json=out_json,
+                    base_quant=None,
+                    candidate_quant=quant,
+                    movetime_ms=25,
+                    noise_plies=4,
+                    noise_topk=3,
+                    threads=1,
+                    seed=9001,
+                    min_score_delta=0.0,
+                    base_blend_percent=0,
+                    candidate_blend_percent=25,
+                    confidence_level=0.95,
+                    bootstrap_samples=500,
+                    parallel_games=1,
+                    delta1=0.25,
+                    alpha=0.05,
+                    beta=0.05,
+                    min_pairs=48,
+                    batch_pairs=24,
+                    max_pairs=300,
+                )
+
+            self.assertEqual(2, len(commands))
+            games = [cmd[cmd.index("--games") + 1] for cmd in commands]
+            self.assertEqual(["48", "48"], games)
+            seeds = [cmd[cmd.index("--seed") + 1] for cmd in commands]
+            self.assertEqual(["9001", "9002"], seeds)
+            batch_paths = [cmd[cmd.index("--json-out") + 1] for cmd in commands]
+            self.assertEqual(2, len(set(batch_paths)))
+            self.assertNotIn(str(out_json), batch_paths)
+
+            self.assertTrue(result["accepted"])
+            self.assertEqual("sprt-accepted", result["reason"])
+            self.assertEqual("accept", result["sprt"]["decision"])
+            self.assertEqual(48, result["sprt"]["pairs"])
+            self.assertEqual(96, result["games"])
+            self.assertEqual(str(out_json), result["json_path"])
+            statistics = result["statistics"]
+            self.assertEqual("paired-bootstrap-gate-v1", statistics["schema"])
+            self.assertTrue(statistics["eligible"])
+            self.assertEqual(48, statistics["complete_pairs"])
+            self.assertAlmostEqual(0.3125, statistics["mean_pair_delta"])
+            self.assertIn("confidence_interval", statistics)
+
+            merged = json.loads(out_json.read_text(encoding="utf-8"))
+            self.assertEqual(96, merged["games"])
+            self.assertIs(True, merged["paired_openings"])
+            self.assertEqual(
+                set(range(96)),
+                {game["game_index"] for game in merged["game_results"]},
+            )
+            self.assertEqual(
+                {"baseline": 0.0, "experimental": 15.0, "draws": 81},
+                merged["points"],
+            )
+
+    def test_sprt_confirmation_inconclusive_at_max_pairs_rejects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            calls = []
+
+            def _fake_gate(**kwargs):
+                calls.append(kwargs)
+                pairs = int(kwargs["games"]) // 2
+                payload = _paired_gate_payload([2.0, -2.0] * (pairs // 2))
+                statistics = autopilot._paired_gate_statistics(
+                    payload,
+                    confidence_level=0.95,
+                    bootstrap_samples=50,
+                    seed=3,
+                    minimum_mean_pair_delta=0.0,
+                )
+                return {
+                    "accepted": bool(statistics["accepted"]),
+                    "reason": statistics["reason"],
+                    "evidence_eligible": True,
+                    "evidence_schema": statistics["schema"],
+                    "baseline_points": payload["points"]["baseline"],
+                    "experimental_points": payload["points"]["experimental"],
+                    "delta_points": 0.0,
+                    "games": payload["games"],
+                    "json_path": str(kwargs["out_json"]),
+                    "statistics": statistics,
+                    "pair_outcomes": statistics["pair_outcomes"],
+                    "game_results": statistics["game_results"],
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate", side_effect=_fake_gate
+            ):
+                result = autopilot._run_sprt_confirmation(
+                    piebot_dir=root,
+                    out_json=root / "confirmation.json",
+                    base_quant=None,
+                    candidate_quant=root / "candidate.nnue",
+                    movetime_ms=25,
+                    noise_plies=4,
+                    noise_topk=3,
+                    threads=1,
+                    seed=7,
+                    min_score_delta=0.0,
+                    base_blend_percent=0,
+                    candidate_blend_percent=25,
+                    confidence_level=0.95,
+                    bootstrap_samples=50,
+                    parallel_games=1,
+                    delta1=0.25,
+                    alpha=0.05,
+                    beta=0.05,
+                    min_pairs=48,
+                    batch_pairs=24,
+                    max_pairs=300,
+                )
+
+            self.assertEqual([48] * 12 + [24], [int(call["games"]) for call in calls])
+            self.assertEqual(list(range(7, 20)), [int(call["seed"]) for call in calls])
+            self.assertEqual(13, len({str(call["out_json"]) for call in calls}))
+            self.assertFalse(result["accepted"])
+            self.assertEqual("max-pairs-inconclusive", result["reason"])
+            self.assertEqual("reject", result["sprt"]["decision"])
+            self.assertEqual(300, result["sprt"]["pairs"])
+            self.assertEqual(600, result["games"])
+            self.assertEqual(300, result["statistics"]["complete_pairs"])
+
+    def test_sprt_enabled_confirmation_uses_gsprt_driver(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            quant = _write_fake_quant(root / "candidate.nnue")
+            screen_calls = []
+            sprt_calls = []
+
+            def _screen(**kwargs):
+                screen_calls.append(kwargs)
+                return {
+                    "accepted": False,
+                    "reason": "confidence-lower-bound-not-positive",
+                    "evidence_eligible": True,
+                    "statistics": {
+                        "eligible": True,
+                        "accepted": False,
+                        "mean_pair_delta": 0.4,
+                    },
+                }
+
+            def _sprt(**kwargs):
+                sprt_calls.append(kwargs)
+                return {
+                    "accepted": True,
+                    "reason": "sprt-accepted",
+                    "evidence_eligible": True,
+                    "games": 96,
+                    "statistics": {
+                        "eligible": True,
+                        "accepted": True,
+                        "schema": "paired-bootstrap-gate-v1",
+                    },
+                    "sprt": {"decision": "accept", "pairs": 48},
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate", side_effect=_screen
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_sprt_confirmation",
+                    side_effect=_sprt,
+                ):
+                    attempt = autopilot._run_confirmed_gate_attempt(
+                        piebot_dir=root,
+                        screen_json=root / "screen.json",
+                        confirmation_json=root / "confirmation.json",
+                        base_quant=None,
+                        candidate_quant=quant,
+                        screen_games=24,
+                        confirmation_games=96,
+                        movetime_ms=100,
+                        noise_plies=12,
+                        noise_topk=5,
+                        threads=1,
+                        seed=7,
+                        screen_min_score_delta=0.0,
+                        confirmation_min_score_delta=0.0,
+                        base_blend_percent=0,
+                        candidate_blend_percent=25,
+                        paired_openings=True,
+                        sprt=True,
+                        sprt_delta1=0.3,
+                        sprt_alpha=0.02,
+                        sprt_beta=0.04,
+                        sprt_min_pairs=50,
+                        sprt_batch_pairs=20,
+                        sprt_max_pairs=200,
+                    )
+
+            self.assertEqual(1, len(screen_calls))
+            self.assertEqual(24, screen_calls[0]["games"])
+            self.assertEqual(1, len(sprt_calls))
+            call = sprt_calls[0]
+            self.assertEqual(0.3, call["delta1"])
+            self.assertEqual(0.02, call["alpha"])
+            self.assertEqual(0.04, call["beta"])
+            self.assertEqual(50, call["min_pairs"])
+            self.assertEqual(20, call["batch_pairs"])
+            self.assertEqual(200, call["max_pairs"])
+            self.assertEqual(7 + 1_000_003, call["seed"])
+            self.assertEqual(root / "confirmation.json", call["out_json"])
+            self.assertTrue(attempt["accepted"])
+            self.assertEqual("confirmation-accepted", attempt["reason"])
+            self.assertEqual("accept", attempt["confirmation"]["sprt"]["decision"])
+            self.assertEqual(0, attempt["confirmation"]["baseline_blend_percent"])
+            self.assertEqual(25, attempt["confirmation"]["experimental_blend_percent"])
+
+    def test_sprt_confirmation_requires_paired_openings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            quant = _write_fake_quant(root / "candidate.nnue")
+            with mock.patch("training.nnue.autopilot._run_model_gate") as gate:
+                with self.assertRaisesRegex(ValueError, "paired openings"):
+                    autopilot._run_confirmed_gate_attempt(
+                        piebot_dir=root,
+                        screen_json=root / "screen.json",
+                        confirmation_json=root / "confirmation.json",
+                        base_quant=None,
+                        candidate_quant=quant,
+                        screen_games=24,
+                        confirmation_games=96,
+                        movetime_ms=100,
+                        noise_plies=12,
+                        noise_topk=5,
+                        threads=1,
+                        seed=7,
+                        screen_min_score_delta=0.0,
+                        confirmation_min_score_delta=0.0,
+                        base_blend_percent=0,
+                        candidate_blend_percent=25,
+                        paired_openings=False,
+                        sprt=True,
+                    )
+            gate.assert_not_called()
+
+    def test_profile_has_sprt_gate_knobs_default_off(self) -> None:
+        profile = autopilot.zen5_9755_7d_profile()
+        self.assertIs(False, profile["gate_sprt"])
+        self.assertEqual(0.25, profile["gate_sprt_delta1"])
+        self.assertEqual(0.05, profile["gate_sprt_alpha"])
+        self.assertEqual(0.05, profile["gate_sprt_beta"])
+        self.assertEqual(48, profile["gate_sprt_min_pairs"])
+        self.assertEqual(24, profile["gate_sprt_batch_pairs"])
+        self.assertEqual(300, profile["gate_sprt_max_pairs"])
+
+    def test_cli_overrides_map_sprt_gate_knobs(self) -> None:
+        args = autopilot._parse_args(
+            [
+                "--out-root",
+                "runs",
+                "--gate-sprt",
+                "--gate-sprt-delta1",
+                "0.3",
+                "--gate-sprt-alpha",
+                "0.02",
+                "--gate-sprt-beta",
+                "0.04",
+                "--gate-sprt-min-pairs",
+                "60",
+                "--gate-sprt-batch-pairs",
+                "30",
+                "--gate-sprt-max-pairs",
+                "240",
+            ]
+        )
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+        self.assertIs(True, resolved["gate_sprt"])
+        self.assertEqual(0.3, resolved["gate_sprt_delta1"])
+        self.assertEqual(0.02, resolved["gate_sprt_alpha"])
+        self.assertEqual(0.04, resolved["gate_sprt_beta"])
+        self.assertEqual(60, resolved["gate_sprt_min_pairs"])
+        self.assertEqual(30, resolved["gate_sprt_batch_pairs"])
+        self.assertEqual(240, resolved["gate_sprt_max_pairs"])
+
+    def test_sprt_disabled_keeps_legacy_confirmation_flow(self) -> None:
+        profile = autopilot.zen5_9755_7d_profile()
+        bare = autopilot._parse_args(["--out-root", "runs"])
+        self.assertEqual(profile, autopilot._apply_cli_overrides(profile, bare))
+        self.assertIs(
+            False,
+            inspect.signature(autopilot._run_confirmed_gate_attempt)
+            .parameters["sprt"]
+            .default,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            quant = _write_fake_quant(root / "candidate.nnue")
+            calls = []
+            results = iter(
+                [
+                    {
+                        "accepted": True,
+                        "evidence_eligible": True,
+                        "statistics": {
+                            "eligible": True,
+                            "accepted": True,
+                            "mean_pair_delta": 0.5,
+                        },
+                    },
+                    {"accepted": False, "reason": "confidence-lower-bound-not-positive"},
+                ]
+            )
+
+            def _gate(**kwargs):
+                calls.append(kwargs)
+                return next(results)
+
+            with mock.patch(
+                "training.nnue.autopilot._run_model_gate", side_effect=_gate
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_sprt_confirmation"
+                ) as sprt:
+                    attempt = autopilot._run_confirmed_gate_attempt(
+                        piebot_dir=root,
+                        screen_json=root / "screen.json",
+                        confirmation_json=root / "confirmation.json",
+                        base_quant=None,
+                        candidate_quant=quant,
+                        screen_games=24,
+                        confirmation_games=96,
+                        movetime_ms=100,
+                        noise_plies=12,
+                        noise_topk=5,
+                        threads=1,
+                        seed=7,
+                        screen_min_score_delta=0.0,
+                        confirmation_min_score_delta=0.0,
+                        base_blend_percent=0,
+                        candidate_blend_percent=25,
+                        paired_openings=True,
+                    )
+
+            sprt.assert_not_called()
+            self.assertEqual([24, 96], [call["games"] for call in calls])
+            self.assertFalse(attempt["accepted"])
+            self.assertEqual("confirmation-rejected", attempt["reason"])
+
+    def test_main_sprt_gate_flags_flow_into_confirmation_and_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sprt_root = Path(tmp) / "runs_sprt"
+            legacy_root = Path(tmp) / "runs_legacy"
+            sprt_calls = []
+
+            def _fake_run_pipeline(**kwargs):
+                out_dir = Path(kwargs["out_dir"])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant = _write_fake_quant(out_dir / "nnue_quant.nnue")
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                }
+
+            def _screen(**_kwargs):
+                return {
+                    "accepted": False,
+                    "reason": "confidence-lower-bound-not-positive",
+                    "evidence_eligible": True,
+                    "statistics": {
+                        "eligible": True,
+                        "accepted": False,
+                        "mean_pair_delta": 0.5,
+                    },
+                }
+
+            def _sprt(**kwargs):
+                sprt_calls.append(kwargs)
+                return {
+                    "accepted": True,
+                    "reason": "sprt-accepted",
+                    "evidence_eligible": True,
+                    "games": 96,
+                    "statistics": {
+                        "eligible": True,
+                        "accepted": True,
+                        "schema": "paired-bootstrap-gate-v1",
+                    },
+                    "sprt": {"decision": "accept", "pairs": 48},
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate", side_effect=_screen
+                ):
+                    with mock.patch(
+                        "training.nnue.autopilot._run_sprt_confirmation",
+                        side_effect=_sprt,
+                    ):
+                        rc = autopilot.main(
+                            [
+                                "--out-root",
+                                str(sprt_root),
+                                "--hours",
+                                "1",
+                                "--max-cycles",
+                                "1",
+                                "--gate-sprt",
+                                "--gate-sprt-delta1",
+                                "0.3",
+                                "--gate-sprt-alpha",
+                                "0.02",
+                                "--gate-sprt-beta",
+                                "0.04",
+                                "--gate-sprt-min-pairs",
+                                "60",
+                                "--gate-sprt-batch-pairs",
+                                "30",
+                                "--gate-sprt-max-pairs",
+                                "240",
+                            ]
+                        )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(1, len(sprt_calls))
+            call = sprt_calls[0]
+            self.assertEqual(0.3, call["delta1"])
+            self.assertEqual(0.02, call["alpha"])
+            self.assertEqual(0.04, call["beta"])
+            self.assertEqual(60, call["min_pairs"])
+            self.assertEqual(30, call["batch_pairs"])
+            self.assertEqual(240, call["max_pairs"])
+            state = json.loads(
+                (sprt_root / "autopilot_state.json").read_text(encoding="utf-8")
+            )
+            identity = state["last_gate_identity"]
+            self.assertEqual(
+                "gsprt-pair-delta-v1", identity["confirmation_decision_rule"]
+            )
+            self.assertEqual(
+                {
+                    "delta1": 0.3,
+                    "alpha": 0.02,
+                    "beta": 0.04,
+                    "min_pairs": 60,
+                    "batch_pairs": 30,
+                    "max_pairs": 240,
+                },
+                identity["sprt"],
+            )
+            self.assertIsNotNone(state.get("active_model_path"))
+
+            def _legacy_reject(**_kwargs):
+                return {
+                    "accepted": False,
+                    "reason": "confidence-lower-bound-not-positive",
+                    "evidence_eligible": True,
+                    "statistics": {
+                        "eligible": True,
+                        "accepted": False,
+                        "mean_pair_delta": -0.5,
+                    },
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                with mock.patch(
+                    "training.nnue.autopilot._run_model_gate",
+                    side_effect=_legacy_reject,
+                ):
+                    with mock.patch(
+                        "training.nnue.autopilot._run_sprt_confirmation"
+                    ) as legacy_sprt:
+                        rc = autopilot.main(
+                            [
+                                "--out-root",
+                                str(legacy_root),
+                                "--hours",
+                                "1",
+                                "--max-cycles",
+                                "1",
+                            ]
+                        )
+
+            self.assertEqual(0, rc)
+            legacy_sprt.assert_not_called()
+            state = json.loads(
+                (legacy_root / "autopilot_state.json").read_text(encoding="utf-8")
+            )
+            identity = state["last_gate_identity"]
+            self.assertNotIn("confirmation_decision_rule", identity)
+            self.assertNotIn("sprt", identity)
 
     def test_gate_reject_after_accept_keeps_previous_active_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

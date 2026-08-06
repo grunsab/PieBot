@@ -164,6 +164,17 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         # pair. Promotion is strict: the paired-bootstrap lower confidence
         # bound must exceed this threshold.
         "gate_confirmation_min_score_delta": 0.0,
+        # GSPRT confirmation (WP4). Default off so the legacy fixed-games
+        # paired-bootstrap LCB confirmation remains the gate identity for
+        # existing lineages. delta1 is the smallest historically confirmed
+        # real gain (cycles 94/98 confirmed at +0.31/+0.25 mean pair delta).
+        "gate_sprt": False,
+        "gate_sprt_delta1": 0.25,
+        "gate_sprt_alpha": 0.05,
+        "gate_sprt_beta": 0.05,
+        "gate_sprt_min_pairs": 48,
+        "gate_sprt_batch_pairs": 24,
+        "gate_sprt_max_pairs": 300,
         "gate_incremental_pst_policy": "strict-superiority",
         "gate_pst_veto_margin": 0.0,
         "gate_require_external_anchor": False,
@@ -481,6 +492,21 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--gate-confirmation-games", type=int, default=None)
     ap.add_argument("--gate-confirmation-min-score-delta", type=float, default=None)
     ap.add_argument(
+        "--gate-sprt",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Confirm candidates with a GSPRT over per-pair deltas collected "
+            "in compare_play batches instead of one fixed-games confirmation"
+        ),
+    )
+    ap.add_argument("--gate-sprt-delta1", type=float, default=None)
+    ap.add_argument("--gate-sprt-alpha", type=float, default=None)
+    ap.add_argument("--gate-sprt-beta", type=float, default=None)
+    ap.add_argument("--gate-sprt-min-pairs", type=int, default=None)
+    ap.add_argument("--gate-sprt-batch-pairs", type=int, default=None)
+    ap.add_argument("--gate-sprt-max-pairs", type=int, default=None)
+    ap.add_argument(
         "--gate-incremental-pst-policy",
         choices=INCREMENTAL_PST_POLICIES,
         default=None,
@@ -694,6 +720,13 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "gate_paired_openings": args.gate_paired_openings,
         "gate_confirmation_games": args.gate_confirmation_games,
         "gate_confirmation_min_score_delta": args.gate_confirmation_min_score_delta,
+        "gate_sprt": args.gate_sprt,
+        "gate_sprt_delta1": args.gate_sprt_delta1,
+        "gate_sprt_alpha": args.gate_sprt_alpha,
+        "gate_sprt_beta": args.gate_sprt_beta,
+        "gate_sprt_min_pairs": args.gate_sprt_min_pairs,
+        "gate_sprt_batch_pairs": args.gate_sprt_batch_pairs,
+        "gate_sprt_max_pairs": args.gate_sprt_max_pairs,
         "gate_incremental_pst_policy": args.gate_incremental_pst_policy,
         "gate_pst_veto_margin": args.gate_pst_veto_margin,
         "gate_require_external_anchor": args.gate_require_external_anchor,
@@ -1737,6 +1770,129 @@ def _paired_gate_statistics(
     }
 
 
+_GSPRT_VARIANCE_FLOOR = 1e-6
+_GSPRT_MINIMUM_PAIRS = 2
+
+
+def _gsprt_decision(
+    pair_deltas: list[float],
+    *,
+    delta1: float,
+    alpha: float,
+    beta: float,
+) -> Dict[str, Any]:
+    """Generalized SPRT for H0 mean pair delta = 0 versus H1 mean = delta1.
+
+    Uses the normal approximation with the plugin (maximum-likelihood)
+    variance: LLR = n * delta1 * (mean - delta1 / 2) / variance. A small
+    variance floor guards degenerate all-equal samples, and no decision is
+    made before two pairs exist.
+    """
+    hypothesis_delta = float(delta1)
+    error_alpha = float(alpha)
+    error_beta = float(beta)
+    if not math.isfinite(hypothesis_delta) or hypothesis_delta <= 0.0:
+        raise ValueError("gate SPRT delta1 must be a positive finite number")
+    if not 0.0 < error_alpha < 1.0 or not 0.0 < error_beta < 1.0:
+        raise ValueError("gate SPRT alpha and beta must be between zero and one")
+    deltas = [float(delta) for delta in pair_deltas]
+    if any(not math.isfinite(delta) for delta in deltas):
+        raise ValueError("gate SPRT pair deltas must be finite")
+    lower_bound = math.log(error_beta / (1.0 - error_alpha))
+    upper_bound = math.log((1.0 - error_beta) / error_alpha)
+    pairs = len(deltas)
+    mean = sum(deltas) / pairs if pairs else 0.0
+    plugin_variance = (
+        sum((delta - mean) ** 2 for delta in deltas) / pairs if pairs else 0.0
+    )
+    variance = max(plugin_variance, _GSPRT_VARIANCE_FLOOR)
+    llr = pairs * hypothesis_delta * (mean - hypothesis_delta / 2.0) / variance
+    if pairs < _GSPRT_MINIMUM_PAIRS:
+        decision = "continue"
+    elif llr >= upper_bound:
+        decision = "accept"
+    elif llr <= lower_bound:
+        decision = "reject"
+    else:
+        decision = "continue"
+    return {
+        "decision": decision,
+        "llr": llr,
+        "lower_bound": lower_bound,
+        "upper_bound": upper_bound,
+        "pairs": pairs,
+        "mean_pair_delta": mean,
+        "variance": variance,
+    }
+
+
+def _merge_paired_gate_batches(
+    batch_payloads: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Merge per-batch compare_play evidence into one paired payload.
+
+    Batches are independent compare_play runs, so their raw game and pair
+    indices overlap. Both are re-indexed with a batch offset so the merged
+    evidence still satisfies the strict paired-evidence validation (globally
+    unique game indices, exactly two games per complete pair), and the
+    aggregate points/games fields are recomputed over all batches.
+    """
+    if not batch_payloads:
+        raise ValueError("SPRT gate merge requires at least one batch payload")
+    merged_games: list[Dict[str, Any]] = []
+    pair_offset = 0
+    for payload in batch_payloads:
+        if not isinstance(payload, dict) or payload.get("paired_openings") is not True:
+            raise ValueError("SPRT gate batches must contain paired game evidence")
+        raw_games = payload.get("game_results")
+        if not isinstance(raw_games, list) or not raw_games:
+            raise ValueError("SPRT gate batches must contain game-level evidence")
+        indexed: list[tuple[int, int, Dict[str, Any]]] = []
+        for raw in raw_games:
+            if not isinstance(raw, dict):
+                raise ValueError("SPRT gate game evidence entries must be objects")
+            try:
+                indexed.append((int(raw["pair_index"]), int(raw["game_index"]), raw))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    "SPRT gate game evidence is missing pair identity"
+                ) from exc
+        pair_map = {
+            raw_pair: pair_offset + rank
+            for rank, raw_pair in enumerate(
+                sorted({raw_pair for raw_pair, _, _ in indexed})
+            )
+        }
+        for raw_pair, _, raw in sorted(indexed, key=lambda entry: entry[:2]):
+            game = dict(raw)
+            game["pair_index"] = pair_map[raw_pair]
+            game["game_index"] = len(merged_games)
+            merged_games.append(game)
+        pair_offset += len(pair_map)
+    try:
+        baseline_points = sum(
+            1.0 for game in merged_games if float(game["baseline_score"]) == 1.0
+        )
+        experimental_points = sum(
+            1.0 for game in merged_games if float(game["experimental_score"]) == 1.0
+        )
+        draws = sum(
+            1 for game in merged_games if float(game["experimental_score"]) == 0.5
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("SPRT gate game evidence is missing score identity") from exc
+    return {
+        "games": len(merged_games),
+        "paired_openings": True,
+        "points": {
+            "baseline": baseline_points,
+            "experimental": experimental_points,
+            "draws": draws,
+        },
+        "game_results": merged_games,
+    }
+
+
 def _jsonl_dataset_sha256(path: Path) -> str:
     entries = []
     for shard in sorted(Path(path).glob("*.jsonl")):
@@ -2089,6 +2245,214 @@ def _run_model_gate(
     }
 
 
+def _run_sprt_confirmation(
+    *,
+    piebot_dir: Path,
+    out_json: Path,
+    base_quant: Optional[Path],
+    candidate_quant: Path,
+    movetime_ms: int,
+    noise_plies: int,
+    noise_topk: int,
+    threads: int,
+    seed: int,
+    min_score_delta: float,
+    base_blend_percent: int = 100,
+    candidate_blend_percent: int = 100,
+    confidence_level: float = 0.95,
+    bootstrap_samples: int = 20_000,
+    parallel_games: int = 1,
+    delta1: float = 0.25,
+    alpha: float = 0.05,
+    beta: float = 0.05,
+    min_pairs: int = 48,
+    batch_pairs: int = 24,
+    max_pairs: int = 300,
+) -> Dict[str, Any]:
+    """Drive the confirmation stage as repeated compare_play batches.
+
+    Each batch is a separate compare_play invocation with a distinct
+    deterministic seed. Pair deltas accumulate across batches; the GSPRT is
+    consulted after each batch once `min_pairs` pairs exist and `max_pairs`
+    hard-stops an undecided sequence as a rejection. The merged evidence is
+    re-validated by `_paired_gate_statistics` so the paired-bootstrap
+    confidence interval is retained in the record as evidence; the SPRT
+    decision is authoritative.
+    """
+    sprt_min_pairs = int(min_pairs)
+    sprt_batch_pairs = int(batch_pairs)
+    sprt_max_pairs = int(max_pairs)
+    if sprt_batch_pairs < 1:
+        raise ValueError("gate SPRT batch pairs must be positive")
+    if sprt_min_pairs < _GSPRT_MINIMUM_PAIRS:
+        raise ValueError("gate SPRT minimum pairs must be at least two")
+    if sprt_max_pairs < sprt_min_pairs:
+        raise ValueError("gate SPRT maximum pairs must be at least the minimum")
+    base_seed = int(seed)
+    suffix = out_json.suffix or ".json"
+    pair_deltas: list[float] = []
+    batch_payloads: list[Dict[str, Any]] = []
+    batch_records: list[Dict[str, Any]] = []
+    sprt_record: Optional[Dict[str, Any]] = None
+    decision = "continue"
+    batch_index = 0
+    while len(pair_deltas) < sprt_max_pairs:
+        request_pairs = min(sprt_batch_pairs, sprt_max_pairs - len(pair_deltas))
+        batch_seed = base_seed + batch_index
+        batch_json = out_json.with_name(
+            f"{out_json.stem}_sprt_batch_{batch_index:03d}{suffix}"
+        )
+        batch = _run_model_gate(
+            piebot_dir=piebot_dir,
+            out_json=batch_json,
+            base_quant=base_quant,
+            candidate_quant=candidate_quant,
+            games=request_pairs * 2,
+            movetime_ms=movetime_ms,
+            noise_plies=noise_plies,
+            noise_topk=noise_topk,
+            threads=threads,
+            seed=batch_seed,
+            min_score_delta=min_score_delta,
+            base_blend_percent=base_blend_percent,
+            candidate_blend_percent=candidate_blend_percent,
+            paired_openings=True,
+            confidence_level=confidence_level,
+            bootstrap_samples=bootstrap_samples,
+            parallel_games=parallel_games,
+        )
+        statistics = batch.get("statistics")
+        if not isinstance(statistics, dict) or not bool(statistics.get("eligible")):
+            reason = "sprt-batch-evidence-ineligible"
+            if isinstance(statistics, dict) and statistics.get("reason"):
+                reason = str(statistics["reason"])
+            return {
+                "accepted": False,
+                "reason": reason,
+                "evidence_eligible": False,
+                "evidence_schema": (
+                    statistics.get("schema") if isinstance(statistics, dict) else None
+                ),
+                "games": 2 * len(pair_deltas) + request_pairs * 2,
+                "json_path": str(batch.get("json_path", batch_json)),
+                "sprt": {
+                    "schema": "gsprt-pair-delta-gate-v1",
+                    "decision": "reject",
+                    "pairs": len(pair_deltas),
+                    "delta1": float(delta1),
+                    "alpha": float(alpha),
+                    "beta": float(beta),
+                    "min_pairs": sprt_min_pairs,
+                    "batch_pairs": sprt_batch_pairs,
+                    "max_pairs": sprt_max_pairs,
+                    "batches": batch_records,
+                },
+                "statistics": statistics,
+            }
+        try:
+            batch_deltas = [
+                float(outcome["delta_points"])
+                for outcome in statistics["pair_outcomes"]
+            ]
+            batch_games = list(statistics["game_results"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "SPRT gate batch statistics are missing pair deltas"
+            ) from exc
+        if len(batch_deltas) != request_pairs:
+            raise ValueError("SPRT gate batch returned an unexpected pair count")
+        pair_deltas.extend(batch_deltas)
+        batch_payloads.append(
+            {"paired_openings": True, "game_results": batch_games}
+        )
+        batch_records.append(
+            {
+                "batch_index": batch_index,
+                "seed": batch_seed,
+                "pairs": request_pairs,
+                "games": request_pairs * 2,
+                "json_path": str(batch.get("json_path", batch_json)),
+                "mean_pair_delta": sum(batch_deltas) / len(batch_deltas),
+            }
+        )
+        batch_index += 1
+        if len(pair_deltas) >= sprt_min_pairs:
+            sprt_record = _gsprt_decision(
+                pair_deltas,
+                delta1=delta1,
+                alpha=alpha,
+                beta=beta,
+            )
+            decision = str(sprt_record["decision"])
+            if decision != "continue":
+                break
+    if sprt_record is None:
+        sprt_record = _gsprt_decision(
+            pair_deltas,
+            delta1=delta1,
+            alpha=alpha,
+            beta=beta,
+        )
+        decision = str(sprt_record["decision"])
+    inconclusive = decision == "continue"
+    if inconclusive:
+        decision = "reject"
+    accepted = decision == "accept"
+    reason = (
+        "sprt-accepted"
+        if accepted
+        else ("max-pairs-inconclusive" if inconclusive else "sprt-rejected")
+    )
+    sprt_summary: Dict[str, Any] = {"schema": "gsprt-pair-delta-gate-v1"}
+    sprt_summary.update(sprt_record)
+    sprt_summary["decision"] = decision
+    sprt_summary["inconclusive_at_max_pairs"] = inconclusive
+    sprt_summary["delta1"] = float(delta1)
+    sprt_summary["alpha"] = float(alpha)
+    sprt_summary["beta"] = float(beta)
+    sprt_summary["min_pairs"] = sprt_min_pairs
+    sprt_summary["batch_pairs"] = sprt_batch_pairs
+    sprt_summary["max_pairs"] = sprt_max_pairs
+    sprt_summary["batches"] = batch_records
+    merged_payload = _merge_paired_gate_batches(batch_payloads)
+    statistics = _paired_gate_statistics(
+        merged_payload,
+        confidence_level=confidence_level,
+        bootstrap_samples=bootstrap_samples,
+        seed=base_seed,
+        minimum_mean_pair_delta=min_score_delta,
+    )
+    merged_evidence = dict(merged_payload)
+    merged_evidence["schema"] = "gsprt-merged-paired-evidence-v1"
+    merged_evidence["sprt"] = sprt_summary
+    _atomic_write_json(out_json, merged_evidence)
+    aggregate_points = merged_payload["points"]
+    baseline_points = float(aggregate_points["baseline"])
+    experimental_points = float(aggregate_points["experimental"])
+    return {
+        "accepted": accepted,
+        "reason": reason,
+        "evidence_eligible": bool(statistics.get("eligible")),
+        "evidence_schema": statistics.get("schema"),
+        "baseline_points": baseline_points,
+        "experimental_points": experimental_points,
+        "delta_points": experimental_points - baseline_points,
+        "games": int(merged_payload["games"]),
+        "json_path": str(out_json),
+        "baseline_blend_percent": 0
+        if base_quant is None
+        else max(0, min(100, int(base_blend_percent))),
+        "experimental_blend_percent": max(
+            0, min(100, int(candidate_blend_percent))
+        ),
+        "baseline_kind": "pure-pst" if base_quant is None else "active-model",
+        "sprt": sprt_summary,
+        "statistics": statistics,
+        "pair_outcomes": statistics.get("pair_outcomes", []),
+        "game_results": statistics.get("game_results", []),
+    }
+
+
 def _run_confirmed_gate_attempt(
     *,
     piebot_dir: Path,
@@ -2113,6 +2477,13 @@ def _run_confirmed_gate_attempt(
     confidence_level: float = 0.95,
     bootstrap_samples: int = 20_000,
     parallel_games: int = 1,
+    sprt: bool = False,
+    sprt_delta1: float = 0.25,
+    sprt_alpha: float = 0.05,
+    sprt_beta: float = 0.05,
+    sprt_min_pairs: int = 48,
+    sprt_batch_pairs: int = 24,
+    sprt_max_pairs: int = 300,
 ) -> Dict[str, Any]:
     policy = str(incremental_pst_policy)
     if policy not in INCREMENTAL_PST_POLICIES:
@@ -2120,6 +2491,9 @@ def _run_confirmed_gate_attempt(
     margin = float(pst_veto_margin)
     if not math.isfinite(margin) or margin < 0.0:
         raise ValueError("gate PST veto margin must be a finite non-negative number")
+    use_sprt = bool(sprt)
+    if use_sprt and not paired_openings:
+        raise ValueError("SPRT gate confirmation requires paired openings")
     screen = _run_model_gate(
         piebot_dir=piebot_dir,
         out_json=screen_json,
@@ -2151,7 +2525,9 @@ def _run_confirmed_gate_attempt(
     # threshold prevents small positive candidates from ever collecting the
     # larger confirmation sample. The confirmation below retains the strict
     # paired-bootstrap confidence decision used for promotion.
-    if int(confirmation_games) > 0 and isinstance(screen.get("statistics"), dict):
+    if (
+        int(confirmation_games) > 0 or use_sprt
+    ) and isinstance(screen.get("statistics"), dict):
         statistics = screen["statistics"]
         try:
             mean_pair_delta = float(statistics["mean_pair_delta"])
@@ -2197,8 +2573,32 @@ def _run_confirmed_gate_attempt(
         attempt["reason"] = "screen-rejected"
         return attempt
 
-    if int(confirmation_games) <= 0:
-        relative = screen
+    if use_sprt:
+        confirmation = _run_sprt_confirmation(
+            piebot_dir=piebot_dir,
+            out_json=confirmation_json,
+            base_quant=base_quant,
+            candidate_quant=candidate_quant,
+            movetime_ms=movetime_ms,
+            noise_plies=noise_plies,
+            noise_topk=noise_topk,
+            threads=threads,
+            seed=seed + 1_000_003,
+            min_score_delta=confirmation_min_score_delta,
+            base_blend_percent=base_blend_percent,
+            candidate_blend_percent=candidate_blend_percent,
+            confidence_level=confidence_level,
+            bootstrap_samples=bootstrap_samples,
+            parallel_games=parallel_games,
+            delta1=sprt_delta1,
+            alpha=sprt_alpha,
+            beta=sprt_beta,
+            min_pairs=sprt_min_pairs,
+            batch_pairs=sprt_batch_pairs,
+            max_pairs=sprt_max_pairs,
+        )
+    elif int(confirmation_games) <= 0:
+        confirmation = None
     else:
         confirmation = _run_model_gate(
             piebot_dir=piebot_dir,
@@ -2219,6 +2619,9 @@ def _run_confirmed_gate_attempt(
             bootstrap_samples=bootstrap_samples,
             parallel_games=parallel_games,
         )
+    if confirmation is None:
+        relative = screen
+    else:
         confirmation = dict(confirmation)
         confirmation["baseline_blend_percent"] = (
             0 if base_quant is None else max(0, min(100, int(base_blend_percent)))
@@ -2231,7 +2634,7 @@ def _run_confirmed_gate_attempt(
 
     if not bool(relative.get("accepted")):
         attempt["reason"] = (
-            "confirmation-rejected" if int(confirmation_games) > 0 else "screen-rejected"
+            "confirmation-rejected" if confirmation is not None else "screen-rejected"
         )
         return attempt
 
@@ -2332,7 +2735,7 @@ def _run_confirmed_gate_attempt(
         else:
             attempt["reason"] = (
                 "confirmation-accepted"
-                if int(confirmation_games) > 0
+                if confirmation is not None
                 else "confirmation-disabled"
             )
     else:
@@ -2800,6 +3203,24 @@ def main(argv: Optional[list[str]] = None) -> int:
                             defaults.get("gate_min_score_delta", 0.0)
                         ),
                     }
+                    if bool(defaults.get("gate_sprt", False)):
+                        gate_identity["confirmation_decision_rule"] = (
+                            "gsprt-pair-delta-v1"
+                        )
+                        gate_identity["sprt"] = {
+                            "delta1": float(defaults.get("gate_sprt_delta1", 0.25)),
+                            "alpha": float(defaults.get("gate_sprt_alpha", 0.05)),
+                            "beta": float(defaults.get("gate_sprt_beta", 0.05)),
+                            "min_pairs": int(
+                                defaults.get("gate_sprt_min_pairs", 48)
+                            ),
+                            "batch_pairs": int(
+                                defaults.get("gate_sprt_batch_pairs", 24)
+                            ),
+                            "max_pairs": int(
+                                defaults.get("gate_sprt_max_pairs", 300)
+                            ),
+                        }
                     gate_games = int(defaults.get("gate_games", 0))
                     gate_was_run = False
                     if gate_games <= 0:
@@ -2908,6 +3329,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 ),
                                 parallel_games=int(
                                     defaults.get("gate_parallel_games", 1)
+                                ),
+                                sprt=bool(defaults.get("gate_sprt", False)),
+                                sprt_delta1=float(
+                                    defaults.get("gate_sprt_delta1", 0.25)
+                                ),
+                                sprt_alpha=float(
+                                    defaults.get("gate_sprt_alpha", 0.05)
+                                ),
+                                sprt_beta=float(
+                                    defaults.get("gate_sprt_beta", 0.05)
+                                ),
+                                sprt_min_pairs=int(
+                                    defaults.get("gate_sprt_min_pairs", 48)
+                                ),
+                                sprt_batch_pairs=int(
+                                    defaults.get("gate_sprt_batch_pairs", 24)
+                                ),
+                                sprt_max_pairs=int(
+                                    defaults.get("gate_sprt_max_pairs", 300)
                                 ),
                             )
                             gate_attempts.append(gate_attempt)
