@@ -51,7 +51,7 @@ from typing import Any, Iterable, Mapping, Sequence
 STATE_SCHEMA = "piebot-uci-elo-arena-v1"
 DEFAULT_TIME_CONTROL = "60+0.5"
 DEFAULT_MAX_PLIES = 300
-DEFAULT_GAME_WALL_TIME_S = 300.0
+DEFAULT_GAME_WALL_TIME_S = 900.0
 DEFAULT_BOOTSTRAP_SAMPLES = 10_000
 DEFAULT_SEED = 0x5049_4542_4F54
 
@@ -629,14 +629,40 @@ def run_uci_preflight(
         send("uci")
         read_until("uciok")
         advertised: set[str] = set()
+        spin_ranges: dict[str, dict[str, int]] = {}
         for line in transcript:
             match = re.match(r"^option\s+name\s+(.+?)\s+type\s+", line, re.IGNORECASE)
             if match:
                 advertised.add(match.group(1).strip())
+            spin = re.match(
+                r"^option\s+name\s+(.+?)\s+type\s+spin\s+.*?\bmin\s+(-?\d+)\s+max\s+(-?\d+)",
+                line,
+                re.IGNORECASE,
+            )
+            if spin:
+                spin_ranges[spin.group(1).strip()] = {
+                    "min": int(spin.group(2)),
+                    "max": int(spin.group(3)),
+                }
         advertised_folded = {name.casefold() for name in advertised}
         missing = sorted(name for name in required_options if name.casefold() not in advertised_folded)
         if missing:
             raise RuntimeError(f"UCI engine is missing required options: {', '.join(missing)}")
+
+        # Engines silently clamp out-of-range spin values (Stockfish advertises
+        # UCI_Elo ~1320-3190); a clamped rung would corrupt the ladder
+        # calibration without any visible failure, so reject it here.
+        spin_ranges_folded = {name.casefold(): bounds for name, bounds in spin_ranges.items()}
+        for name, value in options.items():
+            bounds = spin_ranges_folded.get(name.casefold())
+            if bounds is None or isinstance(value, bool) or not isinstance(value, int):
+                continue
+            if value < bounds["min"] or value > bounds["max"]:
+                raise RuntimeError(
+                    f"requested {name}={value} is outside the engine's advertised "
+                    f"range [{bounds['min']}, {bounds['max']}] and would be "
+                    "silently clamped"
+                )
 
         for name, value in options.items():
             send(f"setoption name {name} value {_uci_value(value)}")
@@ -652,6 +678,7 @@ def run_uci_preflight(
         return {
             "id": [line for line in transcript if line.lower().startswith("id ")],
             "advertised_options": sorted(advertised),
+            "spin_ranges": spin_ranges,
         }
     finally:
         if process.poll() is None:

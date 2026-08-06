@@ -237,6 +237,72 @@ class ArenaUciSafetyTests(unittest.TestCase):
                     timeout_s=2.0,
                 )
 
+    def test_default_wall_cap_leaves_headroom_for_60s_increment_games(self) -> None:
+        # Campaign anchor conditions freeze the wall cap at 900s: at 60+0.5 a
+        # long game can legitimately exceed 300s, and wall-cap draws bias the
+        # calibration. This value is frozen for the campaign's lifetime.
+        self.assertEqual(900.0, arena.DEFAULT_GAME_WALL_TIME_S)
+
+    def test_preflight_rejects_spin_values_outside_advertised_range(self) -> None:
+        fake_uci = textwrap.dedent(
+            """
+            import sys
+            for raw in sys.stdin:
+                line = raw.strip()
+                if line == "uci":
+                    print("id name Fake Stockfish", flush=True)
+                    print(
+                        "option name UCI_Elo type spin default 1320 min 1320 max 3190",
+                        flush=True,
+                    )
+                    print(
+                        "option name UCI_LimitStrength type check default false",
+                        flush=True,
+                    )
+                    print("uciok", flush=True)
+                elif line == "isready":
+                    print("readyok", flush=True)
+                elif line == "quit":
+                    break
+            """
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "fake_sf.py"
+            script.write_text(fake_uci, encoding="utf-8")
+            command = [sys.executable, "-u", str(script)]
+            required = {"UCI_Elo", "UCI_LimitStrength"}
+
+            with self.assertRaisesRegex(RuntimeError, r"UCI_Elo.*1000.*1320.*3190"):
+                arena.run_uci_preflight(
+                    command,
+                    {"UCI_LimitStrength": True, "UCI_Elo": 1000},
+                    required_options=required,
+                    failure_markers=(),
+                    timeout_s=5.0,
+                )
+
+            with self.assertRaisesRegex(RuntimeError, r"UCI_Elo.*3400.*1320.*3190"):
+                arena.run_uci_preflight(
+                    command,
+                    {"UCI_LimitStrength": True, "UCI_Elo": 3400},
+                    required_options=required,
+                    failure_markers=(),
+                    timeout_s=5.0,
+                )
+
+            # In-range values pass and the advertised range is reported.
+            report = arena.run_uci_preflight(
+                command,
+                {"UCI_LimitStrength": True, "UCI_Elo": 2500},
+                required_options=required,
+                failure_markers=(),
+                timeout_s=5.0,
+            )
+            self.assertEqual(
+                {"min": 1320, "max": 3190},
+                report["spin_ranges"]["UCI_Elo"],
+            )
+
     def test_python_chess_startup_timeout_does_not_cap_legal_think_time(self) -> None:
         calls = []
 
