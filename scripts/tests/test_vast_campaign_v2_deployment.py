@@ -129,6 +129,18 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--selfplay-draw-adj-min-ply" "$DRAW_ADJ_MIN_PLY"', launcher)
         self.assertIn('require_autopilot_flag "--selfplay-resign-cp"', launcher)
 
+    def test_actor_budget_is_deployed_with_measured_values(self) -> None:
+        launcher = self._launcher()
+        # Pilot C: relabel dominates cycle time, so a 4x actor raise is cheap;
+        # fixes the failing threefold data-shape gate (47% at depth-2/10k).
+        self.assertIn('ACTOR_TT_MB="${ACTOR_TT_MB:-128}"', launcher)
+        self.assertIn('POLICY_NODE_CAP="${POLICY_NODE_CAP:-40000}"', launcher)
+        self.assertIn('BESTMOVE_NODE_CAP="${BESTMOVE_NODE_CAP:-80000}"', launcher)
+        self.assertIn('"--selfplay-actor-tt-mb" "$ACTOR_TT_MB"', launcher)
+        self.assertIn('"--selfplay-policy-node-cap" "$POLICY_NODE_CAP"', launcher)
+        self.assertIn('"--selfplay-bestmove-node-cap" "$BESTMOVE_NODE_CAP"', launcher)
+        self.assertIn('require_autopilot_flag "--selfplay-actor-tt-mb"', launcher)
+
     def test_slot_partition_reserves_arena_and_ab_lanes(self) -> None:
         launcher = self._launcher()
         self.assertIn('SELFPLAY_PARALLEL_GAMES="${SELFPLAY_PARALLEL_GAMES:-32}"', launcher)
