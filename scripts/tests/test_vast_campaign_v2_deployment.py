@@ -72,12 +72,15 @@ class CampaignV2DeploymentTests(unittest.TestCase):
             launcher,
         )
 
-    def test_teacher_is_depth_seven_with_mandatory_node_cap(self) -> None:
+    def test_teacher_depth_is_a_measured_configuration(self) -> None:
         launcher = self._launcher()
         self.assertIn('RELABEL_DEPTH="${RELABEL_DEPTH:-7}"', launcher)
-        self.assertIn('[[ "$RELABEL_DEPTH" -eq 7 ]]', launcher)
-        # The node cap has no default: it must come from the measured p95 of
-        # depth-5 node cost, so an unset value refuses to launch.
+        # Two calibrated teacher shapes exist: depth 7 capped at the measured
+        # p95 of depth-5 cost (144k), and depth 9 capped at the measured p95
+        # of depth-7 cost (2.5M). Anything else is an unmeasured teacher.
+        self.assertIn('[[ "$RELABEL_DEPTH" -eq 7 || "$RELABEL_DEPTH" -eq 9 ]]', launcher)
+        # The node cap has no default: it must come from a measured node-cost
+        # distribution, so an unset value refuses to launch.
         self.assertIn('RELABEL_MAX_NODES="${RELABEL_MAX_NODES:-}"', launcher)
         self.assertIn("RELABEL_MAX_NODES must be set", launcher)
         self.assertIn('"--teacher-relabel-max-nodes" "$RELABEL_MAX_NODES"', launcher)
@@ -85,6 +88,17 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # min_teacher_depth stays 5 (objective-identity field; achieved-depth
         # stamping keeps it honest under the cap).
         self.assertIn('"--min-teacher-depth" "5"', launcher)
+
+    def test_launcher_supports_fresh_init_lineage(self) -> None:
+        launcher = self._launcher()
+        # v5: a new-width lineage starts from fresh random weights. FRESH_INIT=1
+        # skips checkpoint staging and omits the warm-start source flags so
+        # train_torch initializes at --hidden-dim (a width-mismatched warm
+        # start would hard-fail in train_torch, and rightly so). An empty
+        # INITIAL_CHECKPOINT_SOURCE cannot express this because :- defaults
+        # swallow empty strings.
+        self.assertIn('FRESH_INIT="${FRESH_INIT:-0}"', launcher)
+        self.assertIn('if [[ "$FRESH_INIT" != "1" ]]', launcher)
 
     def test_opening_book_is_staged_by_sha_and_wired(self) -> None:
         launcher = self._launcher()
@@ -167,18 +181,28 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--teacher-external-quant-file"', launcher)
         self.assertIn('require_autopilot_flag "--teacher-external-quant-file"', launcher)
 
-    def test_v4_conf_pivots_objective_with_standard_teacher(self) -> None:
+    def test_v5_conf_mints_h128_deep_teacher_lineage(self) -> None:
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # P5 pivot (2026-08-07): C8 re-formed the fixed point one level up
-        # (epoch-0 no-ops by v3 cycle 14). Objective gains real outcome
-        # pressure; the external teacher returns to dormant.
-        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v4"', environment)
+        # v5 pivot (2026-08-07): the pure-network blunder protocol showed the
+        # v4 h64 learner REGRESSING vs the cycle-98 incumbent (ACPL 36.6 vs
+        # 34.0, 2.15 vs 1.77 blunders/game) — the h64 loop cannot outrun its
+        # own teacher. New lineage: hidden-128 student from fresh random
+        # weights (measured cost: 19.1% NPS, evidence/h128_speed_probe),
+        # taught by cycle-98 searching depth 9 (median 4.1M nodes measured)
+        # capped at the depth-7 p95, relabeling every 6th ply.
+        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v5"', environment)
+        self.assertIn('HIDDEN_DIM="128"', environment)
+        self.assertIn('FRESH_INIT="1"', environment)
+        self.assertNotIn("INITIAL_CHECKPOINT_SOURCE", environment)
+        self.assertIn('RELABEL_DEPTH="9"', environment)
+        self.assertIn('RELABEL_EVERY="6"', environment)
         self.assertIn('TARGET_CP="250"', environment)
         self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
+        # Actor, teacher, and gate incumbent stay the accepted cycle-98 h64.
         self.assertIn(
-            'INITIAL_CHECKPOINT_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000025_checkpoint.json"',
+            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000098_nnue_quant.nnue"',
             environment,
         )
 
@@ -224,9 +248,10 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # p95 of depth-5 node cost measured 2026-08-06 with the promoted PVS
-        # engine (600 positions from book-opened self-play): 143,917 -> 144000.
-        self.assertIn('RELABEL_MAX_NODES="144000"', environment)
+        # v5 deep teacher: ask depth 9, budget the measured p95 of depth-7
+        # cost (2.49M nodes, 2026-08-06 probe) -> 2500000, mirroring how the
+        # depth-7 teacher was capped at depth-5's p95 (144k).
+        self.assertIn('RELABEL_MAX_NODES="2500000"', environment)
 
     def test_source_pin_is_written_only_after_all_preflights_pass(self) -> None:
         launcher = self._launcher()

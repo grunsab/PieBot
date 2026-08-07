@@ -25,6 +25,14 @@ INITIAL_ACTIVE_MODEL_SHA256="${INITIAL_ACTIVE_MODEL_SHA256:-3fa9bae3127319930ec1
 # Incumbent blend comes from the Phase 0 ladder measurement, not docs.
 INITIAL_ACTIVE_MODEL_BLEND_PERCENT="${INITIAL_ACTIVE_MODEL_BLEND_PERCENT:-25}"
 
+# FRESH_INIT=1 starts a new-width lineage from fresh random weights: no
+# checkpoint is staged and the warm-start source flags are omitted, so
+# train_torch initializes at --hidden-dim. The active model (actor/teacher/
+# gate incumbent) is still staged and verified. An empty
+# INITIAL_CHECKPOINT_SOURCE cannot express this because :- defaults swallow
+# empty strings.
+FRESH_INIT="${FRESH_INIT:-0}"
+
 VALIDATION_SHARD_SOURCE="${VALIDATION_SHARD_SOURCE:-$PRIOR_RUN_ROOT/bootstrap/validation/shard_000000.jsonl}"
 VALIDATION_JSONL_DIR="$BOOTSTRAP_DIR/validation"
 VALIDATION_SHARD="$VALIDATION_JSONL_DIR/shard_000000.jsonl"
@@ -236,7 +244,10 @@ require_positive_int GATE_SEARCH_THREADS "$GATE_SEARCH_THREADS"
 require_positive_int GATE_PARALLEL_GAMES "$GATE_PARALLEL_GAMES"
 require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODEL_BLEND_PERCENT"
 
-[[ "$RELABEL_DEPTH" -eq 7 ]] || die "this deployment is pinned to the node-capped PieBot depth-7 teacher"
+# Two calibrated teacher shapes: depth 7 capped at depth-5's p95 (144k), and
+# depth 9 capped at depth-7's p95 (2.5M). Any other depth is unmeasured.
+[[ "$RELABEL_DEPTH" -eq 7 || "$RELABEL_DEPTH" -eq 9 ]] \
+  || die "this deployment supports only the measured node-capped PieBot depth-7 or depth-9 teacher"
 (( REPLAY_WINDOW_CYCLES <= RETAIN_FULL_CYCLES )) \
   || die "REPLAY_WINDOW_CYCLES must not exceed RETAIN_FULL_CYCLES: replay silently shrinks when retention deletes cycles"
 (( RETAIN_FULL_CYCLES >= 1 )) \
@@ -247,8 +258,10 @@ require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODE
   || die "INITIAL_ACTIVE_MODEL_BLEND_PERCENT must be between 0 and 100"
 [[ "$INITIAL_ACTIVE_MODEL_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
   || die "INITIAL_ACTIVE_MODEL_SHA256 must contain exactly 64 hexadecimal characters"
-[[ "$INITIAL_CHECKPOINT_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
-  || die "INITIAL_CHECKPOINT_SHA256 must contain exactly 64 hexadecimal characters"
+if [[ "$FRESH_INIT" != "1" ]]; then
+  [[ "$INITIAL_CHECKPOINT_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
+    || die "INITIAL_CHECKPOINT_SHA256 must contain exactly 64 hexadecimal characters"
+fi
 [[ "$VALIDATION_SHARD_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
   || die "VALIDATION_SHARD_SHA256 must contain exactly 64 hexadecimal characters"
 [[ "$OPENINGS_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
@@ -275,7 +288,9 @@ elif [[ -f "$OUT_ROOT/autopilot_state.json" ]]; then
   die "existing training state has no pinned source_git_commit"
 fi
 
-stage_verified_file "$INITIAL_CHECKPOINT_SOURCE" "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
+if [[ "$FRESH_INIT" != "1" ]]; then
+  stage_verified_file "$INITIAL_CHECKPOINT_SOURCE" "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
+fi
 stage_verified_file "$INITIAL_ACTIVE_MODEL_SOURCE" "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 stage_verified_file "$VALIDATION_SHARD_SOURCE" "$VALIDATION_SHARD" "$VALIDATION_SHARD_SHA256"
 stage_verified_file "$VALIDATION_PROVENANCE_SOURCE" "$VALIDATION_PROVENANCE" "$VALIDATION_PROVENANCE_SHA256"
@@ -396,8 +411,6 @@ AUTOPILOT_ARGS+=(
   "--learning-rate" "$LEARNING_RATE"
   "--warm-start-learning-rate" "$WARM_START_LEARNING_RATE"
   "--warm-start"
-  "--initial-checkpoint" "$INITIAL_CHECKPOINT"
-  "--initial-checkpoint-weights-only"
   "--initial-active-model" "$INITIAL_ACTIVE_MODEL"
   "--initial-active-model-blend-percent" "$INITIAL_ACTIVE_MODEL_BLEND_PERCENT"
   "--continue-optimizer-state"
@@ -424,12 +437,21 @@ AUTOPILOT_ARGS+=(
   "--trainer-backend" "torch"
   "--trainer-device" "cuda"
 )
+if [[ "$FRESH_INIT" != "1" ]]; then
+  AUTOPILOT_ARGS+=(
+    "--initial-checkpoint" "$INITIAL_CHECKPOINT"
+    "--initial-checkpoint-weights-only"
+  )
+fi
 
 log "starting campaign_v2: PieBot-only node-capped depth-$RELABEL_DEPTH self-relabel training"
 log "output root: $OUT_ROOT"
 log "deadline budget: $HOURS hours (persisted once in autopilot_state.json)"
 log "opening suite: $SELFPLAY_OPENINGS (sha256 $OPENINGS_SHA256)"
-log "teacher node cap: $RELABEL_MAX_NODES nodes/position (measured p95 of depth-5 cost)"
+log "teacher node cap: $RELABEL_MAX_NODES nodes/position (measured node-cost calibration)"
+if [[ "$FRESH_INIT" == "1" ]]; then
+  log "fresh-init lineage: hidden-dim $HIDDEN_DIM from random weights, no warm-start checkpoint"
+fi
 "$PYTHON_BIN" -m training.nnue.autopilot "${AUTOPILOT_ARGS[@]}"
 
 require_file "$OUT_ROOT/autopilot_state.json"
