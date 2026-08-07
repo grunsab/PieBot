@@ -165,6 +165,18 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # engine (600 positions from book-opened self-play): 143,917 -> 144000.
         self.assertIn('RELABEL_MAX_NODES="144000"', environment)
 
+    def test_source_pin_is_written_only_after_all_preflights_pass(self) -> None:
+        launcher = self._launcher()
+        # 2026-08-07 incident: the pin was written before the GPU preflight,
+        # so a failed preflight left a poisoned root that refused the fixed
+        # launcher. The pin write must be the last step before autopilot.
+        pin_write = launcher.index("SOURCE_COMMIT_TMP")
+        self.assertGreater(pin_write, launcher.index("production minimum"))
+        self.assertGreater(
+            pin_write, launcher.index("building optimized production binaries")
+        )
+        self.assertLess(pin_write, launcher.index('"${AUTOPILOT_ARGS[@]}"'))
+
     def test_gpu_preflight_admits_a_24gb_marketed_card(self) -> None:
         launcher = self._launcher()
         # An RTX 4090 reports 24,080 MiB — under 24 binary GiB. The trainer

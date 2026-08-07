@@ -258,10 +258,6 @@ if [[ -f "$SOURCE_COMMIT_FILE" ]]; then
     || die "refusing source commit change: pinned $PINNED_SOURCE_GIT_COMMIT, current $SOURCE_GIT_COMMIT"
 elif [[ -f "$OUT_ROOT/autopilot_state.json" ]]; then
   die "existing training state has no pinned source_git_commit"
-else
-  SOURCE_COMMIT_TMP="$SOURCE_COMMIT_FILE.tmp.$$"
-  printf '%s\n' "$SOURCE_GIT_COMMIT" > "$SOURCE_COMMIT_TMP"
-  mv -f -- "$SOURCE_COMMIT_TMP" "$SOURCE_COMMIT_FILE"
 fi
 
 stage_verified_file "$INITIAL_CHECKPOINT_SOURCE" "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
@@ -324,6 +320,14 @@ PY
 log "building optimized production binaries"
 cargo build --locked --release --manifest-path "$PIEBOT_DIR/Cargo.toml" \
   --bin selfplay --bin relabel_jsonl --bin compare_play
+
+# The pin is written only now, after every preflight and the build have
+# passed: a failed launch must never leave a poisoned root behind.
+if [[ ! -f "$SOURCE_COMMIT_FILE" ]]; then
+  SOURCE_COMMIT_TMP="$SOURCE_COMMIT_FILE.tmp.$$"
+  printf '%s\n' "$SOURCE_GIT_COMMIT" > "$SOURCE_COMMIT_TMP"
+  mv -f -- "$SOURCE_COMMIT_TMP" "$SOURCE_COMMIT_FILE"
+fi
 
 AUTOPILOT_ARGS=(
   "--out-root" "$OUT_ROOT"
