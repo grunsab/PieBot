@@ -82,6 +82,9 @@ TEMPERATURE_MOVES="${TEMPERATURE_MOVES:-12}"
 # teaches in place of the state-derived active model. Staged by content hash.
 TEACHER_EXTERNAL_QUANT_FILE="${TEACHER_EXTERNAL_QUANT_FILE:-}"
 TEACHER_EXTERNAL_QUANT_SHA256="${TEACHER_EXTERNAL_QUANT_SHA256:-}"
+# P5: decisive-outcome target magnitude (objective-identity field; changing it
+# requires a fresh out_root with a weights-only bootstrap).
+TARGET_CP="${TARGET_CP:-100}"
 
 export PATH="/root/.cargo/bin:/venv/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 export PYTHONUNBUFFERED=1
@@ -297,6 +300,7 @@ require_autopilot_flag "--selfplay-resign-cp"
 require_autopilot_flag "--selfplay-actor-tt-mb"
 require_autopilot_flag "--selfplay-temperature-moves"
 require_autopilot_flag "--teacher-external-quant-file"
+require_autopilot_flag "--target-cp"
 verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
 verify_sha256 "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 verify_sha256 "$SELFPLAY_OPENINGS" "$OPENINGS_SHA256"
@@ -384,6 +388,7 @@ AUTOPILOT_ARGS+=(
   "--teacher-relabel-max-nodes" "$RELABEL_MAX_NODES"
   "--teacher-sample-fraction" "0.5"
   "--min-teacher-depth" "5"
+  "--target-cp" "$TARGET_CP"
   "--epochs" "$EPOCHS"
   "--batch-size" "$BATCH_SIZE"
   "--max-samples" "$MAX_SAMPLES"

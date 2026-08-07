@@ -158,38 +158,26 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--teacher-external-quant-file"', launcher)
         self.assertIn('require_autopilot_flag "--teacher-external-quant-file"', launcher)
 
-    def test_v3_conf_pivots_teacher_and_bootstrap_to_cycle25(self) -> None:
+    def test_v4_conf_pivots_objective_with_standard_teacher(self) -> None:
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # C8 pivot (2026-08-07): teacher-agreement showed 83.75% best-move
-        # agreement — the learner diverged; it becomes teacher on a fresh root.
-        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v3"', environment)
+        # P5 pivot (2026-08-07): C8 re-formed the fixed point one level up
+        # (epoch-0 no-ops by v3 cycle 14). Objective gains real outcome
+        # pressure; the external teacher returns to dormant.
+        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v4"', environment)
+        self.assertIn('TARGET_CP="250"', environment)
+        self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
         self.assertIn(
             'INITIAL_CHECKPOINT_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000025_checkpoint.json"',
             environment,
         )
-        self.assertIn(
-            'INITIAL_CHECKPOINT_SHA256="8c4145a8b96dbf79504a9842d12cfde792a2960d9b0ffacf73e515fd7419b661"',
-            environment,
-        )
-        self.assertIn(
-            'TEACHER_EXTERNAL_QUANT_FILE="/workspace/campaign_v3_bootstrap/cycle_000025_nnue_quant.nnue"',
-            environment,
-        )
-        self.assertIn(
-            'TEACHER_EXTERNAL_QUANT_SHA256="10fc0ac3c6c92012e0d969feeb582549d9f70d7e6344fa5f0e6f737cbd7f6f4b"',
-            environment,
-        )
-        # Actor/gate incumbent stays the accepted cycle-98 net.
-        self.assertIn(
-            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000098_nnue_quant.nnue"',
-            environment,
-        )
-        self.assertIn(
-            'VALIDATION_SHARD_SOURCE="/workspace/campaign_v3_bootstrap/validation/shard_000000.jsonl"',
-            environment,
-        )
+
+    def test_outcome_target_env_is_wired(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('TARGET_CP="${TARGET_CP:-100}"', launcher)
+        self.assertIn('"--target-cp" "$TARGET_CP"', launcher)
+        self.assertIn('require_autopilot_flag "--target-cp"', launcher)
 
     def test_slot_partition_reserves_arena_and_ab_lanes(self) -> None:
         launcher = self._launcher()

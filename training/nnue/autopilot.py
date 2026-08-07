@@ -430,6 +430,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--hidden-dim", type=int, default=None)
     ap.add_argument("--min-teacher-depth", type=int, default=None)
+    ap.add_argument("--target-cp", type=float, default=None)
     ap.add_argument("--loss-kind", default=None)
     ap.add_argument("--huber-delta-cp", type=float, default=None)
     ap.add_argument("--wdl-scale-cp", type=float, default=None)
@@ -733,6 +734,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "epochs": args.epochs,
         "hidden_dim": args.hidden_dim,
         "min_teacher_depth": args.min_teacher_depth,
+        "target_cp": args.target_cp,
         "loss_kind": args.loss_kind,
         "huber_delta_cp": args.huber_delta_cp,
         "wdl_scale_cp": args.wdl_scale_cp,
