@@ -165,6 +165,26 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # engine (600 positions from book-opened self-play): 143,917 -> 144000.
         self.assertIn('RELABEL_MAX_NODES="144000"', environment)
 
+    def test_supervisor_conf_points_bootstrap_at_the_rescued_artifacts(self) -> None:
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        # 2026-08-07: the original box's host network failed mid-migration;
+        # bootstrap artifacts were rescued to the Threadripper and verified by
+        # SHA (checkpoint 0ce48cc1...). The launcher re-verifies every stage.
+        self.assertIn(
+            'INITIAL_CHECKPOINT_SOURCE="/workspace/bootstrap_rescue/cycle_000086_checkpoint.json"',
+            environment,
+        )
+        self.assertIn(
+            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/bootstrap_rescue/cycle_000098_nnue_quant.nnue"',
+            environment,
+        )
+        self.assertIn(
+            'VALIDATION_SHARD_SOURCE="/workspace/bootstrap_rescue/validation/shard_000000.jsonl"',
+            environment,
+        )
+
     def test_supervisor_conf_carries_the_threadripper_resource_profile(self) -> None:
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
