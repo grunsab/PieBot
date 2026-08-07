@@ -1017,8 +1017,23 @@ impl Searcher {
                 self.eval_terminal(board, ply)
             });
         }
-        // Null-move pruning with additional guards for shallow depths and endgames
+        // Reverse futility: at shallow non-mate-window nodes not in check, a
+        // static eval comfortably above beta almost never comes back below it
+        // after a real search; return the eval as a fail-soft bound. The
+        // margin grows with depth so deeper nodes need a bigger cushion.
         let mut static_eval: Option<i32> = None;
+        if self.use_nullmove
+            && depth <= 7
+            && beta.abs() < MATE_TT_THRESHOLD
+            && alpha.abs() < MATE_TT_THRESHOLD
+            && board.checkers().is_empty()
+        {
+            let eval = *static_eval.get_or_insert_with(|| self.eval_current(board));
+            if eval - 90 * depth as i32 >= beta {
+                return Ok(eval);
+            }
+        }
+        // Null-move pruning with additional guards for shallow depths and endgames
         if self.should_try_null_move(board, depth, beta, parent_move_idx, &mut static_eval) {
             let eval = static_eval.unwrap_or_else(|| self.eval_current(board));
             let r = self.null_move_reduction(depth, eval, beta);

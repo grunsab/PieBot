@@ -1,0 +1,24 @@
+{
+  "arm": "S2 reverse futility pruning",
+  "stage": "PROMOTED",
+  "date": "2026-08-07",
+  "screen_400g": {
+    "mean": 0.08,
+    "ci": [
+      -0.01,
+      0.17
+    ]
+  },
+  "confirmation_1000g": {
+    "mean": 0.12,
+    "ci": [
+      0.058,
+      0.184
+    ],
+    "points": "310W/250L/440D",
+    "depth": "6.52->6.87"
+  },
+  "engine_commit_at_confirm": "6e884b5da76e",
+  "model": "cycle-98 blend 25",
+  "conditions": "150ms noise 12/top-5 paired"
+}
