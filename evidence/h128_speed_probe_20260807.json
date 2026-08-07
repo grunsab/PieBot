@@ -1,0 +1,32 @@
+{
+  "date_utc": "2026-08-07",
+  "question": "Per-node search cost of hidden-128 vs hidden-64 NNUE, isolated from eval-function differences",
+  "method": {
+    "twin_construction": "From models/cycle_000098_quant.nnue (h64), built a hidden-128 PIENNQ01 net computing the identical function: duplicate all 64 hidden-major w1 rows, duplicate b1, duplicate w2, double b2, halve w2_scale. Loader reads hidden_dim from the file header, so no Rust changes were needed.",
+    "identity_check": "go depth 9 on 6 positions (startpos, 4 middlegames, 1 endgame): node counts and bestmoves bit-identical 6/6, confirming identical search trees.",
+    "speed_protocol": "UCI, Threads 1, Hash 256, UseNNUE true, EvalBlend 100, go movetime 3000 per position, 6 positions x 2 interleaved rounds per net, NPS = nodes / wall-clock.",
+    "engine_build": "cargo release, -C target-cpu=native, branch campaign-v2 (post-S2 baseline)",
+    "hardware": "Apple M-series Mac (NEON auto-vectorization); production boxes are x86 AVX2 - re-measure there before final capacity decisions, ratio expected similar or slightly better for h128"
+  },
+  "results": {
+    "h64_nps_median": 2390330,
+    "h128_nps_median": 1933160,
+    "h128_over_h64_ratio": 0.809,
+    "slowdown_pct": 19.1,
+    "implied_eval_fraction_of_node_time_h64": 0.24,
+    "elo_equivalent_speed_penalty_estimate": "15-20 Elo at fixed time (log2(0.809) = -0.31 doublings x ~50-70 Elo/doubling)"
+  },
+  "kernel_facts": {
+    "simd": "All NNUE kernels are scalar Rust (i8 weights, i16/i32 accumulators) auto-vectorized by LLVM under target-cpu=native; no hand-written intrinsics. quant.rs marks SIMD feature-flag paths as future work. Both widths share the same code path; hot loops are O(hidden) so h128 doubles eval work but not movegen/TT/make-unmake.",
+    "hot_loops": "apply_delta (feature-major w1 add/sub over hidden), eval_from_acc (w2 dot over relu(acc)), refresh"
+  },
+  "related_quality_evidence": {
+    "frozen_data_prescreen": "h128 val loss 0.684495 vs h64 0.688017 (+0.51% relative) on identical data, one epoch, fresh init",
+    "pure_network_blunder_protocol_20260807": {
+      "protocol": "300 games each, depth 3 greedy, blend 100, book openings, seed 20260821, judged by PST engine depth 5",
+      "cycle98_incumbent_h64": {"acpl": 34.0, "blunders_per_game": 1.77, "mistakes_per_game": 7.44, "zero_blunder_games": 81},
+      "campaign_v4_cycle22_learner_h64": {"acpl": 36.6, "blunders_per_game": 2.15, "mistakes_per_game": 6.9, "zero_blunder_games": 64},
+      "verdict": "v4 learner is weaker than the cycle-98 incumbent on pure-network play after 22 cycles; the h64 loop is not producing better networks"
+    }
+  }
+}
