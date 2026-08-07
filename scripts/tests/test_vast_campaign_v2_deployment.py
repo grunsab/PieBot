@@ -129,6 +129,15 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--selfplay-draw-adj-min-ply" "$DRAW_ADJ_MIN_PLY"', launcher)
         self.assertIn('require_autopilot_flag "--selfplay-resign-cp"', launcher)
 
+    def test_actor_depth_is_raised_to_four(self) -> None:
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        # 2026-08-07 (user-directed): depth 2 was the binding constraint the
+        # node-cap raise never relaxed - depth-4 searches fit well under the
+        # 80k bestmove cap and make self-play games coherent.
+        self.assertIn('SELFPLAY_DEPTH="4"', environment)
+
     def test_actor_budget_is_deployed_with_measured_values(self) -> None:
         launcher = self._launcher()
         # Pilot C: relabel dominates cycle time, so a 4x actor raise is cheap;
