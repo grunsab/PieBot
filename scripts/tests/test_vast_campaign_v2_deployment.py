@@ -149,6 +149,48 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--selfplay-temperature-moves" "$TEMPERATURE_MOVES"', launcher)
         self.assertIn('require_autopilot_flag "--selfplay-temperature-moves"', launcher)
 
+    def test_external_teacher_is_supported_and_staged_when_set(self) -> None:
+        launcher = self._launcher()
+        # C8: empty default keeps the knob dormant; when set, the file is
+        # staged by content hash and passed to autopilot.
+        self.assertIn('TEACHER_EXTERNAL_QUANT_FILE="${TEACHER_EXTERNAL_QUANT_FILE:-}"', launcher)
+        self.assertIn('TEACHER_EXTERNAL_QUANT_SHA256="${TEACHER_EXTERNAL_QUANT_SHA256:-}"', launcher)
+        self.assertIn('"--teacher-external-quant-file"', launcher)
+        self.assertIn('require_autopilot_flag "--teacher-external-quant-file"', launcher)
+
+    def test_v3_conf_pivots_teacher_and_bootstrap_to_cycle25(self) -> None:
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        # C8 pivot (2026-08-07): teacher-agreement showed 83.75% best-move
+        # agreement — the learner diverged; it becomes teacher on a fresh root.
+        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v3"', environment)
+        self.assertIn(
+            'INITIAL_CHECKPOINT_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000025_checkpoint.json"',
+            environment,
+        )
+        self.assertIn(
+            'INITIAL_CHECKPOINT_SHA256="8c4145a8b96dbf79504a9842d12cfde792a2960d9b0ffacf73e515fd7419b661"',
+            environment,
+        )
+        self.assertIn(
+            'TEACHER_EXTERNAL_QUANT_FILE="/workspace/campaign_v3_bootstrap/cycle_000025_nnue_quant.nnue"',
+            environment,
+        )
+        self.assertIn(
+            'TEACHER_EXTERNAL_QUANT_SHA256="10fc0ac3c6c92012e0d969feeb582549d9f70d7e6344fa5f0e6f737cbd7f6f4b"',
+            environment,
+        )
+        # Actor/gate incumbent stays the accepted cycle-98 net.
+        self.assertIn(
+            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000098_nnue_quant.nnue"',
+            environment,
+        )
+        self.assertIn(
+            'VALIDATION_SHARD_SOURCE="/workspace/campaign_v3_bootstrap/validation/shard_000000.jsonl"',
+            environment,
+        )
+
     def test_slot_partition_reserves_arena_and_ab_lanes(self) -> None:
         launcher = self._launcher()
         self.assertIn('SELFPLAY_PARALLEL_GAMES="${SELFPLAY_PARALLEL_GAMES:-32}"', launcher)
@@ -207,26 +249,6 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # uses a few GB; 20 GiB still rejects genuinely undersized GPUs.
         self.assertIn("20 * 1024**3", launcher)
         self.assertNotIn("24 * 1024**3", launcher)
-
-    def test_supervisor_conf_points_bootstrap_at_the_rescued_artifacts(self) -> None:
-        parser = configparser.ConfigParser()
-        parser.read(SUPERVISOR)
-        environment = parser["program:piebot_campaign_v2"]["environment"]
-        # 2026-08-07: the original box's host network failed mid-migration;
-        # bootstrap artifacts were rescued to the Threadripper and verified by
-        # SHA (checkpoint 0ce48cc1...). The launcher re-verifies every stage.
-        self.assertIn(
-            'INITIAL_CHECKPOINT_SOURCE="/workspace/bootstrap_rescue/cycle_000086_checkpoint.json"',
-            environment,
-        )
-        self.assertIn(
-            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/bootstrap_rescue/cycle_000098_nnue_quant.nnue"',
-            environment,
-        )
-        self.assertIn(
-            'VALIDATION_SHARD_SOURCE="/workspace/bootstrap_rescue/validation/shard_000000.jsonl"',
-            environment,
-        )
 
     def test_supervisor_conf_carries_the_threadripper_resource_profile(self) -> None:
         parser = configparser.ConfigParser()

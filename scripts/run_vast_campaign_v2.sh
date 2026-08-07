@@ -78,6 +78,10 @@ BESTMOVE_NODE_CAP="${BESTMOVE_NODE_CAP:-80000}"
 # Tightened exploration window (cycle-18 tripwire response): noise plies
 # halved so the stronger actor's choices stop being diluted into repetition.
 TEMPERATURE_MOVES="${TEMPERATURE_MOVES:-12}"
+# C8 external teacher (dormant when empty): a PieBot-lineage quant that
+# teaches in place of the state-derived active model. Staged by content hash.
+TEACHER_EXTERNAL_QUANT_FILE="${TEACHER_EXTERNAL_QUANT_FILE:-}"
+TEACHER_EXTERNAL_QUANT_SHA256="${TEACHER_EXTERNAL_QUANT_SHA256:-}"
 
 export PATH="/root/.cargo/bin:/venv/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 export PYTHONUNBUFFERED=1
@@ -273,6 +277,12 @@ stage_verified_file "$INITIAL_ACTIVE_MODEL_SOURCE" "$INITIAL_ACTIVE_MODEL" "$INI
 stage_verified_file "$VALIDATION_SHARD_SOURCE" "$VALIDATION_SHARD" "$VALIDATION_SHARD_SHA256"
 stage_verified_file "$VALIDATION_PROVENANCE_SOURCE" "$VALIDATION_PROVENANCE" "$VALIDATION_PROVENANCE_SHA256"
 stage_verified_file "$OPENINGS_SOURCE" "$SELFPLAY_OPENINGS" "$OPENINGS_SHA256"
+if [[ -n "$TEACHER_EXTERNAL_QUANT_FILE" ]]; then
+  [[ "$TEACHER_EXTERNAL_QUANT_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
+    || die "TEACHER_EXTERNAL_QUANT_SHA256 must be set with the external teacher"
+  EXTERNAL_TEACHER_STAGED="$BOOTSTRAP_DIR/external_teacher.nnue"
+  stage_verified_file "$TEACHER_EXTERNAL_QUANT_FILE" "$EXTERNAL_TEACHER_STAGED" "$TEACHER_EXTERNAL_QUANT_SHA256"
+fi
 
 require_autopilot_flag "--initial-checkpoint-weights-only"
 require_autopilot_flag "--initial-active-model"
@@ -286,6 +296,7 @@ require_autopilot_flag "--gate-sprt"
 require_autopilot_flag "--selfplay-resign-cp"
 require_autopilot_flag "--selfplay-actor-tt-mb"
 require_autopilot_flag "--selfplay-temperature-moves"
+require_autopilot_flag "--teacher-external-quant-file"
 verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
 verify_sha256 "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 verify_sha256 "$SELFPLAY_OPENINGS" "$OPENINGS_SHA256"
@@ -361,6 +372,11 @@ AUTOPILOT_ARGS=(
   "--selfplay-policy-node-cap" "$POLICY_NODE_CAP"
   "--selfplay-bestmove-node-cap" "$BESTMOVE_NODE_CAP"
   "--selfplay-temperature-moves" "$TEMPERATURE_MOVES"
+)
+if [[ -n "$TEACHER_EXTERNAL_QUANT_FILE" ]]; then
+  AUTOPILOT_ARGS+=("--teacher-external-quant-file" "$EXTERNAL_TEACHER_STAGED")
+fi
+AUTOPILOT_ARGS+=(
   "--teacher-relabel-depth" "$RELABEL_DEPTH"
   "--teacher-relabel-every" "$RELABEL_EVERY"
   "--teacher-relabel-threads" "$RELABEL_THREADS"
