@@ -1,0 +1,15 @@
+{
+  "schema": "piebot-anchor-repin-v1",
+  "date": "2026-08-07",
+  "reason": "original pinned stockfish16 binary (sha 00628bd9...) was lost with the failed old box; official SF16 avx2 release adopted as era-2 anchor at a clean boundary (no TR-era ladder measurements existed)",
+  "era1": {
+    "sha256": "00628bd9c9855c1b7ff93d7f8d51b413586cdc6336fe637f9a14a61531a05aca",
+    "used_for": "all ladders through 2026-08-06 (baseline 87.5%@1320, 83%@1500)"
+  },
+  "era2": {
+    "sha256": "8f60a016dc767e0d648a8665b8ede3e6e4d28c086ad90517ad26f55b9960bd84",
+    "source": "github.com/official-stockfish/Stockfish releases sf_16 ubuntu-x86-64-avx2",
+    "location": "/workspace/stockfish16 on TR box"
+  },
+  "continuity_note": "same Stockfish 16 source at identical UCI_LimitStrength settings; expected cross-era shift is within a few Elo. Era-2 numbers are the campaign canonical series going forward; the first era-2 ladder re-baselines."
+}
