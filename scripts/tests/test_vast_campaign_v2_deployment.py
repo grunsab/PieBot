@@ -165,6 +165,13 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # engine (600 positions from book-opened self-play): 143,917 -> 144000.
         self.assertIn('RELABEL_MAX_NODES="144000"', environment)
 
+    def test_gpu_preflight_admits_a_24gb_marketed_card(self) -> None:
+        launcher = self._launcher()
+        # An RTX 4090 reports 24,080 MiB — under 24 binary GiB. The trainer
+        # uses a few GB; 20 GiB still rejects genuinely undersized GPUs.
+        self.assertIn("20 * 1024**3", launcher)
+        self.assertNotIn("24 * 1024**3", launcher)
+
     def test_supervisor_conf_points_bootstrap_at_the_rescued_artifacts(self) -> None:
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)

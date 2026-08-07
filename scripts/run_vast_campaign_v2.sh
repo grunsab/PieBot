@@ -315,8 +315,8 @@ print("torch_version", torch.__version__)
 print("cuda_device", props.name)
 print("cuda_memory_bytes", props.total_memory)
 print("training_disk_free_bytes", available)
-if props.total_memory < 24 * 1024**3:
-    raise SystemExit("GPU memory is below the 24 GiB production minimum")
+if props.total_memory < 20 * 1024**3:
+    raise SystemExit("GPU memory is below the 20 GiB production minimum")
 if available < 30 * 1024**3:
     raise SystemExit("training disk has less than 30 GiB free")
 PY
