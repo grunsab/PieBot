@@ -168,6 +168,10 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertEqual("unexpected", parser[section]["autorestart"])
         self.assertEqual("0", parser[section]["exitcodes"])
         self.assertIn("run_vast_campaign_v2.sh", parser[section]["command"])
+        # 2026-08-07: a stop left the python autopilot orphaned because only
+        # the launcher shell received the signal. Stops must hit the group.
+        self.assertEqual("true", parser[section]["stopasgroup"])
+        self.assertEqual("true", parser[section]["killasgroup"])
 
     def test_supervisor_conf_supplies_the_measured_node_cap(self) -> None:
         parser = configparser.ConfigParser()
