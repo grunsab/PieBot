@@ -75,6 +75,9 @@ DRAW_ADJ_MIN_PLY="${DRAW_ADJ_MIN_PLY:-80}"
 ACTOR_TT_MB="${ACTOR_TT_MB:-128}"
 POLICY_NODE_CAP="${POLICY_NODE_CAP:-40000}"
 BESTMOVE_NODE_CAP="${BESTMOVE_NODE_CAP:-80000}"
+# Tightened exploration window (cycle-18 tripwire response): noise plies
+# halved so the stronger actor's choices stop being diluted into repetition.
+TEMPERATURE_MOVES="${TEMPERATURE_MOVES:-12}"
 
 export PATH="/root/.cargo/bin:/venv/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 export PYTHONUNBUFFERED=1
@@ -282,6 +285,7 @@ require_autopilot_flag "--teacher-relabel-max-nodes"
 require_autopilot_flag "--gate-sprt"
 require_autopilot_flag "--selfplay-resign-cp"
 require_autopilot_flag "--selfplay-actor-tt-mb"
+require_autopilot_flag "--selfplay-temperature-moves"
 verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
 verify_sha256 "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 verify_sha256 "$SELFPLAY_OPENINGS" "$OPENINGS_SHA256"
@@ -356,6 +360,7 @@ AUTOPILOT_ARGS=(
   "--selfplay-actor-tt-mb" "$ACTOR_TT_MB"
   "--selfplay-policy-node-cap" "$POLICY_NODE_CAP"
   "--selfplay-bestmove-node-cap" "$BESTMOVE_NODE_CAP"
+  "--selfplay-temperature-moves" "$TEMPERATURE_MOVES"
   "--teacher-relabel-depth" "$RELABEL_DEPTH"
   "--teacher-relabel-every" "$RELABEL_EVERY"
   "--teacher-relabel-threads" "$RELABEL_THREADS"

@@ -417,6 +417,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--selfplay-actor-tt-mb", type=int, default=None)
     ap.add_argument("--selfplay-policy-node-cap", type=int, default=None)
     ap.add_argument("--selfplay-bestmove-node-cap", type=int, default=None)
+    ap.add_argument("--selfplay-temperature-moves", type=int, default=None)
     ap.add_argument("--batch-size", type=int, default=None)
     ap.add_argument("--max-samples", type=int, default=None)
     ap.add_argument(
@@ -724,6 +725,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "selfplay_actor_tt_mb": args.selfplay_actor_tt_mb,
         "selfplay_policy_node_cap": args.selfplay_policy_node_cap,
         "selfplay_bestmove_node_cap": args.selfplay_bestmove_node_cap,
+        "selfplay_temperature_moves": args.selfplay_temperature_moves,
         "batch_size": args.batch_size,
         "max_samples": args.max_samples,
         "primary_sample_fraction": args.primary_sample_fraction,

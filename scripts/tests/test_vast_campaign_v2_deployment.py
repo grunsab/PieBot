@@ -141,6 +141,14 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--selfplay-bestmove-node-cap" "$BESTMOVE_NODE_CAP"', launcher)
         self.assertIn('require_autopilot_flag "--selfplay-actor-tt-mb"', launcher)
 
+    def test_temperature_window_is_tightened(self) -> None:
+        launcher = self._launcher()
+        # Cycle-18 tripwire response: threefold rows stuck ~42% because tau 1.0
+        # noise over 24 plies dilutes even the upgraded actor. Halve the window.
+        self.assertIn('TEMPERATURE_MOVES="${TEMPERATURE_MOVES:-12}"', launcher)
+        self.assertIn('"--selfplay-temperature-moves" "$TEMPERATURE_MOVES"', launcher)
+        self.assertIn('require_autopilot_flag "--selfplay-temperature-moves"', launcher)
+
     def test_slot_partition_reserves_arena_and_ab_lanes(self) -> None:
         launcher = self._launcher()
         self.assertIn('SELFPLAY_PARALLEL_GAMES="${SELFPLAY_PARALLEL_GAMES:-32}"', launcher)

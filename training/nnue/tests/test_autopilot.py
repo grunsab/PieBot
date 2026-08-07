@@ -234,6 +234,20 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(Path("book/openings.fen"), resolved["selfplay_openings"])
         self.assertEqual(250_000, resolved["teacher_relabel_max_nodes"])
 
+    def test_cli_overrides_selfplay_temperature_moves(self) -> None:
+        args = autopilot._parse_args(
+            ["--out-root", "runs", "--selfplay-temperature-moves", "12"]
+        )
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+        self.assertEqual(12, resolved["selfplay_temperature_moves"])
+        bare = autopilot._parse_args(["--out-root", "runs"])
+        untouched = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), bare
+        )
+        self.assertEqual(24, untouched["selfplay_temperature_moves"])
+
     def test_profile_and_cli_expose_actor_budget_knobs(self) -> None:
         profile = autopilot.zen5_9755_7d_profile()
         self.assertEqual(0, profile["selfplay_actor_tt_mb"])
