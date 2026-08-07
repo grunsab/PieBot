@@ -81,6 +81,9 @@ fn write_jsonl_shard_contains_fen_result_best_move() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
     let games = generate_games(&params).expect("selfplay games");
     let outdir = std::path::Path::new("target/selfplay_jsonl_test");
@@ -136,6 +139,9 @@ fn write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
     let games = generate_games(&params).expect("selfplay games");
     let outdir = std::path::Path::new("target/selfplay_jsonl_value_test");
@@ -187,6 +193,9 @@ fn selfplay_preserves_opening_start_fen() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
     let games = generate_games(&params).expect("selfplay games");
     assert_eq!(games.len(), 1);

@@ -113,6 +113,9 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_draw_adj_cp": 10.0,
         "selfplay_draw_adj_plies": 40,
         "selfplay_draw_adj_min_ply": 80,
+        "selfplay_actor_tt_mb": 0,
+        "selfplay_policy_node_cap": 10_000,
+        "selfplay_bestmove_node_cap": 20_000,
         "teacher_relabel_depth": 6,
         "teacher_relabel_every": 4,
         "teacher_relabel_threads": 48,
@@ -404,6 +407,9 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--selfplay-draw-adj-cp", type=float, default=None)
     ap.add_argument("--selfplay-draw-adj-plies", type=int, default=None)
     ap.add_argument("--selfplay-draw-adj-min-ply", type=int, default=None)
+    ap.add_argument("--selfplay-actor-tt-mb", type=int, default=None)
+    ap.add_argument("--selfplay-policy-node-cap", type=int, default=None)
+    ap.add_argument("--selfplay-bestmove-node-cap", type=int, default=None)
     ap.add_argument("--batch-size", type=int, default=None)
     ap.add_argument("--max-samples", type=int, default=None)
     ap.add_argument(
@@ -698,6 +704,9 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "selfplay_draw_adj_cp": args.selfplay_draw_adj_cp,
         "selfplay_draw_adj_plies": args.selfplay_draw_adj_plies,
         "selfplay_draw_adj_min_ply": args.selfplay_draw_adj_min_ply,
+        "selfplay_actor_tt_mb": args.selfplay_actor_tt_mb,
+        "selfplay_policy_node_cap": args.selfplay_policy_node_cap,
+        "selfplay_bestmove_node_cap": args.selfplay_bestmove_node_cap,
         "batch_size": args.batch_size,
         "max_samples": args.max_samples,
         "primary_sample_fraction": args.primary_sample_fraction,

@@ -29,6 +29,9 @@ fn selfplay_generates_games_deterministically() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
     let g1 = generate_games(&params).expect("selfplay games");
     let g2 = generate_games(&params).expect("selfplay games");
@@ -69,6 +72,9 @@ fn max_ply_cutoff_is_not_labeled_as_a_real_draw() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
 
     let games = generate_games(&params).expect("selfplay games");
@@ -105,6 +111,9 @@ fn selfplay_noise_changes_moves_with_different_seeds() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
     let g1 = generate_games(&p).expect("selfplay games");
     p.seed = 2;
@@ -142,6 +151,9 @@ fn selfplay_parallel_random_matches_serial_by_seed() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
     let serial = generate_games(&params).expect("selfplay games");
     params.parallel_games = 4;
@@ -183,6 +195,9 @@ fn selfplay_parallel_engine_matches_serial_by_seed() {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     };
     let serial = generate_games(&params).expect("selfplay games");
     params.parallel_games = 4;
@@ -223,6 +238,9 @@ fn openings_params(openings_path: std::path::PathBuf) -> SelfPlayParams {
         draw_adj_cp: 10.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     }
 }
 
@@ -436,6 +454,9 @@ fn adjudication_params(openings_path: std::path::PathBuf) -> SelfPlayParams {
         draw_adj_cp: 0.0,
         draw_adj_plies: 40,
         draw_adj_min_ply: 80,
+        actor_tt_mb: 0,
+        policy_node_cap: 10_000,
+        bestmove_node_cap: 20_000,
     }
 }
 
@@ -494,4 +515,22 @@ fn adjudication_same_seed_reproduces_identical_games() {
         assert_eq!(g1[i].outcome_valid, g2[i].outcome_valid);
         assert_eq!(g1[i].termination, g2[i].termination);
     }
+}
+
+#[test]
+fn actor_budget_is_configurable_with_legacy_defaults() {
+    let params = openings_params(std::path::PathBuf::from("/unused"));
+    // Legacy behavior is the default: 10k policy / 20k best-move node caps.
+    let policy = piebot::selfplay::policy_search_params(&params, 2);
+    assert_eq!(Some(10_000), policy.max_nodes);
+    let best = piebot::selfplay::bestmove_search_params(&params, 2);
+    assert_eq!(Some(20_000), best.max_nodes);
+
+    let mut raised = params.clone();
+    raised.policy_node_cap = 50_000;
+    raised.bestmove_node_cap = 100_000;
+    let policy = piebot::selfplay::policy_search_params(&raised, 2);
+    assert_eq!(Some(50_000), policy.max_nodes);
+    let best = piebot::selfplay::bestmove_search_params(&raised, 2);
+    assert_eq!(Some(100_000), best.max_nodes);
 }

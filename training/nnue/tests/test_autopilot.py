@@ -234,6 +234,31 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual(Path("book/openings.fen"), resolved["selfplay_openings"])
         self.assertEqual(250_000, resolved["teacher_relabel_max_nodes"])
 
+    def test_profile_and_cli_expose_actor_budget_knobs(self) -> None:
+        profile = autopilot.zen5_9755_7d_profile()
+        self.assertEqual(0, profile["selfplay_actor_tt_mb"])
+        self.assertEqual(10_000, profile["selfplay_policy_node_cap"])
+        self.assertEqual(20_000, profile["selfplay_bestmove_node_cap"])
+
+        args = autopilot._parse_args(
+            [
+                "--out-root",
+                "runs",
+                "--selfplay-actor-tt-mb",
+                "256",
+                "--selfplay-policy-node-cap",
+                "50000",
+                "--selfplay-bestmove-node-cap",
+                "100000",
+            ]
+        )
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+        self.assertEqual(256, resolved["selfplay_actor_tt_mb"])
+        self.assertEqual(50_000, resolved["selfplay_policy_node_cap"])
+        self.assertEqual(100_000, resolved["selfplay_bestmove_node_cap"])
+
     def test_control_loop_cli_overrides_profile_values(self) -> None:
         validation_dir = Path("fixed-validation")
         args = autopilot._parse_args(

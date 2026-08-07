@@ -36,6 +36,42 @@ pub struct SelfPlayParams {
     pub draw_adj_cp: f32,       // |cp| threshold for draw adjudication; 0 disables
     pub draw_adj_plies: usize,  // consecutive quiet plies before adjudicating a draw
     pub draw_adj_min_ply: usize, // earliest ply index a draw adjudication may fire
+    pub actor_tt_mb: usize,      // 0 = legacy 4096-entry table; >0 = real TT in MB
+    pub policy_node_cap: u64,    // per-move policy-scoring node budget
+    pub bestmove_node_cap: u64,  // best-move search node budget
+}
+
+/// Search budget for per-move policy scoring; extracted so the actor's
+/// node caps are configuration, not constants buried in the game loop.
+pub fn policy_search_params(params: &SelfPlayParams, depth: u32) -> SearchParams {
+    let mut p = base_actor_search_params(params, depth);
+    p.max_nodes = Some(params.policy_node_cap.max(1));
+    p
+}
+
+/// Search budget for the played-move search.
+pub fn bestmove_search_params(params: &SelfPlayParams, depth: u32) -> SearchParams {
+    let mut p = base_actor_search_params(params, depth);
+    p.max_nodes = Some(params.bestmove_node_cap.max(1));
+    p
+}
+
+fn base_actor_search_params(params: &SelfPlayParams, depth: u32) -> SearchParams {
+    let mut p = SearchParams::default();
+    p.depth = depth;
+    p.use_tt = true;
+    p.order_captures = true;
+    p.use_history = true;
+    p.threads = params.threads;
+    p.use_aspiration = true;
+    p.aspiration_window_cp = 50;
+    p.use_lmr = true;
+    p.use_killers = true;
+    p.use_nullmove = true;
+    p.movetime = params
+        .movetime_ms
+        .map(std::time::Duration::from_millis);
+    p
 }
 
 pub struct GameRecord {
@@ -397,6 +433,9 @@ fn mix_u64(mut x: u64) -> u64 {
 
 fn build_selfplay_searcher(params: &SelfPlayParams) -> Searcher {
     let mut s = Searcher::default();
+    if params.actor_tt_mb > 0 {
+        s.set_tt_capacity_mb(params.actor_tt_mb);
+    }
     if let Some(model) = params.nnue_quant_model.as_ref() {
         s.set_use_nnue(true);
         s.set_eval_mode(EvalMode::Nnue);
@@ -459,21 +498,7 @@ fn select_engine_move(
         for &m in &moves {
             let mut child = board.clone();
             child.play_unchecked(m);
-            let mut p = SearchParams::default();
-            p.depth = pol_depth;
-            p.use_tt = true;
-            p.order_captures = true;
-            p.use_history = true;
-            p.threads = params.threads;
-            p.use_aspiration = true;
-            p.aspiration_window_cp = 50;
-            p.use_lmr = true;
-            p.use_killers = true;
-            p.use_nullmove = true;
-            p.max_nodes = Some(10_000);
-            p.movetime = params
-                .movetime_ms
-                .map(|t| std::time::Duration::from_millis(t));
+            let p = policy_search_params(params, pol_depth);
             let r = searcher.search_with_params(&child, p);
             let score_from_parent = -(r.score_cp as f32);
             scores.push(score_from_parent);
@@ -574,21 +599,7 @@ fn select_engine_move(
         });
     }
     // Greedy best move
-    let mut p = SearchParams::default();
-    p.depth = params.depth;
-    p.use_tt = true;
-    p.order_captures = true;
-    p.use_history = true;
-    p.threads = params.threads;
-    p.use_aspiration = true;
-    p.aspiration_window_cp = 50;
-    p.use_lmr = true;
-    p.use_killers = true;
-    p.use_nullmove = true;
-    p.max_nodes = Some(20_000);
-    p.movetime = params
-        .movetime_ms
-        .map(|t| std::time::Duration::from_millis(t));
+    let p = bestmove_search_params(params, params.depth);
     let res = searcher.search_with_params(board, p);
     let score_white = if board.side_to_move() == Color::White {
         res.score_cp as f32

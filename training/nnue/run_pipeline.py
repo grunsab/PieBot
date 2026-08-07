@@ -229,6 +229,9 @@ def build_selfplay_command(
     draw_adj_cp: float = 10.0,
     draw_adj_plies: int = 40,
     draw_adj_min_ply: int = 80,
+    actor_tt_mb: int = 0,
+    policy_node_cap: int = 10_000,
+    bestmove_node_cap: int = 20_000,
 ) -> List[str]:
     cmd: List[str] = [
         "cargo",
@@ -298,6 +301,12 @@ def build_selfplay_command(
             str(draw_adj_plies),
             "--draw-adj-min-ply",
             str(draw_adj_min_ply),
+            "--actor-tt-mb",
+            str(actor_tt_mb),
+            "--policy-node-cap",
+            str(policy_node_cap),
+            "--bestmove-node-cap",
+            str(bestmove_node_cap),
         ]
     )
     return cmd
@@ -382,9 +391,15 @@ def _generate_selfplay_jsonl(
     draw_adj_cp: float = 10.0,
     draw_adj_plies: int = 40,
     draw_adj_min_ply: int = 80,
+    actor_tt_mb: int = 0,
+    policy_node_cap: int = 10_000,
+    bestmove_node_cap: int = 20_000,
 ) -> List[str]:
     jsonl_out.mkdir(parents=True, exist_ok=True)
     cmd = build_selfplay_command(
+        actor_tt_mb=actor_tt_mb,
+        policy_node_cap=policy_node_cap,
+        bestmove_node_cap=bestmove_node_cap,
         resign_cp=resign_cp,
         resign_plies=resign_plies,
         no_resign_fraction=no_resign_fraction,
@@ -567,6 +582,9 @@ def _selfplay_stage_provenance(
     draw_adj_cp: float = 10.0,
     draw_adj_plies: int = 40,
     draw_adj_min_ply: int = 80,
+    actor_tt_mb: int = 0,
+    policy_node_cap: int = 10_000,
+    bestmove_node_cap: int = 20_000,
 ) -> Dict[str, Any]:
     return {
         "version": 1,
@@ -582,6 +600,9 @@ def _selfplay_stage_provenance(
             "draw_adj_cp": float(draw_adj_cp),
             "draw_adj_plies": int(draw_adj_plies),
             "draw_adj_min_ply": int(draw_adj_min_ply),
+            "actor_tt_mb": int(actor_tt_mb),
+            "policy_node_cap": int(policy_node_cap),
+            "bestmove_node_cap": int(bestmove_node_cap),
             "parallel_games": int(parallel_games),
             "depth": int(depth),
             "movetime_ms": None if movetime_ms is None else int(movetime_ms),
@@ -1342,6 +1363,9 @@ def run_pipeline(
     selfplay_draw_adj_cp: float = 10.0,
     selfplay_draw_adj_plies: int = 40,
     selfplay_draw_adj_min_ply: int = 80,
+    selfplay_actor_tt_mb: int = 0,
+    selfplay_policy_node_cap: int = 10_000,
+    selfplay_bestmove_node_cap: int = 20_000,
     replay_jsonl_dirs: Optional[Sequence[Path]] = None,
     teacher_relabel_depth: int = 0,
     teacher_relabel_every: int = 4,
@@ -1464,6 +1488,9 @@ def run_pipeline(
                 draw_adj_cp=selfplay_draw_adj_cp,
                 draw_adj_plies=selfplay_draw_adj_plies,
                 draw_adj_min_ply=selfplay_draw_adj_min_ply,
+                actor_tt_mb=selfplay_actor_tt_mb,
+                policy_node_cap=selfplay_policy_node_cap,
+                bestmove_node_cap=selfplay_bestmove_node_cap,
             temperature_tau=selfplay_temperature_tau,
             temp_cp_scale=selfplay_temp_cp_scale,
             dirichlet_alpha=selfplay_dirichlet_alpha,
@@ -1506,6 +1533,9 @@ def run_pipeline(
                 draw_adj_cp=selfplay_draw_adj_cp,
                 draw_adj_plies=selfplay_draw_adj_plies,
                 draw_adj_min_ply=selfplay_draw_adj_min_ply,
+                actor_tt_mb=selfplay_actor_tt_mb,
+                policy_node_cap=selfplay_policy_node_cap,
+                bestmove_node_cap=selfplay_bestmove_node_cap,
                 temperature_tau=selfplay_temperature_tau,
                 temp_cp_scale=selfplay_temp_cp_scale,
                 dirichlet_alpha=selfplay_dirichlet_alpha,

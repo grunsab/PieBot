@@ -67,6 +67,12 @@ struct Args {
     draw_adj_plies: usize,
     #[arg(long, default_value_t = 80)]
     draw_adj_min_ply: usize,
+    #[arg(long, default_value_t = 0)]
+    actor_tt_mb: usize,
+    #[arg(long, default_value_t = 10_000)]
+    policy_node_cap: u64,
+    #[arg(long, default_value_t = 20_000)]
+    bestmove_node_cap: u64,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -101,6 +107,9 @@ fn main() -> anyhow::Result<()> {
         draw_adj_cp: a.draw_adj_cp,
         draw_adj_plies: a.draw_adj_plies,
         draw_adj_min_ply: a.draw_adj_min_ply,
+        actor_tt_mb: a.actor_tt_mb,
+        policy_node_cap: a.policy_node_cap,
+        bestmove_node_cap: a.bestmove_node_cap,
     };
     let effective_parallel = effective_parallel_games(&params);
     eprintln!(

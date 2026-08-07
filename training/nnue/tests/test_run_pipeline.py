@@ -298,6 +298,38 @@ class RunPipelineTests(unittest.TestCase):
         self.assertIn("--draw-adj-plies 40", joined)
         self.assertIn("--draw-adj-min-ply 80", joined)
 
+    def test_build_selfplay_command_passes_actor_budget(self) -> None:
+        cmd = run_pipeline.build_selfplay_command(
+            piebot_dir=Path("/tmp/repo/PieBot"),
+            jsonl_out=Path("/tmp/out/jsonl"),
+            games=12,
+            max_plies=80,
+            threads=2,
+            parallel_games=6,
+            depth=5,
+            movetime_ms=None,
+            seed=42,
+            max_records_per_shard=1000,
+            use_engine=True,
+            openings=None,
+            temperature_tau=1.0,
+            temp_cp_scale=200.0,
+            dirichlet_alpha=0.3,
+            dirichlet_epsilon=0.25,
+            dirichlet_plies=8,
+            temperature_moves=20,
+            temperature_tau_final=0.1,
+            nnue_quant_file=None,
+            nnue_blend_percent=100,
+            actor_tt_mb=256,
+            policy_node_cap=50_000,
+            bestmove_node_cap=100_000,
+        )
+        joined = " ".join(cmd)
+        self.assertIn("--actor-tt-mb 256", joined)
+        self.assertIn("--policy-node-cap 50000", joined)
+        self.assertIn("--bestmove-node-cap 100000", joined)
+
     def test_build_relabel_command_with_node_cap(self) -> None:
         cmd = run_pipeline.build_relabel_command(
             piebot_dir=Path("/tmp/repo/PieBot"),
