@@ -1,0 +1,25 @@
+{
+  "arm": "S5 log-log LMR",
+  "verdict": "SHELVED after 2 retunes",
+  "v1": {
+    "schedule": "ln(d)*ln(i)/1.8, idx>=2",
+    "screen_mean": 0.08,
+    "confirmation_1000g": {
+      "mean": -0.002,
+      "ci": [
+        -0.064,
+        0.06
+      ]
+    }
+  },
+  "v2": {
+    "schedule": "ln(d)*ln(i)/2.25, idx>=3, killer/counter exempt",
+    "screen_mean": 0.09,
+    "screen_ci": [
+      -0.015,
+      0.195
+    ]
+  },
+  "read": "with TT-first ordering fixed (S1), late-move index is a weak pruning signal at depth ~7/150ms; revisit after S8 continuation history / staged movegen improve ordering",
+  "date": "2026-08-07"
+}
