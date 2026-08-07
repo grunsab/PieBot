@@ -1471,6 +1471,316 @@ class AutopilotTests(unittest.TestCase):
             )
             self.assertEqual(m2, autopilot._resolve_teacher_quant_path(state, 1))
 
+    def test_profile_default_and_cli_override_for_external_teacher_quant(self) -> None:
+        profile = autopilot.zen5_9755_7d_profile()
+        self.assertIn("teacher_external_quant_file", profile)
+        self.assertIsNone(profile["teacher_external_quant_file"])
+
+        try:
+            args = autopilot._parse_args(
+                [
+                    "--out-root",
+                    "runs",
+                    "--teacher-external-quant-file",
+                    "nets/h128_best.nnue",
+                ]
+            )
+        except SystemExit:
+            self.fail(
+                "--teacher-external-quant-file is not a recognized autopilot flag"
+            )
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+        self.assertEqual(
+            Path("nets/h128_best.nnue"), resolved["teacher_external_quant_file"]
+        )
+
+    def test_external_teacher_resolver_is_fail_closed_and_piebot_lineage_only(
+        self,
+    ) -> None:
+        self.assertTrue(
+            hasattr(autopilot, "_resolve_external_teacher_quant"),
+            "autopilot lacks the C8 external-teacher resolver",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertIsNone(
+                autopilot._resolve_external_teacher_quant(
+                    {"teacher_external_quant_file": None}
+                )
+            )
+            teacher = _write_fake_quant(
+                root / "teacher.nnue",
+                input_dim=81_920,
+                marker=b"external-teacher",
+            )
+            path, sha = autopilot._resolve_external_teacher_quant(
+                {"teacher_external_quant_file": teacher}
+            )
+            self.assertEqual(teacher, path)
+            self.assertEqual(
+                hashlib.sha256(teacher.read_bytes()).hexdigest(), sha
+            )
+            with self.assertRaisesRegex(ValueError, "external teacher"):
+                autopilot._resolve_external_teacher_quant(
+                    {"teacher_external_quant_file": root / "missing-teacher.nnue"}
+                )
+            # INVARIANT: only a PieBot-lineage quant net may teach; a file
+            # that is not a PieBot quantized model is rejected outright
+            # (Stockfish/external-engine labels remain forbidden).
+            invalid = root / "not-a-piebot-net.nnue"
+            invalid.write_bytes(b"stockfish-labels-forbidden")
+            with self.assertRaisesRegex(ValueError, "PieBot"):
+                autopilot._resolve_external_teacher_quant(
+                    {"teacher_external_quant_file": invalid}
+                )
+
+    def test_external_teacher_overrides_state_teacher_but_not_actor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            initial_active = _write_fake_quant(
+                root / "initial-active.nnue",
+                input_dim=81_920,
+                marker=b"actor",
+            )
+            external_teacher = _write_fake_quant(
+                root / "external-teacher.nnue",
+                input_dim=81_920,
+                marker=b"external-teacher",
+            )
+            calls = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant = _write_fake_quant(
+                    out_dir / "nnue_quant.nnue",
+                    input_dim=81_920,
+                    marker=b"candidate",
+                )
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                try:
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "1",
+                            "--gate-games",
+                            "0",
+                            "--initial-active-model",
+                            str(initial_active),
+                            "--initial-active-model-blend-percent",
+                            "40",
+                            "--teacher-external-quant-file",
+                            str(external_teacher),
+                        ]
+                    )
+                except SystemExit:
+                    self.fail(
+                        "--teacher-external-quant-file is not wired into autopilot"
+                    )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(1, len(calls))
+            # The ACTOR (selfplay model) remains the state-derived active model.
+            self.assertEqual(
+                initial_active.resolve(), calls[0]["selfplay_nnue_quant_file"]
+            )
+            self.assertEqual(40, calls[0]["selfplay_nnue_blend_percent"])
+            # Only the relabel teacher decouples, at full NNUE strength.
+            self.assertEqual(
+                external_teacher, calls[0]["teacher_relabel_nnue_quant_file"]
+            )
+            self.assertEqual(100, calls[0]["teacher_relabel_nnue_blend_percent"])
+
+    def test_missing_external_teacher_is_hard_error_before_cycle_start(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            calls = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                raise AssertionError(
+                    "run_pipeline must not run without a verified external teacher"
+                )
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                try:
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "1",
+                            "--retry-limit",
+                            "1",
+                            "--retry-backoff-sec",
+                            "0",
+                            "--gate-games",
+                            "0",
+                            "--teacher-external-quant-file",
+                            str(root / "missing-teacher.nnue"),
+                        ]
+                    )
+                except SystemExit:
+                    self.fail(
+                        "--teacher-external-quant-file is not wired into autopilot"
+                    )
+
+            self.assertEqual(2, rc)
+            self.assertEqual([], calls)
+            state = json.loads(
+                (out_root / "autopilot_state.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual([], state["completed_cycles"])
+            self.assertIn("external teacher", state["last_error"]["error"])
+
+    def test_default_none_external_teacher_keeps_legacy_kwargs_and_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            initial_active = _write_fake_quant(
+                root / "initial-active.nnue",
+                input_dim=81_920,
+                marker=b"actor",
+            )
+            calls = []
+
+            def _fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                out_dir = Path(kwargs["out_dir"])
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant = _write_fake_quant(
+                    out_dir / "nnue_quant.nnue",
+                    input_dim=81_920,
+                    marker=b"candidate",
+                )
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                rc = autopilot.main(
+                    [
+                        "--out-root",
+                        str(out_root),
+                        "--hours",
+                        "1",
+                        "--max-cycles",
+                        "1",
+                        "--gate-games",
+                        "0",
+                        "--initial-active-model",
+                        str(initial_active),
+                        "--initial-active-model-blend-percent",
+                        "40",
+                    ]
+                )
+
+            self.assertEqual(0, rc)
+            self.assertEqual(1, len(calls))
+            # Legacy behavior: the state-derived model both acts and teaches.
+            self.assertEqual(
+                initial_active.resolve(), calls[0]["selfplay_nnue_quant_file"]
+            )
+            self.assertEqual(
+                initial_active.resolve(),
+                calls[0]["teacher_relabel_nnue_quant_file"],
+            )
+            self.assertEqual(40, calls[0]["selfplay_nnue_blend_percent"])
+            self.assertEqual(40, calls[0]["teacher_relabel_nnue_blend_percent"])
+            self.assertNotIn("teacher_external_quant_file", calls[0])
+            state = json.loads(
+                (out_root / "autopilot_state.json").read_text(encoding="utf-8")
+            )
+            record = state["completed_cycles"][0]
+            self.assertNotIn("teacher_external_quant_file", record)
+            self.assertNotIn("teacher_external_quant_sha256", record)
+
+    def test_external_teacher_sha256_recorded_in_cycle_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_root = root / "runs"
+            external_teacher = _write_fake_quant(
+                root / "external-teacher.nnue",
+                input_dim=81_920,
+                marker=b"external-teacher",
+            )
+
+            def _fake_run_pipeline(**kwargs):
+                out_dir = Path(kwargs["out_dir"])
+                checkpoint = _write_fake_checkpoint(out_dir)
+                quant = _write_fake_quant(
+                    out_dir / "nnue_quant.nnue",
+                    input_dim=81_920,
+                    marker=b"candidate",
+                )
+                return {
+                    "checkpoint_path": str(checkpoint),
+                    "quant_path": str(quant),
+                }
+
+            with mock.patch(
+                "training.nnue.autopilot.run_pipeline.run_pipeline",
+                side_effect=_fake_run_pipeline,
+            ):
+                try:
+                    rc = autopilot.main(
+                        [
+                            "--out-root",
+                            str(out_root),
+                            "--hours",
+                            "1",
+                            "--max-cycles",
+                            "1",
+                            "--gate-games",
+                            "0",
+                            "--teacher-external-quant-file",
+                            str(external_teacher),
+                        ]
+                    )
+                except SystemExit:
+                    self.fail(
+                        "--teacher-external-quant-file is not wired into autopilot"
+                    )
+
+            self.assertEqual(0, rc)
+            state = json.loads(
+                (out_root / "autopilot_state.json").read_text(encoding="utf-8")
+            )
+            record = state["completed_cycles"][0]
+            self.assertEqual(
+                str(external_teacher), record["teacher_external_quant_file"]
+            )
+            self.assertEqual(
+                hashlib.sha256(external_teacher.read_bytes()).hexdigest(),
+                record["teacher_external_quant_sha256"],
+            )
+
     def test_current_state_schema_does_not_fallback_to_last_summary_when_no_active_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             candidate = Path(tmp) / "candidate.nnue"

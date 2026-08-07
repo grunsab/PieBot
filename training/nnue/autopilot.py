@@ -148,6 +148,13 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "primary_sample_fraction": 0.5,
         "teacher_sample_fraction": 0.5,
         "teacher_lag_cycles": 0,
+        # C8 (WP7): optional external teacher for relabeling. When set, this
+        # file teaches instead of the state-derived active model; the selfplay
+        # actor stays state-derived. INVARIANT: the knob accepts only a
+        # PieBot-lineage quantized net (e.g. the best h128 net or a stronger
+        # later checkpoint) — Stockfish/external-engine labels remain
+        # forbidden; the knob changes WHICH PieBot net teaches, nothing else.
+        "teacher_external_quant_file": None,
         "min_teacher_depth": 6,
         "loss_kind": "wdl",
         "huber_delta_cp": 100.0,
@@ -484,6 +491,16 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument("--replay-window-cycles", type=int, default=None)
     ap.add_argument("--teacher-lag-cycles", type=int, default=None)
+    ap.add_argument(
+        "--teacher-external-quant-file",
+        type=Path,
+        default=None,
+        help=(
+            "PieBot-lineage quantized net that replaces the state-derived "
+            "teacher for relabeling (C8); the selfplay actor is unchanged. "
+            "Stockfish/external-engine nets remain forbidden."
+        ),
+    )
     ap.add_argument("--gate-games", type=int, default=None)
     ap.add_argument("--gate-movetime-ms", type=int, default=None)
     ap.add_argument("--gate-noise-plies", type=int, default=None)
@@ -734,6 +751,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "retain_full_cycles": args.retain_full_cycles,
         "replay_window_cycles": args.replay_window_cycles,
         "teacher_lag_cycles": args.teacher_lag_cycles,
+        "teacher_external_quant_file": args.teacher_external_quant_file,
         "gate_games": args.gate_games,
         "gate_movetime_ms": args.gate_movetime_ms,
         "gate_noise_plies": args.gate_noise_plies,
@@ -1226,6 +1244,32 @@ def _resolve_teacher_quant_and_blend(
 def _resolve_teacher_quant_path(state: Dict[str, Any], lag_cycles: int) -> Optional[Path]:
     teacher_quant, _ = _resolve_teacher_quant_and_blend(state, lag_cycles)
     return teacher_quant
+
+
+def _resolve_external_teacher_quant(
+    defaults: Dict[str, Any],
+) -> Optional[tuple[Path, str]]:
+    """Resolve the optional C8 external-teacher override (campaign WP7).
+
+    When configured, the returned file teaches relabeling instead of the
+    state-derived active model; the selfplay actor is unaffected.
+
+    INVARIANT: the knob accepts only a PieBot-lineage quantized net (for
+    example the best h128 net or a stronger later checkpoint). Stockfish or
+    any other external-engine labels remain forbidden — this knob changes
+    WHICH PieBot net teaches, nothing else. Resolution is fail-closed: a
+    missing or non-PieBot file is a hard error, never a silent fallback to
+    the state-derived teacher.
+    """
+    raw = defaults.get("teacher_external_quant_file")
+    if raw is None:
+        return None
+    path = _verified_quant_path(str(raw), label="external teacher model")
+    if _quant_model_identity(path) is None:
+        raise ValueError(
+            f"external teacher model is not a PieBot-lineage quantized net: {path}"
+        )
+    return path, _sha256_file(path)
 
 
 def _collect_replay_jsonl_dirs(state: Dict[str, Any], window_cycles: int) -> list[Path]:
@@ -2954,6 +2998,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             _atomic_write_json(state_path, state)
             print(f"autopilot refusing incompatible training lineage: {exc}", file=sys.stderr)
             return 2
+        try:
+            # C8 (WP7): fail closed on a misconfigured external teacher before
+            # any cycle starts; the loop re-verifies at each cycle start.
+            _resolve_external_teacher_quant(defaults)
+        except ValueError as exc:
+            state["last_error"] = {
+                "stage": "external-teacher-validation",
+                "error": str(exc),
+                "ts": time.time(),
+            }
+            _atomic_write_json(state_path, state)
+            print(f"autopilot refusing external teacher: {exc}", file=sys.stderr)
+            return 2
         retain_full_cycles = int(defaults.get("retain_full_cycles", 0))
         try:
             _enforce_cycle_retention(
@@ -3014,6 +3071,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                         state,
                         int(defaults.get("teacher_lag_cycles", 0)),
                     )
+                    # C8 (WP7): an external PieBot-lineage teacher decouples
+                    # relabeling from the deployment state. Only the teacher
+                    # changes — the selfplay actor below stays state-derived.
+                    # Stockfish/external-engine labels remain forbidden (the
+                    # knob changes WHICH PieBot net teaches, nothing else).
+                    external_teacher = _resolve_external_teacher_quant(defaults)
+                    if external_teacher is not None:
+                        teacher_quant, external_teacher_sha = external_teacher
+                        # The external net teaches at full NNUE strength; the
+                        # state-derived ramp blend belongs to the model it
+                        # replaces and would dilute (or at 0 silently disable)
+                        # the configured teacher.
+                        teacher_blend = 100
+                        cycle_state["teacher_external_quant_file"] = str(
+                            teacher_quant
+                        )
+                        cycle_state["teacher_external_quant_sha256"] = (
+                            external_teacher_sha
+                        )
                     active_blend = _active_model_blend_percent(state)
                     replay_dirs = _collect_replay_jsonl_dirs(
                         state,
