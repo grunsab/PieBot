@@ -128,6 +128,10 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         # The production scalar evaluator benchmarks materially faster at 64;
         # v2 gains capacity from its all-piece HalfKP inputs instead of width.
         "hidden_dim": 64,
+        # "v1" = merged-perspective ReLU (PIENNQ01); "v2" = dual-perspective
+        # SCReLU (PIENNQ02, standard NNUE design). training_input_dim and
+        # training_feature_set are derived from arch in _apply_arch_defaults.
+        "train_arch": "v1",
         "training_input_dim": 81_920,
         "training_feature_set": "halfkp-all-pieces-v2",
         "training_target_schema": "soft-cp-wdl-v2",
@@ -429,6 +433,12 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--teacher-sample-fraction", type=float, default=None)
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--hidden-dim", type=int, default=None)
+    ap.add_argument(
+        "--train-arch",
+        choices=("v1", "v2"),
+        default=None,
+        help="v2 = dual-perspective SCReLU learner (PIENNQ02); requires a fresh lineage",
+    )
     ap.add_argument("--min-teacher-depth", type=int, default=None)
     ap.add_argument("--target-cp", type=float, default=None)
     ap.add_argument("--loss-kind", default=None)
@@ -781,11 +791,24 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "gate_require_external_anchor": args.gate_require_external_anchor,
         "gate_external_anchor_json": args.gate_external_anchor_json,
         "validation_provenance_json": args.validation_provenance_json,
+        "train_arch": args.train_arch,
     }
     for k, v in mapping.items():
         if v is not None:
             out[k] = v
+    _apply_arch_defaults(out)
     return out
+
+
+def _apply_arch_defaults(defaults: Dict[str, Any]) -> None:
+    """Derive lineage identity fields from the training architecture."""
+    arch = str(defaults.get("train_arch", "v1")).lower()
+    if arch not in {"v1", "v2"}:
+        raise ValueError(f"unsupported train_arch: {arch!r}")
+    defaults["train_arch"] = arch
+    if arch == "v2":
+        defaults["training_input_dim"] = 40_960
+        defaults["training_feature_set"] = "halfkp-dp-screlu-v1"
 
 
 def _validate_gate_promotion_policy(defaults: Dict[str, Any]) -> None:
@@ -829,8 +852,9 @@ def _quant_model_identity(
             header = handle.read(24)
     except OSError:
         return None
-    if len(header) != 24 or header[:8] != b"PIENNQ01":
+    if len(header) != 24 or header[:8] not in (b"PIENNQ01", b"PIENNQ02"):
         return None
+    quant_format = header[:8].decode("ascii")
     try:
         version, input_dim, hidden_dim, output_dim = struct.unpack("<IIII", header[8:24])
     except struct.error:
@@ -839,7 +863,7 @@ def _quant_model_identity(
         return None
 
     identity: Dict[str, Any] = {
-        "quant_format": "PIENNQ01",
+        "quant_format": quant_format,
         "quant_version": int(version),
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),

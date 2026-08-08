@@ -120,6 +120,31 @@ fn incremental_updates_match_full_recompute_over_random_games() {
 }
 
 #[test]
+fn python_exported_gold_model_evaluates_identically() {
+    // The committed PIENNQ02 file was produced by the production Python
+    // quantization path (`_export_v2_checkpoint`); the expected evals come
+    // from an independent Python integer reference. Exact equality here
+    // proves the full cross-language contract: trainer -> file -> engine.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let model = QuantNnue::load_quantized(dir.join("arch_v2_gold.nnue")).expect("load gold v2");
+    assert!(model.v2.is_some(), "gold file must parse as PIENNQ02");
+    let mut net = QuantNetwork::new(model);
+    let expected: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("arch_v2_gold_expected.json")).unwrap())
+            .unwrap();
+    let positions = expected["positions"].as_array().unwrap();
+    assert!(!positions.is_empty());
+    for row in positions {
+        let fen = row["fen"].as_str().unwrap();
+        let want = row["eval_white_pov_cp"].as_i64().unwrap() as i32;
+        let board = Board::from_fen(fen, false).expect("valid fen");
+        net.refresh(&board);
+        assert_eq!(net.eval_current(), want, "fen={fen}");
+        assert_eq!(net.eval_full(&board), want, "fen={fen} (full path)");
+    }
+}
+
+#[test]
 fn screlu_head_matches_reference_formula() {
     let model = random_v2_model(8, 0xfeed_beef);
     let mut net = QuantNetwork::new(model.clone());

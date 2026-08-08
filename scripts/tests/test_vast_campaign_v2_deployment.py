@@ -181,30 +181,35 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--teacher-external-quant-file"', launcher)
         self.assertIn('require_autopilot_flag "--teacher-external-quant-file"', launcher)
 
-    def test_v5_conf_mints_h128_deep_teacher_lineage(self) -> None:
+    def test_v6_conf_mints_arch_v2_1024_lineage(self) -> None:
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # v5 pivot (2026-08-07): the pure-network blunder protocol showed the
-        # v4 h64 learner REGRESSING vs the cycle-98 incumbent (ACPL 36.6 vs
-        # 34.0, 2.15 vs 1.77 blunders/game) — the h64 loop cannot outrun its
-        # own teacher. New lineage: hidden-128 student from fresh random
-        # weights (measured cost: 19.1% NPS, evidence/h128_speed_probe),
-        # taught by cycle-98 searching depth 9 (median 4.1M nodes measured)
-        # capped at the depth-7 p95, relabeling every 6th ply.
-        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v5"', environment)
-        self.assertIn('HIDDEN_DIM="128"', environment)
+        # v6 (2026-08-08, user-directed): standard NNUE redesign per
+        # chessprogramming.org/NNUE. Dual-perspective SCReLU learner
+        # (PIENNQ02) at hidden 1024, fresh random weights, taught by
+        # cycle-98 searching depth 9 capped at the measured depth-7 p95.
+        # The v5 h128-old-arch lineage was superseded before it ever ran.
+        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v6"', environment)
+        self.assertIn('TRAIN_ARCH="v2"', environment)
+        self.assertIn('HIDDEN_DIM="1024"', environment)
         self.assertIn('FRESH_INIT="1"', environment)
         self.assertNotIn("INITIAL_CHECKPOINT_SOURCE", environment)
         self.assertIn('RELABEL_DEPTH="9"', environment)
         self.assertIn('RELABEL_EVERY="6"', environment)
         self.assertIn('TARGET_CP="250"', environment)
         self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
-        # Actor, teacher, and gate incumbent stay the accepted cycle-98 h64.
+        # Actor, teacher, and gate incumbent stay the accepted cycle-98 h64 v1.
         self.assertIn(
             'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000098_nnue_quant.nnue"',
             environment,
         )
+
+    def test_launcher_wires_train_arch(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('TRAIN_ARCH="${TRAIN_ARCH:-v1}"', launcher)
+        self.assertIn('"--train-arch" "$TRAIN_ARCH"', launcher)
+        self.assertIn('require_autopilot_flag "--train-arch"', launcher)
 
     def test_outcome_target_env_is_wired(self) -> None:
         launcher = self._launcher()

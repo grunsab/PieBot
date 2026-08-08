@@ -33,6 +33,11 @@ INITIAL_ACTIVE_MODEL_BLEND_PERCENT="${INITIAL_ACTIVE_MODEL_BLEND_PERCENT:-25}"
 # empty strings.
 FRESH_INIT="${FRESH_INIT:-0}"
 
+# Training architecture: v1 = merged-perspective ReLU (PIENNQ01), v2 =
+# dual-perspective SCReLU per the standard NNUE design (PIENNQ02). v2
+# requires a fresh lineage (FRESH_INIT=1) because the feature set changes.
+TRAIN_ARCH="${TRAIN_ARCH:-v1}"
+
 VALIDATION_SHARD_SOURCE="${VALIDATION_SHARD_SOURCE:-$PRIOR_RUN_ROOT/bootstrap/validation/shard_000000.jsonl}"
 VALIDATION_JSONL_DIR="$BOOTSTRAP_DIR/validation"
 VALIDATION_SHARD="$VALIDATION_JSONL_DIR/shard_000000.jsonl"
@@ -316,6 +321,7 @@ require_autopilot_flag "--selfplay-actor-tt-mb"
 require_autopilot_flag "--selfplay-temperature-moves"
 require_autopilot_flag "--teacher-external-quant-file"
 require_autopilot_flag "--target-cp"
+require_autopilot_flag "--train-arch"
 verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
 verify_sha256 "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 verify_sha256 "$SELFPLAY_OPENINGS" "$OPENINGS_SHA256"
@@ -404,6 +410,7 @@ AUTOPILOT_ARGS+=(
   "--teacher-sample-fraction" "0.5"
   "--min-teacher-depth" "5"
   "--target-cp" "$TARGET_CP"
+  "--train-arch" "$TRAIN_ARCH"
   "--epochs" "$EPOCHS"
   "--batch-size" "$BATCH_SIZE"
   "--max-samples" "$MAX_SAMPLES"

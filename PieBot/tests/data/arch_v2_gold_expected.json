@@ -1,0 +1,32 @@
+{
+ "hidden": 4,
+ "qa": 255,
+ "qb": 64,
+ "scale": 400,
+ "positions": [
+  {
+   "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "eval_white_pov_cp": 29
+  },
+  {
+   "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 5 5",
+   "eval_white_pov_cp": -33
+  },
+  {
+   "fen": "r2q1rk1/1b2bppp/p2ppn2/1p6/3NP3/1BN5/PPP2PPP/R2Q1RK1 w - - 0 12",
+   "eval_white_pov_cp": 23
+  },
+  {
+   "fen": "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+   "eval_white_pov_cp": 21
+  },
+  {
+   "fen": "4k3/8/8/8/8/7r/4P3/4K3 b - - 0 1",
+   "eval_white_pov_cp": -27
+  },
+  {
+   "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+   "eval_white_pov_cp": 34
+  }
+ ]
+}

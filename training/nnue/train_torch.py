@@ -23,6 +23,16 @@ try:
 except Exception:
     import train_stub  # type: ignore
 
+try:
+    from . import features_v2
+except Exception:
+    import features_v2  # type: ignore
+
+
+def _fen_stm_is_white(fen: str) -> bool:
+    parts = fen.split()
+    return len(parts) < 2 or parts[1] == "w"
+
 
 def torch_available() -> bool:
     return torch is not None
@@ -58,6 +68,31 @@ class TorchNnue(torch.nn.Module):  # type: ignore[misc]
         h = self.embed(flat_idx, offsets) + self.b1
         h = torch.relu(h)
         return self.out(h).squeeze(1)
+
+
+class TorchNnueV2(torch.nn.Module):  # type: ignore[misc]
+    """Arch-v2: dual-perspective shared feature transformer + SCReLU head.
+
+    Batches pack two bags per sample (side-to-move first, then opponent), so
+    `offsets` has 2*B entries and the embedded bags reshape to (B, 2*hidden)
+    with the stm half first. Output is side-to-move-relative centipawns:
+    `wdl_scale * (linear over concatenated SCReLU accumulators)`, matching
+    the engine's integer head `(sum + b2) * SCALE / (QA^2 * QB)`.
+    """
+
+    def __init__(self, input_dim: int, hidden_dim: int, wdl_scale: float) -> None:
+        super().__init__()
+        self.embed = torch.nn.EmbeddingBag(input_dim, hidden_dim, mode="sum", sparse=False)
+        self.b1 = torch.nn.Parameter(torch.zeros(hidden_dim))
+        self.out = torch.nn.Linear(2 * hidden_dim, 1)
+        self.wdl_scale = float(wdl_scale)
+
+    def forward(self, flat_idx: "torch.Tensor", offsets: "torch.Tensor") -> "torch.Tensor":
+        h = self.embed(flat_idx, offsets) + self.b1
+        h = torch.clamp(h, 0.0, 1.0)
+        h = h * h
+        h = h.view(-1, 2 * self.b1.numel())
+        return self.wdl_scale * self.out(h).squeeze(1)
 
 
 _DIRECT_CHECKPOINT_FORMATS = {
@@ -115,6 +150,7 @@ def _load_initial_checkpoint(
     device: "torch.device",
     objective: Dict[str, Any],
     weights_only: bool = False,
+    arch: str = "v1",
 ) -> Dict[str, Any]:
     path = Path(checkpoint_path)
     if not path.is_file():
@@ -126,7 +162,12 @@ def _load_initial_checkpoint(
     if not isinstance(checkpoint, dict):
         raise ValueError("initial checkpoint must be a JSON object")
     checkpoint_format = checkpoint.get("format")
-    if checkpoint_format not in _DIRECT_CHECKPOINT_FORMATS:
+    allowed_formats = (
+        {"piebot-halfkp-dp-screlu-v1-torch"}
+        if arch == "v2"
+        else _DIRECT_CHECKPOINT_FORMATS
+    )
+    if checkpoint_format not in allowed_formats:
         raise ValueError(f"unsupported initial checkpoint format: {checkpoint_format!r}")
     if int(checkpoint.get("input_dim", 0)) != int(input_dim):
         raise ValueError(
@@ -139,9 +180,12 @@ def _load_initial_checkpoint(
             f"got {checkpoint.get('hidden_dim')}"
         )
     checkpoint_feature_set = checkpoint.get("feature_set")
-    if checkpoint_feature_set != train_stub.FEATURE_SET:
+    expected_feature_set = (
+        features_v2.FEATURE_SET_V2 if arch == "v2" else train_stub.FEATURE_SET
+    )
+    if checkpoint_feature_set != expected_feature_set:
         raise ValueError(
-            f"initial checkpoint feature_set mismatch: expected {train_stub.FEATURE_SET!r}, "
+            f"initial checkpoint feature_set mismatch: expected {expected_feature_set!r}, "
             f"got {checkpoint_feature_set!r}"
         )
     checkpoint_target_schema = checkpoint.get("target_schema")
@@ -157,10 +201,11 @@ def _load_initial_checkpoint(
     if objective_transition and not weights_only:
         raise ValueError("initial checkpoint objective does not match this training run")
 
+    out_width = 2 * hidden_dim if arch == "v2" else hidden_dim
     expected_lengths = {
         "w1": input_dim * hidden_dim,
         "b1": hidden_dim,
-        "w2": hidden_dim,
+        "w2": out_width,
     }
     values: Dict[str, List[float]] = {}
     for key, expected_len in expected_lengths.items():
@@ -215,7 +260,7 @@ def _load_initial_checkpoint(
             w1_tensor.view(hidden_dim, input_dim).transpose(0, 1)
         )
         model.b1.copy_(b1_tensor)
-        model.out.weight.copy_(w2_tensor.view(1, hidden_dim))
+        model.out.weight.copy_(w2_tensor.view(1, out_width))
         model.out.bias.copy_(b2_tensor)
 
     optimizer_state = checkpoint.get("optimizer_state")
@@ -474,9 +519,16 @@ def _pack_batch(
     offsets: List[int] = []
     ofs = 0
     for feats in batch_feats:
-        offsets.append(ofs)
-        flat.extend(int(x) for x in feats)
-        ofs += len(feats)
+        if isinstance(feats, tuple):
+            # Arch-v2 row: (stm_bag, opponent_bag) — two offsets per sample.
+            for half in feats:
+                offsets.append(ofs)
+                flat.extend(int(x) for x in half)
+                ofs += len(half)
+        else:
+            offsets.append(ofs)
+            flat.extend(int(x) for x in feats)
+            ofs += len(feats)
     flat_t = torch.tensor(flat, dtype=torch.long, device=device)
     offsets_t = torch.tensor(offsets, dtype=torch.long, device=device)
     targets_t = torch.tensor(batch_targets, dtype=torch.float32, device=device)
@@ -605,9 +657,17 @@ def train_model(
     validation_seed: int = 20_260_802,
     validation_require_teacher: bool = False,
     initial_optimizer_state: Optional[Path] = None,
+    arch: str = "v1",
+    quant_qa: int = 255,
+    quant_qb: int = 64,
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
+    arch = str(arch).lower()
+    if arch not in {"v1", "v2"}:
+        raise ValueError("arch must be v1 or v2")
+    quant_qa = max(1, int(quant_qa))
+    quant_qb = max(1, int(quant_qb))
     initial_checkpoint_weights_only = bool(initial_checkpoint_weights_only)
     if initial_checkpoint_weights_only and initial_optimizer_state is not None:
         raise ValueError(
@@ -684,7 +744,10 @@ def train_model(
         teacher_sample_fraction=teacher_sample_fraction,
         min_teacher_depth=min_teacher_depth,
     ):
-        xs.append(feats)
+        if arch == "v2":
+            xs.append(features_v2.stm_ordered(record.fen))
+        else:
+            xs.append(feats)
         validation_group_identities.append(
             train_stub._validation_group_identity(record)
         )
@@ -701,6 +764,10 @@ def train_model(
             min_teacher_depth=min_teacher_depth,
             wdl_scale_cp=wdl_scale_cp,
         )
+        if arch == "v2" and not _fen_stm_is_white(record.fen):
+            # Stored labels are white-POV; the v2 network is stm-relative.
+            cp = -cp
+            probability = 1.0 - probability
         ys_cp.append(cp)
         ys_wdl.append(probability)
         if record.best_move:
@@ -801,7 +868,10 @@ def train_model(
                 validation_raw_teacher_value_available += 1
             if train_stub._teacher_available(record, min_teacher_depth):
                 validation_teacher_value_available += 1
-            reference_val_x.append(feats)
+            if arch == "v2":
+                reference_val_x.append(features_v2.stm_ordered(record.fen))
+            else:
+                reference_val_x.append(feats)
             cp, probability = train_stub._targets_for_record(
                 record,
                 loss_kind=loss_kind,
@@ -812,6 +882,9 @@ def train_model(
                 min_teacher_depth=min_teacher_depth,
                 wdl_scale_cp=wdl_scale_cp,
             )
+            if arch == "v2" and not _fen_stm_is_white(record.fen):
+                cp = -cp
+                probability = 1.0 - probability
             reference_val_y_cp.append(cp)
             reference_val_y_wdl.append(probability)
         if not reference_val_x:
@@ -828,8 +901,16 @@ def train_model(
         validation_sample_sha256 = validation_digest.hexdigest()
     reference_val_count = len(reference_val_x)
 
-    input_dim = train_stub.HALFKP_DIM
-    model = TorchNnue(input_dim=input_dim, hidden_dim=hidden_dim).to(dev)
+    if arch == "v2":
+        input_dim = features_v2.PER_PERSPECTIVE_DIM
+        model = TorchNnueV2(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            wdl_scale=wdl_scale_cp,
+        ).to(dev)
+    else:
+        input_dim = train_stub.HALFKP_DIM
+        model = TorchNnue(input_dim=input_dim, hidden_dim=hidden_dim).to(dev)
     initialized_from = None
     if initial_checkpoint is not None:
         initialized_from = _load_initial_checkpoint(
@@ -840,6 +921,7 @@ def train_model(
             device=dev,
             objective=objective,
             weights_only=initial_checkpoint_weights_only,
+            arch=arch,
         )
     opt = torch.optim.Adam(
         model.parameters(),
@@ -1012,6 +1094,12 @@ def train_model(
             if grad_clip > 0.0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), float(grad_clip))
             opt.step()
+            if arch == "v2":
+                # Keep output weights representable as int8 at QB so the
+                # quantized model is faithful to the trained one.
+                with torch.no_grad():
+                    limit = 127.0 / float(quant_qb)
+                    model.out.weight.clamp_(-limit, limit)
 
         (
             tr_loss,
@@ -1203,10 +1291,19 @@ def train_model(
     b2 = float(model.out.bias.detach().cpu().item())
 
     checkpoint = {
-        "format": "piebot-halfkp-mse-v2-torch",
-        "feature_set": train_stub.FEATURE_SET,
+        "format": (
+            "piebot-halfkp-dp-screlu-v1-torch"
+            if arch == "v2"
+            else "piebot-halfkp-mse-v2-torch"
+        ),
+        "feature_set": (
+            features_v2.FEATURE_SET_V2 if arch == "v2" else train_stub.FEATURE_SET
+        ),
         "target_schema": train_stub.TARGET_SCHEMA,
         "objective": objective,
+        "arch": arch,
+        "quant_qa": quant_qa,
+        "quant_qb": quant_qb,
         "input_dim": input_dim,
         "hidden_dim": hidden_dim,
         "w1": w1,
@@ -1447,6 +1544,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     ap.add_argument("--initial-optimizer-state", type=Path, default=None)
     ap.add_argument("--hidden-dim", type=int, default=64)
+    ap.add_argument(
+        "--arch",
+        choices=("v1", "v2"),
+        default="v1",
+        help="v2 = dual-perspective SCReLU (standard NNUE design)",
+    )
+    ap.add_argument("--quant-qa", type=int, default=255)
+    ap.add_argument("--quant-qb", type=int, default=64)
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
     ap.add_argument("--max-teacher-cp", type=float, default=1500.0)
@@ -1478,6 +1583,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         val_split=args.val_split,
         learning_rate=args.learning_rate,
         hidden_dim=args.hidden_dim,
+        arch=args.arch,
+        quant_qa=args.quant_qa,
+        quant_qb=args.quant_qb,
         target_cp=args.target_cp,
         teacher_mix=args.teacher_mix,
         max_teacher_cp=args.max_teacher_cp,

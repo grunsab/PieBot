@@ -17,6 +17,7 @@ from typing import Iterable
 
 MAGIC = b'PIENNUE1'
 Q_MAGIC = b'PIENNQ01'
+Q_MAGIC_V2 = b'PIENNQ02'
 
 def _pack_f32s(vals: Iterable[float]) -> bytes:
     return b''.join(struct.pack('<f', float(v)) for v in vals)
@@ -116,3 +117,72 @@ def write_quant_simple(
         f.write(w2)
         for v in b2_vals:
             f.write(struct.pack('<h', v))
+
+
+def write_quant_v2(
+    path: str,
+    *,
+    version: int = 1,
+    per_perspective_input_dim: int,
+    hidden_dim: int,
+    qa: int,
+    qb: int,
+    scale: int,
+    w1,  # i16 values, FEATURE-major: w1[idx*hidden : (idx+1)*hidden]
+    b1,  # i16 values, len hidden
+    w2,  # i8 values, len 2*hidden (side-to-move half first)
+    b2: int,  # i32, QA^2*QB domain
+) -> None:
+    """Write a PIENNQ02 dual-perspective SCReLU model.
+
+    Layout after the 8-byte magic (little-endian):
+    u32 version; u32 per_perspective_input_dim, u32 hidden_dim, u32 output_dim(=1);
+    i32 qa, i32 qb, i32 scale;
+    i16 w1[input*hidden] (feature-major); i16 b1[hidden];
+    i8 w2[2*hidden]; i32 b2.
+
+    Accepts lists or numpy int arrays; numpy is used for the bulk payloads
+    when available because w1 has tens of millions of entries.
+    """
+    import array
+
+    def _i16_bytes(vals, expect_len):
+        try:
+            import numpy as np
+
+            arr = np.asarray(vals, dtype=np.int16)
+            assert arr.size == expect_len, (arr.size, expect_len)
+            return arr.astype('<i2', copy=False).tobytes()
+        except ImportError:
+            import sys
+
+            buf = array.array('h', (int(v) for v in vals))
+            assert len(buf) == expect_len, (len(buf), expect_len)
+            if sys.byteorder == 'big':
+                buf.byteswap()
+            return buf.tobytes()
+
+    def _i8_bytes(vals, expect_len):
+        try:
+            import numpy as np
+
+            arr = np.asarray(vals, dtype=np.int8)
+            assert arr.size == expect_len, (arr.size, expect_len)
+            return arr.tobytes()
+        except ImportError:
+            out = bytes(((int(v) + 256) % 256) for v in vals)
+            assert len(out) == expect_len, (len(out), expect_len)
+            return out
+
+    w1_bytes = _i16_bytes(w1, per_perspective_input_dim * hidden_dim)
+    b1_bytes = _i16_bytes(b1, hidden_dim)
+    w2_bytes = _i8_bytes(w2, 2 * hidden_dim)
+    with open(path, 'wb') as f:
+        f.write(Q_MAGIC_V2)
+        f.write(struct.pack('<I', version))
+        f.write(struct.pack('<III', per_perspective_input_dim, hidden_dim, 1))
+        f.write(struct.pack('<iii', int(qa), int(qb), int(scale)))
+        f.write(w1_bytes)
+        f.write(b1_bytes)
+        f.write(w2_bytes)
+        f.write(struct.pack('<i', int(b2)))

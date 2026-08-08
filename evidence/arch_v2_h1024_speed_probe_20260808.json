@@ -1,0 +1,15 @@
+{
+  "date_utc": "2026-08-08",
+  "question": "Search speed of the arch-v2 dual-perspective hidden-1024 SCReLU backend vs the production v1 h64",
+  "method": "Interactive UCI, Threads 1, Hash 256, blend 100, go movetime 3000 on 4 positions x 2 rounds per net; NPS = nodes/wall. v2 net is random-weight PIENNQ02 (tree shape differs, so NPS not time-to-depth is the metric). Apple M-series, auto-vectorized scalar kernels, -C target-cpu=native.",
+  "results": {
+    "v1_h64_nps_median": 2366539,
+    "v2_h1024_nps_median": 545970,
+    "ratio": 0.231,
+    "slowdown_pct": 76.9,
+    "v1_depths_at_3s": [10, 8, 8, 10, 11, 9, 9, 11],
+    "v2_depths_at_3s": [7, 7, 6, 8, 8, 7, 6, 9]
+  },
+  "interpretation": "4.3x per-node cost, ~1.5-2 plies at equal time. This is the expected price of a 1024-wide accumulator on auto-vectorized scalar loops; every standard-design engine at this width pays it down with hand-written SIMD kernels (AVX2 on the box, NEON on Mac), which are now the top search-side priority. Teacher relabeling is node-capped so training-side cost scales only per-position; gate games at 150ms pay the full slowdown, so the v2 net must overcome roughly 100-150 Elo of speed penalty at the gate until SIMD lands.",
+  "artifacts": "generator scripts/experiments (v2 random net via exporter.write_quant_v2); probe script pattern in scripts/experiments/nps_bench.py adapted for PIENNQ02"
+}

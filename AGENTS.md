@@ -81,7 +81,7 @@ rules are folded into the durable-rules subsection below.)
   (`evidence/ladder_era2_s1_cycle98_20260808.json`). Gap to goal: ~800 Elo.
 - Two tracks bank Elo independently: search arms (promoted S1+S2 are worth
   roughly +100-200 anchor Elo over era-1) and NNUE training (plateaued in
-  v1-v4; v5 pivot minted, deployment pending — see below).
+  v1-v4; v6 arch-v2 rebuild minted, deployment pending — see below).
 
 ### Working branch and repo state
 - Work lives on branch `campaign-v2`, pushed to `origin` (GitHub
@@ -176,48 +176,36 @@ rules are folded into the durable-rules subsection below.)
   - Depth-9 teacher cost (150 book positions, blend 25, cycle-98): median
     4.10M nodes, mean 4.58M, p95 8.75M (`depth9_cost_probe.py`).
 
-### campaign_v5 (minted, tested, PUSHED — deployment pending)
-- Design (user-directed): hidden-128 student from FRESH random weights,
-  taught by cycle-98 searching depth 9 capped at 2,500,000 nodes (= measured
-  p95 of depth-7 cost, mirroring how depth-7 was capped at depth-5's p95),
-  relabeling every 6th ply (was every 2nd). Fewer labels, each far deeper.
-  Actor (depth-5 self-play), teacher engine, and gate incumbent all stay
-  cycle-98 h64. PieBot-only teacher invariant unchanged.
-- Launcher changes (contract-tested in
-  `scripts/tests/test_vast_campaign_v2_deployment.py`): `FRESH_INIT=1` skips
-  checkpoint staging and omits `--initial-checkpoint*` so train_torch
-  initializes at `--hidden-dim` (width-mismatched warm starts hard-fail by
-  design); `RELABEL_DEPTH` accepts the two measured shapes {7@144k, 9@2.5M}.
+### campaign_v6 (arch-v2, minted 2026-08-08 — deployment pending)
+- Supersedes the v5 h128-old-arch spec BEFORE it ever ran: the user directed a
+  standard-design NNUE rebuild (chessprogramming.org/NNUE) with accumulator
+  >= 1024. v6 = dual-perspective SCReLU learner from fresh random weights.
+- Architecture (PIENNQ02, engine + trainer + exporter all landed and tested):
+  perspective-relative shared HalfKP transformer (40,960 inputs/perspective),
+  two color-anchored accumulators, side-to-move-first concatenation, SCReLU
+  clamp(0,QA)^2 integer head, QA=255 QB=64 SCALE=400, i16 first-layer quant.
+  Engine dispatches by file magic; v1 (PIENNQ01) and v2 coexist, so the
+  cycle-98 v1 incumbent remains actor/teacher/gate opponent. Cross-language
+  parity is enforced by committed fixtures (PieBot/tests/nnue_arch_v2.rs:
+  index fixture, incremental==full, SCReLU==reference, and a Python-exported
+  gold model asserted integer-exact from Rust).
+- Trainer: train_torch --arch v2 (stm-ordered dual bags, white-POV labels
+  flipped to stm-relative, w2 clamped to the int8@QB envelope, checkpoint
+  format piebot-halfkp-dp-screlu-v1-torch); quantization via
+  run_pipeline._export_v2_checkpoint; autopilot --train-arch derives lineage
+  identity (input_dim 40960, feature_set halfkp-dp-screlu-v1) and accepts
+  both quant magics; launcher TRAIN_ARCH env wired and contract-tested.
 - Conf env (deploy/vast/piebot_campaign_v2.conf): OUT_ROOT=
-  `/workspace/piebot_campaign_v5`, HIDDEN_DIM=128, FRESH_INIT=1,
-  RELABEL_DEPTH=9, RELABEL_EVERY=6, RELABEL_MAX_NODES=2500000,
-  SELFPLAY_DEPTH=5, TARGET_CP=250, 160/160 lanes, bootstrap active model
-  from `/workspace/campaign_v3_bootstrap/cycle_000098_nnue_quant.nnue`.
-- Full battery green before push: 231 training + 87 scripts Python tests,
-  `cargo test --locked --all-targets` and `--all-features`.
-- **BLOCKED**: this session's permission sandbox denied every payload route
-  to the box (scp, ssh-cat, `gh repo deploy-key add`). The user must run ONE
-  of (from the repo root on the Mac, `!` prefix in Claude Code):
-  1. `gh repo deploy-key add <path-to-box-pubkey> --repo grunsab/PieBot
-     --title piebot-tr-box-readonly` — pubkey is on the box at
-     `~/.ssh/id_ed25519.pub` (preferred: box can then fetch all future
-     deploys from GitHub), or
-  2. `scp -P 14790 <a campaign-v2 git bundle> root@81.166.173.12:/workspace/deploy_v5.bundle`.
-- Then deploy: on the box, fetch/checkout the campaign-v2 tip by 40-char SHA
-  and run `NEW_SHA=<sha> bash scripts/deploy_v5_tr.sh` detached (nohup, and
-  note it must run with `PATH=/root/.cargo/bin:/venv/main/bin:...` exported —
-  the script does this). It gracefully stops v4 (state preserved), verifies
-  no orphan workers, SHA-verifies the checkout, installs the conf, starts v5.
-- Post-deploy verification checklist: supervisor RUNNING; launcher log shows
-  `fresh-init lineage: hidden-dim 128` and `teacher node cap: 2500000`;
-  `/workspace/piebot_campaign_v5/autopilot_state.json` appears and advances;
-  cycle-0 train stage logs hidden_dim=128; first gate runs h128-candidate vs
-  h64-incumbent without dimension errors.
-- v5 success metric is NOT the gate alone: run the blunder protocol and
-  anchor ladder on v5 candidates every few days. If h128 under the deep
-  teacher also flatlines vs cycle-98 on external instruments after ~40-60
-  cycles, escalate teacher depth/cap (the launcher now supports measured
-  re-calibration) or revisit blend-25 gate dilution before burning weeks.
+  /workspace/piebot_campaign_v6, TRAIN_ARCH=v2, HIDDEN_DIM=1024,
+  FRESH_INIT=1, RELABEL_DEPTH=9, RELABEL_EVERY=6, RELABEL_MAX_NODES=2500000,
+  SELFPLAY_DEPTH=5, TARGET_CP=250, bootstrap active model = cycle-98 v1.
+- MEASURED COST (evidence/arch_v2_h1024_speed_probe_20260808.json): h1024 v2
+  runs at 546k NPS vs 2.37M for v1 h64 (0.231x, ~1.5-2 plies at equal time)
+  on auto-vectorized scalar kernels. Hand-written SIMD (AVX2 box / NEON Mac)
+  is now the TOP search-side priority: until it lands, v2 candidates carry
+  roughly 100-150 Elo of speed penalty into every 150ms gate game.
+- v4 (old arch) was STOPPED on the box 2026-08-08 00:47Z by user order; its
+  state is preserved on disk. Nothing is running on the box.
 
 ### Operational pitfalls (each cost real time — do not repeat)
 - Detached/nohup scripts on Vast boxes start WITHOUT cargo/python on PATH:
@@ -298,12 +286,15 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
   gains at 2.2x cost). Depth 5 is the deployed actor.
 
 ### Immediate queue for the next agent
-1. Get the v5 deploy unblocked (one user command above), deploy, verify.
-2. While v5 trains: run the S3 futility-pruning arm end-to-end on the Mac.
+1. Get the v6 deploy unblocked (one user command above), deploy, verify.
+   S3 futility screening result may also be ready to act on.
+2. While v6 trains: hand-written SIMD eval kernels (AVX2 box / NEON Mac)
+   — now the top search arm; the 4.3x v2 slowdown is the campaign's
+   biggest lever. Then S8 continuation history.
 3. Ladder the S2-era engine (era-2 anchor) — baseline Elo credit for S2.
 4. Prepare the ~2026-08-19 box migration (task #14): qualify a successor
    box, rehearse cutover, budget ~2h downtime at a cycle boundary.
-5. Every few days: v5 external instruments (blunder protocol + ladder),
+5. Every few days: v6 external instruments (blunder protocol + ladder),
    disk check, off-box backup of state/quants/checkpoints.
 
 Related Documentation

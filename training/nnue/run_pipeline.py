@@ -92,6 +92,87 @@ def _identity_w1(input_dim: int) -> List[float]:
     return out
 
 
+def _export_v2_checkpoint(
+    checkpoint: Dict[str, Any],
+    *,
+    quant_path: Path,
+) -> Dict[str, Any]:
+    """Quantize an arch-v2 checkpoint to PIENNQ02.
+
+    Mapping (mirrors the engine's integer head, verified by
+    PieBot/tests/nnue_arch_v2.rs): w1_q = round(w1_f * QA) as i16 feature-major,
+    b1_q = round(b1_f * QA) as i16, w2_q = round(w2_f * QB) as i8 (training
+    clamps w2_f to +/-127/QB), b2_q = round(b2_f * QA^2 * QB) as i32,
+    eval_cp = (sum(clamp(acc,0,QA)^2 * w2_q) + b2_q) * SCALE / (QA^2 * QB).
+    """
+    input_dim = int(checkpoint["input_dim"])
+    hidden_dim = int(checkpoint["hidden_dim"])
+    qa = int(checkpoint.get("quant_qa", 255))
+    qb = int(checkpoint.get("quant_qb", 64))
+    scale = int(round(float(checkpoint.get("wdl_scale_cp", 400.0))))
+    w1 = checkpoint["w1"]  # row-major [hidden][input]
+    b1 = checkpoint["b1"]
+    w2 = checkpoint["w2"]  # len 2*hidden, stm half first
+    b2 = float(checkpoint["b2"])
+    if len(w1) != input_dim * hidden_dim:
+        raise ValueError("v2 checkpoint w1 size mismatch")
+    if len(b1) != hidden_dim:
+        raise ValueError("v2 checkpoint b1 size mismatch")
+    if len(w2) != 2 * hidden_dim:
+        raise ValueError("v2 checkpoint w2 size mismatch")
+
+    try:
+        import numpy as np
+
+        w1_q = np.clip(
+            np.rint(
+                np.asarray(w1, dtype=np.float64).reshape(hidden_dim, input_dim).T * qa
+            ),
+            -32768,
+            32767,
+        ).astype(np.int16)
+        b1_q = np.clip(
+            np.rint(np.asarray(b1, dtype=np.float64) * qa), -32768, 32767
+        ).astype(np.int16)
+        w2_q = np.clip(
+            np.rint(np.asarray(w2, dtype=np.float64) * qb), -128, 127
+        ).astype(np.int8)
+    except ImportError:
+        w1_q = [0] * (input_dim * hidden_dim)
+        for h in range(hidden_dim):
+            for i in range(input_dim):
+                w1_q[i * hidden_dim + h] = _clamp_int(
+                    float(w1[h * input_dim + i]) * qa, -32768, 32767
+                )
+        b1_q = [_clamp_int(float(v) * qa, -32768, 32767) for v in b1]
+        w2_q = [_clamp_int(float(v) * qb, -128, 127) for v in w2]
+    b2_q = _clamp_int(b2 * qa * qa * qb, -(2**31), 2**31 - 1)
+
+    quant_path.parent.mkdir(parents=True, exist_ok=True)
+    exporter.write_quant_v2(
+        str(quant_path),
+        per_perspective_input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        qa=qa,
+        qb=qb,
+        scale=scale,
+        w1=w1_q,
+        b1=b1_q,
+        w2=w2_q,
+        b2=b2_q,
+    )
+    return {
+        "input_dim": input_dim,
+        "hidden_dim": hidden_dim,
+        "arch": "v2",
+        "qa": qa,
+        "qb": qb,
+        "scale": scale,
+        "export_mode": "direct-v2",
+        "quant_format": "PIENNQ02",
+    }
+
+
 def export_checkpoint_as_nnue(
     checkpoint: Dict[str, Any],
     *,
@@ -99,6 +180,8 @@ def export_checkpoint_as_nnue(
     quant_path: Path,
     cp_scale: float = 100.0,
 ) -> Dict[str, Any]:
+    if checkpoint.get("arch") == "v2":
+        return _export_v2_checkpoint(checkpoint, quant_path=quant_path)
     if all(k in checkpoint for k in ("w1", "b1", "w2", "b2", "hidden_dim", "input_dim")):
         input_dim = int(checkpoint.get("input_dim", 0))
         hidden_dim = int(checkpoint.get("hidden_dim", 0))
@@ -1385,6 +1468,7 @@ def run_pipeline(
     val_split: float = 0.1,
     learning_rate: float = 0.05,
     hidden_dim: int = 16,
+    train_arch: str = "v1",
     target_cp: float = 100.0,
     teacher_mix: float = 0.7,
     max_teacher_cp: float = 1500.0,
@@ -1661,6 +1745,9 @@ def run_pipeline(
         huber_delta_cp=huber_delta_cp,
         wdl_scale_cp=wdl_scale_cp,
     )
+    train_arch = str(train_arch).lower()
+    if train_arch not in {"v1", "v2"}:
+        raise ValueError(f"unsupported train_arch: {train_arch!r}")
     training_config: Dict[str, Any] = {
         "batch_size": batch_size,
         "max_samples": max_samples,
@@ -1692,6 +1779,9 @@ def run_pipeline(
         "validation_seed": validation_seed,
         "seed": seed,
     }
+    if train_arch != "v1":
+        # Conditional key preserves the legacy v1 stage identity byte-for-byte.
+        training_config["arch"] = train_arch
     initial_checkpoint_info = _initial_checkpoint_provenance(initial_checkpoint)
     training_provenance_config = {
         **training_config,
@@ -1741,6 +1831,8 @@ def run_pipeline(
             **training_config,
             "out_dir": train_out,
         }
+        if train_arch == "v2" and resolved_backend != "torch":
+            raise ValueError("train_arch v2 requires the torch trainer backend")
         if resolved_backend == "torch":
             train_torch.train_model(  # type: ignore[union-attr]
                 device=trainer_device,
@@ -1957,6 +2049,7 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     ap.add_argument("--hidden-dim", type=int, default=16)
+    ap.add_argument("--train-arch", choices=("v1", "v2"), default="v1")
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
     ap.add_argument("--max-teacher-cp", type=float, default=1500.0)
@@ -2059,6 +2152,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         val_split=args.val_split,
         learning_rate=args.learning_rate,
         hidden_dim=args.hidden_dim,
+        train_arch=args.train_arch,
         target_cp=args.target_cp,
         teacher_mix=args.teacher_mix,
         max_teacher_cp=args.max_teacher_cp,
