@@ -141,13 +141,19 @@ rules are folded into the durable-rules subsection below.)
   at 150 ms noise 12/top-5 paired, 1000-game confirmation, promote only if
   paired-bootstrap 95% LCB > 0).
 - Banked: S1 interior PVS + TT-move-first ordering (+0.206 mean pair delta,
-  1000g) and S2 reverse futility pruning (+0.12, CI [+0.058, +0.184], 1000g).
-  S5 log-log LMR shelved (flat). Evidence in `evidence/`.
-- Build-verification practice: the matein3 acceptance run is deterministic;
-  the post-S2 baseline `accept` signature is 20117448 total nodes. Use node
+  1000g), S2 reverse futility pruning (+0.12, CI [+0.058, +0.184], 1000g),
+  and S3 futility pruning (2026-08-08: +0.058, bootstrap CI [+0.012, +0.104],
+  52.9%, ~+20 Elo, 1000g on the box). S5 log-log LMR shelved (flat).
+  Evidence in `evidence/`. S3 is IN THE REPO BUT NOT ON THE BOX: v6 is
+  pinned mid-lineage, so it ships at the next lineage boundary or the
+  ~2026-08-19 migration.
+- Build-verification practice: the matein3 acceptance run is deterministic.
+  Post-S3 baseline `accept` signature is 20110404 nodes (post-S2 was
+  20117448); `accept_temp` is 20213662. accept and accept_temp use
+  different option sets, so compare each against its own history. Use node
   signatures to prove a remote box actually rebuilt your code.
-- Queue (in order): S3 futility pruning (child-level, the alpha-side sibling
-  of S2), AVX2 eval kernels (box-only; also shrinks the h128 cost), S8
+- Queue (in order): hand-written SIMD eval kernels (AVX2 box / NEON Mac) —
+  top priority, since arch-v2 h1024 runs at 0.231x v1 NPS; then S8
   continuation history. `PieBot/src/search/alphabeta_temp.rs` is currently
   the re-export stub — clean start.
 

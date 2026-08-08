@@ -1,0 +1,42 @@
+{
+  "arm": "S3",
+  "name": "futility pruning (child-level, alpha-side sibling of S2 RFP)",
+  "date_utc": "2026-08-08",
+  "change": "At depth <= 3, a quiet non-checking move whose parent static eval plus a depth-scaled margin (120/200/280 cp for depth 1/2/3) cannot reach alpha is skipped before paying eval-update and child-search costs. The first move is always searched; mate windows, in-check parents, captures, and promotions are exempt. Reuses the lazily-computed static eval already shared by null-move and RFP.",
+  "acceptance": {
+    "matein3_depth7_threads1": "91/91 both engines, before and after promotion",
+    "baseline_node_signature_before": 20117448,
+    "baseline_node_signature_after": 20110404,
+    "accept_temp_node_signature": 20213662,
+    "note": "accept and accept_temp configure different search option sets, so their node counts differ even when running identical code; compare each against its own recorded history."
+  },
+  "screen_400_games_mac": {
+    "conditions": "150 ms/move, noise 12 plies / top-5, threads 1, paired colors",
+    "baseline_wins": 82,
+    "experimental_wins": 121,
+    "draws": 197,
+    "mean_game_delta": 0.0975,
+    "avg_depth_baseline": 7.83,
+    "avg_depth_experimental": 7.94
+  },
+  "confirmation_1000_games_tr_box": {
+    "conditions": "150 ms/move, noise 12 plies / top-5, threads 1, 12 concurrent pair workers, seed 20260808, binaries verified by matein3 node signature before the run",
+    "wall_time_s": 15143.5,
+    "baseline_wins": 242,
+    "experimental_wins": 300,
+    "draws": 458,
+    "experimental_score_pct": 52.9,
+    "mean_game_delta": 0.058,
+    "bootstrap_95_ci": [0.012, 0.104],
+    "normal_95_ci": [0.0125, 0.1035],
+    "elo_estimate": 20.2,
+    "avg_depth_baseline": 7.39,
+    "avg_depth_experimental": 7.5,
+    "avg_nps_baseline": 2060345,
+    "avg_nps_experimental": 1920027,
+    "statistics_caveat": "The per-game log was truncated by a tail pipe, so the pair-level bootstrap could not be run; the reported CI is the game-level (unpaired) bootstrap over 20,000 resamples, which is CONSERVATIVE relative to the paired statistic (pairing removes opening variance). The lower bound clears zero under the conservative test, so the paired lower bound clears by at least as much."
+  },
+  "decision": "PROMOTED into PieBot/src/search/alphabeta.rs; alphabeta_temp.rs reset to the re-export stub; the arm test (tests/futility_search.rs) retired with the promotion, per the S2 precedent.",
+  "deployment_note": "NOT deployed to the box while campaign_v6 is pinned and running (mid-lineage engine changes are forbidden: they would alter actor data quality, teacher label quality, and gate strength simultaneously). S3 goes live on the box at the next lineage boundary or at the ~2026-08-19 box migration.",
+  "banked_search_arms": ["S1 interior PVS + TT-move-first ordering", "S2 reverse futility pruning", "S3 futility pruning"]
+}

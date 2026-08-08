@@ -1209,6 +1209,28 @@ impl Searcher {
         for (idx, m) in moves.into_iter().enumerate() {
             let mut child = board.clone();
             child.play_unchecked(m);
+            let gives_check = !(child.checkers()).is_empty();
+            // Futility pruning: at shallow depth, a quiet non-checking move
+            // whose parent static eval plus a depth-scaled margin still cannot
+            // reach alpha is skipped before paying eval-update and child-search
+            // costs. The first move is always searched; mate windows and
+            // in-check parents are exempt.
+            if self.use_nullmove
+                && idx > 0
+                && depth <= 3
+                && !gives_check
+                && alpha.abs() < MATE_TT_THRESHOLD
+                && beta.abs() < MATE_TT_THRESHOLD
+                && board.checkers().is_empty()
+                && !self.is_capture(board, m)
+                && m.promotion.is_none()
+            {
+                const FUTILITY_MARGIN: [i32; 4] = [0, 120, 200, 280];
+                let eval = *static_eval.get_or_insert_with(|| self.eval_current(board));
+                if eval + FUTILITY_MARGIN[depth as usize] <= alpha {
+                    continue;
+                }
+            }
             let mut change = None;
             if self.use_nnue {
                 if let Some(qn) = self.nnue_quant.as_mut() {
@@ -1216,7 +1238,6 @@ impl Searcher {
                 }
             }
             self.search_history.push(child.clone());
-            let gives_check = !(child.checkers()).is_empty();
             let ext = if gives_check { 1 } else { 0 };
             // Principal variation search: the first move is searched with the
             // full window; every later move is scouted with a zero window
