@@ -154,6 +154,10 @@ rules are folded into the durable-rules subsection below.)
 ### NNUE training: lineage history and diagnosis
 - v1 (original 72h run, old box): promoted cycles 94 and 98, then 66 cycles
   of nothing. Cycle-98 at blend 25 is STILL the active/incumbent model.
+- RETRO-DIAGNOSIS (2026-08-08): v4 ran with min_teacher_depth == actor
+  depth 5, so every non-relabeled row's actor self-label counted as a
+  teacher label at 0.8 mix - the actor was substantially its own teacher,
+  a plausible hidden contributor to the v4 regression below.
 - campaign_v2 (data fixes: opening book, adjudication, actor budget):
   25 cycles, 0 promotions. campaign_v3 (C8: diverged learner as teacher):
   26 cycles, 0 promotions — the fixed point re-formed one level up (epoch-0
@@ -198,7 +202,11 @@ rules are folded into the durable-rules subsection below.)
 - Conf env (deploy/vast/piebot_campaign_v2.conf): OUT_ROOT=
   /workspace/piebot_campaign_v6, TRAIN_ARCH=v2, HIDDEN_DIM=1024,
   FRESH_INIT=1, RELABEL_DEPTH=9, RELABEL_EVERY=6, RELABEL_MAX_NODES=2500000,
-  SELFPLAY_DEPTH=5, TARGET_CP=250, bootstrap active model = cycle-98 v1.
+  SELFPLAY_DEPTH=5, MIN_TEACHER_DEPTH=6, TEACHER_SAMPLE_FRACTION=0.15,
+  TARGET_CP=250, bootstrap active model = cycle-98 v1. The teacher-depth
+  floor MUST exceed the actor depth (launcher-enforced): self-play stamps
+  teacher_depth = actor depth on every row, so equality lets actor
+  self-labels masquerade as teacher labels.
 - MEASURED COST (evidence/arch_v2_h1024_speed_probe_20260808.json): h1024 v2
   runs at 546k NPS vs 2.37M for v1 h64 (0.231x, ~1.5-2 plies at equal time)
   on auto-vectorized scalar kernels. Hand-written SIMD (AVX2 box / NEON Mac)
