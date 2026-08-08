@@ -82,6 +82,18 @@ class ExportV2Tests(unittest.TestCase):
             expected_len = 36 + 2 * input_dim * hidden + 2 * hidden + 2 * hidden + 4
             self.assertEqual(len(raw), expected_len)
 
+    def test_checkpoint_dimensions_accepts_v2_double_width_head(self) -> None:
+        # 2026-08-08 cycle-1 incident: the legacy dimension validator required
+        # len(w2) == hidden and crash-looped the first v6 training cycle.
+        from training.nnue.run_pipeline import _checkpoint_dimensions
+
+        ckpt = self._tiny_checkpoint(hidden=2)
+        self.assertEqual(_checkpoint_dimensions(ckpt), (40_960, 2, 1))
+        bad = dict(ckpt)
+        bad["w2"] = [1.0, -1.0]  # v1-width head on a v2 checkpoint
+        with self.assertRaises(ValueError):
+            _checkpoint_dimensions(bad)
+
     def test_export_rejects_size_mismatches(self) -> None:
         bad = self._tiny_checkpoint()
         bad["w2"] = [1.0]  # must be 2 * hidden

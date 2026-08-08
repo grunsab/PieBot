@@ -861,7 +861,9 @@ def _checkpoint_dimensions(checkpoint: Dict[str, Any]) -> Tuple[int, int, int]:
             raise ValueError("checkpoint w1 size mismatch")
         if not isinstance(b1, list) or len(b1) != hidden_dim:
             raise ValueError("checkpoint b1 size mismatch")
-        if not isinstance(w2, list) or len(w2) != hidden_dim:
+        # Arch-v2 concatenates two perspective accumulators into the head.
+        out_width = 2 * hidden_dim if checkpoint.get("arch") == "v2" else hidden_dim
+        if not isinstance(w2, list) or len(w2) != out_width:
             raise ValueError("checkpoint w2 size mismatch")
         for label, values in (("w1", w1), ("b1", b1), ("w2", w2)):
             try:
