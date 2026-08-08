@@ -200,6 +200,37 @@ class SourceCommitMigrationTests(unittest.TestCase):
 
         self.assertEqual(self.old_commit, self.pin_path.read_text(encoding="utf-8").strip())
 
+    def test_fresh_lineage_without_checkpoint_migrates(self) -> None:
+        # A new lineage before its first completed cycle has a null learner
+        # checkpoint by design (2026-08-08: v6 mid-cycle fixes were blocked
+        # because the tool demanded one). Migration must proceed and record
+        # explicit fresh-lineage evidence.
+        self.state["training_checkpoint_path"] = None
+        self.state.pop("training_checkpoint_sha256", None)
+        self.state["completed_cycles"] = []
+        self.state["next_cycle"] = 1
+        self.state["current_cycle"] = {"cycle": 1, "status": "running"}
+        self._write_state()
+
+        result = self._migrate()
+        self.assertEqual("migrated", result.status)
+        audit = json.loads(result.audit_path.read_text(encoding="utf-8"))
+        self.assertIs(audit["training_checkpoint"]["fresh_lineage"], True)
+        self.assertIsNone(audit["training_checkpoint"]["path"])
+        self.assertEqual(
+            self.pin_path.read_text(encoding="utf-8").strip(),
+            self.new_commit,
+        )
+
+    def test_mature_state_missing_checkpoint_still_refuses(self) -> None:
+        self.state["training_checkpoint_path"] = None
+        self._write_state()
+
+        with self.assertRaisesRegex(
+            migration.MigrationError, "training checkpoint path is missing"
+        ):
+            self._migrate()
+
     def test_refuses_preserved_artifact_outside_run_root(self) -> None:
         outside = self.root / "outside-checkpoint.json"
         outside.write_text('{"weights": "outside"}\n', encoding="utf-8")

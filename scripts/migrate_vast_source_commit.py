@@ -292,13 +292,27 @@ def _snapshot(
 ) -> dict[str, Any]:
     state, state_sha256 = _load_state(state_path)
     position = _state_position(state)
-    checkpoint = _verified_state_artifact(
-        state,
-        out_root=out_root,
-        path_key="training_checkpoint_path",
-        sha_key="training_checkpoint_sha256",
-        label="training checkpoint",
-    )
+    completed_cycles = state.get("completed_cycles") or []
+    raw_checkpoint = state.get("training_checkpoint_path")
+    if raw_checkpoint in (None, "") and not completed_cycles:
+        # A fresh lineage before its first completed cycle legitimately has
+        # no learner checkpoint yet: there is nothing to preserve or verify.
+        # A mature state missing its checkpoint is still a hard refusal.
+        checkpoint: dict[str, Any] = {
+            "path": None,
+            "sha256": None,
+            "stored_sha256": None,
+            "verified": True,
+            "fresh_lineage": True,
+        }
+    else:
+        checkpoint = _verified_state_artifact(
+            state,
+            out_root=out_root,
+            path_key="training_checkpoint_path",
+            sha_key="training_checkpoint_sha256",
+            label="training checkpoint",
+        )
     active_model = _verified_state_artifact(
         state,
         out_root=out_root,
@@ -455,6 +469,16 @@ def _validate_recovery_audit(
         value = audit.get(section)
         if not isinstance(value, dict):
             raise MigrationError(f"prepared audit is missing {section} evidence")
+        if section == "training_checkpoint" and value.get("fresh_lineage") is True:
+            if (
+                value.get("verified") is not True
+                or value.get("path") is not None
+                or value.get("sha256") is not None
+            ):
+                raise MigrationError(
+                    "prepared audit has invalid fresh-lineage checkpoint evidence"
+                )
+            continue
         digest = value.get("sha256")
         if not isinstance(digest, str) or _SHA256_RE.fullmatch(digest) is None:
             raise MigrationError(f"prepared audit has invalid {section} SHA-256 evidence")
