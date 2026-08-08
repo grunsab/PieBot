@@ -85,9 +85,21 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn("RELABEL_MAX_NODES must be set", launcher)
         self.assertIn('"--teacher-relabel-max-nodes" "$RELABEL_MAX_NODES"', launcher)
         self.assertIn('require_autopilot_flag "--teacher-relabel-max-nodes"', launcher)
-        # min_teacher_depth stays 5 (objective-identity field; achieved-depth
-        # stamping keeps it honest under the cap).
-        self.assertIn('"--min-teacher-depth" "5"', launcher)
+        # min_teacher_depth is env-wired (objective-identity field) and must
+        # exceed the actor depth: self-play stamps teacher_depth = actor
+        # depth on every row, so equality lets actor self-labels masquerade
+        # as teacher labels (discovered 2026-08-08; silently present in v4).
+        self.assertIn('MIN_TEACHER_DEPTH="${MIN_TEACHER_DEPTH:-5}"', launcher)
+        self.assertIn('"--min-teacher-depth" "$MIN_TEACHER_DEPTH"', launcher)
+        self.assertIn("(( MIN_TEACHER_DEPTH > SELFPLAY_DEPTH ))", launcher)
+        # Teacher sample fraction must be configurable to match the relabel
+        # cadence (every-Nth-ply relabeling yields ~1/N teacher rows).
+        self.assertIn(
+            'TEACHER_SAMPLE_FRACTION="${TEACHER_SAMPLE_FRACTION:-0.5}"', launcher
+        )
+        self.assertIn(
+            '"--teacher-sample-fraction" "$TEACHER_SAMPLE_FRACTION"', launcher
+        )
 
     def test_fresh_init_leaves_no_unguarded_checkpoint_reference(self) -> None:
         # 2026-08-08 deploy incident: FRESH_INIT guarded staging but a later
@@ -225,6 +237,10 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertNotIn("INITIAL_CHECKPOINT_SOURCE", environment)
         self.assertIn('RELABEL_DEPTH="9"', environment)
         self.assertIn('RELABEL_EVERY="6"', environment)
+        # Teacher/actor separation: actor depth 5 rows must NOT count as
+        # teacher rows, and the teacher fraction matches every-6 relabeling.
+        self.assertIn('MIN_TEACHER_DEPTH="6"', environment)
+        self.assertIn('TEACHER_SAMPLE_FRACTION="0.15"', environment)
         self.assertIn('TARGET_CP="250"', environment)
         self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
         # Actor, teacher, and gate incumbent stay the accepted cycle-98 h64 v1.

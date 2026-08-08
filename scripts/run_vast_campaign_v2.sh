@@ -38,6 +38,15 @@ FRESH_INIT="${FRESH_INIT:-0}"
 # requires a fresh lineage (FRESH_INIT=1) because the feature set changes.
 TRAIN_ARCH="${TRAIN_ARCH:-v1}"
 
+# Teacher/actor label separation. Self-play stamps every row with
+# teacher_depth = actor depth, so MIN_TEACHER_DEPTH must EXCEED the actor
+# depth or actor self-labels masquerade as teacher labels (discovered
+# 2026-08-08; in v4 this silently made the actor its own 0.8-mix teacher on
+# non-relabeled rows). TEACHER_SAMPLE_FRACTION must match the relabel
+# cadence: every-Nth-ply relabeling yields roughly 1/N teacher rows.
+MIN_TEACHER_DEPTH="${MIN_TEACHER_DEPTH:-5}"
+TEACHER_SAMPLE_FRACTION="${TEACHER_SAMPLE_FRACTION:-0.5}"
+
 VALIDATION_SHARD_SOURCE="${VALIDATION_SHARD_SOURCE:-$PRIOR_RUN_ROOT/bootstrap/validation/shard_000000.jsonl}"
 VALIDATION_JSONL_DIR="$BOOTSTRAP_DIR/validation"
 VALIDATION_SHARD="$VALIDATION_JSONL_DIR/shard_000000.jsonl"
@@ -251,6 +260,8 @@ require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODE
 
 # Two calibrated teacher shapes: depth 7 capped at depth-5's p95 (144k), and
 # depth 9 capped at depth-7's p95 (2.5M). Any other depth is unmeasured.
+(( MIN_TEACHER_DEPTH > SELFPLAY_DEPTH )) \
+  || die "MIN_TEACHER_DEPTH must exceed SELFPLAY_DEPTH: actor rows stamp teacher_depth = actor depth and would masquerade as teacher labels"
 [[ "$RELABEL_DEPTH" -eq 7 || "$RELABEL_DEPTH" -eq 9 ]] \
   || die "this deployment supports only the measured node-capped PieBot depth-7 or depth-9 teacher"
 (( REPLAY_WINDOW_CYCLES <= RETAIN_FULL_CYCLES )) \
@@ -409,8 +420,8 @@ AUTOPILOT_ARGS+=(
   "--teacher-relabel-threads" "$RELABEL_THREADS"
   "--teacher-relabel-hash-mb" "$RELABEL_HASH_MB"
   "--teacher-relabel-max-nodes" "$RELABEL_MAX_NODES"
-  "--teacher-sample-fraction" "0.5"
-  "--min-teacher-depth" "5"
+  "--teacher-sample-fraction" "$TEACHER_SAMPLE_FRACTION"
+  "--min-teacher-depth" "$MIN_TEACHER_DEPTH"
   "--target-cp" "$TARGET_CP"
   "--train-arch" "$TRAIN_ARCH"
   "--epochs" "$EPOCHS"
