@@ -21,7 +21,8 @@ fn root_parallel_quant_bestmove_equals_single_thread() {
         b1: vec![0; hidden_dim],
         w2: vec![0; hidden_dim],
         b2: vec![0],
-    };
+            v2: None,
+        };
 
     let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3";
     let b = Board::from_fen(fen, false).unwrap();

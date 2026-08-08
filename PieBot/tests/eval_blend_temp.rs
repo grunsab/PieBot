@@ -22,7 +22,8 @@ fn eval_blend_temp_quant_bias_only() {
         b1: vec![0; hidden_dim],
         w2: vec![0; hidden_dim],
         b2: vec![50],
-    };
+            v2: None,
+        };
 
     let b = Board::default();
     let pst = piebot::search::eval::eval_cp(&b);

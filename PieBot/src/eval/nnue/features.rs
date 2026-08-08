@@ -248,6 +248,85 @@ impl HalfKpV2 {
     }
 }
 
+// ---------- Dual-perspective (arch-v2) HalfKP ----------
+// Perspective-relative shared feature transformer per the standard NNUE
+// design: from each side's perspective the board is oriented so that side
+// plays "up" (black flips square indices with ^56) and piece colors are
+// expressed as own (planes 0-4) / opponent (planes 5-9). Both perspectives
+// therefore share one weight matrix; side-to-move is expressed by the
+// concatenation order at evaluation time, not by the feature index.
+
+pub const HALFKP_DP_PER_PERSPECTIVE_DIM: usize =
+    KING_SQUARES * (COLORS * NON_KING_PIECES) * PIECE_SQUARES;
+
+#[inline]
+fn dp_flip(perspective: Color) -> usize {
+    if perspective == Color::White {
+        0
+    } else {
+        56
+    }
+}
+
+#[inline]
+pub fn dp_idx_for(
+    perspective: Color,
+    king_sq: usize,
+    piece_color: Color,
+    piece_idx: usize,
+    sq_idx: usize,
+) -> usize {
+    let flip = dp_flip(perspective);
+    let colored = if piece_color == perspective {
+        piece_idx
+    } else {
+        NON_KING_PIECES + piece_idx
+    };
+    (((king_sq ^ flip) * (COLORS * NON_KING_PIECES) + colored) * PIECE_SQUARES) + (sq_idx ^ flip)
+}
+
+/// Active features for one perspective: every non-king piece of both colors,
+/// keyed by this perspective's own king, in perspective-relative coordinates.
+pub fn dp_active_indices(board: &Board, perspective: Color) -> Vec<usize> {
+    let k_idx = king_square_index(board, perspective);
+    let mut out = Vec::with_capacity(32);
+    for piece_color in [Color::White, Color::Black] {
+        for (piece_idx, piece) in HALFKP_PIECE_ORDER.iter().enumerate() {
+            let pieces = board.colors(piece_color) & board.pieces(*piece);
+            for square in pieces {
+                out.push(dp_idx_for(
+                    perspective,
+                    k_idx,
+                    piece_color,
+                    piece_idx,
+                    square_to_index(square),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// The one feature a single non-king piece contributes to one perspective.
+#[inline]
+pub fn dp_piece_index(
+    perspective: Color,
+    king_sq: usize,
+    piece_color: Color,
+    piece: Piece,
+    square: Square,
+) -> usize {
+    let piece_idx = non_king_piece_index(piece)
+        .expect("HalfKP features are defined only for non-king pieces");
+    dp_idx_for(
+        perspective,
+        king_sq,
+        piece_color,
+        piece_idx,
+        square_to_index(square),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

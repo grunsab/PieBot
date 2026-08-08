@@ -1,5 +1,7 @@
-use crate::eval::nnue::features::{HalfKpSchema, PieceFeatureIndices};
-use crate::eval::nnue::loader::QuantNnue;
+use crate::eval::nnue::features::{
+    dp_active_indices, dp_piece_index, HalfKpSchema, PieceFeatureIndices,
+};
+use crate::eval::nnue::loader::{QuantNnue, QuantNnueV2};
 use cozy_chess::{Board, Color, Move, Piece, Square};
 use std::sync::Arc;
 
@@ -31,6 +33,22 @@ pub struct QuantNetwork {
     acc: Vec<i32>,
     wk_idx: usize,
     bk_idx: usize,
+    /// Arch-v2 backend (dual-perspective accumulators, SCReLU head). When
+    /// present, every public method dispatches here and the legacy fields
+    /// above are inert.
+    v2: Option<V2State>,
+}
+
+/// Runtime state for a PIENNQ02 dual-perspective model. Accumulators are
+/// anchored to color (white/black), not side-to-move; the stm-first
+/// concatenation happens at evaluation time from the stored `stm`.
+struct V2State {
+    model: Arc<QuantNnueV2>,
+    acc_white: Vec<i16>,
+    acc_black: Vec<i16>,
+    wk_idx: usize,
+    bk_idx: usize,
+    stm: Color,
 }
 
 /// Opaque undo token returned by [`QuantNetwork::apply_move`].
@@ -46,6 +64,19 @@ enum ChangeKind {
         wk_idx: usize,
         bk_idx: usize,
     },
+    DeltaV2 {
+        // One delta list per perspective: [white, black].
+        added: [FeatureDelta; 2],
+        removed: [FeatureDelta; 2],
+        prev_stm: Color,
+    },
+    SnapshotV2 {
+        acc_white: Vec<i16>,
+        acc_black: Vec<i16>,
+        wk_idx: usize,
+        bk_idx: usize,
+        stm: Color,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -55,6 +86,12 @@ struct FeatureDelta {
 }
 
 impl FeatureDelta {
+    #[inline]
+    fn push(&mut self, idx: usize) {
+        self.indices[self.len as usize] = idx;
+        self.len += 1;
+    }
+
     #[inline]
     const fn new() -> Self {
         Self {
@@ -80,6 +117,27 @@ impl FeatureDelta {
 
 impl QuantNetwork {
     pub fn new(model: QuantNnue) -> Self {
+        if let Some(v2_model) = model.v2.clone() {
+            let hidden = v2_model.hidden_dim;
+            let v2 = V2State {
+                model: v2_model,
+                acc_white: vec![0i16; hidden],
+                acc_black: vec![0i16; hidden],
+                wk_idx: 0,
+                bk_idx: 0,
+                stm: Color::White,
+            };
+            let model = Arc::new(model);
+            return Self {
+                model,
+                schema: HalfKpSchema::FullPerspective,
+                w1_feature_major: Arc::from(Vec::new().into_boxed_slice()),
+                acc: Vec::new(),
+                wk_idx: 0,
+                bk_idx: 0,
+                v2: Some(v2),
+            };
+        }
         let schema = HalfKpSchema::from_input_dim(model.meta.input_dim).unwrap_or_else(|| {
             panic!(
                 "Quant model input_dim {} must match a supported HalfKP schema",
@@ -98,6 +156,7 @@ impl QuantNetwork {
             acc,
             wk_idx: 0,
             bk_idx: 0,
+            v2: None,
         }
     }
 
@@ -111,10 +170,22 @@ impl QuantNetwork {
             acc: self.acc.clone(),
             wk_idx: self.wk_idx,
             bk_idx: self.bk_idx,
+            v2: self.v2.as_ref().map(|v2| V2State {
+                model: Arc::clone(&v2.model),
+                acc_white: v2.acc_white.clone(),
+                acc_black: v2.acc_black.clone(),
+                wk_idx: v2.wk_idx,
+                bk_idx: v2.bk_idx,
+                stm: v2.stm,
+            }),
         }
     }
 
     pub fn refresh(&mut self, board: &Board) {
+        if let Some(v2) = &mut self.v2 {
+            v2.refresh(board);
+            return;
+        }
         // Recompute active features and accumulators from scratch.
         let act = self.schema.active_indices(board);
         self.wk_idx = square_index(board, Color::White, Piece::King);
@@ -134,10 +205,16 @@ impl QuantNetwork {
     }
 
     pub fn eval_current(&self) -> i32 {
+        if let Some(v2) = &self.v2 {
+            return v2.eval_from_acc();
+        }
         self.eval_from_acc()
     }
 
     pub fn eval_full(&self, board: &Board) -> i32 {
+        if let Some(v2) = &self.v2 {
+            return v2.eval_full(board);
+        }
         // Full recompute path; used for parity testing
         let act = self.schema.active_indices(board);
         let h = self.model.meta.hidden_dim;
@@ -161,6 +238,9 @@ impl QuantNetwork {
     }
 
     pub fn apply_move(&mut self, before: &Board, mv: Move, after: &Board) -> ChangeSet {
+        if self.v2.is_some() {
+            return self.apply_move_v2(before, mv, after);
+        }
         // King moves re-key many HalfKP features. They are rare enough that a
         // full refresh is both simpler and safer (and includes Chess960
         // castling, where the encoded destination is the rook square).
@@ -239,7 +319,98 @@ impl QuantNetwork {
             ChangeKind::Delta { added, removed } => {
                 self.apply_delta(&removed, &added);
             }
+            ChangeKind::DeltaV2 {
+                added,
+                removed,
+                prev_stm,
+            } => {
+                let v2 = self.v2.as_mut().expect("v2 change on v2 backend");
+                // Undo: add back what was removed, remove what was added.
+                v2.apply_delta(&removed, &added);
+                v2.stm = prev_stm;
+            }
+            ChangeKind::SnapshotV2 {
+                acc_white,
+                acc_black,
+                wk_idx,
+                bk_idx,
+                stm,
+            } => {
+                let v2 = self.v2.as_mut().expect("v2 change on v2 backend");
+                v2.acc_white = acc_white;
+                v2.acc_black = acc_black;
+                v2.wk_idx = wk_idx;
+                v2.bk_idx = bk_idx;
+                v2.stm = stm;
+            }
         }
+    }
+
+    fn apply_move_v2(&mut self, before: &Board, mv: Move, after: &Board) -> ChangeSet {
+        let wk_before = square_index(before, Color::White, Piece::King);
+        let bk_before = square_index(before, Color::Black, Piece::King);
+        let wk_after = square_index(after, Color::White, Piece::King);
+        let bk_after = square_index(after, Color::Black, Piece::King);
+        let v2 = self.v2.as_mut().expect("apply_move_v2 requires v2 backend");
+        if wk_before != wk_after
+            || bk_before != bk_after
+            || v2.wk_idx != wk_before
+            || v2.bk_idx != bk_before
+        {
+            return v2.snapshot_and_refresh(after);
+        }
+
+        let Some(moving_piece) = before.piece_on(mv.from) else {
+            return v2.snapshot_and_refresh(after);
+        };
+        let Some(moving_color) = before.color_on(mv.from) else {
+            return v2.snapshot_and_refresh(after);
+        };
+        if moving_piece == Piece::King || moving_color != before.side_to_move() {
+            return v2.snapshot_and_refresh(after);
+        }
+
+        let placed_piece = mv.promotion.unwrap_or(moving_piece);
+        if after.piece_on(mv.to) != Some(placed_piece)
+            || after.color_on(mv.to) != Some(moving_color)
+            || after.piece_on(mv.from).is_some()
+        {
+            return v2.snapshot_and_refresh(after);
+        }
+
+        let mut removed = [FeatureDelta::new(), FeatureDelta::new()];
+        let mut added = [FeatureDelta::new(), FeatureDelta::new()];
+        v2.push_piece(&mut removed, moving_color, moving_piece, mv.from);
+        v2.push_piece(&mut added, moving_color, placed_piece, mv.to);
+
+        if let Some(captured_piece) = before.piece_on(mv.to) {
+            let Some(captured_color) = before.color_on(mv.to) else {
+                return v2.snapshot_and_refresh(after);
+            };
+            if captured_piece == Piece::King || captured_color == moving_color {
+                return v2.snapshot_and_refresh(after);
+            }
+            v2.push_piece(&mut removed, captured_color, captured_piece, mv.to);
+        } else if moving_piece == Piece::Pawn && mv.from.file() != mv.to.file() {
+            let captured_square = Square::new(mv.to.file(), mv.from.rank());
+            let captured_color = !moving_color;
+            if before.piece_on(captured_square) != Some(Piece::Pawn)
+                || before.color_on(captured_square) != Some(captured_color)
+                || after.piece_on(captured_square).is_some()
+            {
+                return v2.snapshot_and_refresh(after);
+            }
+            v2.push_piece(&mut removed, captured_color, Piece::Pawn, captured_square);
+        }
+
+        let prev_stm = v2.stm;
+        v2.apply_delta(&added, &removed);
+        v2.stm = after.side_to_move();
+        ChangeSet(ChangeKind::DeltaV2 {
+            added,
+            removed,
+            prev_stm,
+        })
     }
 
     #[inline]
@@ -296,6 +467,143 @@ impl QuantNetwork {
         } else {
             raw as i32
         }
+    }
+}
+
+impl V2State {
+    fn refresh(&mut self, board: &Board) {
+        let h = self.model.hidden_dim;
+        self.wk_idx = square_index(board, Color::White, Piece::King);
+        self.bk_idx = square_index(board, Color::Black, Piece::King);
+        self.stm = board.side_to_move();
+        for (perspective, acc) in [
+            (Color::White, &mut self.acc_white),
+            (Color::Black, &mut self.acc_black),
+        ] {
+            acc.copy_from_slice(&self.model.b1);
+            for idx in dp_active_indices(board, perspective) {
+                let row = &self.model.w1[idx * h..(idx + 1) * h];
+                for (value, &weight) in acc.iter_mut().zip(row) {
+                    *value = value.wrapping_add(weight);
+                }
+            }
+        }
+    }
+
+    /// SCReLU head over the stm-first concatenated accumulators. Returns
+    /// white-POV centipawns to match the legacy backend's contract; the
+    /// network itself is side-to-move relative.
+    fn eval_from_acc(&self) -> i32 {
+        let out_stm = self.head(&self.acc_white, &self.acc_black, self.stm);
+        if self.stm == Color::White {
+            out_stm
+        } else {
+            -out_stm
+        }
+    }
+
+    fn eval_full(&self, board: &Board) -> i32 {
+        // Full recompute path; used for parity testing.
+        let h = self.model.hidden_dim;
+        let mut acc_white = self.model.b1.clone();
+        let mut acc_black = self.model.b1.clone();
+        for (perspective, acc) in [
+            (Color::White, &mut acc_white),
+            (Color::Black, &mut acc_black),
+        ] {
+            for idx in dp_active_indices(board, perspective) {
+                let row = &self.model.w1[idx * h..(idx + 1) * h];
+                for (value, &weight) in acc.iter_mut().zip(row) {
+                    *value = value.wrapping_add(weight);
+                }
+            }
+        }
+        let stm = board.side_to_move();
+        let out_stm = self.head(&acc_white, &acc_black, stm);
+        if stm == Color::White {
+            out_stm
+        } else {
+            -out_stm
+        }
+    }
+
+    fn head(&self, acc_white: &[i16], acc_black: &[i16], stm: Color) -> i32 {
+        let h = self.model.hidden_dim;
+        let qa = self.model.qa as i64;
+        let (first, second) = match stm {
+            Color::White => (acc_white, acc_black),
+            Color::Black => (acc_black, acc_white),
+        };
+        let mut sum: i64 = 0;
+        for j in 0..h {
+            let v = (first[j] as i64).clamp(0, qa);
+            sum += v * v * (self.model.w2[j] as i64);
+        }
+        for j in 0..h {
+            let v = (second[j] as i64).clamp(0, qa);
+            sum += v * v * (self.model.w2[h + j] as i64);
+        }
+        // Weights carry QA^2 * QB; b2 is stored in the same domain.
+        let numerator = (sum + self.model.b2 as i64) * self.model.scale as i64;
+        (numerator / (qa * qa * self.model.qb as i64)) as i32
+    }
+
+    /// Append the feature this piece contributes to each perspective.
+    fn push_piece(
+        &self,
+        deltas: &mut [FeatureDelta; 2],
+        color: Color,
+        piece: Piece,
+        square: Square,
+    ) {
+        deltas[0].push(dp_piece_index(
+            Color::White,
+            self.wk_idx,
+            color,
+            piece,
+            square,
+        ));
+        deltas[1].push(dp_piece_index(
+            Color::Black,
+            self.bk_idx,
+            color,
+            piece,
+            square,
+        ));
+    }
+
+    fn apply_delta(&mut self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
+        let h = self.model.hidden_dim;
+        for (p, acc) in [&mut self.acc_white, &mut self.acc_black]
+            .into_iter()
+            .enumerate()
+        {
+            for &idx in removed[p].as_slice() {
+                let row = &self.model.w1[idx * h..(idx + 1) * h];
+                for (value, &weight) in acc.iter_mut().zip(row) {
+                    *value = value.wrapping_sub(weight);
+                }
+            }
+            for &idx in added[p].as_slice() {
+                let row = &self.model.w1[idx * h..(idx + 1) * h];
+                for (value, &weight) in acc.iter_mut().zip(row) {
+                    *value = value.wrapping_add(weight);
+                }
+            }
+        }
+    }
+
+    #[cold]
+    fn snapshot_and_refresh(&mut self, after: &Board) -> ChangeSet {
+        let change = ChangeSet(ChangeKind::SnapshotV2 {
+            acc_white: self.acc_white.clone(),
+            acc_black: self.acc_black.clone(),
+            wk_idx: self.wk_idx,
+            bk_idx: self.bk_idx,
+            stm: self.stm,
+        });
+        self.refresh(after);
+        change
     }
 }
 
@@ -365,6 +673,7 @@ mod tests {
             b1: vec![0; hidden_dim],
             w2: vec![0; hidden_dim],
             b2: vec![0],
+            v2: None,
         });
 
         let worker = network.clone_for_search();
