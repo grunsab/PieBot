@@ -1132,6 +1132,47 @@ def _validate_nnue_artifact(
         raise ValueError(f"truncated or oversized NNUE artifact: {path}")
 
 
+def _validate_nnue_artifact_v2(path: Path, *, expected_dims: Tuple[int, int, int]) -> None:
+    """Validate a PIENNQ02 dual-perspective artifact (arch-v2 has no dense file)."""
+    with path.open("rb") as handle:
+        header = handle.read(36)
+    if len(header) != 36 or header[:8] != exporter.Q_MAGIC_V2:
+        raise ValueError(f"invalid v2 NNUE header: {path}")
+    version, input_dim, hidden_dim, output_dim = struct.unpack("<IIII", header[8:24])
+    qa, qb, scale = struct.unpack("<iii", header[24:36])
+    if version != 1 or (input_dim, hidden_dim, output_dim) != expected_dims:
+        raise ValueError(f"unexpected v2 NNUE dimensions: {path}")
+    if qa <= 0 or qb <= 0 or scale <= 0:
+        raise ValueError(f"invalid v2 NNUE quantization constants: {path}")
+    expected_size = (
+        36
+        + 2 * input_dim * hidden_dim  # i16 w1
+        + 2 * hidden_dim  # i16 b1
+        + 2 * hidden_dim * output_dim  # i8 w2 over both halves
+        + 4 * output_dim  # i32 b2
+    )
+    if path.stat().st_size != expected_size:
+        raise ValueError(f"truncated or oversized v2 NNUE artifact: {path}")
+
+
+def _validate_export_artifacts(
+    checkpoint: Dict[str, Any],
+    *,
+    dense_path: Optional[Path],
+    quant_path: Path,
+) -> Tuple[Tuple[int, int, int], List[Path]]:
+    """Arch-aware artifact validation; returns (dims, files-to-snapshot)."""
+    expected_dims = _checkpoint_dimensions(checkpoint)
+    if checkpoint.get("arch") == "v2":
+        _validate_nnue_artifact_v2(quant_path, expected_dims=expected_dims)
+        return expected_dims, [quant_path]
+    if dense_path is None:
+        raise ValueError("v1 export requires a dense artifact path")
+    _validate_nnue_artifact(dense_path, quantized=False, expected_dims=expected_dims)
+    _validate_nnue_artifact(quant_path, quantized=True, expected_dims=expected_dims)
+    return expected_dims, [dense_path, quant_path]
+
+
 def _write_export_stage_manifest(
     out_dir: Path,
     *,
@@ -1141,10 +1182,10 @@ def _write_export_stage_manifest(
     export_info: Dict[str, Any],
 ) -> Dict[str, Any]:
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-    expected_dims = _checkpoint_dimensions(checkpoint)
-    _validate_nnue_artifact(dense_path, quantized=False, expected_dims=expected_dims)
-    _validate_nnue_artifact(quant_path, quantized=True, expected_dims=expected_dims)
-    snapshot = _artifact_snapshot(out_dir, [dense_path, quant_path])
+    _, snapshot_files = _validate_export_artifacts(
+        checkpoint, dense_path=dense_path, quant_path=quant_path
+    )
+    snapshot = _artifact_snapshot(out_dir, snapshot_files)
     manifest: Dict[str, Any] = {
         "version": 1,
         "stage": "export",
@@ -1172,16 +1213,17 @@ def _validated_export_stage_manifest(
             return None
         if not isinstance(manifest.get("export_info"), dict):
             return None
-        if expected_cp_scale is not None:
+        is_v2_export = manifest["export_info"].get("quant_format") == "PIENNQ02"
+        if expected_cp_scale is not None and not is_v2_export:
             if float(manifest["export_info"].get("cp_scale")) != float(expected_cp_scale):
                 return None
         if manifest.get("checkpoint_sha256") != _sha256_file(checkpoint_path):
             return None
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-        expected_dims = _checkpoint_dimensions(checkpoint)
-        _validate_nnue_artifact(dense_path, quantized=False, expected_dims=expected_dims)
-        _validate_nnue_artifact(quant_path, quantized=True, expected_dims=expected_dims)
-        snapshot = _artifact_snapshot(out_dir, [dense_path, quant_path])
+        _, snapshot_files = _validate_export_artifacts(
+            checkpoint, dense_path=dense_path, quant_path=quant_path
+        )
+        snapshot = _artifact_snapshot(out_dir, snapshot_files)
         if manifest.get("files") != snapshot["files"]:
             return None
         if manifest.get("fingerprint") != snapshot["fingerprint"]:
@@ -1919,18 +1961,13 @@ def run_pipeline(
                 quant_path=quant_tmp,
                 cp_scale=cp_scale,
             )
-            expected_dims = _checkpoint_dimensions(checkpoint)
-            _validate_nnue_artifact(
-                dense_tmp,
-                quantized=False,
-                expected_dims=expected_dims,
+            _validate_export_artifacts(
+                checkpoint,
+                dense_path=dense_tmp,
+                quant_path=quant_tmp,
             )
-            _validate_nnue_artifact(
-                quant_tmp,
-                quantized=True,
-                expected_dims=expected_dims,
-            )
-            os.replace(dense_tmp, dense_path)
+            if checkpoint.get("arch") != "v2":
+                os.replace(dense_tmp, dense_path)
             os.replace(quant_tmp, quant_path)
         finally:
             dense_tmp.unlink(missing_ok=True)

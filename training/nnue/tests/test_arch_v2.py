@@ -94,6 +94,26 @@ class ExportV2Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _checkpoint_dimensions(bad)
 
+    def test_v2_export_passes_arch_aware_artifact_validation(self) -> None:
+        # 2026-08-08 cycle-1 incident #2: the export stage unconditionally
+        # validated and finalized the dense artifact, which the v2 path never
+        # writes, crashing on nnue_dense.nnue.tmp. The arch-aware validator
+        # must accept a dense-free v2 export and reject a corrupted one.
+        from training.nnue.run_pipeline import _validate_export_artifacts
+
+        ckpt = self._tiny_checkpoint(hidden=2)
+        with tempfile.TemporaryDirectory() as tmp:
+            quant = Path(tmp) / "v2.nnue"
+            _export_v2_checkpoint(ckpt, quant_path=quant)
+            dims, files = _validate_export_artifacts(
+                ckpt, dense_path=None, quant_path=quant
+            )
+            self.assertEqual(dims, (40_960, 2, 1))
+            self.assertEqual(files, [quant])
+            quant.write_bytes(quant.read_bytes()[:-2])  # truncate
+            with self.assertRaises(ValueError):
+                _validate_export_artifacts(ckpt, dense_path=None, quant_path=quant)
+
     def test_export_rejects_size_mismatches(self) -> None:
         bad = self._tiny_checkpoint()
         bad["w2"] = [1.0]  # must be 2 * hidden
