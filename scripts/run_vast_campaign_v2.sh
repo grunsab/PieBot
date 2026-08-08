@@ -322,7 +322,9 @@ require_autopilot_flag "--selfplay-temperature-moves"
 require_autopilot_flag "--teacher-external-quant-file"
 require_autopilot_flag "--target-cp"
 require_autopilot_flag "--train-arch"
-verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
+if [[ "$FRESH_INIT" != "1" ]]; then
+  verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
+fi
 verify_sha256 "$INITIAL_ACTIVE_MODEL" "$INITIAL_ACTIVE_MODEL_SHA256"
 verify_sha256 "$SELFPLAY_OPENINGS" "$OPENINGS_SHA256"
 

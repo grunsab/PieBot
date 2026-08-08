@@ -89,6 +89,34 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # stamping keeps it honest under the cap).
         self.assertIn('"--min-teacher-depth" "5"', launcher)
 
+    def test_fresh_init_leaves_no_unguarded_checkpoint_reference(self) -> None:
+        # 2026-08-08 deploy incident: FRESH_INIT guarded staging but a later
+        # preflight verify_sha256 still dereferenced $INITIAL_CHECKPOINT and
+        # crash-looped the supervisor. Every use of the checkpoint artifact
+        # outside its declaration must sit inside a FRESH_INIT guard.
+        launcher = self._launcher()
+        guarded = 0
+        for i, line in enumerate(launcher.splitlines()):
+            if '"$INITIAL_CHECKPOINT"' not in line:
+                continue
+            # The reference must appear inside an `if [[ "$FRESH_INIT" != "1" ]]`
+            # block: scan backwards for the guard before any closing `fi`.
+            preceding = launcher.splitlines()[:i]
+            depth = 0
+            ok = False
+            for prev in reversed(preceding):
+                stripped = prev.strip()
+                if stripped == "fi":
+                    depth += 1
+                elif stripped.startswith("if "):
+                    if depth == 0:
+                        ok = 'FRESH_INIT" != "1"' in stripped
+                        break
+                    depth -= 1
+            self.assertTrue(ok, f"unguarded $INITIAL_CHECKPOINT use: {line.strip()}")
+            guarded += 1
+        self.assertGreaterEqual(guarded, 3)
+
     def test_launcher_supports_fresh_init_lineage(self) -> None:
         launcher = self._launcher()
         # v5: a new-width lineage starts from fresh random weights. FRESH_INIT=1
