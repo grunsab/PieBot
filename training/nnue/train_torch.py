@@ -34,6 +34,10 @@ def _fen_stm_is_white(fen: str) -> bool:
     return len(parts) < 2 or parts[1] == "w"
 
 
+def _feature_set_for_arch(arch: str) -> str:
+    return features_v2.FEATURE_SET_V2 if arch == "v2" else train_stub.FEATURE_SET
+
+
 def torch_available() -> bool:
     return torch is not None
 
@@ -368,6 +372,7 @@ def _load_initial_optimizer_state(
     device: "torch.device",
     objective: Dict[str, Any],
     expected_sha256: Optional[str],
+    arch: str = "v1",
 ) -> Dict[str, Any]:
     path = Path(optimizer_path)
     if not path.is_file():
@@ -393,7 +398,7 @@ def _load_initial_optimizer_state(
             f"initial optimizer hidden_dim mismatch: expected {hidden_dim}, "
             f"got {payload.get('hidden_dim')}"
         )
-    if payload.get("feature_set") != train_stub.FEATURE_SET:
+    if payload.get("feature_set") != _feature_set_for_arch(arch):
         raise ValueError("initial optimizer feature_set does not match the model")
     if payload.get("target_schema") != train_stub.TARGET_SCHEMA:
         raise ValueError("initial optimizer target schema does not match the model")
@@ -463,7 +468,7 @@ def _load_initial_optimizer_state(
         "format": _OPTIMIZER_FORMAT,
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
-        "feature_set": train_stub.FEATURE_SET,
+        "feature_set": _feature_set_for_arch(arch),
         "target_schema": train_stub.TARGET_SCHEMA,
         "objective": objective,
         "model_parameters_sha256": model_parameters_sha256,
@@ -481,13 +486,14 @@ def _save_optimizer_state(
     hidden_dim: int,
     best_epoch: int,
     objective: Dict[str, Any],
+    arch: str = "v1",
 ) -> Dict[str, Any]:
     model_parameters_sha256 = _model_parameters_sha256(model)
     payload = {
         "format": _OPTIMIZER_FORMAT,
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
-        "feature_set": train_stub.FEATURE_SET,
+        "feature_set": _feature_set_for_arch(arch),
         "target_schema": train_stub.TARGET_SCHEMA,
         "objective": copy.deepcopy(objective),
         "parameter_shapes": _parameter_shapes(model),
@@ -502,7 +508,7 @@ def _save_optimizer_state(
         "format": _OPTIMIZER_FORMAT,
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
-        "feature_set": train_stub.FEATURE_SET,
+        "feature_set": _feature_set_for_arch(arch),
         "target_schema": train_stub.TARGET_SCHEMA,
         "objective": copy.deepcopy(objective),
         "model_parameters_sha256": model_parameters_sha256,
@@ -944,6 +950,7 @@ def train_model(
                 if isinstance(initialized_from, dict)
                 else None
             ),
+            arch=arch,
         )
         # Retain the parent's moments and step counters, but honor this cycle's
         # explicitly requested learning-rate schedule. Adam betas and epsilon
@@ -1283,6 +1290,7 @@ def train_model(
         hidden_dim=hidden_dim,
         best_epoch=best_epoch,
         objective=objective,
+        arch=arch,
     )
     emb = model.embed.weight.detach().cpu()  # [input, hidden]
     w1 = emb.transpose(0, 1).contiguous().view(-1).tolist()  # row-major [hidden][input]
@@ -1350,7 +1358,7 @@ def train_model(
         "train_samples": train_count,
         "val_samples": val_count,
         "input_dim": input_dim,
-        "feature_set": train_stub.FEATURE_SET,
+        "feature_set": _feature_set_for_arch(arch),
         "target_schema": train_stub.TARGET_SCHEMA,
         "objective": objective,
         "batch_size": batch_size,

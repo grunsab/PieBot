@@ -152,6 +152,13 @@ class TrainV2Tests(unittest.TestCase):
                 device="cpu", teacher_mix=0.8, min_teacher_depth=5,
             )
             self.assertTrue(metrics)
+            # 2026-08-08 incident #3: metrics stamped the v1 feature-set
+            # constant, poisoning the state's training_model_identity and
+            # arming a lineage-validator refusal on the next restart.
+            saved_metrics = json.loads((out / "metrics.json").read_text())
+            self.assertEqual(
+                saved_metrics["feature_set"], features_v2.FEATURE_SET_V2
+            )
             ckpt = json.loads((out / "checkpoint.json").read_text())
             self.assertEqual(ckpt["format"], "piebot-halfkp-dp-screlu-v1-torch")
             self.assertEqual(ckpt["arch"], "v2")
