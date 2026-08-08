@@ -470,6 +470,32 @@ impl QuantNetwork {
     }
 }
 
+/// SCReLU dot product: `sum_j clamp(acc[j], 0, QA)^2 * w[j]`.
+///
+/// Kept in i32 lanes so the compiler can vectorize it (the natural i64
+/// formulation cannot be); partial sums widen every `SCRELU_CHUNK` terms.
+/// Each term is bounded by `QA^2 * 127`, which at the standard QA=255 is
+/// 8_258_175, so 128 terms stay under `i32::MAX` with room to spare.
+/// The result is identical to the i64 reference for every valid model.
+const SCRELU_CHUNK: usize = 128;
+
+#[inline]
+fn screlu_dot(acc: &[i16], w: &[i8], qa: i32) -> i64 {
+    debug_assert_eq!(acc.len(), w.len());
+    debug_assert!(qa > 0 && (qa as i64) * (qa as i64) * 127 * (SCRELU_CHUNK as i64) <= i32::MAX as i64 * 2);
+    let qa16 = qa as i16;
+    let mut total: i64 = 0;
+    for (acc_chunk, w_chunk) in acc.chunks(SCRELU_CHUNK).zip(w.chunks(SCRELU_CHUNK)) {
+        let mut partial: i32 = 0;
+        for (&a, &weight) in acc_chunk.iter().zip(w_chunk) {
+            let v = a.clamp(0, qa16) as i32;
+            partial += v * v * weight as i32;
+        }
+        total += partial as i64;
+    }
+    total
+}
+
 impl V2State {
     fn refresh(&mut self, board: &Board) {
         let h = self.model.hidden_dim;
@@ -534,15 +560,8 @@ impl V2State {
             Color::White => (acc_white, acc_black),
             Color::Black => (acc_black, acc_white),
         };
-        let mut sum: i64 = 0;
-        for j in 0..h {
-            let v = (first[j] as i64).clamp(0, qa);
-            sum += v * v * (self.model.w2[j] as i64);
-        }
-        for j in 0..h {
-            let v = (second[j] as i64).clamp(0, qa);
-            sum += v * v * (self.model.w2[h + j] as i64);
-        }
+        let sum = screlu_dot(first, &self.model.w2[..h], self.model.qa)
+            + screlu_dot(second, &self.model.w2[h..2 * h], self.model.qa);
         // Weights carry QA^2 * QB; b2 is stored in the same domain.
         let numerator = (sum + self.model.b2 as i64) * self.model.scale as i64;
         (numerator / (qa * qa * self.model.qb as i64)) as i32

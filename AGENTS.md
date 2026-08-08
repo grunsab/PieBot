@@ -213,11 +213,16 @@ rules are folded into the durable-rules subsection below.)
   floor MUST exceed the actor depth (launcher-enforced): self-play stamps
   teacher_depth = actor depth on every row, so equality lets actor
   self-labels masquerade as teacher labels.
-- MEASURED COST (evidence/arch_v2_h1024_speed_probe_20260808.json): h1024 v2
-  runs at 546k NPS vs 2.37M for v1 h64 (0.231x, ~1.5-2 plies at equal time)
-  on auto-vectorized scalar kernels. Hand-written SIMD (AVX2 box / NEON Mac)
-  is now the TOP search-side priority: until it lands, v2 candidates carry
-  roughly 100-150 Elo of speed penalty into every 150ms gate game.
+- MEASURED COST (evidence/arch_v2_screlu_head_vectorization_20260808.json,
+  trained v6 cycle-20 net, Mac/NEON): the SCReLU head was rewritten from
+  per-lane i64 to chunked i32 arithmetic (integer-identical, all parity
+  tests unchanged), doubling v2 throughput: 577k -> 1.148M NPS, i.e.
+  0.247x -> 0.489x of v1 h64, about half a ply behind at equal time. The
+  earlier 0.231x figure was measured on a RANDOM-weight net whose
+  degenerate eval makes an unrepresentative tree - prefer the trained-net
+  numbers. Residual gate handicap is now roughly 30-60 Elo. Explicit
+  NEON/AVX2 intrinsics for the accumulator delta remain available if
+  needed; measure on the AVX2 box first.
 - v4 (old arch) was STOPPED on the box 2026-08-08 00:47Z by user order; its
   state is preserved on disk. Nothing is running on the box.
 

@@ -1,0 +1,29 @@
+{
+  "date_utc": "2026-08-08",
+  "change": "Rewrote the arch-v2 SCReLU head dot product from per-lane i64 arithmetic to chunked i32 arithmetic (screlu_dot in PieBot/src/eval/nnue/network.rs). Each term is bounded by QA^2*127 = 8,258,175 at QA=255, so partial sums widen to i64 every 128 terms and cannot overflow; the result is integer-identical to the i64 reference for every valid model.",
+  "why": "The i64 formulation blocked auto-vectorization entirely: 2048 dependent 64-bit multiply chains per evaluation. i32 lanes let both NEON and AVX2 vectorize the clamp/square/multiply/accumulate sequence.",
+  "correctness": "All four arch-v2 parity tests still pass unchanged, including python_exported_gold_model_evaluates_identically (a Python-quantized PIENNQ02 model asserted integer-exact from Rust against an independent Python integer reference) and incremental_updates_match_full_recompute_over_random_games.",
+  "measurement": {
+    "method": "Interactive UCI, Threads 1, Hash 256, blend 100, go movetime 3000, 4 positions x 2 rounds, NPS = nodes/wall. Same model file in both arms, so the search trees are identical and NPS is directly comparable.",
+    "hardware": "Apple M-series (NEON, -C target-cpu=native). Re-measure on the AVX2 box before relying on the exact ratio there.",
+    "model_trained_v6_cycle20": {
+      "v1_h64_nps": 2346131,
+      "v2_h1024_nps_before": 577090,
+      "v2_h1024_nps_after": 1148104,
+      "kernel_speedup": 1.99,
+      "v2_over_v1_before": 0.247,
+      "v2_over_v1_after": 0.489,
+      "depths_at_3s_v1": [10, 8, 9, 10, 11, 9, 9, 11],
+      "depths_at_3s_v2_before": [8, 7, 7, 9, 9, 8, 8, 10],
+      "depths_at_3s_v2_after": [9, 8, 8, 10, 9, 8, 8, 10]
+    },
+    "model_random_weights_h1024": {
+      "nps_before": 545970,
+      "nps_after": 3777496,
+      "kernel_speedup": 6.92,
+      "caveat": "A random-weight net produces a degenerate (nearly constant) eval and therefore an unusually easy tree, so its absolute NPS and any cross-model ratio are NOT representative. Only the before/after ratio on the identical model is meaningful. The earlier 0.231x figure in arch_v2_h1024_speed_probe_20260808.json was measured on this random net and overstated the slowdown; the trained-net figure (0.247x before, 0.489x after) supersedes it."
+    }
+  },
+  "outcome": "Arch-v2 h1024 now searches at 0.489x the NPS of v1 h64 on a trained net, roughly half a ply behind at equal time, down from a full 2-ply deficit. The remaining gate handicap is on the order of 30-60 Elo rather than 100-150.",
+  "next": "Explicit NEON/AVX2 intrinsics for the accumulator delta (i16 add/sub over 1024 lanes) and a fused clamp-square-madd head could add more; measure on the AVX2 box before investing, since the auto-vectorized i32 form may already be close to optimal there."
+}
