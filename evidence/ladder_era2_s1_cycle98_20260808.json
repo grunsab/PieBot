@@ -1,0 +1,32 @@
+{
+  "date_utc": "2026-08-08",
+  "what": "First era-2 canonical anchor ladder: S1-era engine (PVS+TT-ordering) + cycle-98 quant at blend 25",
+  "anchor": "official SF16 avx2 release, sha256 8f60a016dc767e0d648a8665b8ede3e6e4d28c086ad90517ad26f55b9960bd84, /workspace/stockfish16 on the TR box (evidence/anchor_repin_20260807.json)",
+  "conditions": "60+0.5s, Threads=1, 100 games per rung, 900s wall cap, paired openings",
+  "source": "/workspace/ladder_era2/ladder_report.json on the TR box",
+  "report": {
+    "schema": "piebot-uci-elo-ladder-v1",
+    "rungs": [
+      {
+        "elo": 1500,
+        "score_points": 84.5,
+        "games": 100,
+        "per_rung_elo_difference": 294.61000431176035,
+        "per_rung_ci": [214.84767375797915, 401.9195531527076]
+      },
+      {
+        "elo": 1800,
+        "score_points": 69.0,
+        "games": 100,
+        "per_rung_elo_difference": 138.994958761193,
+        "per_rung_ci": [81.36575450676642, 200.24094022767414]
+      }
+    ],
+    "pooled": {
+      "estimate": 1892.2172145542868,
+      "ci_95": [1833.4151543953699, 1960.5642394540373],
+      "degenerate": false
+    }
+  },
+  "interpretation": "Pooled performance rating 1892 [1833, 1961] on the era-2 SF16 scale. Era-1 pooled baseline for the pre-S1 engine + same net was ~1650-1800 (anchor re-pin comparable within a few Elo), so the S1 search promotion moved measured anchor strength by roughly +100-200 Elo. S2-era engine ladder queued next. Super-GM target 2700 remains ~800 Elo away."
+}
