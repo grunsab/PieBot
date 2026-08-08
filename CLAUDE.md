@@ -64,8 +64,212 @@ Notes
 - Threads: for reproducibility start with `--threads 1`. You may also probe SMP scaling with higher threads after passing single‑thread comparisons.
 - Noise: The compare runner samples among the top‑K ordered moves (uniform over K) for the first N plies to avoid repeated openings.
 
-Live NNUE Training and Model-Quality Handoff (2026-08-06)
-----------------------------------------------------------
+Super-GM Campaign Handoff (2026-08-08) — CURRENT
+================================================
+
+This section supersedes the 2026-08-06 handoff below it (kept for its durable
+rules; its live facts describe a dead box and a finished run). Written for any
+agent/LLM taking over. Re-verify every live fact before acting on it.
+
+### Mission and standing
+- Goal (user-set): super-grandmaster strength, ~2700 Elo on the pinned
+  Stockfish anchor scale. Budget: 1-2 months of Vast.ai time from ~2026-08-05;
+  the user will add hours if asked.
+- Measured strength 2026-08-08 (era-2 canonical ladder, 100 games/rung,
+  60+0.5s, 1T): S1-era engine + cycle-98 net at blend 25 scored 84.5% vs
+  SF16-1500 and 69% vs SF16-1800 → pooled **1892 Elo, 95% CI [1833, 1961]**
+  (`evidence/ladder_era2_s1_cycle98_20260808.json`). Gap to goal: ~800 Elo.
+- Two tracks bank Elo independently: search arms (promoted S1+S2 are worth
+  roughly +100-200 anchor Elo over era-1) and NNUE training (plateaued in
+  v1-v4; v5 pivot minted, deployment pending — see below).
+
+### Working branch and repo state
+- Work lives on branch `campaign-v2`, pushed to `origin` (GitHub
+  `grunsab/PieBot`); `main` is stale at `7a1e791`. At writing, tip is
+  `a45c120`. Do not rebase published history.
+- Committed assets: `models/cycle_000098_quant.nnue` (active/incumbent, sha
+  `3fa9bae3...`) and `cycle_000094_quant.nnue` with `models/MANIFEST.json`;
+  `books/openings_v1.fen` (1,279 openings, sha `d35b81a1...`);
+  `evidence/` (promotions, probes, ladders, benchmarks);
+  `scripts/experiments/` (h128 twin builder, NPS bench, depth-9 cost probe);
+  `documents/CampaignPlan_SuperGM_v1.md` (authoritative plan) and
+  `documents/PostDeadlineBattery.md`.
+
+### Infrastructure (live at writing — RE-VERIFY)
+- Production box: Threadripper PRO 7995WX + RTX 4090, 150 GB disk:
+  `ssh -p 14790 root@81.166.173.12` (65.6 c/hr). Read
+  `/etc/vast-agents-guide.md` after login.
+- **The TR box's rental expires ~2026-08-21. Re-migrate the campaign to a new
+  box by ~2026-08-19** (task #14). Qualify successors with
+  `scripts/cpu_benchmark.sh`; the cutover sequence is rehearsed in this
+  session's history: stop supervisor → bundle/fetch code → stage bootstrap by
+  SHA → install conf → verify node signatures → start.
+- The previous box (192.220.55.116, in the historical handoff) is DEAD; the
+  EPYC candidate was released. Do not use those endpoints.
+- Supervisor program `piebot_campaign_v2`, conf at
+  `/etc/supervisor/conf.d/piebot_campaign_v2.conf` (source:
+  `deploy/vast/piebot_campaign_v2.conf`), logs at
+  `/workspace/piebot_campaign_v2_supervisor.{log,err}`. `stopasgroup=true`.
+- Box git quirk: `/workspace/piebot_rust`'s `origin` is a stale LOCAL BUNDLE
+  (`/workspace/piebot_campaign_v2.bundle`), and the box has NO GitHub
+  credentials yet. A read-only keypair was generated on the box
+  (`~/.ssh/id_ed25519.pub`, comment `piebot-tr-box-readonly`) awaiting
+  registration as a GitHub deploy key (see deployment block below).
+- Standing user directive: only ~150 GB disk; proactively delete old
+  self-play game shards (never state files, checkpoints, gate JSON, or
+  accepted quants) to keep the run alive. At writing: 126 GB free, v4 root
+  only 7 GB — no action needed yet. Autopilot retention keeps 8 full cycles.
+- Leave ~24 threads free for SSH/arena lanes (training lanes use 160).
+
+### Strength measurement protocol (era-2)
+- Anchor: official SF16 avx2 release, sha256
+  `8f60a016dc767e0d648a8665b8ede3e6e4d28c086ad90517ad26f55b9960bd84`, at
+  `/workspace/stockfish16` on the TR box (`evidence/anchor_repin_20260807.json`).
+  Era-1's pinned binary died with the old box; era-1 numbers (~1650-1800
+  pooled for the pre-S1 engine + cycle-98) are comparable within a few Elo.
+- Ladders: `scripts/uci_elo_ladder.py` (parallel rungs, pooled performance
+  rating + bootstrap CI). 100+ games/rung; place rungs within ±400 of
+  expected strength; SF16 UCI_Elo clamps silently outside 1320-3190.
+- NEVER mix scales: local-Mac SF18 numbers (~2000 for the same engine) are a
+  different scale used only for fast iteration signals.
+- Queued: ladder the S2-era engine (baseline now includes S1+S2) at the next
+  checkpoint.
+
+### Search-arms track (biggest proven Elo source)
+- Workflow: exactly the A/B process at the top of this file (fork
+  `alphabeta_temp.rs`, matein3 acceptance both engines, 400-game Mac screen
+  at 150 ms noise 12/top-5 paired, 1000-game confirmation, promote only if
+  paired-bootstrap 95% LCB > 0).
+- Banked: S1 interior PVS + TT-move-first ordering (+0.206 mean pair delta,
+  1000g) and S2 reverse futility pruning (+0.12, CI [+0.058, +0.184], 1000g).
+  S5 log-log LMR shelved (flat). Evidence in `evidence/`.
+- Build-verification practice: the matein3 acceptance run is deterministic;
+  the post-S2 baseline `accept` signature is 20117448 total nodes. Use node
+  signatures to prove a remote box actually rebuilt your code.
+- Queue (in order): S3 futility pruning (child-level, the alpha-side sibling
+  of S2), AVX2 eval kernels (box-only; also shrinks the h128 cost), S8
+  continuation history. `PieBot/src/search/alphabeta_temp.rs` is currently
+  the re-export stub — clean start.
+
+### NNUE training: lineage history and diagnosis
+- v1 (original 72h run, old box): promoted cycles 94 and 98, then 66 cycles
+  of nothing. Cycle-98 at blend 25 is STILL the active/incumbent model.
+- campaign_v2 (data fixes: opening book, adjudication, actor budget):
+  25 cycles, 0 promotions. campaign_v3 (C8: diverged learner as teacher):
+  26 cycles, 0 promotions — the fixed point re-formed one level up (epoch-0
+  no-ops). campaign_v4 (250cp outcome target, depth-5 actor): 29+ cycles,
+  0 promotions, still running at writing.
+- Decisive 2026-08-07 evidence — pure-network blunder protocol (300 games
+  each, depth 3, blend 100, book openings, seed 20260821, PST depth-5 judge):
+  cycle-98 ACPL 34.0 / 1.77 blunders/game / 81 zero-blunder games vs v4
+  cycle-22 learner 36.6 / 2.15 / 64. **The v4 learner is weaker than its own
+  teacher's source net.** There is no gate-masked progress; the h64
+  self-distillation loop cannot outrun its teacher.
+- Supporting measurements (all in `evidence/`, scripts in
+  `scripts/experiments/`):
+  - h128 speed probe: a function-identical hidden-128 twin of cycle-98
+    (duplicate hidden units, halve w2_scale — `make_h128_twin.py`) searches
+    bit-identical trees at 0.809× NPS → width doubling costs 19.1%, ~15-20
+    Elo at fixed time. Eval is only ~24% of node cost. The Rust loader reads
+    hidden_dim from the file header — h128 needs zero engine changes.
+  - h128 pre-screen: +0.51% val loss vs h64 on frozen identical data.
+  - Depth-9 teacher cost (150 book positions, blend 25, cycle-98): median
+    4.10M nodes, mean 4.58M, p95 8.75M (`depth9_cost_probe.py`).
+
+### campaign_v5 (minted, tested, PUSHED — deployment pending)
+- Design (user-directed): hidden-128 student from FRESH random weights,
+  taught by cycle-98 searching depth 9 capped at 2,500,000 nodes (= measured
+  p95 of depth-7 cost, mirroring how depth-7 was capped at depth-5's p95),
+  relabeling every 6th ply (was every 2nd). Fewer labels, each far deeper.
+  Actor (depth-5 self-play), teacher engine, and gate incumbent all stay
+  cycle-98 h64. PieBot-only teacher invariant unchanged.
+- Launcher changes (contract-tested in
+  `scripts/tests/test_vast_campaign_v2_deployment.py`): `FRESH_INIT=1` skips
+  checkpoint staging and omits `--initial-checkpoint*` so train_torch
+  initializes at `--hidden-dim` (width-mismatched warm starts hard-fail by
+  design); `RELABEL_DEPTH` accepts the two measured shapes {7@144k, 9@2.5M}.
+- Conf env (deploy/vast/piebot_campaign_v2.conf): OUT_ROOT=
+  `/workspace/piebot_campaign_v5`, HIDDEN_DIM=128, FRESH_INIT=1,
+  RELABEL_DEPTH=9, RELABEL_EVERY=6, RELABEL_MAX_NODES=2500000,
+  SELFPLAY_DEPTH=5, TARGET_CP=250, 160/160 lanes, bootstrap active model
+  from `/workspace/campaign_v3_bootstrap/cycle_000098_nnue_quant.nnue`.
+- Full battery green before push: 231 training + 87 scripts Python tests,
+  `cargo test --locked --all-targets` and `--all-features`.
+- **BLOCKED**: this session's permission sandbox denied every payload route
+  to the box (scp, ssh-cat, `gh repo deploy-key add`). The user must run ONE
+  of (from the repo root on the Mac, `!` prefix in Claude Code):
+  1. `gh repo deploy-key add <path-to-box-pubkey> --repo grunsab/PieBot
+     --title piebot-tr-box-readonly` — pubkey is on the box at
+     `~/.ssh/id_ed25519.pub` (preferred: box can then fetch all future
+     deploys from GitHub), or
+  2. `scp -P 14790 <a campaign-v2 git bundle> root@81.166.173.12:/workspace/deploy_v5.bundle`.
+- Then deploy: on the box, fetch/checkout the campaign-v2 tip by 40-char SHA
+  and run `NEW_SHA=<sha> bash scripts/deploy_v5_tr.sh` detached (nohup, and
+  note it must run with `PATH=/root/.cargo/bin:/venv/main/bin:...` exported —
+  the script does this). It gracefully stops v4 (state preserved), verifies
+  no orphan workers, SHA-verifies the checkout, installs the conf, starts v5.
+- Post-deploy verification checklist: supervisor RUNNING; launcher log shows
+  `fresh-init lineage: hidden-dim 128` and `teacher node cap: 2500000`;
+  `/workspace/piebot_campaign_v5/autopilot_state.json` appears and advances;
+  cycle-0 train stage logs hidden_dim=128; first gate runs h128-candidate vs
+  h64-incumbent without dimension errors.
+- v5 success metric is NOT the gate alone: run the blunder protocol and
+  anchor ladder on v5 candidates every few days. If h128 under the deep
+  teacher also flatlines vs cycle-98 on external instruments after ~40-60
+  cycles, escalate teacher depth/cap (the launcher now supports measured
+  re-calibration) or revisit blend-25 gate dilution before burning weeks.
+
+### Operational pitfalls (each cost real time — do not repeat)
+- Detached/nohup scripts on Vast boxes start WITHOUT cargo/python on PATH:
+  export `PATH="/root/.cargo/bin:/venv/main/bin:$PATH"` first. Verify remote
+  rebuilds via the matein3 node signature, not by trusting exit codes.
+- `pkill -f` can kill its own wrapper shell — use bracket patterns
+  (`pgrep -f '[t]raining.nnue.autopilot'`) or `pkill -x`.
+- Bash `${VAR:-default}` swallows EMPTY strings — that is why FRESH_INIT is
+  a flag, not an empty INITIAL_CHECKPOINT_SOURCE.
+- The box supervisor stop previously orphaned the python autopilot;
+  `stopasgroup=true`/`killasgroup=true` are mandatory in the conf.
+- Never write the source pin before all preflights pass (a poisoned root
+  refuses relaunch); the launcher now orders this correctly — keep it so.
+- supervisorctl restarts can race the state-file flock: deploy scripts retry
+  (6 × 15 s) rather than failing.
+- Vast key-rotation can wipe appended `authorized_keys` entries; transfers
+  from the Mac use the user's Vast-managed key (`ssh-add ~/.ssh/id_ed25519`).
+- Long `cargo`/game runs exceed the 10-minute foreground tool timeout — run
+  in background and poll.
+- This session's permission classifier blocks outbound file transfer and
+  credential-granting commands (scp/ssh-cat/gh deploy-key). Do not try to
+  smuggle payloads (e.g., embedding tokens in URLs); surface the exact
+  command for the user to run instead.
+
+### Standing rules that still bind (from the historical handoff below)
+- PieBot-only teacher labels; Stockfish is an evaluation anchor ONLY.
+- TDD: failing test before code change; full battery (both Python suites +
+  both cargo suites) green before any merge; search changes additionally
+  need the A/B game workflow.
+- Lineage semantics, "never hand-edit state", safe-experiment rules, and the
+  read-only jq inspection recipes in the 2026-08-06 section remain valid —
+  substitute the current OUT_ROOT for the dead run root.
+- One experimental change per arm; a new lineage (new OUT_ROOT + fresh
+  optimizer) is the boundary that may bundle several founding parameters.
+- Do not deploy depth-6 self-play (tested 2026-08-07: noise-level data-shape
+  gains at 2.2× cost). Depth 5 is the deployed actor.
+
+### Immediate queue for the next agent
+1. Get the v5 deploy unblocked (one user command above), deploy, verify.
+2. While v5 trains: run the S3 futility-pruning arm end-to-end on the Mac.
+3. Ladder the S2-era engine (era-2 anchor) — baseline Elo credit for S2.
+4. Prepare the ~2026-08-19 box migration (task #14): qualify a successor
+   box, rehearse cutover, budget ~2h downtime at a cycle boundary.
+5. Every few days: v5 external instruments (blunder protocol + ladder),
+   disk check, off-box backup of state/quants/checkpoints.
+
+Live NNUE Training and Model-Quality Handoff (2026-08-06) — HISTORICAL
+----------------------------------------------------------------------
+> SUPERSEDED by the 2026-08-08 handoff above. The box, SSH endpoint,
+> run root, and live snapshot below are DEAD/finished. Only the durable
+> rule subsections (lineage semantics, safe-experiment rules, inspection
+> recipes, P0-P7 framework) remain useful, with paths updated.
 
 ### Scope and objective
 - This section is the current operational handoff for improving the quality and playing strength of PieBot's NNUE output models. The older 2026-02-07 progress snapshot in `AGENTS.md` is historical.
