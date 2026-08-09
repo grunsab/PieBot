@@ -630,18 +630,36 @@ impl V2State {
 
     fn apply_delta(&mut self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
         let h = self.model.hidden_dim;
+        let w1 = &self.model.w1;
         for (p, acc) in [&mut self.acc_white, &mut self.acc_black]
             .into_iter()
             .enumerate()
         {
-            for &idx in removed[p].as_slice() {
-                let row = &self.model.w1[idx * h..(idx + 1) * h];
+            let rem = removed[p].as_slice();
+            let add = added[p].as_slice();
+            // A quiet move is exactly one feature out and one in per
+            // perspective, which is the overwhelming majority of applications.
+            // Walking the accumulator once instead of once per row halves its
+            // load/store traffic, and issuing both row reads in the same
+            // iteration lets their cache misses overlap rather than serialize.
+            // w1 is ~84 MB at h1024, so those misses, not the arithmetic, are
+            // what this loop actually costs.
+            if let ([r_idx], [a_idx]) = (rem, add) {
+                let r = &w1[r_idx * h..(r_idx + 1) * h];
+                let a = &w1[a_idx * h..(a_idx + 1) * h];
+                for ((value, &rw), &aw) in acc.iter_mut().zip(r).zip(a) {
+                    *value = value.wrapping_sub(rw).wrapping_add(aw);
+                }
+                continue;
+            }
+            for &idx in rem {
+                let row = &w1[idx * h..(idx + 1) * h];
                 for (value, &weight) in acc.iter_mut().zip(row) {
                     *value = value.wrapping_sub(weight);
                 }
             }
-            for &idx in added[p].as_slice() {
-                let row = &self.model.w1[idx * h..(idx + 1) * h];
+            for &idx in add {
+                let row = &w1[idx * h..(idx + 1) * h];
                 for (value, &weight) in acc.iter_mut().zip(row) {
                     *value = value.wrapping_add(weight);
                 }

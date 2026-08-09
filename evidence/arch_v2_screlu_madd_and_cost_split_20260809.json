@@ -13,7 +13,7 @@
     "screlu_head_h1024_before_ns": 199.71,
     "screlu_head_h1024_after_ns": 181.42,
     "head_speedup": 1.101,
-    "screlu_head_h256_before_ns": 50.40,
+    "screlu_head_h256_before_ns": 50.4,
     "screlu_head_h256_after_ns": 45.17
   },
   "cost_split_h1024": {
@@ -26,10 +26,48 @@
     "cache_miss_component_ns": 100,
     "note": "The cache-realistic bench cycles through every legal move of a midgame position so feature rows are not L1-resident. It agrees with the ~488 ns/node eval cost derived independently from the box NPS numbers (v1 h64 2.139M vs v2 h1024 1.185M)."
   },
-  "conclusion": "Hand-written SIMD intrinsics are NOT the lever for arch-v2 speed, and this measurement supersedes the standing assumption that they were the top search arm. The head is only 38% of NNUE node cost and already sits near its instruction floor (about 8 ops per 8 lanes; 181 ns measured against a ~160 ns theoretical floor), which is why the portable i16-madd restructure captured only 1.10x and why explicit intrinsics have little left to take. The remaining 62% is the accumulator update, which is memory-latency-bound: w1 is 83.9 MB at h1024 (40960 features x 1024 x 2 bytes) and each quiet move pulls four scattered 2 KB rows, so roughly a third of that half is pure miss latency that no vectorization can remove.",
+  "conclusion": "Hand-written SIMD intrinsics are NOT the lever for arch-v2 speed, and this measurement supersedes the standing assumption that they were the top search arm. The head is only 38% of NNUE node cost and already sits near its instruction floor (about 8 ops per 8 lanes; 181 ns measured against a ~160 ns theoretical floor), which is why the portable i16-madd restructure captured only 1.10x and why explicit intrinsics have little left to take. The remaining 62% is the accumulator update, which is memory-latency-bound: w1 is 83.9 MB at h1024 (40960 features x 1024 x 2 bytes) and each quiet move pulls four scattered 2 KB rows, so roughly a third of that half is pure miss latency that no vectorization can remove. The fused accumulator update then took a further 7-14% off the other half by removing a redundant accumulator pass and overlapping the two row misses - again an access-pattern win, not a vectorization win, which reinforces the same conclusion.",
   "next_levers_in_order": [
     "Deferred/lazy accumulator updates. alphabeta.rs:1237 calls apply_move eagerly for every searched move, but eval_current is only needed at a subset of nodes (children cut off by TT hits or immediate fail-high never need it). Stockfish defers with a dirty-piece accumulator stack. PAYOFF IS UNMEASURED and may be modest, because qsearch needs a stand-pat eval at essentially every node and qsearch dominates node counts - instrument the eval-per-apply ratio before building this.",
     "Prefetch the feature rows at the top of apply_delta. There are only 2-4 rows per perspective and they are known before the loop starts, so issuing all the loads up front converts serial dependent misses into memory-level parallelism against the ~100 ns miss component.",
     "Shrink the feature table. 83.9 MB is the root cause of the miss traffic; feature factorization or king bucketing would cut both the table and the miss rate."
-  ]
+  ],
+  "fused_accumulator_update": {
+    "change": "apply_delta walked the accumulator once per feature row. The quiet-move case (exactly one feature out and one in per perspective) now walks it once, halving accumulator load/store traffic and issuing both w1 row reads in the same iteration so their cache misses overlap instead of serializing. Captures, promotions, castling and en passant keep the general path.",
+    "correctness": "incremental_updates_match_full_recompute_over_random_games still passes (it exercises captures, promotions, castling and en passant, i.e. both paths), and matein3 still signs 20110404.",
+    "apply_eval_revert_h1024_ns": {
+      "before": 380.2,
+      "after": 340.64,
+      "delta_pct": -10.5
+    },
+    "apply_eval_revert_varied_h1024_ns": {
+      "before": 481.0,
+      "after": 441.82,
+      "delta_pct": -7.5
+    },
+    "apply_eval_revert_h256_ns": {
+      "before": 117.23,
+      "after": 100.88,
+      "delta_pct": -14.2
+    }
+  },
+  "cumulative_vs_pre_optimization_baseline": {
+    "note": "Both changes together, measured against commit f082fe0 on the same machine and bench.",
+    "head_h1024_ns": {
+      "before": 200.3,
+      "after": 185.26,
+      "speedup": 1.081
+    },
+    "apply_eval_revert_h1024_ns": {
+      "before": 398.46,
+      "after": 340.64,
+      "speedup": 1.17
+    },
+    "apply_eval_revert_varied_h1024_ns": {
+      "before": 498.17,
+      "after": 441.82,
+      "speedup": 1.128
+    },
+    "estimated_box_nps_effect": "If the ~56 ns/node saved on NEON carries to AVX2, the box's 843.8 ns/node drops to ~788 ns, i.e. 1.185M -> ~1.27M NPS (+6.7%). ESTIMATE ONLY: derived from a Mac bench applied to a box node-time figure. Must be confirmed with nps_bench.py on the box using a trained v2 net at a quiet moment."
+  }
 }
