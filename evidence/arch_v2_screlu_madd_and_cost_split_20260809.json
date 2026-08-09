@@ -1,0 +1,35 @@
+{
+  "date_utc": "2026-08-09",
+  "change": "Rewrote the arch-v2 SCReLU head a second time, from i32-lane arithmetic to an i16 multiply feeding a widening i16xi16->i32 multiply-accumulate (the pmaddwd/smlal shape). Added a dispatch so models quantized above QA=255 take an all-i64 path that is exact for any QA.",
+  "correctness": {
+    "integer_identical": true,
+    "matein3_node_signature": 20110404,
+    "note": "Signature unchanged from the post-S3 baseline, so the search tree is bit-identical. All 4 arch-v2 parity fixtures pass, including python_exported_gold_model_evaluates_identically. 56 cargo test targets green.",
+    "latent_bug_fixed": "The previous kernel guarded its i32 accumulation with a debug_assert bounding QA to about 512. debug_assert is a no-op in release, so a model quantized with a larger QA would have overflowed i32 silently in production. The new screlu_dot_wide fallback is exact for any QA and is selected automatically."
+  },
+  "measurement": {
+    "method": "criterion, PieBot/benches/nnue_v2_head_bench.rs, synthetic h1024 PIENNQ02 model. Random weights are valid here because these benches time kernels directly with no search tree, so the degenerate-eval caveat that applies to NPS measurements does not apply.",
+    "hardware": "Apple M-series (NEON), -C target-cpu=native",
+    "screlu_head_h1024_before_ns": 199.71,
+    "screlu_head_h1024_after_ns": 181.42,
+    "head_speedup": 1.101,
+    "screlu_head_h256_before_ns": 50.40,
+    "screlu_head_h256_after_ns": 45.17
+  },
+  "cost_split_h1024": {
+    "head_ns": 181,
+    "apply_eval_revert_l1_hot_ns": 380,
+    "apply_eval_revert_cache_realistic_ns": 481,
+    "accumulator_update_and_revert_ns": 300,
+    "head_share": 0.38,
+    "accumulator_share": 0.62,
+    "cache_miss_component_ns": 100,
+    "note": "The cache-realistic bench cycles through every legal move of a midgame position so feature rows are not L1-resident. It agrees with the ~488 ns/node eval cost derived independently from the box NPS numbers (v1 h64 2.139M vs v2 h1024 1.185M)."
+  },
+  "conclusion": "Hand-written SIMD intrinsics are NOT the lever for arch-v2 speed, and this measurement supersedes the standing assumption that they were the top search arm. The head is only 38% of NNUE node cost and already sits near its instruction floor (about 8 ops per 8 lanes; 181 ns measured against a ~160 ns theoretical floor), which is why the portable i16-madd restructure captured only 1.10x and why explicit intrinsics have little left to take. The remaining 62% is the accumulator update, which is memory-latency-bound: w1 is 83.9 MB at h1024 (40960 features x 1024 x 2 bytes) and each quiet move pulls four scattered 2 KB rows, so roughly a third of that half is pure miss latency that no vectorization can remove.",
+  "next_levers_in_order": [
+    "Deferred/lazy accumulator updates. alphabeta.rs:1237 calls apply_move eagerly for every searched move, but eval_current is only needed at a subset of nodes (children cut off by TT hits or immediate fail-high never need it). Stockfish defers with a dirty-piece accumulator stack. PAYOFF IS UNMEASURED and may be modest, because qsearch needs a stand-pat eval at essentially every node and qsearch dominates node counts - instrument the eval-per-apply ratio before building this.",
+    "Prefetch the feature rows at the top of apply_delta. There are only 2-4 rows per perspective and they are known before the loop starts, so issuing all the loads up front converts serial dependent misses into memory-level parallelism against the ~100 ns miss component.",
+    "Shrink the feature table. 83.9 MB is the root cause of the miss traffic; feature factorization or king bucketing would cut both the table and the miss rate."
+  ]
+}

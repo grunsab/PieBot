@@ -87,3 +87,7 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[[bench]]
+name = "nnue_v2_head_bench"
+harness = false

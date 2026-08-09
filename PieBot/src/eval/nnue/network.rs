@@ -472,26 +472,63 @@ impl QuantNetwork {
 
 /// SCReLU dot product: `sum_j clamp(acc[j], 0, QA)^2 * w[j]`.
 ///
-/// Kept in i32 lanes so the compiler can vectorize it (the natural i64
-/// formulation cannot be); partial sums widen every `SCRELU_CHUNK` terms.
-/// Each term is bounded by `QA^2 * 127`, which at the standard QA=255 is
-/// 8_258_175, so 128 terms stay under `i32::MAX` with room to spare.
-/// The result is identical to the i64 reference for every valid model.
+/// Partial sums widen to i64 every `SCRELU_CHUNK` terms so the inner loop can
+/// stay in narrow lanes.
 const SCRELU_CHUNK: usize = 128;
+
+/// Largest QA for which `clamp(acc, 0, QA) * w` is exact in i16 across the full
+/// int8 weight range: `qa * 128 <= i16::MAX`. The shipped models quantize at
+/// QA=255, which is exactly this bound.
+const MAX_I16_MADD_QA: i32 = (i16::MAX as i32) / 128;
 
 #[inline]
 fn screlu_dot(acc: &[i16], w: &[i8], qa: i32) -> i64 {
     debug_assert_eq!(acc.len(), w.len());
-    debug_assert!(qa > 0 && (qa as i64) * (qa as i64) * 127 * (SCRELU_CHUNK as i64) <= i32::MAX as i64 * 2);
-    let qa16 = qa as i16;
+    debug_assert!(qa > 0);
+    if qa <= MAX_I16_MADD_QA {
+        screlu_dot_madd(acc, w, qa as i16)
+    } else {
+        screlu_dot_wide(acc, w, qa)
+    }
+}
+
+/// Fast path, shaped so the autovectorizer emits a widening multiply-accumulate
+/// (`vpmaddwd` on AVX2, `smlal`/`smlal2` on NEON).
+///
+/// The trick is keeping `v * w` in i16: the multiply then runs 16 lanes at a
+/// time instead of the 8 an i32 formulation allows, and the widening i16xi16
+/// -> i32 accumulate is a single instruction. Exactness rests on two bounds:
+///   * `|v * w| <= QA * 128 = 32_640 <= i16::MAX`, guaranteed by the
+///     `MAX_I16_MADD_QA` dispatch above;
+///   * `|v * (v * w)| <= 255 * 32_640 = 8_323_200`, so `SCRELU_CHUNK = 128`
+///     terms reach at most 1.065e9, well inside i32.
+/// Every intermediate is therefore exact, not merely non-panicking, and the
+/// result is bit-identical to `screlu_dot_wide`.
+#[inline]
+fn screlu_dot_madd(acc: &[i16], w: &[i8], qa: i16) -> i64 {
     let mut total: i64 = 0;
     for (acc_chunk, w_chunk) in acc.chunks(SCRELU_CHUNK).zip(w.chunks(SCRELU_CHUNK)) {
         let mut partial: i32 = 0;
         for (&a, &weight) in acc_chunk.iter().zip(w_chunk) {
-            let v = a.clamp(0, qa16) as i32;
-            partial += v * v * weight as i32;
+            let v = a.clamp(0, qa);
+            let vw = v * weight as i16;
+            partial += v as i32 * vw as i32;
         }
         total += partial as i64;
+    }
+    total
+}
+
+/// Exact for any QA. Everything widens to i64 up front, so this cannot
+/// overflow regardless of quantization scale; it is only reached by models
+/// quantized above `MAX_I16_MADD_QA`, which none currently are.
+#[cold]
+fn screlu_dot_wide(acc: &[i16], w: &[i8], qa: i32) -> i64 {
+    let qa = qa as i64;
+    let mut total: i64 = 0;
+    for (&a, &weight) in acc.iter().zip(w) {
+        let v = (a as i64).clamp(0, qa);
+        total += v * v * weight as i64;
     }
     total
 }
@@ -649,10 +686,123 @@ fn square_index(board: &Board, side: Color, piece: Piece) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{transpose_w1_feature_major, QuantNetwork};
+    use super::{screlu_dot, transpose_w1_feature_major, QuantNetwork};
     use crate::eval::nnue::features::halfkp_v2_dim;
     use crate::eval::nnue::loader::{QuantMeta, QuantNnue};
     use std::sync::Arc;
+
+    /// Independent, deliberately naive definition of the SCReLU head term.
+    /// Everything widens to i64 immediately, so no intermediate can overflow
+    /// and this stays valid for any `qa`. The optimized kernel must reproduce
+    /// it exactly.
+    fn screlu_dot_reference(acc: &[i16], w: &[i8], qa: i32) -> i64 {
+        let mut total: i64 = 0;
+        for (&a, &weight) in acc.iter().zip(w) {
+            let v = (a as i64).clamp(0, qa as i64);
+            total += v * v * weight as i64;
+        }
+        total
+    }
+
+    /// Deterministic LCG; the kernel is integer-exact so a fixed stream is a
+    /// complete test, and a fixed seed keeps failures reproducible.
+    fn lcg(state: &mut u64) -> u64 {
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        *state >> 33
+    }
+
+    #[test]
+    fn screlu_dot_matches_reference_on_adversarial_inputs() {
+        // Values chosen to sit on every boundary the optimized kernel cares
+        // about: accumulators below zero, at zero, inside the clamp, exactly at
+        // QA and past it, and at the i16 extremes; weights at both int8 limits.
+        let accs: Vec<i16> = vec![
+            i16::MIN,
+            -32000,
+            -256,
+            -1,
+            0,
+            1,
+            127,
+            254,
+            255,
+            256,
+            1000,
+            32000,
+            i16::MAX,
+        ];
+        let weights: Vec<i8> = vec![i8::MIN, -127, -64, -1, 0, 1, 63, 126, i8::MAX];
+
+        // Every (acc, weight) pairing, which includes the worst case for the
+        // i16 intermediate: v = QA = 255 against w = -128.
+        let mut acc_vec = Vec::new();
+        let mut w_vec = Vec::new();
+        for &a in &accs {
+            for &w in &weights {
+                acc_vec.push(a);
+                w_vec.push(w);
+            }
+        }
+
+        for qa in [1, 2, 64, 127, 254, 255] {
+            assert_eq!(
+                screlu_dot_reference(&acc_vec, &w_vec, qa),
+                screlu_dot(&acc_vec, &w_vec, qa),
+                "qa={qa}",
+            );
+        }
+    }
+
+    #[test]
+    fn screlu_dot_matches_reference_at_production_width() {
+        // 2048 lanes is the shipped shape (two hidden-1024 accumulators), so
+        // this exercises whatever chunking and tail handling the kernel uses.
+        let mut state = 0x5EED_1234_ABCD_0001u64;
+        let acc: Vec<i16> = (0..2048)
+            .map(|_| (lcg(&mut state) % 65536) as u16 as i16)
+            .collect();
+        let w: Vec<i8> = (0..2048).map(|_| (lcg(&mut state) % 256) as u8 as i8).collect();
+
+        assert_eq!(
+            screlu_dot_reference(&acc, &w, 255),
+            screlu_dot(&acc, &w, 255),
+        );
+    }
+
+    #[test]
+    fn screlu_dot_matches_reference_on_ragged_lengths() {
+        let mut state = 0xC0FF_EE00_1234_5678u64;
+        for len in [0usize, 1, 7, 15, 16, 17, 127, 128, 129, 255, 257] {
+            let acc: Vec<i16> = (0..len)
+                .map(|_| (lcg(&mut state) % 65536) as u16 as i16)
+                .collect();
+            let w: Vec<i8> = (0..len).map(|_| (lcg(&mut state) % 256) as u8 as i8).collect();
+            assert_eq!(
+                screlu_dot_reference(&acc, &w, 255),
+                screlu_dot(&acc, &w, 255),
+                "len={len}",
+            );
+        }
+    }
+
+    #[test]
+    fn screlu_dot_is_exact_above_the_i16_intermediate_limit() {
+        // The fast path multiplies v*w in i16, which is only safe while
+        // qa * 128 <= i16::MAX, i.e. qa <= 255. Models quantized with a larger
+        // QA must still evaluate exactly, via whatever fallback the kernel
+        // keeps. Without this the overflow would be silent.
+        let acc: Vec<i16> = vec![i16::MAX, 5000, 1024, 512, 300, 256, 0, -5];
+        let w: Vec<i8> = vec![i8::MIN, 127, -100, 64, -1, 0, 32, 100];
+        for qa in [256, 300, 1024, 4096] {
+            assert_eq!(
+                screlu_dot_reference(&acc, &w, qa),
+                screlu_dot(&acc, &w, qa),
+                "qa={qa}",
+            );
+        }
+    }
 
     #[test]
     fn feature_major_runtime_layout_preserves_every_weight() {
