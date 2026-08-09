@@ -248,6 +248,27 @@ class AutopilotTests(unittest.TestCase):
         )
         self.assertEqual(100.0, untouched["target_cp"])
 
+    def test_cli_overrides_teacher_mix(self) -> None:
+        # campaign_v6 diagnosis (2026-08-09): at teacher_mix 0.8 even the
+        # depth-9 relabeled rows carried 20% game-outcome noise in their target.
+        # The mix must be settable so a lineage can train on undiluted teacher
+        # values.
+        args = autopilot._parse_args(
+            ["--out-root", "runs", "--teacher-mix", "1.0"]
+        )
+        resolved = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), args
+        )
+        self.assertEqual(1.0, resolved["teacher_mix"])
+        objective = autopilot._configured_training_objective(resolved)
+        self.assertEqual(1.0, objective["teacher_mix"])
+
+        bare = autopilot._parse_args(["--out-root", "runs"])
+        untouched = autopilot._apply_cli_overrides(
+            autopilot.zen5_9755_7d_profile(), bare
+        )
+        self.assertEqual(0.8, untouched["teacher_mix"])
+
     def test_cli_overrides_selfplay_temperature_moves(self) -> None:
         args = autopilot._parse_args(
             ["--out-root", "runs", "--selfplay-temperature-moves", "12"]

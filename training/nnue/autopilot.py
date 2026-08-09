@@ -441,6 +441,10 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument("--min-teacher-depth", type=int, default=None)
     ap.add_argument("--target-cp", type=float, default=None)
+    # Objective-identity field: the blend between the teacher value and the game
+    # outcome on rows that carry a teacher label. Changing it requires a fresh
+    # lineage. At 0.8 the depth-9 teacher rows still carried 20% outcome noise.
+    ap.add_argument("--teacher-mix", type=float, default=None)
     ap.add_argument("--loss-kind", default=None)
     ap.add_argument("--huber-delta-cp", type=float, default=None)
     ap.add_argument("--wdl-scale-cp", type=float, default=None)
@@ -745,6 +749,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "hidden_dim": args.hidden_dim,
         "min_teacher_depth": args.min_teacher_depth,
         "target_cp": args.target_cp,
+        "teacher_mix": args.teacher_mix,
         "loss_kind": args.loss_kind,
         "huber_delta_cp": args.huber_delta_cp,
         "wdl_scale_cp": args.wdl_scale_cp,

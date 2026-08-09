@@ -255,6 +255,12 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--train-arch" "$TRAIN_ARCH"', launcher)
         self.assertIn('require_autopilot_flag "--train-arch"', launcher)
 
+    def test_teacher_mix_env_is_wired(self) -> None:
+        launcher = self._launcher()
+        self.assertIn('TEACHER_MIX="${TEACHER_MIX:-0.8}"', launcher)
+        self.assertIn('"--teacher-mix" "$TEACHER_MIX"', launcher)
+        self.assertIn('require_autopilot_flag "--teacher-mix"', launcher)
+
     def test_outcome_target_env_is_wired(self) -> None:
         launcher = self._launcher()
         self.assertIn('TARGET_CP="${TARGET_CP:-100}"', launcher)

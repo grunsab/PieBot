@@ -107,6 +107,12 @@ TEACHER_EXTERNAL_QUANT_SHA256="${TEACHER_EXTERNAL_QUANT_SHA256:-}"
 # P5: decisive-outcome target magnitude (objective-identity field; changing it
 # requires a fresh out_root with a weights-only bootstrap).
 TARGET_CP="${TARGET_CP:-100}"
+# Teacher/outcome blend on rows that carry a teacher label (objective-identity
+# field; a change requires a fresh out_root). At 0.8 even depth-9 relabeled
+# rows were 20% game-outcome noise; campaign_v7 trains at 1.0 so teacher rows
+# carry undiluted search evaluations. Rows WITHOUT a teacher label are
+# unaffected - they always target the outcome alone.
+TEACHER_MIX="${TEACHER_MIX:-0.8}"
 
 export PATH="/root/.cargo/bin:/venv/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 export PYTHONUNBUFFERED=1
@@ -251,6 +257,15 @@ require_positive_int MAX_SAMPLES "$MAX_SAMPLES"
 require_positive_int HIDDEN_DIM "$HIDDEN_DIM"
 require_positive_number LEARNING_RATE "$LEARNING_RATE"
 require_positive_number WARM_START_LEARNING_RATE "$WARM_START_LEARNING_RATE"
+[[ "$TEACHER_MIX" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+  || die "TEACHER_MIX must be numeric, got: $TEACHER_MIX"
+"$PYTHON_BIN" - "$TEACHER_MIX" <<'PY'
+import sys
+
+value = float(sys.argv[1])
+if not 0.0 <= value <= 1.0:
+    raise SystemExit(f"TEACHER_MIX must lie in [0, 1], got: {value}")
+PY
 require_nonnegative_int RETAIN_FULL_CYCLES "$RETAIN_FULL_CYCLES"
 require_nonnegative_int REPLAY_WINDOW_CYCLES "$REPLAY_WINDOW_CYCLES"
 require_positive_int GATE_GAMES "$GATE_GAMES"
@@ -332,6 +347,7 @@ require_autopilot_flag "--selfplay-actor-tt-mb"
 require_autopilot_flag "--selfplay-temperature-moves"
 require_autopilot_flag "--teacher-external-quant-file"
 require_autopilot_flag "--target-cp"
+require_autopilot_flag "--teacher-mix"
 require_autopilot_flag "--train-arch"
 if [[ "$FRESH_INIT" != "1" ]]; then
   verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
@@ -423,6 +439,7 @@ AUTOPILOT_ARGS+=(
   "--teacher-sample-fraction" "$TEACHER_SAMPLE_FRACTION"
   "--min-teacher-depth" "$MIN_TEACHER_DEPTH"
   "--target-cp" "$TARGET_CP"
+  "--teacher-mix" "$TEACHER_MIX"
   "--train-arch" "$TRAIN_ARCH"
   "--epochs" "$EPOCHS"
   "--batch-size" "$BATCH_SIZE"
