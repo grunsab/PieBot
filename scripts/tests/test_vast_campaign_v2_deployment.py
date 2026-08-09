@@ -236,11 +236,17 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('FRESH_INIT="1"', environment)
         self.assertNotIn("INITIAL_CHECKPOINT_SOURCE", environment)
         self.assertIn('RELABEL_DEPTH="9"', environment)
-        self.assertIn('RELABEL_EVERY="6"', environment)
+        # Teacher signal density raised 2026-08-09. At every-6 relabeling with a
+        # 0.15 teacher fraction only ~12% of the gradient was search evaluation
+        # and the other ~88% was the outcome of a depth-5 self-play game, which
+        # the net cannot predict (train accuracy sat at 0.509, chance). Neither
+        # knob is an objective-identity field, so this stays inside the v6
+        # lineage: weights and Adam state carry over.
+        self.assertIn('RELABEL_EVERY="2"', environment)
         # Teacher/actor separation: actor depth 5 rows must NOT count as
-        # teacher rows, and the teacher fraction matches every-6 relabeling.
+        # teacher rows, and the teacher fraction matches the every-2 cadence.
         self.assertIn('MIN_TEACHER_DEPTH="6"', environment)
-        self.assertIn('TEACHER_SAMPLE_FRACTION="0.15"', environment)
+        self.assertIn('TEACHER_SAMPLE_FRACTION="0.5"', environment)
         self.assertIn('TARGET_CP="250"', environment)
         self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
         # Actor, teacher, and gate incumbent stay the accepted cycle-98 h64 v1.
