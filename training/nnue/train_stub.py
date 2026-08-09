@@ -193,9 +193,69 @@ OBJECTIVE_SCHEMA = "nnue-objective-v1"
 SAMPLING_SCHEMA = "source-teacher-stratified-v3-no-internal-leakage"
 FIXED_VALIDATION_SAMPLING_SCHEMA = "uniform-reservoir-v1"
 PRIMARY_VALIDATION_SAMPLING_SCHEMA = "game-hash-disjoint-training-mixture-v1"
-CHECKPOINT_SELECTION_SCHEMA = "aligned-primary-external-reference-v1"
+CHECKPOINT_SELECTION_SCHEMA = "reference-selected-primary-guarded-v2"
 REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION = 0.01
+# The primary validation split is drawn from the current training mixture, which is
+# mostly outcome-only rows; its per-epoch loss carries between-cycle noise of order
+# 1e-3 relative. Selecting on a strict improvement in that metric discarded four
+# consecutive campaign_v6 cycles whose teacher-labeled reference loss had genuinely
+# improved (deltas as small as 6e-5 relative). The primary split is therefore a
+# divergence guard with a noise-band tolerance, not the selection signal.
+PRIMARY_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION = 0.002
 PRIMARY_VALIDATION_HASH_NAMESPACE = "piebot-primary-validation-partition-v1"
+
+
+def is_better_checkpoint(
+    *,
+    val_loss: float,
+    best_val_loss: float,
+    reference_val_loss: Optional[float],
+    best_reference_val_loss: Optional[float],
+    initial_reference_val_loss: Optional[float],
+) -> bool:
+    """Decide whether this epoch's weights should replace the incumbent best.
+
+    An epoch is selected when it improves *either* the noisy primary split or the
+    frozen teacher-labeled reference split, provided the reference loss stays
+    inside its absolute envelope and the primary loss stays inside its noise band.
+    Requiring the primary split specifically to improve is what stalled
+    campaign_v6. Runs without a reference split keep the original
+    strict-primary-improvement behavior.
+    """
+    if val_loss is None or not math.isfinite(float(val_loss)):
+        return False
+
+    if reference_val_loss is None or best_reference_val_loss is None:
+        return float(val_loss) < float(best_val_loss)
+
+    if not math.isfinite(float(reference_val_loss)):
+        return False
+
+    # Absolute envelope against the weights this cycle started from, so neither
+    # metric can license drifting away from the incoming model.
+    if initial_reference_val_loss is not None and math.isfinite(
+        float(initial_reference_val_loss)
+    ):
+        reference_limit = float(initial_reference_val_loss) * (
+            1.0 + REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        )
+        if float(reference_val_loss) > reference_limit + 1e-12:
+            return False
+
+    # Either split may supply the evidence of progress. Requiring the primary
+    # split specifically to improve is what stalled campaign_v6: its loss is
+    # noise-dominated, so real gains visible on the reference split were vetoed.
+    primary_improves = float(val_loss) < float(best_val_loss)
+    reference_improves = float(reference_val_loss) < float(best_reference_val_loss)
+    if not (primary_improves or reference_improves):
+        return False
+
+    # Divergence guard: the primary split may sit inside its noise band, but it
+    # must not blow past it, which would indicate genuine overfitting.
+    primary_limit = float(best_val_loss) * (
+        1.0 + PRIMARY_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+    )
+    return float(val_loss) <= primary_limit + 1e-12
 
 
 def _active_halfkp_indices(fen: str) -> List[int]:
@@ -1592,7 +1652,13 @@ def train_model(
             reference_checkpoint_eligible
         )
 
-        if val_loss < best_val_loss and reference_checkpoint_eligible:
+        if is_better_checkpoint(
+            val_loss=val_loss,
+            best_val_loss=best_val_loss,
+            reference_val_loss=reference_val_loss,
+            best_reference_val_loss=best_reference_val_loss,
+            initial_reference_val_loss=initial_reference_val_loss,
+        ):
             best_val_loss = val_loss
             best_epoch = epoch + 1
             best_w1 = list(w1)
@@ -1638,6 +1704,9 @@ def train_model(
         "reference_validation_max_relative_loss_regression": (
             REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
+        "primary_validation_max_relative_loss_regression": (
+            PRIMARY_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
         "primary_validation_hash_namespace": PRIMARY_VALIDATION_HASH_NAMESPACE,
         "validation_seed": validation_seed,
         "validation_require_teacher": validation_require_teacher,
@@ -1671,6 +1740,9 @@ def train_model(
         "checkpoint_selection_schema": CHECKPOINT_SELECTION_SCHEMA,
         "reference_validation_max_relative_loss_regression": (
             REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
+        "primary_validation_max_relative_loss_regression": (
+            PRIMARY_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
         "primary_validation_hash_namespace": PRIMARY_VALIDATION_HASH_NAMESPACE,
         "min_teacher_depth": min_teacher_depth,

@@ -1838,6 +1838,9 @@ def run_pipeline(
         "reference_validation_max_relative_loss_regression": (
             train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
+        "primary_validation_max_relative_loss_regression": (
+            train_stub.PRIMARY_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
         "primary_validation_hash_namespace": (
             train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
         ),

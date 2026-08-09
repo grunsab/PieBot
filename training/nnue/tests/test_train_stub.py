@@ -1350,5 +1350,104 @@ class TrainStubTests(unittest.TestCase):
                     )
 
 
+class CheckpointSelectionTests(unittest.TestCase):
+    """Selection must key off the low-variance teacher-labeled reference split.
+
+    Regression coverage for the campaign_v6 stall: cycles 43/45/46 improved the
+    reference loss but were discarded because the noisy primary validation loss
+    rose by as little as 4e-5 (relative 6e-5), an order of magnitude below the
+    between-cycle noise of that metric. Four consecutive no-op cycles resulted.
+    """
+
+    def test_reference_gain_with_primary_noise_is_selected(self) -> None:
+        # Exact cycle_000046 numbers from the stalled run.
+        self.assertTrue(
+            train_stub.is_better_checkpoint(
+                val_loss=0.6795620153623119,
+                best_val_loss=0.6795337581211998,
+                reference_val_loss=0.6332717661834855,
+                best_reference_val_loss=0.6338223168296169,
+                initial_reference_val_loss=0.6338223168296169,
+            )
+        )
+
+    def test_reference_regression_is_rejected(self) -> None:
+        # Exact cycle_000044 numbers: reference got worse, so this is a true reject.
+        self.assertFalse(
+            train_stub.is_better_checkpoint(
+                val_loss=0.6799593300151229,
+                best_val_loss=0.6794232297487318,
+                reference_val_loss=0.6352489354328845,
+                best_reference_val_loss=0.6338223168296169,
+                initial_reference_val_loss=0.6338223168296169,
+            )
+        )
+
+    def test_primary_regression_beyond_tolerance_is_rejected(self) -> None:
+        # Reference improves, but the primary split diverges far past the noise band.
+        self.assertFalse(
+            train_stub.is_better_checkpoint(
+                val_loss=0.90,
+                best_val_loss=0.6795337581211998,
+                reference_val_loss=0.6000,
+                best_reference_val_loss=0.6338223168296169,
+                initial_reference_val_loss=0.6338223168296169,
+            )
+        )
+
+    def test_reference_absolute_regression_guard_still_applies(self) -> None:
+        # Improving on best-so-far is not enough if it regressed past the
+        # initial-loss envelope that REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION sets.
+        self.assertFalse(
+            train_stub.is_better_checkpoint(
+                val_loss=0.6790,
+                best_val_loss=0.6795337581211998,
+                reference_val_loss=0.7000,
+                best_reference_val_loss=0.7200,
+                initial_reference_val_loss=0.6338223168296169,
+            )
+        )
+
+    def test_without_reference_split_falls_back_to_strict_primary(self) -> None:
+        self.assertTrue(
+            train_stub.is_better_checkpoint(
+                val_loss=0.60,
+                best_val_loss=0.61,
+                reference_val_loss=None,
+                best_reference_val_loss=None,
+                initial_reference_val_loss=None,
+            )
+        )
+        self.assertFalse(
+            train_stub.is_better_checkpoint(
+                val_loss=0.61,
+                best_val_loss=0.60,
+                reference_val_loss=None,
+                best_reference_val_loss=None,
+                initial_reference_val_loss=None,
+            )
+        )
+
+    def test_non_finite_losses_are_rejected(self) -> None:
+        self.assertFalse(
+            train_stub.is_better_checkpoint(
+                val_loss=float("nan"),
+                best_val_loss=0.68,
+                reference_val_loss=0.60,
+                best_reference_val_loss=0.63,
+                initial_reference_val_loss=0.63,
+            )
+        )
+        self.assertFalse(
+            train_stub.is_better_checkpoint(
+                val_loss=0.68,
+                best_val_loss=0.68,
+                reference_val_loss=float("inf"),
+                best_reference_val_loss=0.63,
+                initial_reference_val_loss=0.63,
+            )
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

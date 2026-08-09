@@ -1207,7 +1207,13 @@ def train_model(
         reference_val_checkpoint_eligible_history.append(
             reference_checkpoint_eligible
         )
-        if va_loss < best_val and reference_checkpoint_eligible:
+        if train_stub.is_better_checkpoint(
+            val_loss=va_loss,
+            best_val_loss=best_val,
+            reference_val_loss=reference_va_loss,
+            best_reference_val_loss=best_reference_val_loss,
+            initial_reference_val_loss=initial_reference_val_loss,
+        ):
             best_val = va_loss
             best_epoch = ep + 1
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -1343,6 +1349,9 @@ def train_model(
         "reference_validation_max_relative_loss_regression": (
             train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
+        "primary_validation_max_relative_loss_regression": (
+            train_stub.PRIMARY_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
         "primary_validation_hash_namespace": (
             train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
         ),
@@ -1388,6 +1397,9 @@ def train_model(
         "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
         "reference_validation_max_relative_loss_regression": (
             train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
+        ),
+        "primary_validation_max_relative_loss_regression": (
+            train_stub.PRIMARY_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
         "primary_validation_hash_namespace": (
             train_stub.PRIMARY_VALIDATION_HASH_NAMESPACE
