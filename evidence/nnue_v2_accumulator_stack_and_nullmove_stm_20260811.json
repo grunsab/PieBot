@@ -1,0 +1,40 @@
+{
+  "date_utc": "2026-08-11",
+  "context": "campaign_v6 had completed 89 cycles with zero accepted models. The active model was still the v1 h64 cycle-98 bootstrap, so the self-play actor and the depth-9 teacher had been the same frozen net for every one of those cycles. Pooled confirmation games across cycles 50-89 (baseline 321.0 vs experimental 286.0 over 607 games) put the v2 candidate at 47.1%, while the same gate logs showed it searching 0.36 ply shallower at equal time (1,531,626 NPS / depth 7.07 for v1 against 973,926 NPS / depth 6.71 for v2, i.e. 0.636x). Two defects found in that arm are fixed here.",
+
+  "change_1": {
+    "title": "Ply-indexed accumulator stack replaces in-place apply/un-apply",
+    "what": "V2State kept a single mutable pair of perspective accumulators and undid each move by re-running the delta with added/removed swapped (PieBot/src/eval/nnue/network.rs). That reads each move's two 2 KB w1 rows a second time, and does it after the entire child subtree has evicted them from cache; w1 is ~84 MB at h1024, so those misses dominate the update. The accumulators now live in a ply-indexed stack (slot t spans [t*2h, (t+1)*2h), white perspective first): applying a move writes a new slot from its parent in one fused pass, and reverting is a `top` decrement plus three scalar restores. King moves, which re-key every HalfKP feature and force a rebuild, push a fresh slot instead of cloning both accumulator Vecs, so ChangeSet no longer heap-allocates on any path.",
+    "stack_sizing": "64 plies preallocated (INITIAL_STACK_PLIES), grown on demand. 64 * 2 * 1024 * 2 B = 256 KB per worker at production width; the training box runs 160 self-play workers.",
+    "correctness": "Integer-identical. All arch-v2 parity fixtures pass unchanged, including python_exported_gold_model_evaluates_identically (Python-quantized PIENNQ02 asserted integer-exact from Rust) and incremental_updates_match_full_recompute_over_random_games. A new test, unwinding_a_deep_line_restores_every_ancestor_exactly, walks 90-ply random lines through king-move refreshes and past the stack's initial capacity, asserting every ancestor's evaluation is restored bit-exactly on unwind and agrees with a full recompute. matein3 acceptance node signature unchanged at 20110404."
+  },
+
+  "change_2": {
+    "title": "Null move now updates the network's side to move (v2-only correctness bug)",
+    "what": "Arch-v2 is side-to-move relative: the head concatenates the stm perspective first and reads a different half of w2 for each color. The search played null moves without telling the network, so V2State.stm kept the parent's color and the null child's static evaluation came out as exactly the negation of its parent's instead of the network's real output for that position. That value drives null-move pruning and its depth<=12 verification search. The legacy v1 backend keeps a white-POV accumulator whose sign the caller applies, so it is genuinely stm-independent and was never affected -- this penalised only the arm being gated.",
+    "fix": "QuantNetwork::apply_null_move returns an undo token (inert on the v1 backend). alphabeta's null-move block is split into null_move_probe so a single apply/revert pair brackets it and every exit path, including `?` aborts, restores the state.",
+    "correctness": "New tests null_move_flips_the_side_to_move_seen_by_the_head (incremental must equal a full recompute of the null board across three positions, and revert must restore the parent) and null_move_child_is_not_merely_the_negated_parent (guards the first against becoming vacuous; needs width 256, since the head's divide by qa*qa*qb = 4,161,600 makes a width-8 model collide by accident). Bit-identical for the v1/PST configuration: matein3 acceptance signature unchanged at 20110404, which is the control proving the alphabeta restructuring did not move the tree.",
+    "status": "TREE-CHANGING FOR v2 NETS. Not yet validated by paired A/B games with a v2 model; that is required before it can be credited with Elo."
+  },
+
+  "measurement": {
+    "method": "criterion, PieBot/benches/nnue_v2_head_bench.rs, same machine, back-to-back. Baseline built from a clean git worktree at HEAD (0250b61) so both arms compile from identical toolchain and flags. v2_screlu_head_* is the control: the head was not touched by either change.",
+    "hardware": "Apple M-series (NEON, -C target-cpu=native). Re-measure on the AVX2 box before relying on the exact ratio there.",
+    "nanoseconds_per_operation": {
+      "v2_screlu_head_h1024_control": { "before": 189.13, "after": 186.91, "note": "unchanged within noise, as expected" },
+      "v2_screlu_head_h256_control": { "before": 46.74, "after": 46.82 },
+      "v2_apply_eval_revert_h256": { "before": 100.91, "after": 75.80, "delta_pct": -24.9 },
+      "v2_apply_eval_revert_h1024": { "before": 343.67, "after": 265.10, "delta_pct": -22.9 },
+      "v2_apply_eval_revert_varied_h1024": { "before": 466.73, "after": 358.91, "delta_pct": -23.1, "note": "cache-realistic variant; the one to quote" }
+    },
+    "caveat": "The bench reverts immediately, so its rows are still L1-hot. In search the revert happens after the child subtree has churned the cache, so this measurement UNDERSTATES the in-search saving."
+  },
+
+  "projection": {
+    "basis": "Box per-node arithmetic from /workspace/piebot_campaign_v6/cycles/cycle_000089/gate_compare_same_blend.json: baseline 269,925,135 nodes / 175.351 s = 649.6 ns/node; experimental 171,924,181 nodes / 175.803 s = 1022.6 ns/node, so the v2 NNUE component is ~373 ns/node.",
+    "expected": "Removing ~108 ns/node takes v2 to ~915 ns/node, i.e. ~1.09M NPS and a ratio of 0.636 -> ~0.71. UNVERIFIED on the box; the projection assumes the Mac's per-operation saving transfers to Zen 4, which must be confirmed by rerunning the gate compare after deployment.",
+    "elo": "NOT MEASURED. At 50-70 Elo per node-doubling this is worth roughly +10 to +20 Elo for the v2 arm against a measured -20 Elo gate deficit, but no games have been played and no such claim is banked."
+  },
+
+  "next": "Deploy is blocked on the standing rule that v6 is pinned mid-lineage; these land at the next lineage boundary or the ~2026-08-19 box migration. Before crediting the null-move fix, run the CLAUDE.md paired A/B protocol with a v2 model. Remaining measured headroom in this path: a finny-table refresh cache for king moves, and prefetching the four known w1 rows before the delta loop (the varied-vs-hot bench gap is ~94 ns of pure miss latency)."
+}

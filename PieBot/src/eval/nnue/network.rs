@@ -39,13 +39,28 @@ pub struct QuantNetwork {
     v2: Option<V2State>,
 }
 
+/// Number of plies the accumulator stack is sized for up front. Deeper lines
+/// grow it on demand; 64 covers the overwhelming majority of search paths
+/// while keeping the per-worker footprint small (64 * 2 * 1024 * 2 B = 256 KB
+/// at production width, against 160 self-play workers on the training box).
+const INITIAL_STACK_PLIES: usize = 64;
+
 /// Runtime state for a PIENNQ02 dual-perspective model. Accumulators are
 /// anchored to color (white/black), not side-to-move; the stm-first
 /// concatenation happens at evaluation time from the stored `stm`.
 struct V2State {
     model: Arc<QuantNnueV2>,
-    acc_white: Vec<i16>,
-    acc_black: Vec<i16>,
+    /// Ply-indexed accumulator stack. Slot `t` spans `[t*2*h, (t+1)*2*h)`,
+    /// white perspective first then black; `top` is the live slot.
+    ///
+    /// Applying a move writes a *new* slot from its parent, which makes revert
+    /// an index decrement. The alternative -- mutating one accumulator in
+    /// place and subtracting the delta back out -- reads each move's two 2 KB
+    /// weight rows a second time, and does it after the entire child subtree
+    /// has evicted them from cache. w1 is ~84 MB at h1024, so those misses are
+    /// what the update actually costs.
+    stack: Vec<i16>,
+    top: usize,
     wk_idx: usize,
     bk_idx: usize,
     stm: Color,
@@ -64,19 +79,21 @@ enum ChangeKind {
         wk_idx: usize,
         bk_idx: usize,
     },
-    DeltaV2 {
-        // One delta list per perspective: [white, black].
-        added: [FeatureDelta; 2],
-        removed: [FeatureDelta; 2],
+    /// Arch-v2 pushed a new accumulator slot. Undoing is a `top` decrement
+    /// plus restoring the scalar keys -- no weight rows are touched, so this
+    /// is the same cost whether the slot came from a delta or a full refresh.
+    PushV2 {
+        prev_stm: Color,
+        prev_wk: usize,
+        prev_bk: usize,
+    },
+    /// Side-to-move-only transition (null move) on the arch-v2 backend.
+    NullV2 {
         prev_stm: Color,
     },
-    SnapshotV2 {
-        acc_white: Vec<i16>,
-        acc_black: Vec<i16>,
-        wk_idx: usize,
-        bk_idx: usize,
-        stm: Color,
-    },
+    /// Nothing to undo. Returned for transitions the active backend does not
+    /// model, so callers can stay branch-free.
+    Inert,
 }
 
 #[derive(Clone, Copy)]
@@ -121,8 +138,8 @@ impl QuantNetwork {
             let hidden = v2_model.hidden_dim;
             let v2 = V2State {
                 model: v2_model,
-                acc_white: vec![0i16; hidden],
-                acc_black: vec![0i16; hidden],
+                stack: vec![0i16; INITIAL_STACK_PLIES * 2 * hidden],
+                top: 0,
                 wk_idx: 0,
                 bk_idx: 0,
                 stm: Color::White,
@@ -172,8 +189,8 @@ impl QuantNetwork {
             bk_idx: self.bk_idx,
             v2: self.v2.as_ref().map(|v2| V2State {
                 model: Arc::clone(&v2.model),
-                acc_white: v2.acc_white.clone(),
-                acc_black: v2.acc_black.clone(),
+                stack: v2.stack.clone(),
+                top: v2.top,
                 wk_idx: v2.wk_idx,
                 bk_idx: v2.bk_idx,
                 stm: v2.stm,
@@ -305,8 +322,34 @@ impl QuantNetwork {
         ChangeSet(ChangeKind::Delta { added, removed })
     }
 
+    /// Record a null move: the side to move changes but no piece moves.
+    ///
+    /// Arch-v2 is side-to-move relative -- the head concatenates the stm
+    /// perspective first and reads a different half of `w2` for each color --
+    /// so it must be told, even though both accumulators are untouched.
+    /// Skipping this makes the null child evaluate as the exact negation of
+    /// its parent, discarding the network's tempo asymmetry at every
+    /// null-move node. The legacy backend keeps a white-POV accumulator whose
+    /// sign the caller applies, so it is genuinely stm-independent and this is
+    /// inert there.
+    pub fn apply_null_move(&mut self, after: &Board) -> ChangeSet {
+        match &mut self.v2 {
+            Some(v2) => {
+                let prev_stm = v2.stm;
+                v2.stm = after.side_to_move();
+                ChangeSet(ChangeKind::NullV2 { prev_stm })
+            }
+            None => ChangeSet(ChangeKind::Inert),
+        }
+    }
+
     pub fn revert(&mut self, change: ChangeSet) {
         match change.0 {
+            ChangeKind::Inert => {}
+            ChangeKind::NullV2 { prev_stm } => {
+                let v2 = self.v2.as_mut().expect("v2 change on v2 backend");
+                v2.stm = prev_stm;
+            }
             ChangeKind::Snapshot {
                 acc,
                 wk_idx,
@@ -319,29 +362,17 @@ impl QuantNetwork {
             ChangeKind::Delta { added, removed } => {
                 self.apply_delta(&removed, &added);
             }
-            ChangeKind::DeltaV2 {
-                added,
-                removed,
+            ChangeKind::PushV2 {
                 prev_stm,
+                prev_wk,
+                prev_bk,
             } => {
                 let v2 = self.v2.as_mut().expect("v2 change on v2 backend");
-                // Undo: add back what was removed, remove what was added.
-                v2.apply_delta(&removed, &added);
+                debug_assert!(v2.top > 0, "v2 accumulator stack underflow on revert");
+                v2.top -= 1;
                 v2.stm = prev_stm;
-            }
-            ChangeKind::SnapshotV2 {
-                acc_white,
-                acc_black,
-                wk_idx,
-                bk_idx,
-                stm,
-            } => {
-                let v2 = self.v2.as_mut().expect("v2 change on v2 backend");
-                v2.acc_white = acc_white;
-                v2.acc_black = acc_black;
-                v2.wk_idx = wk_idx;
-                v2.bk_idx = bk_idx;
-                v2.stm = stm;
+                v2.wk_idx = prev_wk;
+                v2.bk_idx = prev_bk;
             }
         }
     }
@@ -357,17 +388,17 @@ impl QuantNetwork {
             || v2.wk_idx != wk_before
             || v2.bk_idx != bk_before
         {
-            return v2.snapshot_and_refresh(after);
+            return v2.push_refresh(after);
         }
 
         let Some(moving_piece) = before.piece_on(mv.from) else {
-            return v2.snapshot_and_refresh(after);
+            return v2.push_refresh(after);
         };
         let Some(moving_color) = before.color_on(mv.from) else {
-            return v2.snapshot_and_refresh(after);
+            return v2.push_refresh(after);
         };
         if moving_piece == Piece::King || moving_color != before.side_to_move() {
-            return v2.snapshot_and_refresh(after);
+            return v2.push_refresh(after);
         }
 
         let placed_piece = mv.promotion.unwrap_or(moving_piece);
@@ -375,7 +406,7 @@ impl QuantNetwork {
             || after.color_on(mv.to) != Some(moving_color)
             || after.piece_on(mv.from).is_some()
         {
-            return v2.snapshot_and_refresh(after);
+            return v2.push_refresh(after);
         }
 
         let mut removed = [FeatureDelta::new(), FeatureDelta::new()];
@@ -385,10 +416,10 @@ impl QuantNetwork {
 
         if let Some(captured_piece) = before.piece_on(mv.to) {
             let Some(captured_color) = before.color_on(mv.to) else {
-                return v2.snapshot_and_refresh(after);
+                return v2.push_refresh(after);
             };
             if captured_piece == Piece::King || captured_color == moving_color {
-                return v2.snapshot_and_refresh(after);
+                return v2.push_refresh(after);
             }
             v2.push_piece(&mut removed, captured_color, captured_piece, mv.to);
         } else if moving_piece == Piece::Pawn && mv.from.file() != mv.to.file() {
@@ -398,19 +429,19 @@ impl QuantNetwork {
                 || before.color_on(captured_square) != Some(captured_color)
                 || after.piece_on(captured_square).is_some()
             {
-                return v2.snapshot_and_refresh(after);
+                return v2.push_refresh(after);
             }
             v2.push_piece(&mut removed, captured_color, Piece::Pawn, captured_square);
         }
 
-        let prev_stm = v2.stm;
-        v2.apply_delta(&added, &removed);
+        let change = ChangeSet(ChangeKind::PushV2 {
+            prev_stm: v2.stm,
+            prev_wk: v2.wk_idx,
+            prev_bk: v2.bk_idx,
+        });
+        v2.push_delta(&added, &removed);
         v2.stm = after.side_to_move();
-        ChangeSet(ChangeKind::DeltaV2 {
-            added,
-            removed,
-            prev_stm,
-        })
+        change
     }
 
     #[inline]
@@ -534,19 +565,49 @@ fn screlu_dot_wide(acc: &[i16], w: &[i8], qa: i32) -> i64 {
 }
 
 impl V2State {
-    fn refresh(&mut self, board: &Board) {
+    /// Grow the stack so slot `t` exists. Called before any slice is taken, so
+    /// a reallocation can never invalidate a live borrow.
+    #[inline]
+    fn ensure_slot(&mut self, t: usize) {
+        let need = (t + 1) * 2 * self.model.hidden_dim;
+        if self.stack.len() < need {
+            self.stack.resize(need, 0);
+        }
+    }
+
+    /// The two perspective accumulators in slot `t`, white first.
+    #[inline]
+    fn slot(&self, t: usize) -> (&[i16], &[i16]) {
         let h = self.model.hidden_dim;
+        let base = t * 2 * h;
+        (
+            &self.stack[base..base + h],
+            &self.stack[base + h..base + 2 * h],
+        )
+    }
+
+    fn refresh(&mut self, board: &Board) {
+        self.top = 0;
+        self.refresh_into(0, board);
+    }
+
+    /// Rebuild both perspective accumulators from scratch into slot `t`.
+    /// Does not move `top`; callers decide whether this replaces the live slot
+    /// (`refresh`) or pushes a new one (`push_refresh`).
+    fn refresh_into(&mut self, t: usize, board: &Board) {
         self.wk_idx = square_index(board, Color::White, Piece::King);
         self.bk_idx = square_index(board, Color::Black, Piece::King);
         self.stm = board.side_to_move();
-        for (perspective, acc) in [
-            (Color::White, &mut self.acc_white),
-            (Color::Black, &mut self.acc_black),
-        ] {
-            acc.copy_from_slice(&self.model.b1);
+        self.ensure_slot(t);
+        let h = self.model.hidden_dim;
+        let base = t * 2 * h;
+        let model = &*self.model;
+        for (p, perspective) in [Color::White, Color::Black].into_iter().enumerate() {
+            let dst = &mut self.stack[base + p * h..base + (p + 1) * h];
+            dst.copy_from_slice(&model.b1);
             for idx in dp_active_indices(board, perspective) {
-                let row = &self.model.w1[idx * h..(idx + 1) * h];
-                for (value, &weight) in acc.iter_mut().zip(row) {
+                let row = &model.w1[idx * h..(idx + 1) * h];
+                for (value, &weight) in dst.iter_mut().zip(row) {
                     *value = value.wrapping_add(weight);
                 }
             }
@@ -557,7 +618,8 @@ impl V2State {
     /// white-POV centipawns to match the legacy backend's contract; the
     /// network itself is side-to-move relative.
     fn eval_from_acc(&self) -> i32 {
-        let out_stm = self.head(&self.acc_white, &self.acc_black, self.stm);
+        let (white, black) = self.slot(self.top);
+        let out_stm = self.head(white, black, self.stm);
         if self.stm == Color::White {
             out_stm
         } else {
@@ -628,55 +690,67 @@ impl V2State {
         ));
     }
 
-    fn apply_delta(&mut self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
+    /// Write the post-move accumulators into a fresh slot above `top`, leaving
+    /// the parent's slot untouched so revert is a decrement.
+    fn push_delta(&mut self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
         let h = self.model.hidden_dim;
-        let w1 = &self.model.w1;
-        for (p, acc) in [&mut self.acc_white, &mut self.acc_black]
-            .into_iter()
-            .enumerate()
-        {
+        let top = self.top;
+        self.ensure_slot(top + 1);
+        let model = &*self.model;
+        let w1 = &model.w1;
+        // Parent slot ends exactly where the child slot begins, so one split
+        // hands out a shared read of the parent and a unique write of the child.
+        let (parent_slots, child_slot) = self.stack.split_at_mut((top + 1) * 2 * h);
+        let parent = &parent_slots[top * 2 * h..];
+        for p in 0..2 {
+            let src = &parent[p * h..(p + 1) * h];
+            let dst = &mut child_slot[p * h..(p + 1) * h];
             let rem = removed[p].as_slice();
             let add = added[p].as_slice();
             // A quiet move is exactly one feature out and one in per
             // perspective, which is the overwhelming majority of applications.
-            // Walking the accumulator once instead of once per row halves its
-            // load/store traffic, and issuing both row reads in the same
-            // iteration lets their cache misses overlap rather than serialize.
-            // w1 is ~84 MB at h1024, so those misses, not the arithmetic, are
-            // what this loop actually costs.
+            // Fusing the copy with both row reads walks the accumulator once
+            // and lets the two row misses overlap rather than serialize. w1 is
+            // ~84 MB at h1024, so those misses, not the arithmetic, are what
+            // this loop actually costs.
             if let ([r_idx], [a_idx]) = (rem, add) {
                 let r = &w1[r_idx * h..(r_idx + 1) * h];
                 let a = &w1[a_idx * h..(a_idx + 1) * h];
-                for ((value, &rw), &aw) in acc.iter_mut().zip(r).zip(a) {
-                    *value = value.wrapping_sub(rw).wrapping_add(aw);
+                for (((value, &s), &rw), &aw) in dst.iter_mut().zip(src).zip(r).zip(a) {
+                    *value = s.wrapping_sub(rw).wrapping_add(aw);
                 }
                 continue;
             }
+            dst.copy_from_slice(src);
             for &idx in rem {
                 let row = &w1[idx * h..(idx + 1) * h];
-                for (value, &weight) in acc.iter_mut().zip(row) {
+                for (value, &weight) in dst.iter_mut().zip(row) {
                     *value = value.wrapping_sub(weight);
                 }
             }
             for &idx in add {
                 let row = &w1[idx * h..(idx + 1) * h];
-                for (value, &weight) in acc.iter_mut().zip(row) {
+                for (value, &weight) in dst.iter_mut().zip(row) {
                     *value = value.wrapping_add(weight);
                 }
             }
         }
+        self.top = top + 1;
     }
 
+    /// King moves re-key every HalfKP feature, so the accumulators are rebuilt
+    /// rather than patched. Pushing that rebuild into a new slot keeps revert
+    /// uniform -- and free -- instead of cloning the parent accumulators.
     #[cold]
-    fn snapshot_and_refresh(&mut self, after: &Board) -> ChangeSet {
-        let change = ChangeSet(ChangeKind::SnapshotV2 {
-            acc_white: self.acc_white.clone(),
-            acc_black: self.acc_black.clone(),
-            wk_idx: self.wk_idx,
-            bk_idx: self.bk_idx,
-            stm: self.stm,
+    fn push_refresh(&mut self, after: &Board) -> ChangeSet {
+        let change = ChangeSet(ChangeKind::PushV2 {
+            prev_stm: self.stm,
+            prev_wk: self.wk_idx,
+            prev_bk: self.bk_idx,
         });
-        self.refresh(after);
+        let t = self.top + 1;
+        self.refresh_into(t, after);
+        self.top = t;
         change
     }
 }

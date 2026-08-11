@@ -120,6 +120,131 @@ fn incremental_updates_match_full_recompute_over_random_games() {
 }
 
 #[test]
+fn unwinding_a_deep_line_restores_every_ancestor_exactly() {
+    // The accumulator is ply-indexed: applying a move writes a new slot and
+    // reverting is an index decrement, so each move's weight rows are read
+    // once on the way down instead of a second time on the way back up (when
+    // the subtree has already evicted them). This pins the invariant that
+    // makes that sound -- every ancestor must be bit-identical after unwind,
+    // including across the king moves that force a full refresh, and past the
+    // stack's initial capacity so the growth path is covered.
+    let mut net = QuantNetwork::new(random_v2_model(32, 0x57ac_c0de_2026));
+    let mut seed = 0xda7a_5eedu64;
+    for game in 0..12 {
+        let mut board = Board::default();
+        net.refresh(&board);
+        let mut undo = Vec::new();
+        let mut ancestors = Vec::new();
+        for ply in 0..90 {
+            ancestors.push((board.clone(), net.eval_current()));
+            let mut moves = Vec::new();
+            board.generate_moves(|batch| {
+                moves.extend(batch);
+                false
+            });
+            if moves.is_empty() {
+                break;
+            }
+            let mv = moves[(lcg(&mut seed) as usize) % moves.len()];
+            let before = board.clone();
+            board.play_unchecked(mv);
+            undo.push(net.apply_move(&before, mv, &board));
+            assert_eq!(
+                net.eval_current(),
+                net.eval_full(&board),
+                "game={game} ply={ply}: descending accumulator diverged",
+            );
+        }
+        while let Some(change) = undo.pop() {
+            net.revert(change);
+            let (ancestor, want) = ancestors.pop().expect("one ancestor per applied move");
+            assert_eq!(
+                net.eval_current(),
+                want,
+                "game={game} depth={}: unwind did not restore the ancestor",
+                undo.len(),
+            );
+            assert_eq!(
+                net.eval_current(),
+                net.eval_full(&ancestor),
+                "game={game} depth={}: restored accumulator disagrees with full recompute",
+                undo.len(),
+            );
+        }
+    }
+}
+
+#[test]
+fn null_move_flips_the_side_to_move_seen_by_the_head() {
+    // Arch-v2 is side-to-move relative: the head concatenates the stm
+    // perspective first and reads a different half of w2 for each color. A
+    // null move changes no piece feature, so both accumulators are untouched,
+    // but the network must still be told the side to move changed. Without
+    // that, the null child evaluates as the exact negation of its parent and
+    // the network's tempo asymmetry is discarded -- at every null-move node.
+    let mut net = QuantNetwork::new(random_v2_model(8, 0xbead_c0de_0001));
+    for fen in [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 5 5",
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+    ] {
+        let board = Board::from_fen(fen, false).expect("valid fen");
+        net.refresh(&board);
+        let parent = net.eval_current();
+        let nb = board.null_move().expect("position is not in check");
+
+        let change = net.apply_null_move(&nb);
+        assert_eq!(
+            net.eval_current(),
+            net.eval_full(&nb),
+            "fen={fen}: null-move child eval must match a full recompute of the null board",
+        );
+        net.revert(change);
+        assert_eq!(
+            net.eval_current(),
+            parent,
+            "fen={fen}: reverting the null move must restore the parent exactly",
+        );
+    }
+}
+
+#[test]
+fn null_move_child_is_not_merely_the_negated_parent() {
+    // Guards the test above against becoming vacuous: if the head were
+    // stm-symmetric, flipping the side to move would be a no-op and the bug
+    // this pins would be unobservable. The two w2 halves differ, so the null
+    // child's evaluation is genuinely a different number.
+    // Width 256 rather than the 8 used elsewhere: the head divides by
+    // qa*qa*qb = 4_161_600, so a tiny model quantizes almost every position to
+    // the same handful of centipawns and the two orderings collide by
+    // accident. At production width the asymmetry is visible.
+    let mut net = QuantNetwork::new(random_v2_model(256, 0x0f11_9e57_2026));
+    let mut differed = 0usize;
+    let fens = [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 5 5",
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    ];
+    for fen in fens {
+        let board = Board::from_fen(fen, false).expect("valid fen");
+        net.refresh(&board);
+        let parent = net.eval_current();
+        let nb = board.null_move().expect("position is not in check");
+        if net.eval_full(&nb) != -parent {
+            differed += 1;
+        }
+    }
+    assert!(
+        differed > 0,
+        "stm-relative head evaluated every null child as its parent's negation \
+         across {} positions -- the head is behaving stm-symmetrically, which \
+         would make the null-move stm flip unobservable",
+        fens.len(),
+    );
+}
+
+#[test]
 fn python_exported_gold_model_evaluates_identically() {
     // The committed PIENNQ02 file was produced by the production Python
     // quantization path (`_export_v2_checkpoint`); the expected evals come

@@ -1,5 +1,5 @@
 use crate::eval::nnue::loader::QuantNnue;
-use crate::eval::nnue::network::QuantNetwork;
+use crate::eval::nnue::network::{ChangeSet, QuantNetwork};
 use crate::search::eval::{eval_cp, material_eval_cp, DRAW_SCORE, MATE_SCORE};
 use crate::search::tt::{Bound, Entry, Tt};
 use crate::search::zobrist;
@@ -1038,52 +1038,16 @@ impl Searcher {
             let eval = static_eval.unwrap_or_else(|| self.eval_current(board));
             let r = self.null_move_reduction(depth, eval, beta);
             if let Some(nb) = board.null_move() {
-                let reduced_depth = depth.saturating_sub(1 + r);
-                let score = -self.alphabeta(
-                    &nb,
-                    reduced_depth,
-                    -beta,
-                    -beta + 1,
-                    ply + 1,
-                    usize::MAX,
-                    false,
-                )?;
-                if score >= beta {
-                    if depth <= 12 {
-                        let full_verify = depth.saturating_sub(1);
-                        let verify = -self.alphabeta(
-                            &nb,
-                            full_verify,
-                            -beta,
-                            -beta + 1,
-                            ply + 1,
-                            usize::MAX,
-                            false,
-                        )?;
-                        if verify >= beta {
-                            return Ok(verify);
-                        }
-                    } else if reduced_depth > 0 {
-                        let verify_r = r.saturating_sub(1).max(1);
-                        let verify_depth = depth.saturating_sub(1 + verify_r);
-                        if verify_depth == 0 {
-                            return Ok(score);
-                        }
-                        let verify = -self.alphabeta(
-                            &nb,
-                            verify_depth,
-                            -beta,
-                            -beta + 1,
-                            ply + 1,
-                            usize::MAX,
-                            false,
-                        )?;
-                        if verify >= beta {
-                            return Ok(verify);
-                        }
-                    } else {
-                        return Ok(score);
-                    }
+                // A null move changes the side to move without moving a piece.
+                // The arch-v2 network is side-to-move relative, so it has to be
+                // told: otherwise the whole null subtree evaluates from the
+                // parent's perspective. Reverted on every exit path, including
+                // aborts, so the accumulator state cannot leak upward.
+                let null_change = self.nnue_apply_null_move(&nb);
+                let outcome = self.null_move_probe(&nb, depth, r, beta, ply);
+                self.nnue_revert_change(null_change);
+                if let Some(score) = outcome? {
+                    return Ok(score);
                 }
             }
         }
@@ -1355,6 +1319,88 @@ impl Searcher {
             }
         }
         Ok(best)
+    }
+
+    /// The null-move scout and its verification searches.
+    ///
+    /// Returns `Some(score)` when the null move produced a cutoff and `None`
+    /// when the search must proceed normally. Split out of `alphabeta` so the
+    /// caller owns a single apply/revert pair around it and every early exit
+    /// -- including `?` aborts -- restores the network's side-to-move state.
+    fn null_move_probe(
+        &mut self,
+        nb: &Board,
+        depth: u32,
+        r: u32,
+        beta: i32,
+        ply: i32,
+    ) -> Result<Option<i32>, SearchAbort> {
+        let reduced_depth = depth.saturating_sub(1 + r);
+        let score = -self.alphabeta(
+            nb,
+            reduced_depth,
+            -beta,
+            -beta + 1,
+            ply + 1,
+            usize::MAX,
+            false,
+        )?;
+        if score < beta {
+            return Ok(None);
+        }
+        if depth <= 12 {
+            let full_verify = depth.saturating_sub(1);
+            let verify = -self.alphabeta(
+                nb,
+                full_verify,
+                -beta,
+                -beta + 1,
+                ply + 1,
+                usize::MAX,
+                false,
+            )?;
+            if verify >= beta {
+                return Ok(Some(verify));
+            }
+        } else if reduced_depth > 0 {
+            let verify_r = r.saturating_sub(1).max(1);
+            let verify_depth = depth.saturating_sub(1 + verify_r);
+            if verify_depth == 0 {
+                return Ok(Some(score));
+            }
+            let verify = -self.alphabeta(
+                nb,
+                verify_depth,
+                -beta,
+                -beta + 1,
+                ply + 1,
+                usize::MAX,
+                false,
+            )?;
+            if verify >= beta {
+                return Ok(Some(verify));
+            }
+        } else {
+            return Ok(Some(score));
+        }
+        Ok(None)
+    }
+
+    #[inline]
+    fn nnue_apply_null_move(&mut self, after: &Board) -> Option<ChangeSet> {
+        if !self.use_nnue {
+            return None;
+        }
+        self.nnue_quant.as_mut().map(|qn| qn.apply_null_move(after))
+    }
+
+    #[inline]
+    fn nnue_revert_change(&mut self, change: Option<ChangeSet>) {
+        if let Some(change) = change {
+            if let Some(qn) = self.nnue_quant.as_mut() {
+                qn.revert(change);
+            }
+        }
     }
 
     fn null_move_reduction(&self, depth: u32, eval: i32, beta: i32) -> u32 {
