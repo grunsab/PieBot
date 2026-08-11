@@ -173,5 +173,64 @@ class TrainV2Tests(unittest.TestCase):
             self.assertEqual(meta["quant_format"], "PIENNQ02")
 
 
+@unittest.skipUnless(_TORCH, "torch is not installed")
+class ScreluFreshInitTests(unittest.TestCase):
+    """The SCReLU head is clamp(h, 0, 1)**2, whose derivative is exactly zero
+    outside (0, 1). A HalfKP bag sums ~30 active features, so the accumulator's
+    spread is sqrt(30) times the per-weight scale: leaving EmbeddingBag at
+    PyTorch's default N(0, 1) puts half the units at 0 and most of the rest
+    saturated at 1, and a unit with zero derivative learns nothing. A fresh
+    net must instead start with most of its width inside the live range.
+    """
+
+    HIDDEN = 1024
+    ACTIVE_FEATURES = 30
+
+    def _fresh_preactivations(self) -> "torch.Tensor":
+        import torch
+
+        from training.nnue.train_torch import TorchNnueV2
+
+        torch.manual_seed(20260811)
+        model = TorchNnueV2(
+            input_dim=features_v2.PER_PERSPECTIVE_DIM,
+            hidden_dim=self.HIDDEN,
+            wdl_scale=400.0,
+        )
+        batch = 64
+        # One bag per sample, each summing ACTIVE_FEATURES distinct features,
+        # which is the shape a real HalfKP perspective produces.
+        flat = torch.randint(
+            0,
+            features_v2.PER_PERSPECTIVE_DIM,
+            (batch * self.ACTIVE_FEATURES,),
+            dtype=torch.long,
+        )
+        offsets = torch.arange(0, batch * self.ACTIVE_FEATURES, self.ACTIVE_FEATURES)
+        with torch.no_grad():
+            return model.embed(flat, offsets) + model.b1
+
+    def test_most_hidden_units_start_inside_the_screlu_live_range(self) -> None:
+        pre = self._fresh_preactivations()
+        live = ((pre > 0.0) & (pre < 1.0)).float().mean().item()
+        self.assertGreater(
+            live,
+            0.5,
+            "only {:.1%} of hidden units start inside SCReLU's differentiable "
+            "range (0, 1); the rest carry zero gradient, so the net trains at a "
+            "fraction of the width it pays full evaluation cost for".format(live),
+        )
+
+    def test_fresh_accumulator_is_not_wildly_overscaled(self) -> None:
+        pre = self._fresh_preactivations()
+        std = pre.std().item()
+        self.assertLess(
+            std,
+            1.5,
+            "fresh accumulator std is {:.2f}; SCReLU's whole live range is one "
+            "unit wide, so this saturates the nonlinearity".format(std),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

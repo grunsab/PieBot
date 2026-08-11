@@ -84,12 +84,36 @@ class TorchNnueV2(torch.nn.Module):  # type: ignore[misc]
     the engine's integer head `(sum + b2) * SCALE / (QA^2 * QB)`.
     """
 
+    # A HalfKP perspective activates one feature per non-king piece, so a bag
+    # sums about this many rows. The accumulator's spread grows as its square
+    # root, which is what the initialization below has to cancel.
+    _TYPICAL_ACTIVE_FEATURES = 30
+
     def __init__(self, input_dim: int, hidden_dim: int, wdl_scale: float) -> None:
         super().__init__()
         self.embed = torch.nn.EmbeddingBag(input_dim, hidden_dim, mode="sum", sparse=False)
         self.b1 = torch.nn.Parameter(torch.zeros(hidden_dim))
         self.out = torch.nn.Linear(2 * hidden_dim, 1)
         self.wdl_scale = float(wdl_scale)
+        self._init_for_screlu()
+
+    def _init_for_screlu(self) -> None:
+        """Start the accumulator inside SCReLU's live range.
+
+        The head is ``clamp(h, 0, 1) ** 2``, whose derivative is exactly zero
+        outside ``(0, 1)``. EmbeddingBag's default ``N(0, 1)`` summed over ~30
+        active features gives a pre-activation std of ``sqrt(30) = 5.47``, so
+        half the units sit at 0 and most of the rest saturate at 1 -- only
+        ~7% carry any gradient, and the net trains at a fraction of the width
+        it pays full evaluation cost for.
+
+        Centering at 0.5 with std 0.5 puts roughly two thirds of the units
+        strictly inside the range, since ``P(-1 < z < 1) = 0.68``.
+        """
+        target_std = 0.5 / math.sqrt(float(self._TYPICAL_ACTIVE_FEATURES))
+        with torch.no_grad():
+            torch.nn.init.normal_(self.embed.weight, mean=0.0, std=target_std)
+            torch.nn.init.constant_(self.b1, 0.5)
 
     def forward(self, flat_idx: "torch.Tensor", offsets: "torch.Tensor") -> "torch.Tensor":
         h = self.embed(flat_idx, offsets) + self.b1
