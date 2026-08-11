@@ -155,26 +155,44 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
     let to_sq = mv.to;
     let from_sq = mv.from;
 
+    // Get the attacker piece
+    let (_, attacker_piece) = piece_at_square(board, from_sq)?;
+
     // Get the captured piece value (or 0 if moving to empty square)
-    let captured_val = piece_at_square(board, to_sq)
+    let mut captured_val = piece_at_square(board, to_sq)
         .map(|(_, p)| piece_value(p))
         .unwrap_or(0);
 
-    // Get the attacker piece
-    let (_, attacker_piece) = piece_at_square(board, from_sq)?;
+    // Simulate the exchange: track occupied squares as pieces are captured
+    let mut occupied = board.occupied();
+
+    // En passant: the victim is not on the destination square, so reading the
+    // destination alone scores the capture as winning nothing. The pawn sits
+    // on the destination file at the mover's original rank, and clearing it
+    // matters beyond the material -- it can open an x-ray onto `to_sq`.
+    if attacker_piece == Piece::Pawn && captured_val == 0 && from_sq.file() != to_sq.file() {
+        let victim_sq = Square::new(to_sq.file(), from_sq.rank());
+        if piece_at_square(board, victim_sq).map(|(_, p)| p) == Some(Piece::Pawn) {
+            captured_val = piece_value(Piece::Pawn);
+            occupied ^= square_bb(victim_sq);
+        }
+    }
 
     // Track material gains in the exchange sequence
     // gains[0] = value captured by initial move
     let mut gains: Vec<i32> = vec![captured_val];
 
-    // Simulate the exchange: track occupied squares as pieces are captured
-    let mut occupied = board.occupied();
-
     // Remove the initial attacker from occupied
     occupied ^= square_bb(from_sq);
 
-    // The target square is now occupied by the initial attacker
+    // The target square is now occupied by the initial attacker -- or, on a
+    // promotion, by the promoted piece. Valuing it as a pawn both understates
+    // the gain and makes a recapture look far too cheap.
     let mut current_occupant_val = piece_value(attacker_piece);
+    if let Some(promoted) = mv.promotion {
+        gains[0] += piece_value(promoted) - piece_value(Piece::Pawn);
+        current_occupant_val = piece_value(promoted);
+    }
     let mut side = if stm == Color::White {
         Color::Black
     } else {
