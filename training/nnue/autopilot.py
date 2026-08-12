@@ -138,6 +138,7 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "training_objective_schema": "nnue-objective-v1",
         "target_cp": 100.0,
         "teacher_mix": 0.8,
+        "cross_arch_gate_blend_percent": None,
         "max_teacher_cp": 1200.0,
         "outcome_decay": 1.0,
         "learning_rate": 0.003,
@@ -445,6 +446,14 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     # outcome on rows that carry a teacher label. Changing it requires a fresh
     # lineage. At 0.8 the depth-9 teacher rows still carried 20% outcome noise.
     ap.add_argument("--teacher-mix", type=float, default=None)
+    # Blend percent to gate a candidate at when its runtime identity differs
+    # from the active model's. Unset keeps the historical behaviour of
+    # restarting such a candidate at the ramp's first rung (25) -- which, since
+    # the ramp only advances on an acceptance, is a deadlock for any new
+    # architecture: it must win while contributing a quarter of the evaluation
+    # and paying all of its cost. Set this for a lineage whose network is
+    # trained to stand alone rather than as a minority term beside the PST.
+    ap.add_argument("--cross-arch-gate-blend-percent", type=int, default=None)
     ap.add_argument("--loss-kind", default=None)
     ap.add_argument("--huber-delta-cp", type=float, default=None)
     ap.add_argument("--wdl-scale-cp", type=float, default=None)
@@ -695,7 +704,19 @@ def _candidate_model_blend_percent(
     state: Dict[str, Any],
     *,
     candidate_identity: Optional[Dict[str, Any]] = None,
+    cross_arch_blend_percent: Optional[int] = None,
 ) -> int:
+    """Blend percent to gate this cycle's candidate at.
+
+    `cross_arch_blend_percent` overrides the rung used when the candidate's
+    runtime identity differs from the active model's. Without it such a
+    candidate always restarts at the ramp's first rung, and since the ramp only
+    advances on an acceptance, a new architecture must beat the incumbent while
+    contributing 25% of the evaluation and paying 100% of its cost -- with no
+    way out except winning under that handicap. campaign_v6 sat in that
+    deadlock for 90 cycles. A lineage whose network is trained to stand alone
+    can declare the blend it should actually be judged at.
+    """
     accepted = state.get("accepted_models")
     has_active = bool(state.get("active_model_path")) or (
         isinstance(accepted, list) and bool(accepted)
@@ -709,6 +730,8 @@ def _candidate_model_blend_percent(
         and active_identity is not None
         and not _model_identities_same(active_identity, candidate_identity)
     ):
+        if cross_arch_blend_percent is not None:
+            return max(0, min(100, int(cross_arch_blend_percent)))
         return _BLEND_RAMP[0]
 
     active_blend = _active_model_blend_percent(state)
@@ -750,6 +773,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "min_teacher_depth": args.min_teacher_depth,
         "target_cp": args.target_cp,
         "teacher_mix": args.teacher_mix,
+        "cross_arch_gate_blend_percent": args.cross_arch_gate_blend_percent,
         "loss_kind": args.loss_kind,
         "huber_delta_cp": args.huber_delta_cp,
         "wdl_scale_cp": args.wdl_scale_cp,
@@ -3232,6 +3256,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     candidate_blend = _candidate_model_blend_percent(
                         state,
                         candidate_identity=candidate_identity,
+                        cross_arch_blend_percent=defaults.get(
+                            "cross_arch_gate_blend_percent"
+                        ),
                     )
                     same_lineage = _model_identities_same(
                         active_identity,

@@ -882,6 +882,78 @@ class AutopilotTests(unittest.TestCase):
             ),
         )
 
+    def test_cross_architecture_candidate_can_be_gated_at_a_configured_blend(self) -> None:
+        """A new architecture is otherwise pinned at the ramp's first rung forever.
+
+        The ramp only advances after an acceptance, and a candidate whose
+        runtime identity differs from the active model restarts at rung 0. An
+        architecture upgrade can never match the incumbent's identity, so it
+        must win at 25% eval weight while paying 100% of the evaluation cost --
+        and it can only stop paying that toll by winning. campaign_v6 sat in
+        exactly that deadlock for 90 cycles and never promoted.
+
+        The pin stays the default; a new lineage can opt out explicitly.
+        """
+        legacy = {
+            "quant_format": "PIENNQ01",
+            "quant_version": 1,
+            "input_dim": 40_960,
+            "hidden_dim": 64,
+            "output_dim": 1,
+        }
+        arch_v2 = {
+            "quant_format": "PIENNQ02",
+            "quant_version": 1,
+            "input_dim": 40_960,
+            "hidden_dim": 1024,
+            "output_dim": 1,
+            "feature_set": "halfkp-dp-screlu-v1",
+        }
+        state = {
+            "active_model_path": "legacy.nnue",
+            "active_model_blend_percent": 25,
+            "active_model_identity": legacy,
+            "accepted_models": [{}],
+        }
+
+        # Default is unchanged: cross-architecture candidates restart at 25.
+        self.assertEqual(
+            25,
+            autopilot._candidate_model_blend_percent(
+                state,
+                candidate_identity=arch_v2,
+            ),
+        )
+
+        # A lineage may declare the blend its architecture should be gated at.
+        self.assertEqual(
+            100,
+            autopilot._candidate_model_blend_percent(
+                state,
+                candidate_identity=arch_v2,
+                cross_arch_blend_percent=100,
+            ),
+        )
+
+        # The override applies only across architectures. A same-identity
+        # candidate still walks the normal ramp from the active blend.
+        self.assertEqual(
+            50,
+            autopilot._candidate_model_blend_percent(
+                state,
+                candidate_identity=legacy,
+                cross_arch_blend_percent=100,
+            ),
+        )
+
+    def test_cross_arch_blend_override_ignored_before_any_active_model(self) -> None:
+        """With no active model there is nothing to be diluted against, so the
+        bootstrap rung is unchanged regardless of the override."""
+        self.assertEqual(
+            25,
+            autopilot._candidate_model_blend_percent({}, cross_arch_blend_percent=100),
+        )
+
     def test_different_target_objective_restarts_same_architecture_blend_ramp(self) -> None:
         runtime = {
             "quant_format": "PIENNQ01",

@@ -113,6 +113,13 @@ TARGET_CP="${TARGET_CP:-100}"
 # carry undiluted search evaluations. Rows WITHOUT a teacher label are
 # unaffected - they always target the outcome alone.
 TEACHER_MIX="${TEACHER_MIX:-0.8}"
+# Blend percent a candidate is gated at when its architecture differs from
+# the active model's. Empty keeps autopilot's default of restarting such a
+# candidate at the ramp's first rung (25), which deadlocks a new
+# architecture: the ramp only advances on an acceptance, so the candidate
+# must win while contributing a quarter of the eval and paying all of its
+# cost. Set to 100 for a lineage whose net is trained to stand alone.
+CROSS_ARCH_GATE_BLEND_PERCENT="${CROSS_ARCH_GATE_BLEND_PERCENT:-}"
 
 export PATH="/root/.cargo/bin:/venv/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 export PYTHONUNBUFFERED=1
@@ -348,6 +355,9 @@ require_autopilot_flag "--selfplay-temperature-moves"
 require_autopilot_flag "--teacher-external-quant-file"
 require_autopilot_flag "--target-cp"
 require_autopilot_flag "--teacher-mix"
+if [[ -n "$CROSS_ARCH_GATE_BLEND_PERCENT" ]]; then
+  require_autopilot_flag "--cross-arch-gate-blend-percent"
+fi
 require_autopilot_flag "--train-arch"
 if [[ "$FRESH_INIT" != "1" ]]; then
   verify_sha256 "$INITIAL_CHECKPOINT" "$INITIAL_CHECKPOINT_SHA256"
@@ -478,6 +488,11 @@ if [[ "$FRESH_INIT" != "1" ]]; then
   AUTOPILOT_ARGS+=(
     "--initial-checkpoint" "$INITIAL_CHECKPOINT"
     "--initial-checkpoint-weights-only"
+  )
+fi
+if [[ -n "$CROSS_ARCH_GATE_BLEND_PERCENT" ]]; then
+  AUTOPILOT_ARGS+=(
+    "--cross-arch-gate-blend-percent" "$CROSS_ARCH_GATE_BLEND_PERCENT"
   )
 fi
 
