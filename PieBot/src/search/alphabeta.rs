@@ -42,6 +42,11 @@ fn piece_value_cp(p: cozy_chess::Piece) -> i32 {
     }
 }
 
+/// Cushion added to a capture's face value before delta-pruning it. Covers the
+/// positional swing a capture can produce beyond the material it wins, so the
+/// filter only discards lines that cannot plausibly reach alpha.
+const QSEARCH_DELTA_MARGIN_CP: i32 = 200;
+
 #[inline]
 fn mvv_lva_score(board: &Board, m: Move) -> i32 {
     let to = m.to;
@@ -406,6 +411,7 @@ impl Searcher {
             return Ok(DRAW_SCORE);
         }
 
+        let mut stand_pat = 0;
         if !in_check {
             let stand = self.eval_current(board);
             if stand >= beta {
@@ -414,6 +420,7 @@ impl Searcher {
             if stand > alpha {
                 alpha = stand;
             }
+            stand_pat = stand;
         }
 
         let mut tactical: Vec<Move> = legal
@@ -426,6 +433,37 @@ impl Searcher {
         });
 
         for m in tactical {
+            // Quiescence is the overwhelming majority of the tree, and it was
+            // expanding every capture regardless of whether the exchange was
+            // survivable or could possibly matter. Both filters are skipped
+            // while in check, where the move list is evasions rather than
+            // captures and every one of them has to be searched.
+            if !in_check {
+                // A provably losing exchange cannot improve the side to move's
+                // standing; roughly a third of the captures reaching this loop
+                // are in that class.
+                if crate::search::see::see_gain_cp(board, m).unwrap_or(0) < 0 {
+                    continue;
+                }
+                // Delta pruning. Winning the piece on the destination square
+                // outright, plus a margin for the positional swing a capture
+                // can bring, still leaves the line short of alpha -- so its
+                // exact value cannot affect this node. Promotions are exempt
+                // because the gain is the new piece, not the victim.
+                if m.promotion.is_none() {
+                    let victim = board.piece_on(m.to).map(piece_value_cp).unwrap_or(
+                        // En passant takes a pawn that is not on `m.to`.
+                        if board.piece_on(m.from) == Some(cozy_chess::Piece::Pawn) {
+                            piece_value_cp(cozy_chess::Piece::Pawn)
+                        } else {
+                            0
+                        },
+                    );
+                    if stand_pat + victim + QSEARCH_DELTA_MARGIN_CP <= alpha {
+                        continue;
+                    }
+                }
+            }
             let mut child = board.clone();
             child.play_unchecked(m);
             let mut change = None;
@@ -1348,21 +1386,18 @@ impl Searcher {
         if score < beta {
             return Ok(None);
         }
+        // Below the high-depth band the reduced fail-high is taken at face
+        // value. Re-searching it at full depth d-1 is R=0 -- a near-full-width
+        // subtree, i.e. most of what null-move pruning exists to avoid -- and
+        // because a 150 ms search only reaches depth 6-8, a `depth <= 12`
+        // guard fired at essentially every null cutoff in a real game. The
+        // zugzwang risk it was standing in for is already covered, and more
+        // directly, by should_try_null_move's pieces-only material floor,
+        // occupancy floor and is_zugzwang_prone check.
         if depth <= 12 {
-            let full_verify = depth.saturating_sub(1);
-            let verify = -self.alphabeta(
-                nb,
-                full_verify,
-                -beta,
-                -beta + 1,
-                ply + 1,
-                usize::MAX,
-                false,
-            )?;
-            if verify >= beta {
-                return Ok(Some(verify));
-            }
-        } else if reduced_depth > 0 {
+            return Ok(Some(score));
+        }
+        if reduced_depth > 0 {
             let verify_r = r.saturating_sub(1).max(1);
             let verify_depth = depth.saturating_sub(1 + verify_r);
             if verify_depth == 0 {

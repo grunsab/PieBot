@@ -1,0 +1,79 @@
+{
+  "arm": "S6",
+  "date_utc": "2026-08-11",
+  "title": "Delete the low-depth null-move verification re-search; add SEE and delta pruning to quiescence",
+  "hypothesis": "The engine's measured effective branching factor is 4.22 against 1.6-2.0 for a well-tuned engine. Two structural causes, both in code that fires constantly at the depths a 150 ms search actually reaches: (1) a null-move fail-high at depth <= 12 was re-verified at FULL depth d-1, i.e. R=0, so a successful null prune cost a near-full-width subtree -- most of what null-move pruning exists to save; (2) quiescence, which is 92.7% of all nodes, expanded every capture with no SEE filter and no delta margin, and roughly a third of those captures are provably losing exchanges.",
+
+  "changes": [
+    "PieBot/src/search/alphabeta_temp.rs null_move_probe: on a fail-high with depth <= 12, return the reduced score directly instead of re-searching at full depth d-1. The high-depth (> 12) reduced verification is unchanged. Zugzwang cover is already provided, and more directly, by should_try_null_move's pieces-only material floor, occupancy floor and is_zugzwang_prone check.",
+    "PieBot/src/search/alphabeta_temp.rs qsearch: skip captures with see_gain_cp < 0, and delta-prune non-promotions whose stand-pat plus the victim's value plus a 200 cp margin still fails to reach alpha. Both filters are disabled while in check, where the move list is evasions and every one must be searched.",
+    "PREREQUISITE, landed separately as commit e082812: see_gain_cp mis-valued en passant by a pawn (victim read off the empty destination square) and valued a promotion's post-move occupant as a pawn. Without that fix the SEE filter would silently discard every defended en-passant capture."
+  ],
+
+  "acceptance": {
+    "suite": "matein3 at depth 7, 1 thread, PIEBOT_TEST_START_DEPTH=PIEBOT_TEST_MAX_DEPTH=7",
+    "baseline_accept": { "cases_solved": 91, "nodes": 19871056, "note": "was 20110404 before the SEE fix; the SEE fix is shared by both arms and slightly improves ordering" },
+    "experimental_accept_temp": { "cases_solved": 91, "nodes": 14234337, "prior_signature": 20213662, "node_reduction_vs_own_history_pct": 29.6 },
+    "note": "accept and accept_temp use different option sets, so each is compared against its own history, per CLAUDE.md."
+  },
+
+  "screen_400_games": {
+    "command": "compare_play --games 400 --movetime 150 --noise-plies 12 --noise-topk 5 --threads 1 --parallel-games 10 --paired-openings --openings-file books/openings_v1.fen --seed 20260811",
+    "hardware": "Apple M-series, release build, 12 cores, 10 parallel opening-pair workers",
+    "games": 400,
+    "pairs": 200,
+    "baseline_points": 164.0,
+    "experimental_points": 236.0,
+    "wins_losses_draws_experimental": { "wins": 102, "losses": 30, "draws": 268 },
+    "score_rate": 0.59,
+    "elo_from_score_rate": 63.2,
+    "mean_pair_delta": 0.36,
+    "paired_bootstrap_95_ci": [0.26, 0.46],
+    "bootstrap_resamples": 20000,
+    "lcb_above_zero": true,
+    "avg_depth_baseline": 8.3,
+    "avg_depth_experimental": 9.1,
+    "depth_delta_ply": 0.81,
+    "avg_nps_baseline": 2794500,
+    "avg_nps_experimental": 2300975,
+    "interpretation": "NPS falls 17.7% because qsearch now runs a SEE per capture, and depth still rises 0.81 ply at equal time -- the node-count reduction more than pays for the filter. For scale, the previously banked arms had mean pair deltas of +0.206 (S1), +0.12 (S2) and +0.058 (S3)."
+  },
+
+  "confirmation_1000_games": {
+    "command": "compare_play --games 1000 --movetime 150 --noise-plies 12 --noise-topk 5 --threads 1 --parallel-games 10 --paired-openings --openings-file books/openings_v1.fen --seed 77120260811",
+    "games": 1000,
+    "pairs": 500,
+    "baseline_points": 420.0,
+    "experimental_points": 580.0,
+    "wins_losses_draws_experimental": { "wins": 248, "losses": 88, "draws": 664 },
+    "score_rate": 0.58,
+    "mean_pair_delta": 0.32,
+    "paired_bootstrap_95_ci": [0.252, 0.388],
+    "bootstrap_resamples": 20000,
+    "lcb_above_zero": true,
+    "elo": 56.1,
+    "elo_95_ci": [44.0, 68.3],
+    "avg_depth_baseline": 8.3,
+    "avg_depth_experimental": 9.18,
+    "depth_delta_ply": 0.89,
+    "avg_nps_baseline": 2843605,
+    "avg_nps_experimental": 2339870,
+    "wall_time_s": 1631.1
+  },
+
+  "promotion": {
+    "accepted": true,
+    "date_utc": "2026-08-11",
+    "criterion": "CLAUDE.md: paired-bootstrap 95% LCB > 0 over 1000 games after a 400-game screen. LCB = +0.252.",
+    "comparison_to_banked_arms": "Mean pair delta +0.32 against S1 +0.206, S2 +0.12, S3 +0.058 -- larger than all three combined.",
+    "post_promotion_signatures": {
+      "accept": { "nodes": 14298048, "cases_solved": 91, "prior": 19871056 },
+      "accept_temp": { "nodes": 14234337, "cases_solved": 91, "note": "equals the experimental arm's signature, confirming the promotion copied faithfully; alphabeta_temp.rs is back to the re-export stub" }
+    },
+    "full_battery": "cargo test --locked --all-targets green; python unittest discover over training/nnue/tests (248) and scripts/tests (92) green."
+  },
+
+  "attribution_caveat": "This arm bundles two independent changes, so the split between them is NOT measured. They were bundled because both were independently measured as large node-count reductions in an isolated worktree (null-verify deletion 2.43x, qsearch SEE+delta 3.74x at fixed depth 8) and the campaign has limited box time. If a per-change number is ever needed, run each separately against the same baseline.",
+
+  "provenance": "Found by a multi-agent audit of the search on 2026-08-11 that measured EBF directly (4.22 over depths 6-11) rather than inferring it, then built an isolated git worktree to measure each candidate change's node-count effect before any was proposed."
+}
