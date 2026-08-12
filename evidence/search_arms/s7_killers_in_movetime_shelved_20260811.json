@@ -1,0 +1,39 @@
+{
+  "arm": "S7",
+  "date_utc": "2026-08-11",
+  "title": "Activate the killer heuristic in movetime searches",
+  "status": "SHELVED -- measured flat, not promoted",
+
+  "defect_found": "self.killers is allocated only in search_with_params (alphabeta.rs:1597). search_movetime never allocated it, and the Default leaves it Vec::new(). Both killer_bonus and update_killers early-return when the ply index is past the end of that vector, so with length 0 they always did. Every movetime search therefore ran with the killer heuristic switched on (compare_play calls set_use_killers(true) at three sites) and doing nothing -- and movetime is the path compare_play, the model gate, and real games all take. The acceptance suite was unaffected because `accept` goes through search_with_params, which does allocate.",
+
+  "change_tested": "PieBot/src/search/alphabeta_temp.rs search_movetime: allocate self.killers = vec![[None, None]; 256] alongside the other per-search state.",
+
+  "acceptance": {
+    "accept_temp_nodes": 14234337,
+    "cases_solved": 91,
+    "note": "identical to baseline, confirming the change is scoped to the movetime path and does not touch the fixed-depth suite"
+  },
+
+  "screen_400_games": {
+    "command": "compare_play --games 400 --movetime 150 --noise-plies 12 --noise-topk 5 --threads 1 --parallel-games 10 --paired-openings --openings-file books/openings_v1.fen --seed 555120260811",
+    "games": 400,
+    "pairs": 200,
+    "baseline_points": 200.0,
+    "experimental_points": 200.0,
+    "wins_losses_draws_experimental": { "wins": 59, "losses": 59, "draws": 282 },
+    "score_rate": 0.5,
+    "mean_pair_delta": 0.0,
+    "paired_bootstrap_95_ci": [-0.11, 0.11],
+    "lcb_above_zero": false,
+    "avg_depth_baseline": 9.1,
+    "avg_depth_experimental": 9.09,
+    "avg_nps_baseline": 2235465,
+    "avg_nps_experimental": 2191064
+  },
+
+  "conclusion": "Exactly 59-59-282: the mean pair delta is 0.0000 to four decimals. Killers add nothing measurable on top of the existing ordering (TT move first, MVV-LVA, SEE, butterfly history, counter-moves) at the depths reached in 150 ms. Not promoted -- the repo's criterion is a paired-bootstrap LCB above zero, and this arm has a symmetric CI centered on zero. The allocation was reverted; alphabeta_temp.rs is back to the re-export stub.",
+
+  "kept_separately": "The five empty-bodied setters this investigation surfaced (set_null_min_depth, set_hist_min_depth, set_root_see_top_k, set_use_futility, set_use_lmp) were deleted along with their 13 call sites in compare_play.rs and bench.rs. That is a pure measurement-integrity fix with no behavioural change: the matein3 signature is unchanged at 14298048. Both harnesses had been configured differently than their operators believed -- bench.rs in particular was setting futility and LMP 'on' and null_min_depth to 8 when the real null-move floor is 3.",
+
+  "caveat": "This result is measured against the post-S6 baseline. Killers may become worth re-testing if move ordering changes substantially -- for instance after continuation history lands, which would alter what the quiet-move ordering already captures."
+}

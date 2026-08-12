@@ -318,11 +318,6 @@ impl Searcher {
     pub fn set_deterministic(&mut self, on: bool) {
         self.deterministic = on;
     }
-    pub fn set_null_min_depth(&mut self, _d: u32) {}
-    pub fn set_hist_min_depth(&mut self, _d: u32) {}
-    pub fn set_root_see_top_k(&mut self, _k: usize) {}
-    pub fn set_use_futility(&mut self, _on: bool) {}
-    pub fn set_use_lmp(&mut self, _on: bool) {}
     pub fn see_gain_cp(&mut self, board: &Board, uci: &str) -> Option<i32> {
         // Locate a matching legal move by UCI string
         let mut chosen: Option<Move> = None;

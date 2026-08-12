@@ -122,13 +122,8 @@ fn main() {
     s.set_use_killers(true);
     s.set_use_lmr(true);
     s.set_use_nullmove(true);
-    s.set_null_min_depth(8);
-    s.set_hist_min_depth(10);
-    s.set_root_see_top_k(6);
     s.set_use_aspiration(true);
     // Enable shallow pruning for benches
-    s.set_use_futility(true);
-    s.set_use_lmp(true);
 
     // Eval mode selection for Cozy
     let eval_mode = if args.material_only {
@@ -380,11 +375,6 @@ fn main() {
                 sc.set_use_killers(true);
                 sc.set_use_lmr(true);
                 sc.set_use_nullmove(true);
-                sc.set_null_min_depth(8);
-                sc.set_hist_min_depth(10);
-                sc.set_root_see_top_k(6);
-                sc.set_use_futility(true);
-                sc.set_use_lmp(true);
                 sc.set_use_aspiration(true);
                 sc.set_eval_mode(eval_mode);
                 if matches!(eval_mode, EvalMode::Nnue) {

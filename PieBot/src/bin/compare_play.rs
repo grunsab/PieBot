@@ -703,7 +703,6 @@ fn build_baseline_engine(args: &Args) -> BaselineEngine {
     s.set_use_killers(true);
     s.set_use_lmr(true);
     s.set_use_nullmove(true);
-    s.set_null_min_depth(8);
     s.set_use_aspiration(true);
 
     let mut mode = parse_eval_mode_base(args.base_eval.as_deref());
@@ -741,7 +740,6 @@ fn build_experimental_engine(args: &Args) -> ExperimentalEngine {
         s.set_use_killers(true);
         s.set_use_lmr(true);
         s.set_use_nullmove(true);
-        s.set_null_min_depth(8);
         s.set_use_aspiration(true);
 
         let mut mode = parse_eval_mode_base(args.exp_eval.as_deref());
@@ -783,7 +781,6 @@ fn build_experimental_engine(args: &Args) -> ExperimentalEngine {
     s.set_use_killers(true);
     s.set_use_lmr(true);
     s.set_use_nullmove(true);
-    s.set_null_min_depth(8);
     s.set_use_aspiration(true);
 
     let mut mode = parse_eval_mode_exp(args.exp_eval.as_deref());
