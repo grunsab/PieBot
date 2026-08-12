@@ -1,0 +1,56 @@
+{
+  "date_utc": "2026-08-12",
+  "what": "Three ladders run back-to-back on a deliberately idle box: the S6 engine at rungs 1800/2100, the same engine at rungs 2400/2700, and the pre-S6 engine (node signature 20110404) at rungs 1800/2100 as a contention-matched control. 100 games per rung, 60+0.5s, Threads=1, cycle-98 quant at blend 25 on every arm.",
+
+  "anchor": "official SF16 avx2 release, sha256 8f60a016dc767e0d648a8665b8ede3e6e4d28c086ad90517ad26f55b9960bd84, /workspace/stockfish16. UCI_LimitStrength=true, UCI_Elo set per rung, Hash 64, Threads 1 -- verified present in every rung's recorded config.",
+
+  "why_a_control": "The 2026-08-08 baseline of 1892 was measured while campaign_v6 was training on 160 threads. This ladder ran on an idle box (load average ~5 across 184 cores, every engine on its own core). Without a matched control there is no way to separate S6's contribution from the difference in CPU contention, so the pre-S6 binary was rebuilt from 0250b61 and run under identical conditions.",
+
+  "result_controlled_s6_improvement": {
+    "note": "THIS is the trustworthy comparison: identical rungs, identical idle box, identical model, only the engine differs.",
+    "s6_pooled": 2146,
+    "s6_ci_95": [2087, 2212],
+    "pre_s6_pooled": 2062,
+    "pre_s6_ci_95": [2009, 2124],
+    "difference_elo": 83,
+    "difference_bootstrap_ci_95": [9, 159],
+    "p_s6_better": 0.986,
+    "bootstrap_resamples": 20000,
+    "per_rung": {
+      "1800": { "pre_s6_score_rate": 0.63, "s6_score_rate": 0.755 },
+      "2100": { "pre_s6_score_rate": 0.635, "s6_score_rate": 0.69 }
+    },
+    "interpretation": "Independently corroborates the 1000-game paired A/B measurement of +56 Elo [+44, +68] for S6: same direction, same rough magnitude, arrived at against an external opponent rather than by self-play. The paired A/B remains the tighter estimate because pairing removes opening and colour variance; this anchor measurement is noisier (CI spans 150 Elo) but independent."
+  },
+
+  "finding_the_anchor_scale_is_rung_dependent": {
+    "severity": "affects every absolute Elo number this campaign has ever quoted",
+    "observation": "The SAME S6 binary, same model, same session, same idle box, measured against different rung pairs:",
+    "measured_at_rungs_1800_2100": { "pooled": 2146, "ci_95": [2087, 2212] },
+    "measured_at_rungs_2400_2700": { "pooled": 2422, "ci_95": [2362, 2479] },
+    "gap_elo": 276,
+    "cis_overlap": false,
+    "per_rung_detail": {
+      "1800": { "score_rate": 0.755, "elo_difference": 196 },
+      "2100": { "score_rate": 0.69, "elo_difference": 139 },
+      "2400": { "score_rate": 0.45, "elo_difference": -35 },
+      "2700": { "score_rate": 0.25, "elo_difference": -191 }
+    },
+    "diagnosis": "Implied ratings climb monotonically with rung strength (1800 -> 1996, 2100 -> 2239, 2400 -> 2365, 2700 -> 2509). If SF16's UCI_Elo were a consistent Elo scale these would agree. They do not, so UCI_LimitStrength's nominal Elo is compressed relative to real playing strength in this range: the gap between the 1800 and 2700 settings is worth far less than 900 Elo of actual strength.",
+    "consequences": [
+      "No absolute 'PieBot Elo' from this ladder is meaningful without naming its rungs.",
+      "Today's numbers CANNOT be compared to the 2026-08-08 baseline of 1892, which used rungs 1500/1800. That comparison is not 1892 -> 2146; it is two different scales.",
+      "The mission target of '~2700 on the pinned SF16 anchor scale' is ambiguous as written, because the scale depends on the rungs used to measure it.",
+      "The existing protocol rule 'place rungs within +/-400 of expected strength' was treated as a precision guideline. It is stronger than that: outside a fixed rung set the scale itself moves."
+    ],
+    "recommendation": "Treat the ladder as a RELATIVE instrument. Fix one canonical rung set and only ever compare within it, or -- better, and what this run did -- always measure the new engine against the old one at matched rungs on a matched machine and report the difference. Absolute ratings should carry their rungs in the same breath, e.g. '2146 @ rungs 1800/2100'."
+  },
+
+  "method_note": "S6's rung-1800 score rate as games accumulated: 100% (5g) -> 86.1% (18g) -> 80.2% (58g) -> 79.2% (72g) -> 75.5% (100g). A headline taken from the early sample would have overstated the result by more than 20 percentage points. Full samples only.",
+
+  "artifacts_on_box": [
+    "/workspace/ladder_s6_20260812/ladder_report.json",
+    "/workspace/ladder_s6_high/ladder_report.json",
+    "/workspace/ladder_pre_s6_control/ladder_report.json"
+  ]
+}
