@@ -1,0 +1,87 @@
+{
+  "date_utc": "2026-08-14",
+  "lineage": "campaign_v7",
+  "what": "campaign_v7 recorded 0 promotions across cycles 30-68 while its active model stayed frozen at cycle 29. This measures whether that reflects a trainer that stopped learning or a gate that cannot see the size of gain the trainer produces. It is the second: the checkpoint lineage accumulated +25.4 Elo that the gate rejected every time.",
+  "engine": "PieBot at box commit 568163a (identical to local 3fd664a for all training and engine paths)",
+  "protocol": {
+    "binary": "/workspace/piebot_rust/PieBot/target/release/compare_play",
+    "mode": "--same-search (both arms use the baseline searcher; model-only A/B)",
+    "movetime_ms": 150,
+    "threads": 1,
+    "paired_openings": true,
+    "openings_file": "books/openings_v1.fen",
+    "noise_plies": 12,
+    "noise_topk": 5,
+    "note": "Both arms run at EvalBlend 50, the live active_model_blend_percent, so no blend confound."
+  },
+  "D1_cycle68_vs_cycle29": {
+    "seed": 20260813,
+    "games": 1000,
+    "pairs": 500,
+    "wins_draws_losses_for_candidate": [254, 565, 181],
+    "score": 0.5365,
+    "mean_pair_delta": 0.1460,
+    "pair_variance": 0.8504,
+    "paired_standard_error": 0.0412,
+    "mean_pair_delta_ci_95": [0.0652, 0.2268],
+    "elo": 25.4,
+    "elo_ci_95": [11.3, 39.6],
+    "interpretation": "The cycle-68 training checkpoint is decisively stronger than the frozen cycle-29 active model. The lower confidence bound is well clear of zero."
+  },
+  "D0_absolute_pst_reference": {
+    "seed": 20260814,
+    "games_per_arm": 200,
+    "cycle_029_at_blend_50": {"wins_draws_losses": [66, 114, 20], "score": 0.615, "elo": 81.4, "elo_ci_95": [50.7, 113.3]},
+    "cycle_068_at_blend_50": {"wins_draws_losses": [69, 106, 25], "score": 0.610, "elo": 77.7, "elo_ci_95": [45.4, 111.4]},
+    "interpretation": "Reads flat, but at 200 games per arm this comparison cannot resolve a difference below roughly 45 Elo. It is uninformative at the effect size in question and is NOT evidence against D1."
+  },
+  "corroboration_from_the_campaign_itself": {
+    "cycle_061_gate_confirmation": {"games": 480, "score": 0.523, "elo": 15.9, "outcome": "REJECTED"},
+    "cycle_068_D1": {"games": 1000, "elo": 25.4, "outcome": "measured here"},
+    "implied_rate_elo_per_cycle": [0.50, 0.65],
+    "note": "Two independently powered measurements taken seven cycles apart agree on steady accumulation of roughly +0.5 to +0.65 Elo per cycle against the frozen baseline. Every gate screen in the retained window was positive (+14.5, +29.0, +29.0, +14.5, +29.0 Elo) and every cycle was still rejected."
+  },
+  "root_cause": {
+    "shipped_delta1": 0.25,
+    "shipped_h1_elo": 43.7,
+    "shipped_indifference_elo": 21.8,
+    "shipped_max_pairs": 300,
+    "llr_formula": "autopilot._gsprt_decision: llr = pairs * delta1 * (mean - delta1/2) / variance",
+    "truncation_rule": "autopilot._run_model_gate converts an inconclusive SPRT into decision=reject (reason max-pairs-inconclusive)",
+    "why_it_rejected": "A true effect of +25.4 Elo (mean pair delta 0.146) sits barely above the +21.8 Elo indifference point, so the log-likelihood ratio has almost no drift and the test wanders until it is truncated -- and truncation is recorded as a rejection. Rejection was the default outcome for exactly the size of gain this trainer produces.",
+    "conventional_bounds_for_this_tier": "[0, 10] Elo at alpha=beta=0.05 (chessprogramming.org SPRT table). At the shipped bounds a genuinely +10 Elo candidate passes about 17% of the time; at [0, 10] it passes about 95%."
+  },
+  "change_applied": {
+    "gate_sprt_delta1": {"from": 0.25, "to": 0.0575, "h1_elo": 10.0, "indifference_elo": 5.0},
+    "gate_sprt_max_pairs": {"from": 300, "to": 1600},
+    "gate_min_score_delta": {"from": 0.0, "to": 0.05},
+    "gate_games_screen": {"from": 24, "to": 96, "via": "supervisor conf env"},
+    "gate_parallel_games": {"from": 12, "to": 48, "via": "supervisor conf env"},
+    "sizing": {
+      "pairs_to_accept_at_h1_design_point": 1515,
+      "pairs_to_accept_at_the_measured_plus_25_elo_effect": 371,
+      "pairs_to_accept_at_plus_15_elo": 755,
+      "basis": "pairs = 2*variance*ln((1-beta)/alpha)/delta1^2 at the design point; variance 0.8504 measured over 500 pairs above",
+      "why_the_screen_threshold_rose": "With a tight delta1 a null candidate needs as many pairs to reject as a real one needs to accept, so every cycle would pay the full confirmation. A positive screen threshold keeps that cost off cycles with nothing to promote; at 48 screen pairs it escalates about 35% of null cycles and about 77% of genuine +25 Elo cycles."
+    }
+  },
+  "replay_validation": {
+    "what": "The recorded pair outcomes of cycle 61's rejected confirmation were replayed through a faithful reimplementation of autopilot._gsprt_decision under both the shipped and the proposed parameters. This tests the change against real game data rather than against an assumed effect size.",
+    "source": "cycles/cycle_000061/gate_compare_confirmation.json, 240 pairs reconstructed from game_results by pair_index",
+    "observed": {"pairs": 240, "mean_pair_delta": 0.0917, "pair_variance": 0.5188, "elo": 15.9},
+    "shipped_delta1_0.25_max_pairs_300": {"decision": "reject", "llr": -3.86, "at_pairs": 240, "note": "hit the reject BOUND -- the old gate did not merely fail to confirm this candidate, it actively concluded against it"},
+    "proposed_delta1_0.0575_max_pairs_1600": {"decision": "still accumulating", "llr": 1.67, "at_pairs": 240, "note": "positive and climbing toward the +2.944 accept bound; the replay ran out of played pairs because the shipped run stopped at 240"},
+    "extrapolation": {"accept_bound_reached_at_pairs": 423, "games": 846, "basis": "llr grows linearly in n; 240 * 2.944 / 1.67", "within_cap": true},
+    "conclusion": "Under the proposed parameters cycle 61 would have been promoted at roughly 423 pairs. The sign of the log-likelihood ratio flips from -3.86 to +1.67 on identical data, which isolates the parameters as the cause of the rejection."
+  },
+  "max_pairs_sizing_check": {
+    "design_point_pairs_required": {"at_variance_0.5188": 924, "at_variance_0.8504": 1515},
+    "cap_chosen": 1600,
+    "note": "Both observed variances conclude within the cap. A cap below ~1520 would silently reconvert the tighter H1 into an unconditional reject at the higher observed variance."
+  },
+  "caveats": [
+    "The Elo figures are self-play logistic Elo at 150 ms, not anchor Elo. They measure this net against this net, not against Stockfish.",
+    "No arch-v2 net has ever been measured against the pinned SF16 anchor. Every ladder number in this campaign (1892 / 2146 / 2422, and S6's +83) used the v1 h64 net at blend 25.",
+    "The +0.65 Elo/cycle rate is an average over 39 cycles against a frozen baseline. It is not guaranteed to continue, and it should be re-measured after the first promotion moves the baseline."
+  ]
+}

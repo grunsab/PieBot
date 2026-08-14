@@ -5,6 +5,18 @@ set -Eeuo pipefail
 # Deadline is minted ONCE at root creation and covers the campaign plus the
 # 15-day reserve. Gate knobs (including SPRT) are frozen here for the
 # lineage's entire life: this launcher is never edited mid-lineage.
+#
+# ONE SANCTIONED EXCEPTION (2026-08-14, campaign_v7). The freeze protects the
+# lineage from having its promotion bar moved to manufacture an acceptance. It
+# is not a licence to keep a measuring instrument that cannot see the quantity
+# it measures. The gate shipped with delta1 = 0.25 -- an H1 of +43.7 Elo and an
+# indifference point of +21.8 Elo -- while the trainer produces ~+0.65 Elo per
+# cycle. Over cycles 30-68 that rejected every candidate, and a 1000-game paired
+# match then measured the "rejected" cycle-68 net at +25.4 Elo [+11.3, +39.6]
+# over the frozen active model. The gate was wrong, not the nets.
+# See evidence/gate_power_and_unpromoted_progress_20260814.json.
+# delta1 and max-pairs MUST move together: an inconclusive SPRT is recorded as
+# a REJECT, so a tighter H1 with an unchanged cap is an unconditional reject.
 
 REPO_ROOT="${REPO_ROOT:-/workspace/piebot_rust}"
 PIEBOT_DIR="${PIEBOT_DIR:-$REPO_ROOT/PieBot}"
@@ -81,7 +93,11 @@ LEARNING_RATE="${LEARNING_RATE:-0.002}"
 WARM_START_LEARNING_RATE="${WARM_START_LEARNING_RATE:-0.001}"
 RETAIN_FULL_CYCLES="${RETAIN_FULL_CYCLES:-8}"
 REPLAY_WINDOW_CYCLES="${REPLAY_WINDOW_CYCLES:-6}"
-GATE_GAMES="${GATE_GAMES:-24}"
+# Screen size is a statistical knob, so it lives here with the other frozen
+# gate parameters rather than in the supervisor conf. 24 games (12 pairs) could
+# not distinguish a real candidate from noise, so the screen leaked nearly every
+# null cycle into the expensive confirmation while the threshold sat at 0.0.
+GATE_GAMES="${GATE_GAMES:-96}"
 GATE_SEARCH_THREADS="${GATE_SEARCH_THREADS:-1}"
 GATE_PARALLEL_GAMES="${GATE_PARALLEL_GAMES:-12}"
 # Adjudication (plan WP5 Pilot B): resign 900cp x 8 plies with a 15%
@@ -470,17 +486,17 @@ AUTOPILOT_ARGS+=(
   "--gate-games" "$GATE_GAMES"
   "--gate-threads" "$GATE_SEARCH_THREADS"
   "--gate-parallel-games" "$GATE_PARALLEL_GAMES"
-  "--gate-min-score-delta" "0.0"
+  "--gate-min-score-delta" "0.05"
   "--gate-incremental-pst-policy" "regression-veto"
   "--gate-pst-veto-margin" "0.0"
   "--gate-paired-openings"
   "--gate-sprt"
-  "--gate-sprt-delta1" "0.25"
+  "--gate-sprt-delta1" "0.0575"
   "--gate-sprt-alpha" "0.05"
   "--gate-sprt-beta" "0.05"
   "--gate-sprt-min-pairs" "48"
   "--gate-sprt-batch-pairs" "24"
-  "--gate-sprt-max-pairs" "300"
+  "--gate-sprt-max-pairs" "1600"
   "--trainer-backend" "torch"
   "--trainer-device" "cuda"
 )

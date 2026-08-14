@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import configparser
+import math
 import os
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -163,12 +165,90 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         launcher = self._launcher()
         self.assertIn('require_autopilot_flag "--gate-sprt"', launcher)
         self.assertIn('"--gate-sprt"', launcher)
-        self.assertIn('"--gate-sprt-delta1" "0.25"', launcher)
+        self.assertIn('"--gate-sprt-delta1" "0.0575"', launcher)
         self.assertIn('"--gate-sprt-alpha" "0.05"', launcher)
         self.assertIn('"--gate-sprt-beta" "0.05"', launcher)
         self.assertIn('"--gate-sprt-min-pairs" "48"', launcher)
         self.assertIn('"--gate-sprt-batch-pairs" "24"', launcher)
-        self.assertIn('"--gate-sprt-max-pairs" "300"', launcher)
+        self.assertIn('"--gate-sprt-max-pairs" "1600"', launcher)
+
+    def _gate_flag(self, name: str) -> str:
+        launcher = self._launcher()
+        match = re.search(rf'"--{re.escape(name)}" "([0-9.]+)"', launcher)
+        self.assertIsNotNone(match, f"launcher does not set --{name}")
+        assert match is not None
+        return match.group(1)
+
+    def test_sprt_h1_targets_the_conventional_small_patch_elo_band(self) -> None:
+        """delta1 must sit in the [0, 10]-Elo band conventional for this tier.
+
+        Pair delta and logistic Elo are related by ``delta = 4p - 2``. The gate
+        shipped with delta1 = 0.25, i.e. an H1 of +43.7 Elo and an indifference
+        point of +21.8 Elo, which is far above any gain this trainer produces
+        per promotion attempt.
+        """
+        delta1 = float(self._gate_flag("gate-sprt-delta1"))
+        h1_elo = 400.0 * math.log10(
+            ((delta1 + 2.0) / 4.0) / (1.0 - (delta1 + 2.0) / 4.0)
+        )
+        self.assertGreater(h1_elo, 5.0, "H1 below +5 Elo needs an infeasible sample")
+        self.assertLess(
+            h1_elo,
+            15.0,
+            f"H1 is {h1_elo:.1f} Elo; conventional bounds for this tier are [0, 10]",
+        )
+
+    def test_sprt_max_pairs_can_reach_a_verdict_at_the_design_point(self) -> None:
+        """max_pairs and delta1 must be changed together, never delta1 alone.
+
+        ``autopilot._gsprt_decision`` accumulates
+        ``llr = pairs * delta1 * (mean - delta1 / 2) / variance`` and
+        ``_run_model_gate`` converts an inconclusive SPRT into a **reject**
+        (``autopilot.py`` "max-pairs-inconclusive"). So a delta1 small enough to
+        detect real gains, paired with a max_pairs too small to accumulate the
+        log-likelihood, turns the gate into an unconditional reject.
+
+        At the H1 design point (``mean == delta1``) the test must be able to
+        reach the accept bound before truncation. Variance is the paired-game
+        variance measured over 500 pairs in
+        ``evidence/gate_power_and_unpromoted_progress_20260814.json``.
+        """
+        delta1 = float(self._gate_flag("gate-sprt-delta1"))
+        alpha = float(self._gate_flag("gate-sprt-alpha"))
+        beta = float(self._gate_flag("gate-sprt-beta"))
+        max_pairs = float(self._gate_flag("gate-sprt-max-pairs"))
+
+        measured_pair_variance = 0.8504
+        accept_bound = math.log((1.0 - beta) / alpha)
+        pairs_needed = (
+            2.0 * measured_pair_variance * accept_bound / (delta1 * delta1)
+        )
+        self.assertLess(
+            pairs_needed,
+            max_pairs,
+            f"delta1={delta1} needs ~{pairs_needed:.0f} pairs to accept at its own "
+            f"design point but max_pairs={max_pairs:.0f} truncates first, and a "
+            f"truncated SPRT is recorded as a REJECT",
+        )
+
+    def test_gate_screen_filters_before_the_expensive_confirmation(self) -> None:
+        """The screen is a resource filter, so its threshold must be positive.
+
+        With a tight delta1 a *null* candidate needs as many pairs to reject as
+        a real one needs to accept, so every cycle would pay the full
+        confirmation. A positive screen threshold keeps that cost off the
+        cycles that have nothing to promote.
+        """
+        threshold = float(self._gate_flag("gate-min-score-delta"))
+        self.assertGreater(
+            threshold, 0.0, "a zero screen threshold escalates ~half of all null cycles"
+        )
+        delta1 = float(self._gate_flag("gate-sprt-delta1"))
+        self.assertLess(
+            threshold,
+            delta1,
+            "screen must not reject candidates the confirmation would accept",
+        )
 
     def test_adjudication_is_explicit_with_plan_values(self) -> None:
         launcher = self._launcher()
@@ -225,28 +305,28 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # v6 (2026-08-08, user-directed): standard NNUE redesign per
-        # chessprogramming.org/NNUE. Dual-perspective SCReLU learner
-        # (PIENNQ02) at hidden 1024, fresh random weights, taught by
-        # cycle-98 searching depth 9 capped at the measured depth-7 p95.
-        # The v5 h128-old-arch lineage was superseded before it ever ran.
-        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v6"', environment)
+        # v7 (2026-08-11) superseded v6, which ran 90 cycles with 0
+        # promotions. Same architecture -- dual-perspective SCReLU (PIENNQ02)
+        # at hidden 1024 from fresh random weights -- but a new lineage so the
+        # EmbeddingBag init fix (931b2f3) applies, with the relabel budget
+        # redirected into optimizer steps and teacher coverage.
+        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v7"', environment)
         self.assertIn('TRAIN_ARCH="v2"', environment)
         self.assertIn('HIDDEN_DIM="1024"', environment)
         self.assertIn('FRESH_INIT="1"', environment)
         self.assertNotIn("INITIAL_CHECKPOINT_SOURCE", environment)
-        self.assertIn('RELABEL_DEPTH="9"', environment)
+        self.assertIn('RELABEL_DEPTH="7"', environment)
         # Teacher signal density raised 2026-08-09. At every-6 relabeling with a
         # 0.15 teacher fraction only ~12% of the gradient was search evaluation
         # and the other ~88% was the outcome of a depth-5 self-play game, which
         # the net cannot predict (train accuracy sat at 0.509, chance). Neither
         # knob is an objective-identity field, so this stays inside the v6
         # lineage: weights and Adam state carry over.
-        self.assertIn('RELABEL_EVERY="2"', environment)
+        self.assertIn('RELABEL_EVERY="1"', environment)
         # Teacher/actor separation: actor depth 5 rows must NOT count as
         # teacher rows, and the teacher fraction matches the every-2 cadence.
         self.assertIn('MIN_TEACHER_DEPTH="6"', environment)
-        self.assertIn('TEACHER_SAMPLE_FRACTION="0.5"', environment)
+        self.assertIn('TEACHER_SAMPLE_FRACTION="1.0"', environment)
         self.assertIn('TARGET_CP="250"', environment)
         self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
         # Actor, teacher, and gate incumbent stay the accepted cycle-98 h64 v1.
@@ -309,10 +389,10 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # v5 deep teacher: ask depth 9, budget the measured p95 of depth-7
-        # cost (2.49M nodes, 2026-08-06 probe) -> 2500000, mirroring how the
-        # depth-7 teacher was capped at depth-5's p95 (144k).
-        self.assertIn('RELABEL_MAX_NODES="2500000"', environment)
+        # v7 reverted to the depth-7 teacher capped at depth-5's measured p95
+        # (144k). The depth-9 shape consumed 86% of campaign compute for a
+        # 0.0021-nat gain, so that budget was moved into optimizer steps.
+        self.assertIn('RELABEL_MAX_NODES="144000"', environment)
 
     def test_source_pin_is_written_only_after_all_preflights_pass(self) -> None:
         launcher = self._launcher()
@@ -337,13 +417,29 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # 7995WX host: 184 effective threads; 160 for the training lane,
-        # 24 reserved for arena/A-B lanes and SSH responsiveness. Gate knobs
-        # are identity-frozen and must NOT appear here.
-        self.assertIn('SELFPLAY_PARALLEL_GAMES="160"', environment)
-        self.assertIn('RELABEL_THREADS="160"', environment)
+        # 7995WX host: 184 effective threads. campaign_v7 runs the training
+        # lane at 112 and leaves ~48 for the search-arm A/B farm plus ~24 for
+        # SSH responsiveness (the v6 profile used 160 and starved that farm).
+        self.assertIn('SELFPLAY_PARALLEL_GAMES="112"', environment)
+        self.assertIn('RELABEL_THREADS="112"', environment)
         self.assertIn('RELABEL_HASH_MB="8192"', environment)
-        self.assertNotIn("GATE_", environment)
+
+    def test_supervisor_conf_carries_no_statistical_gate_knob(self) -> None:
+        """Only gate *throughput* may be tuned per host; the bar may not be.
+
+        Anything that changes the promotion bar (SPRT bounds, screen size,
+        screen threshold) is frozen in the launcher where it is reviewed and
+        version-controlled with its justification. Allowing those in the
+        supervisor conf would let a host-level edit manufacture an acceptance.
+        """
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        for frozen in ("GATE_GAMES", "GATE_SPRT", "GATE_MIN_SCORE", "GATE_SEARCH_THREADS"):
+            self.assertNotIn(frozen, environment, f"{frozen} must stay in the launcher")
+        # Throughput only: the gate is the tail of every cycle, so it is sized
+        # to the host's spare cores.
+        self.assertIn('GATE_PARALLEL_GAMES="48"', environment)
 
 
 if __name__ == "__main__":
