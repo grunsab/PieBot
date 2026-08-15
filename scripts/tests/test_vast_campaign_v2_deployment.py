@@ -169,8 +169,80 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--gate-sprt-alpha" "0.05"', launcher)
         self.assertIn('"--gate-sprt-beta" "0.05"', launcher)
         self.assertIn('"--gate-sprt-min-pairs" "48"', launcher)
-        self.assertIn('"--gate-sprt-batch-pairs" "24"', launcher)
+        # Frozen constant, NOT env-overridable: the supervisor conf may size
+        # gate throughput per host but may never move a statistical knob.
+        self.assertIn("GATE_SPRT_BATCH_PAIRS=180", launcher)
+        self.assertNotIn("GATE_SPRT_BATCH_PAIRS=${", launcher)
+        self.assertIn('"--gate-sprt-batch-pairs" "$GATE_SPRT_BATCH_PAIRS"', launcher)
         self.assertIn('"--gate-sprt-max-pairs" "1600"', launcher)
+
+    def test_launcher_warns_but_never_dies_on_gate_worker_clamp(self) -> None:
+        """A batch smaller than GATE_PARALLEL_GAMES silently runs fewer workers
+        than configured -- the original defect. Warn about it, but NEVER die():
+        GATE_PARALLEL_GAMES is host-tunable in the supervisor conf, supervisor
+        has autorestart, and a die() on a throughput preference would turn a
+        harmless host edit into a crash-loop that halts a live lineage. The real
+        safety check is EFFECTIVE_CPUS >= REQUIRED_CPUS.
+        """
+        launcher = self._launcher()
+        self.assertIn(
+            "if (( GATE_SPRT_BATCH_PAIRS < GATE_PARALLEL_GAMES )); then", launcher
+        )
+        clamp_block = launcher.split(
+            "if (( GATE_SPRT_BATCH_PAIRS < GATE_PARALLEL_GAMES )); then", 1
+        )[1].split("fi", 1)[0]
+        self.assertIn("WARNING", clamp_block)
+        self.assertNotIn("die ", clamp_block)
+
+    def test_sprt_batch_does_not_clamp_the_configured_worker_count(self) -> None:
+        """The batch must carry at least as many pairs as there are workers.
+
+        compare_play dispatches opening PAIRS through rayon par_iter and bounds
+        workers at min(parallel_games, available_cores, work_units) where
+        work_units = games/2 (compare_play.rs:600-620). A batch with fewer pairs
+        than GATE_PARALLEL_GAMES therefore runs fewer workers than configured --
+        which is exactly the original defect: 24-pair batches pinned the gate to
+        24 of 184 cores while the conf asked for 48.
+
+        Measured 2026-08-15 (150 ms movetime, same net, CPU lane free):
+            24 pairs / 24 workers   48 games   48.2 s   0.996 games/s
+            90 pairs / 45 workers  180 games   90.8 s   1.981 games/s
+           180 pairs / 90 workers  360 games   95.7 s   3.762 games/s
+        Per-worker throughput is flat (0.0415 / 0.0440 / 0.0418), so aggregate
+        throughput tracks WORKER COUNT and the batch is what makes workers
+        reachable. 90 workers is the largest count measured, not a proven
+        optimum. See evidence/gate_sprt_work_granularity_20260815.json.
+        """
+        launcher = self._launcher()
+        batch_match = re.search(r"GATE_SPRT_BATCH_PAIRS=([0-9]+)", launcher)
+        self.assertIsNotNone(batch_match, "launcher must set GATE_SPRT_BATCH_PAIRS")
+        assert batch_match is not None
+        batch_pairs = int(batch_match.group(1))
+
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        match = re.search(r'GATE_PARALLEL_GAMES="([0-9]+)"', environment)
+        self.assertIsNotNone(match, "supervisor conf must set GATE_PARALLEL_GAMES")
+        assert match is not None
+        workers = int(match.group(1))
+
+        self.assertGreaterEqual(
+            batch_pairs,
+            workers,
+            f"batch of {batch_pairs} pairs would clamp the gate to "
+            f"{batch_pairs} workers although GATE_PARALLEL_GAMES={workers}",
+        )
+        # The container is capped by cgroup quota at 184, NOT the 192 that
+        # nproc reports (192 is SMT threads on 96 physical cores). The launcher
+        # preflight dies when REQUIRED_CPUS exceeds the effective count, and
+        # supervisor autorestart turns that into a crash-loop.
+        self.assertLessEqual(
+            workers,
+            184,
+            f"GATE_PARALLEL_GAMES={workers} exceeds the 184-CPU cgroup cap and "
+            "would crash-loop the launcher at preflight",
+        )
 
     def _gate_flag(self, name: str) -> str:
         launcher = self._launcher()
@@ -439,7 +511,7 @@ class CampaignV2DeploymentTests(unittest.TestCase):
             self.assertNotIn(frozen, environment, f"{frozen} must stay in the launcher")
         # Throughput only: the gate is the tail of every cycle, so it is sized
         # to the host's spare cores.
-        self.assertIn('GATE_PARALLEL_GAMES="48"', environment)
+        self.assertIn('GATE_PARALLEL_GAMES="90"', environment)
 
 
 if __name__ == "__main__":

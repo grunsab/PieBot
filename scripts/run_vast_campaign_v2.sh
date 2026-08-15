@@ -17,6 +17,37 @@ set -Eeuo pipefail
 # See evidence/gate_power_and_unpromoted_progress_20260814.json.
 # delta1 and max-pairs MUST move together: an inconclusive SPRT is recorded as
 # a REJECT, so a tighter H1 with an unchanged cap is an unconditional reject.
+#
+# EXCEPTION 2 (2026-08-15, campaign_v7): SCHEDULING ONLY. batch-pairs 24 -> 180.
+# alpha, beta, delta1, min-pairs, max-pairs, screen size and screen threshold are
+# ALL UNCHANGED -- the promotion bar is not touched, only how the same games are
+# dispatched.
+#
+# compare_play bounds match workers at min(parallel_games, cores, work_units)
+# with work_units = games/2 (compare_play.rs:600-620), so the BATCH SIZE caps
+# the worker count. A 24-pair batch pinned the gate to 24 of 184 cores no
+# matter what GATE_PARALLEL_GAMES said -- the conf's 48 was already inert.
+#
+# Measured throughput, same net, same box, 150 ms movetime, CPU lane free:
+#     24 pairs / 24 workers   48 games   48.2 s   0.996 games/s
+#     90 pairs / 45 workers  180 games   90.8 s   1.981 games/s
+#    180 pairs / 90 workers  360 games   95.7 s   3.762 games/s   <- 3.78x
+# Per-worker throughput is flat (0.0415 / 0.0440 / 0.0418), i.e. aggregate
+# throughput scales with WORKER COUNT, and the batch size is what makes workers
+# reachable. See evidence/gate_sprt_work_granularity_20260815.json.
+#
+# 90 is the largest worker count actually measured; it is not proven optimal.
+# For a fixed batch, wall-clock is non-increasing in workers, so 180 pairs on
+# ~180 workers may well be faster still -- but that is unmeasured, sits at 1.9x
+# SMT oversubscription on 96 physical cores, and would push peak gate RSS to
+# roughly 180 x 296 MB ~ 53 GB. Measure before raising it.
+#
+# Statistical effect of the coarser look: the first SPRT look moves from 48 to
+# 180 pairs. No observed confirmation has ever resolved that early -- c122 took
+# 480 pairs, c118 600, c120 1128 -- so early stopping is not surrendered. Fewer
+# looks at a Wald boundary is the CONSERVATIVE direction (error rates stay at or
+# below nominal); the cost is extra games past the decision point, and those run
+# on cores that were idle anyway.
 
 REPO_ROOT="${REPO_ROOT:-/workspace/piebot_rust}"
 PIEBOT_DIR="${PIEBOT_DIR:-$REPO_ROOT/PieBot}"
@@ -100,6 +131,12 @@ REPLAY_WINDOW_CYCLES="${REPLAY_WINDOW_CYCLES:-6}"
 GATE_GAMES="${GATE_GAMES:-96}"
 GATE_SEARCH_THREADS="${GATE_SEARCH_THREADS:-1}"
 GATE_PARALLEL_GAMES="${GATE_PARALLEL_GAMES:-12}"
+# Confirmation batch size, in opening pairs. FROZEN and deliberately NOT
+# env-overridable: it is a statistical knob (it sets when the SPRT boundary is
+# consulted), so it lives here with the rest of the frozen gate parameters and
+# not in the host-tunable supervisor conf. See EXCEPTION 2 in the header and
+# evidence/gate_sprt_work_granularity_20260815.json.
+GATE_SPRT_BATCH_PAIRS=180
 # Adjudication (plan WP5 Pilot B): resign 900cp x 8 plies with a 15%
 # no-resign fraction; draw-adjudicate |10cp| x 40 plies past ply 80.
 RESIGN_CP="${RESIGN_CP:-900}"
@@ -308,6 +345,16 @@ require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODE
   || die "RETAIN_FULL_CYCLES=0 disables all cleanup and will fill the disk"
 (( GATE_PARALLEL_GAMES == 1 || GATE_SEARCH_THREADS == 1 )) \
   || die "parallel promotion matches require GATE_SEARCH_THREADS=1"
+# compare_play bounds match workers at min(parallel_games, cores, work_units)
+# with work_units = games/2 (compare_play.rs:600-620). A batch carrying fewer
+# pairs than GATE_PARALLEL_GAMES therefore silently runs FEWER workers than
+# configured -- that is the original defect: 24-pair batches pinned the gate to
+# 24 workers while the conf asked for 48. Warn, never die: this is a throughput
+# preference, and a performance heuristic must not be able to halt a live
+# lineage. EFFECTIVE_CPUS >= REQUIRED_CPUS below is the real safety check.
+if (( GATE_SPRT_BATCH_PAIRS < GATE_PARALLEL_GAMES )); then
+  log "WARNING: gate batch carries $GATE_SPRT_BATCH_PAIRS pairs but GATE_PARALLEL_GAMES=$GATE_PARALLEL_GAMES; compare_play will clamp to $GATE_SPRT_BATCH_PAIRS workers"
+fi
 (( INITIAL_ACTIVE_MODEL_BLEND_PERCENT <= 100 )) \
   || die "INITIAL_ACTIVE_MODEL_BLEND_PERCENT must be between 0 and 100"
 [[ "$INITIAL_ACTIVE_MODEL_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] \
@@ -495,7 +542,7 @@ AUTOPILOT_ARGS+=(
   "--gate-sprt-alpha" "0.05"
   "--gate-sprt-beta" "0.05"
   "--gate-sprt-min-pairs" "48"
-  "--gate-sprt-batch-pairs" "24"
+  "--gate-sprt-batch-pairs" "$GATE_SPRT_BATCH_PAIRS"
   "--gate-sprt-max-pairs" "1600"
   "--trainer-backend" "torch"
   "--trainer-device" "cuda"

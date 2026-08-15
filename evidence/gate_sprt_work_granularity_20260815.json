@@ -1,0 +1,55 @@
+{
+  "date_utc": "2026-08-15",
+  "what": "Measurement backing campaign_v7 launcher EXCEPTION 2: --gate-sprt-batch-pairs 24 -> 180 and GATE_PARALLEL_GAMES 48 -> 90. A scheduling-only change; no promotion-bar parameter moves.",
+
+  "problem": "compare_play hands each rayon worker one opening PAIR and bounds workers at min(parallel_games, available_cores, work_units) with work_units = games/2 (PieBot/src/bin/compare_play.rs:600-620, schema bounded-pair-workers-v1). An SPRT confirmation batch is 24 pairs (48 games), so workers = min(48, 184, 24) = 24 -- GATE_PARALLEL_GAMES=48 was already inert. With units == workers rayon has nothing to steal and the batch's wall-clock collapses to the SINGLE LONGEST pair.",
+
+  "straggler_evidence": {
+    "source": "cycles/cycle_000122/gate_compare_same_blend_confirmation_sprt_batch_001.json",
+    "pairs": 24,
+    "plies_per_pair": {"min": 86, "median": 192, "mean": 199, "max": 312},
+    "longest_pair_alone_s": 46.8,
+    "measured_batch_wall_s": [46.4, 47.8, 48.2],
+    "work_per_worker_s": 29.9,
+    "note": "wall == longest pair to within 2%; 37% of every confirmation batch was idle workers waiting on one straggler"
+  },
+
+  "throughput_measurements": {
+    "method": "compare_play on the production box, 150 ms movetime, --same-search, --paired-openings, openings_v1.fen, cycle-118 arch-v2 net at blend 75 on BOTH sides, --threads 1, seed 90210. Run during the campaign's GPU-training stage (load ~1.6) so the CPU lane was free.",
+    "runs": [
+      {"pairs": 24,  "workers": 24, "units_per_worker": 1, "games": 48,  "wall_s": 48.2, "games_per_s": 0.996, "per_worker": 0.0415},
+      {"pairs": 90,  "workers": 45, "units_per_worker": 2, "games": 180, "wall_s": 90.8, "games_per_s": 1.981, "per_worker": 0.0440},
+      {"pairs": 180, "workers": 90, "units_per_worker": 2, "games": 360, "wall_s": 95.7, "games_per_s": 3.762, "per_worker": 0.0418}
+    ],
+    "speedup": 3.78,
+    "key_finding": "Per-worker throughput is FLAT across 24/45/90 workers (0.0415 / 0.0440 / 0.0418). The loss is work-unit granularity, NOT worker count, memory bandwidth, or NNUE load cost."
+  },
+
+  "hypotheses_refuted_along_the_way": [
+    "Worker count is the binding knob -- REFUTED: workers are clamped by work_units, so raising GATE_PARALLEL_GAMES alone changes nothing.",
+    "Memory-bandwidth contention from concurrent NNUE eval -- REFUTED: per-worker throughput is flat from 24 to 90 workers.",
+    "Per-game NNUE re-load (compare_play.rs:1060 rebuilds both engines per game, 84 MB each) -- REFUTED TWICE: at 1 worker, wall 40.91 s vs 40.20 s engine = 0.36 s/game total non-search overhead including 4 loads; and a PST control at 24 workers with ZERO NNUE loads was SLOWER (54.6 s vs 49.5 s).",
+    "More workers is better -- WRONGLY REFUTED, then RE-CONFIRMED. An earlier draft claimed the 48-worker screen ran 18% slower per game than the 24-worker batch. That was an artifact: the 'screen window' (nnue_quant.nnue mtime -> gate_compare_same_blend.json mtime) contains TWO 96-game matches, not one -- gate_compare.json (the incremental-PST regression-veto) at 08:02:00 and gate_compare_same_blend.json at 08:02:50 in cycle_000120, each 96 games at 48 workers. Dividing two matches' wall-clock by one match's games produced the bogus figure. Corrected: 48 workers deliver ~1.75 games/s, i.e. MORE workers is faster in aggregate, and for a FIXED batch wall-clock is non-increasing in worker count. The operative constraint is simply that the batch must carry at least as many pairs as workers, or compare_play clamps the worker count down."
+  ],
+
+  "corrected_principle": "Aggregate throughput tracks WORKER COUNT (~0.042 games/s per worker, roughly flat from 24 to 90). Batch size matters because it caps how many workers are reachable: workers = min(parallel_games, cores, pairs). An earlier 'keep >= 2 pairs per worker' rule was inferred from the artifact above and is WRONG -- it would forbid faster configurations. A launch-time die() enforcing it was written and then removed: GATE_PARALLEL_GAMES is host-tunable, supervisor has autorestart, and a throughput heuristic must never be able to halt a live lineage. A logged warning replaces it.",
+
+  "not_proven_optimal": "90 workers is the largest count measured. For a fixed 180-pair batch, wall-clock should keep falling up to ~180 workers (REQUIRED_CPUS = max(112,112,180) = 180 <= 184 still passes preflight), but that is unmeasured, sits at 1.9x SMT oversubscription on 96 physical cores, and would raise peak gate RSS to roughly 180 x 296 MB ~ 53 GB. Measure before raising.",
+
+  "statistical_impact": {
+    "unchanged": ["gate-sprt-alpha 0.05", "gate-sprt-beta 0.05", "gate-sprt-delta1 0.0575", "gate-sprt-min-pairs 48", "gate-sprt-max-pairs 1600", "gate-games 96 (screen)", "gate-min-score-delta 0.05"],
+    "changed": "The first SPRT look moves from 48 pairs to 180 pairs.",
+    "why_acceptable": "No observed confirmation has ever resolved that early: cycle 122 took 480 pairs, cycle 118 600, cycle 120 1128. Fewer looks at a Wald boundary is the CONSERVATIVE direction -- error rates stay at or below nominal alpha/beta. The cost is extra games past the decision point, and those run on cores that were idle anyway.",
+    "open_risk_CLOSED": "max-pairs 1600 is not an integer multiple of 180 (8.9 batches), so the tail was a concern. RESOLVED by review: autopilot.py:2428 clamps it -- request_pairs = min(sprt_batch_pairs, sprt_max_pairs - len(pair_deltas)) -> 8 x 180 + 160 = exactly 1600. No power lost, no bias to the inconclusive-reject rate.",
+    "opening_independence_VERIFIED": "batch_seed = base_seed + batch_index feeding splitmix64(base_seed ^ pair_index * 0xD1B54A32D192ED03). Enumerated 10 batches x 180 pairs for 3 base seeds = 1800 seeds, 0 collisions. No opening is reused across batches.",
+    "min_pairs_now_dead_code": "--gate-sprt-min-pairs 48 can no longer bind: the first look happens at 180 pairs. It is still passed and still asserted in the contract tests; a future reader should not reason from 48."
+  },
+
+  "expected_effect": {
+    "cycle_120_confirmation": "47 batches, 2256 games, ~2184 s -> ~580 s",
+    "gated_cycle_wall": "~62 min -> ~35 min",
+    "caveat": "Both benchmark halves ran back-to-back under identical conditions so the 3.78x ratio is sound, but the 360-game run went first and larger batches amortise fixed per-invocation startup over more games; the true steady-state figure may be lower."
+  },
+
+  "verify_after_deploy": "Capture parallel_games and wall time from the first post-deploy gate_compare_same_blend_confirmation_sprt_batch_000.json. Expect parallel_games=90 and roughly 3.7 games/s against the 24/24 baseline of 1.03 games/s. If parallel_games comes back 24, the clamp is still binding and something did not take."
+}

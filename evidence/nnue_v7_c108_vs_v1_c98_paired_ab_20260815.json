@@ -1,0 +1,59 @@
+{
+  "date_utc": "2026-08-15",
+  "what": "1000-game paired A/B isolating the NNUE contribution: campaign_v7 cycle-108 arch-v2 (PIENNQ02, h1024) at blend 75 -- the current active model -- against v1 cycle-98 (PIENNQ01, h64) at blend 25, which is the exact model configuration used by every anchor ladder on record. Same binary, same search, --same-search, 500 paired openings with colors reversed, 150 ms/move, Threads=1.",
+
+  "why": "No arch-v2 net had ever been measured against anything external. Every ladder number on record (1892 / 2146 / 2422 / S6 +83) used the v1 h64 net at blend 25, so all ten campaign_v7 promotions were unquantified. A paired net-vs-net A/B isolates exactly the unmeasured quantity without needing the anchor, and unlike a ladder it is robust to CPU contention because both arms suffer it symmetrically at fixed movetime.",
+
+  "engine": {
+    "binary": "/workspace/piebot_rust/PieBot/target/release/compare_play",
+    "built_utc": "2026-08-12T00:59Z",
+    "search_commit_basis": "0ee3495 (S6 promoted 2026-08-12T00:31Z), unchanged through HEAD a152c2d",
+    "search_verified_identical": "git diff 3fd664a..HEAD -- PieBot/src/search/ PieBot/src/eval/ is empty; the search is byte-identical to the binary that measured 2146"
+  },
+
+  "arms": {
+    "baseline": {
+      "net": "/workspace/piebot_campaign_v7/bootstrap/cycle_000098_nnue_quant.nnue",
+      "magic": "PIENNQ01", "arch": "v1 halfkp h64", "blend_percent": 25,
+      "note": "identical to the configuration measured at 2146 [2087, 2212] on 2026-08-12"
+    },
+    "experimental": {
+      "net": "/workspace/piebot_campaign_v7/cycles/cycle_000108/nnue_quant.nnue",
+      "magic": "PIENNQ02", "arch": "v2 dual-perspective SCReLU h1024", "blend_percent": 75,
+      "note": "campaign_v7 active model after 10 gate-accepted promotions"
+    }
+  },
+
+  "match": {
+    "games": 1000, "complete_pairs": 500, "movetime_ms": 150, "threads": 1,
+    "paired_openings": true, "noise_plies": 0, "same_search": true,
+    "openings_file": "/workspace/piebot_campaign_v7/bootstrap/openings_v1.fen",
+    "seed": 20260815, "parallel_workers": 24, "wall_time_s": 659.438,
+    "box_state": "campaign_v7 training concurrently; contention symmetric across arms by paired design"
+  },
+
+  "result": {
+    "experimental_score": 0.7155,
+    "experimental_wdl": "492-447-61",
+    "elo_delta": 160.2,
+    "elo_delta_ci_95": [143.9, 176.8],
+    "mean_pair_delta": 0.4310,
+    "p_experimental_better": 1.0,
+    "bootstrap": "paired, pair-level resampling, 20000 resamples, seed 20260815"
+  },
+
+  "search_cost": {
+    "baseline_avg_nps": 1347732.0, "baseline_avg_depth": 8.16,
+    "experimental_avg_nps": 1040671.4, "experimental_avg_depth": 7.83,
+    "note": "the arch-v2 net wins 71.55% while searching ~0.33 ply SHALLOWER at equal time. Eval quality more than pays for the width."
+  },
+
+  "caveats": [
+    "This is a CONFOUNDED comparison by design: it moves both the architecture (v1 h64 -> v2 h1024) and the blend (25 -> 75) together. It answers 'how much stronger is the engine now than before', not 'how much did arch-v2 alone buy'.",
+    "Measured at 150 ms/move. Every anchor ladder ran at 60+0.5s. Transfer across time control is unverified.",
+    "This is an internal delta against one specific opponent. Part of a gain measured against a single predecessor can be opponent-specific and need not transfer fully to Stockfish.",
+    "DO NOT simply add 160 to 2146. SF16's UCI_Elo is compressed in this range -- the same binary measured 2146 at rungs 1800/2100 and 2422 at rungs 2400/2700 on the same afternoon. Any anchored number requires a fresh ladder at matched rungs on a matched machine."
+  ],
+
+  "supersedes_open_item": "The 'no arch-v2 net has ever faced an external measurement' gap is now partly closed. A true anchor ladder on this net at matched rungs is still not done."
+}

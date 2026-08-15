@@ -1,0 +1,48 @@
+{
+  "date_utc": "2026-08-15",
+  "what": "Four-rung Stockfish anchor ladder on the campaign_v7 arch-v2 net (cycle 108, PIENNQ02 h1024) at blend 75 -- the FIRST anchor measurement of any arch-v2 net. Rungs 2400/2700/3000 as one ladder plus 3190 (Stockfish's UCI_Elo ceiling) as a second, 100 games per rung, 60+0.5s, Threads=1.",
+
+  "why": "Every prior ladder number (1892 / 2146 / 2422 / S6 +83) used the v1 h64 net at blend 25. The 2026-08-15 paired A/B measured the new net at +160 Elo internally; this run tests how much of that transfers against an external opponent, and probes the top of the anchor scale.",
+
+  "anchor": "official SF16 avx2 release, sha256 8f60a016dc767e0d648a8665b8ede3e6e4d28c086ad90517ad26f55b9960bd84, /workspace/stockfish16, sha re-verified at launch. UCI_LimitStrength=true, UCI_Elo per rung. Binary advertises UCI_Elo min 1320 max 3190 -- 3190 IS the ceiling; higher values are impossible (the arena refuses silently-clamped rungs, uci_elo_arena.py:652-664).",
+
+  "engine": {
+    "binary": "/workspace/piebot_rust/PieBot/target/release/uci, built 2026-08-12T00:58Z",
+    "search": "S6-era, unchanged from the binary that measured 2146 on 2026-08-12",
+    "net": "/workspace/piebot_campaign_v7/cycles/cycle_000108/nnue_quant.nnue, sha256 6d4757f44e30d7764a841f89f6bc4c668ee5df6eb81489232d6e4b12334a48b2",
+    "blend_percent": 75
+  },
+
+  "per_rung": {
+    "2400": {"games": 100, "w_d_l": "46-39-15", "score_rate": 0.655, "implied": 2511, "ci_95": [2459, 2569]},
+    "2700": {"games": 100, "w_d_l": "14-47-39", "score_rate": 0.375, "implied": 2611, "ci_95": [2559, 2660]},
+    "3000": {"games": 100, "w_d_l": "1-38-61",  "score_rate": 0.200, "implied": 2759, "ci_95": [2699, 2809]},
+    "3190": {"games": 100, "w_d_l": "0-19-81",  "score_rate": 0.095, "implied": 2798, "ci_95": [2701, 2865]}
+  },
+
+  "pooled": {
+    "script_3rung_2400_2700_3000": {"estimate": 2607, "ci_95": [2554, 2659]},
+    "script_3190_alone": {"estimate": 2798, "ci_95": [2638, 2889]},
+    "all_four_recomputed": 2627,
+    "high_rungs_3000_3190": 2772
+  },
+
+  "findings": [
+    "RUNG-DEPENDENCE PERSISTS BUT FLATTENS AT THE TOP. Implied ratings climb 2511 -> 2611 -> 2759 -> 2798. The 2400->2700 step moves the estimate 100 Elo and 2700->3000 moves it 148, but 3000->3190 moves it only 39. SF16's UCI_Elo is badly compressed at the low end and behaves much more like a real scale from 3000 up. The high rungs are therefore the trustworthy instrument; recommend 3000/3190 as the canonical set going forward.",
+    "ZERO WINS AT 3190 IN 100 GAMES (0-19-81). Every point at the ceiling is a draw. The engine can hold SF16 at max limited strength about a fifth of the time but never beats it -- a qualitatively different regime from rung 2400 where it wins 46 outright.",
+    "THE +160 INTERNAL GAIN DID NOT TRANSFER INTACT. Projections from the 150 ms paired A/B predicted 67.3 / 45.6 / 25.4 / 16.2 percent at the four rungs; actuals were 65.5 / 37.5 / 20.0 / 9.5. The shortfall grows with opponent strength (-1.8, -8.1, -5.4, -6.7 points). Self-play-measured Elo overstates external gains, and more so against stronger opposition."
+  ],
+
+  "caveats": [
+    "RAN UNDER CAMPAIGN LOAD, not the idle box the 2026-08-12 protocol used. Absolute values are provisional; the cross-rung comparison is the solid part since all four ran simultaneously under identical conditions.",
+    "MEASURES cycle-108, which the campaign superseded with cycle-118 (accepted 2026-08-15) partway through the run. These numbers are a floor for current strength, already one promotion stale.",
+    "Do NOT compare to the 2026-08-08 baseline of 1892 (rungs 1500/1800) or the 2026-08-12 figures of 2146/2422 (rungs 1800/2100 and 2400/2700). Different rung sets are different scales. The only clean engine-to-engine comparison at matched rungs here is 2400/2700: the old config scored 45%/25%, this one scores 65.5%/37.5%."
+  ],
+
+  "goal_note": "The mission target of '~2700 on the pinned SF16 anchor scale' remains ambiguous: this same engine reads 2511 at rung 2400 and 2798 at rung 3190. Recommend redefining the target against a fixed rung set (suggest 3000/3190) before it drives any decision.",
+
+  "artifacts_on_box": [
+    "/workspace/ladder_v7_c108_20260815/ladder_report.json",
+    "/workspace/ladder_v7_c108_3190/ladder_report.json"
+  ]
+}
