@@ -1,0 +1,40 @@
+{
+  "arm": "LMP late move pruning (retest of the arm rejected at 150 ms)",
+  "date_utc": "2026-08-16",
+  "verdict": "SHELVED without playing games. Moves the tree by <1% at every budget tried.",
+
+  "hypothesis": "Skip remaining quiet non-checking moves at shallow depth once a depth-scaled budget is exhausted, rather than searching them at reduced depth. Previously noted as '~1% nodes, loses a mate if pushed' and rejected at 150 ms.",
+
+  "implementation": {
+    "guards": "Mirrors the existing futility block: first move always searched, parent not in check, move quiet and non-checking, alpha and beta inside MATE_TT_THRESHOLD, plus a requirement that `best` already holds a real score so nothing is pruned while the node still believes it is being mated.",
+    "budget": "lmp_quiet_budget(depth), quadratic in depth, fires at depth <= LMP_MAX_DEPTH = 6.",
+    "counter": "quiets_seen is counted independently of tried_quiets, which only fills when use_history is on -- pruning must not silently depend on that."
+  },
+
+  "measurements": {
+    "baseline_accept_temp_nodes": 10011374,
+    "budgets": [
+      {"formula": "3 + d^2", "depth_1": 4, "depth_6": 39, "nodes": 9943427, "delta_pct": -0.68, "cases": "91/91", "fallback_hits": 0},
+      {"formula": "3 + d^2/2", "depth_1": 3, "depth_6": 21, "nodes": 9954151, "delta_pct": -0.57, "cases": "91/91", "fallback_hits": 0},
+      {"formula": "1 + d^2/2", "depth_1": 1, "depth_6": 19, "nodes": 9999021, "delta_pct": -0.12, "cases": "91/91", "fallback_hits": 0}
+    ],
+    "threshold": "CLAUDE.md: <5% node change on an arm matein3 can express means do not spend games. LMP is a tree-shaping change, which is exactly what the suite measures.",
+    "historical_agreement": "The 2026-08-07 note recorded '~1% nodes'. Measured -0.68%. The old measurement was right."
+  },
+
+  "the_counterintuitive_result": {
+    "observation": "Tightening the budget removed FEWER nodes, monotonically: -0.68% at 3+d^2, -0.57% at 3+d^2/2, -0.12% at 1+d^2/2.",
+    "reading": "Pruning harder makes the search do more total work. The likely mechanism is instability: aggressive shallow pruning produces looser bounds, which cost re-searches and degrade TT entry quality, and that costs more than the skipped moves save. This is worth knowing before anyone retunes LMP by making it more aggressive -- the obvious direction is the wrong one.",
+    "confidence": "Three points on one suite, monotone. The direction is clear; the mechanism is inferred, not instrumented."
+  },
+
+  "no_mate_was_lost": "All three budgets solved 91/91 with 0 fallback hits, including the most aggressive. The 2026-08-07 note said LMP 'loses a mate if pushed'; whatever setting produced that was harsher than anything tried here, and the guard requiring `best > -MATE_TT_THRESHOLD` may also be doing work the earlier version lacked.",
+
+  "queue_status": "This closes the re-test queue opened after the 150 ms harness was shown to understate depth-dependent arms ~2.3x. Four arms re-examined: log-log LMR PROMOTED (+22.3 Elo), history-modulated LMR shelved (structural no-op), H2 continuation history shelved (screened -8.7 Elo), LMP shelved (<1% tree change). One of four paid.",
+
+  "caveats": [
+    "Judged on matein3 node count alone, deliberately: the promotion protocol does not fund games for a sub-5% tree change from an ordering or pruning arm.",
+    "LMP_MAX_DEPTH was fixed at 6 throughout. Raising it would let the pruning fire at more nodes, but the budget is already ~39 quiets at depth 6, which is most of a move list, so the fade-out is where it should be.",
+    "Gated on use_lmr rather than its own flag, to avoid adding a SearchParams field that could become a silently-dead setter."
+  ]
+}

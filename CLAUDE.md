@@ -398,8 +398,14 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
 
 
 ### Immediate queue for the next agent
-1. **Re-test the remaining 150 ms rejection at >= 1000 ms**: LMP is the only
-   one left. **H2 continuation history was re-tested 2026-08-16 and SCREENED
+1. **DONE -- the re-test queue is CLOSED.** All four arms rejected at 150 ms
+   were re-examined at 1000 ms and **one of four paid**: log-log LMR PROMOTED
+   (+22.3 Elo), history-modulated LMR shelved (structural no-op), H2
+   continuation history shelved (screened -8.7 Elo, NPS -4.1% and depth flat),
+   LMP shelved (<1% tree change at every budget; note that tightening it
+   removed FEWER nodes, so the obvious retune direction is wrong). Do not
+   re-open these without a new mechanism. The next search Elo has to come from
+   somewhere else. **H2 continuation history was re-tested 2026-08-16 and SCREENED
    NEGATIVE**: -8.7 Elo, CI [-25.2, +7.8] over 400 games, with NPS down 4.1%
    and depth FLAT (12.92 -> 12.89). The signal was real (6x more non-zero
    entries than plain history at depth 11) but a 5.2 MB table that is 0.3%
