@@ -160,6 +160,16 @@ TEACHER_EXTERNAL_QUANT_SHA256="${TEACHER_EXTERNAL_QUANT_SHA256:-}"
 # P5: decisive-outcome target magnitude (objective-identity field; changing it
 # requires a fresh out_root with a weights-only bootstrap).
 TARGET_CP="${TARGET_CP:-100}"
+# campaign_v8 objective term: weight on Huber over the wdl_scale-normalised cp
+# error, added to the WDL/BCE loss. 0 reproduces the v7 objective exactly.
+# Non-zero is a DIFFERENT target -- objective-identity field, so it requires a
+# fresh OUT_ROOT with a weights-only bootstrap and fresh Adam.
+# Why it exists: BCE through sigmoid(cp/400) keeps only 28% of its gradient at
+# 1000 cp and 18% at 1200, while 28% of this lineage's labels sit above |600|.
+# A depth-7 search still disagrees with its own net by 617 cp on average and on
+# 57.5%% of best moves, yet that signal shrank 26.5%% through the WDL target.
+# See evidence/objective_saturation_20260816.json.
+CP_LOSS_WEIGHT="${CP_LOSS_WEIGHT:-0}"
 # Teacher/outcome blend on rows that carry a teacher label (objective-identity
 # field; a change requires a fresh out_root). At 0.8 even depth-9 relabeled
 # rows were 20% game-outcome noise; campaign_v7 trains at 1.0 so teacher rows
@@ -317,6 +327,8 @@ require_positive_int MAX_SAMPLES "$MAX_SAMPLES"
 require_positive_int HIDDEN_DIM "$HIDDEN_DIM"
 require_positive_number LEARNING_RATE "$LEARNING_RATE"
 require_positive_number WARM_START_LEARNING_RATE "$WARM_START_LEARNING_RATE"
+[[ "$CP_LOSS_WEIGHT" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+  || die "CP_LOSS_WEIGHT must be a non-negative number, got: $CP_LOSS_WEIGHT"
 [[ "$TEACHER_MIX" =~ ^[0-9]+([.][0-9]+)?$ ]] \
   || die "TEACHER_MIX must be numeric, got: $TEACHER_MIX"
 "$PYTHON_BIN" - "$TEACHER_MIX" <<'PY'
@@ -417,6 +429,7 @@ require_autopilot_flag "--selfplay-actor-tt-mb"
 require_autopilot_flag "--selfplay-temperature-moves"
 require_autopilot_flag "--teacher-external-quant-file"
 require_autopilot_flag "--target-cp"
+require_autopilot_flag "--cp-loss-weight"
 require_autopilot_flag "--teacher-mix"
 if [[ -n "$CROSS_ARCH_GATE_BLEND_PERCENT" ]]; then
   require_autopilot_flag "--cross-arch-gate-blend-percent"
@@ -512,6 +525,7 @@ AUTOPILOT_ARGS+=(
   "--teacher-sample-fraction" "$TEACHER_SAMPLE_FRACTION"
   "--min-teacher-depth" "$MIN_TEACHER_DEPTH"
   "--target-cp" "$TARGET_CP"
+  "--cp-loss-weight" "$CP_LOSS_WEIGHT"
   "--teacher-mix" "$TEACHER_MIX"
   "--train-arch" "$TRAIN_ARCH"
   "--epochs" "$EPOCHS"

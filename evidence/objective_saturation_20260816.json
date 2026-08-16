@@ -1,0 +1,98 @@
+{
+  "date_utc": "2026-08-16",
+  "what": "Why campaign_v7 stopped promoting after cycle 118. The self-distillation loop did NOT run out of signal: a depth-7 search still disagrees with its own net on 57.5% of best moves and by 617 cp on average. What collapsed is the OBJECTIVE'S ABILITY TO SEE that signal, because BCE through sigmoid(cp/400) loses gradient exactly where a strengthening net puts its evaluations.",
+
+  "headline": "Measurement failure at the top of the range, not signal exhaustion.",
+
+  "the_stall": {
+    "last_promotion": "cycle 118",
+    "cycles_since": "119-146+, zero acceptances",
+    "gate_tally_119_146": {"screen-rejected": 13, "confirmation-rejected": 9, "unchanged-training-checkpoint": 3, "candidate-identical-to-active-model": 1, "accepted": 0},
+    "true_effect_size": {
+      "what": "candidate vs the frozen cycle-118 active model, blend 75, --same-search, pooled from the gate's OWN confirmation batches",
+      "per_cycle": {"c141": 5.43, "c142": 4.56, "c145": 4.78, "c146": 4.89},
+      "pooled_games": 12800,
+      "pooled_elo": 4.91,
+      "ci_95": [1.66, 8.14],
+      "slope_elo_per_cycle": -0.04,
+      "note": "FLAT, not decaying. Independently recomputed from the batch JSONs, pairing on pair_index with a 6400-pair bootstrap."
+    },
+    "gate_thresholds": {"indifference_elo": 10.0, "h1_elo": 20.0, "delta1": 0.0575},
+    "verdict": "The gate is correct to reject: the true effect is half its indifference point."
+  },
+
+  "correction_to_an_earlier_measurement": {
+    "claim": "A 1000-game paired A/B (c141 vs c118) measured +20.5 Elo, 95% CI [+4.9, +35.9].",
+    "reality": "A high outlier. 12,800 games of the SAME comparison already existed in the gate's confirmation artifacts and give +4.91. The 1000-game CI's LOWER BOUND was the truth.",
+    "lesson": "Never trust a 1000-game point estimate when the gate has already played 12,800 games of the identical comparison and written them to disk."
+  },
+
+  "hypothesis_tested_and_REFUTED_frozen_teacher": {
+    "hypothesis": "active_model_path is both actor and relabel teacher and advances only on gate acceptance, so it has been frozen at cycle 118 for 28 cycles; unfreezing it should restore learning.",
+    "test": "Relabelled 3000 identical positions from cycle_000146/selfplay_jsonl with the c118 teacher and the c146 net, both at depth 7, blend 75, max-nodes 144000. Measured the divergence between the two label sets in the space the loss actually uses.",
+    "result": {
+      "mean_abs_cp_divergence": 77.4,
+      "median_cp": 21.0,
+      "p90_cp": 64.0,
+      "best_move_disagreement_pct": 36.9,
+      "mean_abs_target_space": 0.01180,
+      "kl_c146_vs_c118_nats": 0.00074,
+      "learner_remaining_headroom_nats": 0.02342,
+      "ratio": 0.03
+    },
+    "verdict": "REFUTED. Swapping the teacher offers 3% of the signal the learner has ALREADY failed to extract from its current labels. The frozen teacher is not the binding constraint, and the 1.5-hour unfreeze experiment was correctly skipped."
+  },
+
+  "hypothesis_tested_and_PARTLY_REFUTED_amplification_decay": {
+    "hypothesis": "The loop is a geometric amplification series: search beats the net by A, distillation recovers alpha*A, promotion installs it, and A shrinks each round until gains fall below the gate floor. Predicts A shrinking across the lineage.",
+    "test": "Same 2000 positions labelled by four retained arch-v2 nets at depth 1 and depth 7 (blend 75, max-nodes 144000, 24 threads). A = divergence between a net's depth-7 search and its own depth-1 view.",
+    "result_table": [
+      {"net": "c105", "mean_abs_dcp": 565.8, "median_dcp": 49.0, "best_move_disagree_pct": 59.9, "kl_d7_vs_d1_nats": 0.00554},
+      {"net": "c108", "mean_abs_dcp": 583.2, "median_dcp": 52.0, "best_move_disagree_pct": 59.3, "kl_d7_vs_d1_nats": 0.00578},
+      {"net": "c118", "mean_abs_dcp": 608.8, "median_dcp": 52.0, "best_move_disagree_pct": 59.7, "kl_d7_vs_d1_nats": 0.00564},
+      {"net": "c146", "mean_abs_dcp": 616.8, "median_dcp": 46.0, "best_move_disagree_pct": 57.5, "kl_d7_vs_d1_nats": 0.00414}
+    ],
+    "verdict": "PARTLY REFUTED, and this is the key finding. In cp space the teachable signal did NOT shrink -- it GREW (566 -> 617 mean |dcp|) and best-move disagreement stayed near 58-60%. Measured through sigmoid(cp/400) the same signal fell 26.5%. The amplification is intact; the objective's view of it is collapsing."
+  },
+
+  "mechanism": {
+    "statement": "As the net strengthens its evaluations become more decisive (larger |cp|). That moves the teacher-vs-net differences out of the responsive middle of sigmoid(cp/400) and into its flat tail, where the loss has almost no gradient. Getting stronger is what made the net invisible to its own loss.",
+    "label_distribution": {"abs_cp_gt_300_pct": 59, "abs_cp_gt_600_pct": 28, "abs_cp_gt_1000_pct": 9},
+    "target_gradient_dp_dcp": {"cp_0": 6.25e-4, "cp_300": 5.45e-4, "cp_600": 3.73e-4, "cp_1000": 1.75e-4, "cp_1200": 1.13e-4},
+    "gradient_retained_pct": {"cp_300": 87, "cp_600": 60, "cp_1000": 28, "cp_1200": 18},
+    "corroborating_symptom": "WDL loss sits 0.0234 nats from its label-entropy floor (0.5547) while cp RMSE is 272 cp and predictions inflate 31% (pred_mean_abs 524 vs target_mean_abs 399). The net is near-perfect on what it is scored on and poor at the magnitudes search actually consumes for pruning margins and move ordering."
+  },
+
+  "how_the_ceiling_got_installed": {
+    "note": "Two individually-justified decisions at v7's founding interacted in a way that appeared in no single review.",
+    "change_1": "TEACHER_MIX 0.8 -> 1.0. Justified in the conf: at 0.8 a teacher row's target was 20% game outcome, injecting +/-49 cp of noise on equal positions and compressing a +1200 cp eval to +846.",
+    "change_2": "TEACHER_SAMPLE_FRACTION 0.15 -> 1.0 with RELABEL_EVERY 6 -> 1, so every position carries a teacher label.",
+    "interaction": "run_vast_campaign_v2.sh still documents the design assumption: 'Rows WITHOUT a teacher label are unaffected - they always target the outcome alone.' That was the balance. With 100% coverage there are no such rows. Verified on cycle 146: train_records_with_teacher_value 4,317,645 == train_samples 4,317,645.",
+    "consequence": "The game outcome -- the only signal in the system not derived from the net's own search -- was switched off, making the loop's fixed point exactly 'reproduce my own depth-7 search', a ceiling the net can actually reach."
+  },
+
+  "also_refuted": {
+    "optimizer_pathology": "Adam beta2=0.999 gives v a 693-step half-life vs ~340 retained steps/cycle; measured mean_sqrt_vhat flat 7.35e-8 -> 7.33e-8 and the step multiplier rose 24% over 7 cycles. Adam is scale-invariant. Dead.",
+    "blend_ceiling": "Blend 100 is attempted FIRST every cycle and loses by ~46 Elo; 0 acceptances in 51 lineage-wide attempts. The PST term is inside the net's target function because every label is the blend-75 engine's own search score."
+  },
+
+  "free_compute_unrelated_to_the_stall": {
+    "epochs": "EPOCHS=3 but held-out loss rises after epoch 1 in 8/8 cycles and epoch 3 was selected 0/8 (best_epoch in {1,1,1,1,1,1,2,2}). ~2/3 of GPU train time is discarded.",
+    "selection_split": "Checkpoint selection uses a reference split labelled by the CYCLE-98 net at DEPTH 6 while training targets come from c118 at depth 7. It optimizes agreement with an obsolete, weaker teacher and caused 2/8 backwards selections."
+  },
+
+  "implication_for_throughput_work": "Faster cycles do not add Elo to a loop whose loss cannot see the remaining signal. The 2026-08-15 gate change (4.09x, cycles 62 -> 25 min) and the _pack_batch optimisation buy DIAGNOSTIC speed, not strength. They were still worth having: this diagnosis took an evening instead of a week.",
+
+  "prescription_v8": [
+    "Add a cp-space term to the loss so gradient survives at the magnitudes where the signal now lives: BCE(pred/400, target_wdl) + lambda * Huber(pred_cp, target_cp, delta=100). Both kernels already exist at train_torch.py:595-609; only the sum is new.",
+    "TEACHER_MIX 1.0 -> 0.9 to restore the outcome signal that is not bounded by the net's own search.",
+    "EPOCHS 3 -> 1 (measured waste, no Elo effect).",
+    "Objective-identity fields change, so this requires a NEW LINEAGE: fresh OUT_ROOT, fresh Adam, weights-only bootstrap from cycle 146. Keeps 146 cycles of learned weights; discards optimizer moments and the replay buffer."
+  ],
+
+  "caveats": [
+    "The amplification table is 2000 positions with KL ~0.005; the DIRECTION is clear, the -26.5% magnitude carries real uncertainty.",
+    "Depth 1 is a proxy for 'what the net knows directly'; it still includes quiescence search, so it is not a pure static eval.",
+    "All label divergences were measured on positions generated by the frozen c118 actor, so the position distribution is controlled but not representative of what a stronger actor would visit."
+  ]
+}

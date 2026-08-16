@@ -308,6 +308,10 @@ def _configured_training_objective(defaults: Dict[str, Any]) -> Optional[Dict[st
         return None
     return {
         "schema": str(schema),
+        # campaign_v8: weight on the normalised-cp Huber term. 0.0 is the
+        # pre-v8 objective (WDL/BCE alone); any non-zero value is a different
+        # target and therefore a different lineage identity.
+        "cp_loss_weight": float(defaults.get("cp_loss_weight", 0.0)),
         "target_schema": str(target_schema),
         "loss_kind": str(defaults.get("loss_kind", "mse")),
         "target_cp": float(defaults.get("target_cp", 100.0)),
@@ -442,6 +446,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument("--min-teacher-depth", type=int, default=None)
     ap.add_argument("--target-cp", type=float, default=None)
+    ap.add_argument("--cp-loss-weight", type=float, default=None)
     # Objective-identity field: the blend between the teacher value and the game
     # outcome on rows that carry a teacher label. Changing it requires a fresh
     # lineage. At 0.8 the depth-9 teacher rows still carried 20% outcome noise.
@@ -772,6 +777,7 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "hidden_dim": args.hidden_dim,
         "min_teacher_depth": args.min_teacher_depth,
         "target_cp": args.target_cp,
+        "cp_loss_weight": args.cp_loss_weight,
         "teacher_mix": args.teacher_mix,
         "cross_arch_gate_blend_percent": args.cross_arch_gate_blend_percent,
         "loss_kind": args.loss_kind,

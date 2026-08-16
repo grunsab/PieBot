@@ -13,10 +13,17 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from itertools import chain
+
 try:
     import torch  # type: ignore
 except Exception:  # pragma: no cover
     torch = None  # type: ignore
+
+try:
+    import numpy as _np  # type: ignore
+except Exception:  # pragma: no cover - torch ships numpy, but stay defensive
+    _np = None  # type: ignore
 
 try:
     from . import train_stub
@@ -545,21 +552,32 @@ def _pack_batch(
     batch_targets: Sequence[float],
     device: "torch.device",
 ) -> Tuple["torch.Tensor", "torch.Tensor", "torch.Tensor"]:
-    flat: List[int] = []
+    # Collect the bags without touching individual features: the original
+    # `flat.extend(int(x) for x in half)` cost one Python-level int() call per
+    # feature, ~1M per 16384-sample arch-v2 batch, and dominated the train
+    # stage (measured 0.69 s/step against ~10-20 ms of GPU math, leaving the
+    # box at 1-2 busy cores for ~570 s per cycle). np.fromiter drains the
+    # chained bags in C. Output must stay byte-identical to the reference loop
+    # in test_pack_batch_is_byte_identical_to_the_reference_loop.
     offsets: List[int] = []
+    bags: List[Sequence[int]] = []
     ofs = 0
     for feats in batch_feats:
-        if isinstance(feats, tuple):
-            # Arch-v2 row: (stm_bag, opponent_bag) — two offsets per sample.
-            for half in feats:
-                offsets.append(ofs)
-                flat.extend(int(x) for x in half)
-                ofs += len(half)
-        else:
+        # Arch-v2 row: (stm_bag, opponent_bag) — two offsets per sample.
+        halves = feats if isinstance(feats, tuple) else (feats,)
+        for half in halves:
             offsets.append(ofs)
-            flat.extend(int(x) for x in feats)
-            ofs += len(feats)
-    flat_t = torch.tensor(flat, dtype=torch.long, device=device)
+            bags.append(half)
+            ofs += len(half)
+    if _np is not None and ofs:
+        flat_t = torch.from_numpy(
+            _np.fromiter(chain.from_iterable(bags), dtype=_np.int64, count=ofs)
+        ).to(device)
+    else:
+        flat: List[int] = []
+        for half in bags:
+            flat.extend(int(x) for x in half)
+        flat_t = torch.tensor(flat, dtype=torch.long, device=device)
     offsets_t = torch.tensor(offsets, dtype=torch.long, device=device)
     targets_t = torch.tensor(batch_targets, dtype=torch.float32, device=device)
     return flat_t, offsets_t, targets_t
@@ -573,23 +591,53 @@ def _objective_loss(
     loss_kind: str,
     huber_delta_cp: float,
     wdl_scale_cp: float,
+    cp_loss_weight: float = 0.0,
 ) -> "torch.Tensor":
     if loss_kind == "mse":
-        return torch.nn.functional.mse_loss(pred_cp, target_cp, reduction="mean")
-    if loss_kind == "huber":
-        return torch.nn.functional.huber_loss(
+        base = torch.nn.functional.mse_loss(pred_cp, target_cp, reduction="mean")
+    elif loss_kind == "huber":
+        base = torch.nn.functional.huber_loss(
             pred_cp,
             target_cp,
             reduction="mean",
             delta=float(huber_delta_cp),
         )
-    if loss_kind == "wdl":
-        return torch.nn.functional.binary_cross_entropy_with_logits(
+    elif loss_kind == "wdl":
+        base = torch.nn.functional.binary_cross_entropy_with_logits(
             pred_cp / float(wdl_scale_cp),
             target_wdl,
             reduction="mean",
         )
-    raise ValueError(f"unsupported loss_kind: {loss_kind!r}")
+    else:
+        raise ValueError(f"unsupported loss_kind: {loss_kind!r}")
+
+    weight = float(cp_loss_weight)
+    if weight <= 0.0:
+        # Exactly the legacy objective. campaign_v7 and earlier run this path.
+        return base
+
+    # campaign_v8: keep gradient alive where the WDL target has none.
+    #
+    # BCE through sigmoid(cp/400) loses slope as the eval becomes decisive:
+    # dp/dcp is 87% of peak at 300 cp, 60% at 600, 28% at 1000, 18% at 1200 --
+    # while 59% of this lineage's labels sit above |300| cp and 28% above |600|.
+    # Measured 2026-08-16 (evidence/objective_saturation_20260816.json): a
+    # depth-7 search still disagrees with its own net by 617 cp on average and
+    # on 57.5% of best moves, yet that signal shrank 26.5% when viewed through
+    # the WDL target. The information is present; the objective stopped
+    # reporting it. Huber on the raw cp error reports it at every magnitude.
+    #
+    # The error is normalised by wdl_scale_cp so both terms are O(1) and the
+    # weight is interpretable: raw-cp Huber would be ~4 orders of magnitude
+    # larger than the BCE term and would silently become the entire objective.
+    scale = float(wdl_scale_cp)
+    cp_term = torch.nn.functional.huber_loss(
+        pred_cp / scale,
+        target_cp / scale,
+        reduction="mean",
+        delta=float(huber_delta_cp) / scale,
+    )
+    return base + weight * cp_term
 
 
 def _eval_split(
@@ -603,6 +651,7 @@ def _eval_split(
     loss_kind: str,
     huber_delta_cp: float,
     wdl_scale_cp: float,
+    cp_loss_weight: float = 0.0,
 ) -> Tuple[float, float, float, float, float]:
     if not xs:
         return 0.0, 0.0, 0.0, 0.0, 0.0
@@ -628,6 +677,7 @@ def _eval_split(
                 loss_kind=loss_kind,
                 huber_delta_cp=huber_delta_cp,
                 wdl_scale_cp=wdl_scale_cp,
+                cp_loss_weight=cp_loss_weight,
             )
             bs = len(by_cp)
             objective_sum += float(objective.item()) * bs
@@ -664,6 +714,7 @@ def train_model(
     learning_rate: float = 0.05,
     hidden_dim: int = 64,
     target_cp: float = 100.0,
+    cp_loss_weight: float = 0.0,
     teacher_mix: float = 0.7,
     max_teacher_cp: float = 1500.0,
     outcome_decay: float = 1.0,
@@ -749,6 +800,7 @@ def train_model(
         min_teacher_depth=min_teacher_depth,
         huber_delta_cp=huber_delta_cp,
         wdl_scale_cp=wdl_scale_cp,
+        cp_loss_weight=cp_loss_weight,
     )
     rng = random.Random(seed)
     torch.manual_seed(seed)
@@ -1042,6 +1094,7 @@ def train_model(
                 loss_kind=loss_kind,
                 huber_delta_cp=huber_delta_cp,
                 wdl_scale_cp=wdl_scale_cp,
+                cp_loss_weight=cp_loss_weight,
             )
         else:
             initial_val_loss = initial_train_loss
@@ -1066,6 +1119,7 @@ def train_model(
                 loss_kind=loss_kind,
                 huber_delta_cp=huber_delta_cp,
                 wdl_scale_cp=wdl_scale_cp,
+                cp_loss_weight=cp_loss_weight,
             )
             best_reference_val_loss = initial_reference_val_loss
             best_reference_val_cp_mse = initial_reference_val_cp_mse
@@ -1119,6 +1173,7 @@ def train_model(
                 loss_kind=loss_kind,
                 huber_delta_cp=huber_delta_cp,
                 wdl_scale_cp=wdl_scale_cp,
+                cp_loss_weight=cp_loss_weight,
             )
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -1166,6 +1221,7 @@ def train_model(
                 loss_kind=loss_kind,
                 huber_delta_cp=huber_delta_cp,
                 wdl_scale_cp=wdl_scale_cp,
+                cp_loss_weight=cp_loss_weight,
             )
         else:
             va_loss, va_cp_mse, va_acc = tr_loss, tr_cp_mse, tr_acc
@@ -1188,6 +1244,7 @@ def train_model(
                 loss_kind=loss_kind,
                 huber_delta_cp=huber_delta_cp,
                 wdl_scale_cp=wdl_scale_cp,
+                cp_loss_weight=cp_loss_weight,
             )
         else:
             reference_va_loss = None

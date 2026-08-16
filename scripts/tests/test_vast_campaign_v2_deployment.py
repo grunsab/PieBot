@@ -377,16 +377,38 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        # v7 (2026-08-11) superseded v6, which ran 90 cycles with 0
-        # promotions. Same architecture -- dual-perspective SCReLU (PIENNQ02)
-        # at hidden 1024 from fresh random weights -- but a new lineage so the
-        # EmbeddingBag init fix (931b2f3) applies, with the relabel budget
-        # redirected into optimizer steps and teacher coverage.
-        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v7"', environment)
+        # v8 (2026-08-16) superseded v7, which promoted 11 models and then
+        # stalled for 28 cycles at +4.91 Elo [+1.66, +8.14] over its frozen
+        # cycle-118 active model (12,800 gate games). The loop had NOT run out
+        # of signal: a depth-7 search still disagreed with its own net by 617 cp
+        # on average and on 57.5% of best moves. What ran out was the
+        # OBJECTIVE'S ABILITY TO SEE that signal -- BCE through sigmoid(cp/400)
+        # retains 28% of its gradient at 1000 cp and 18% at 1200, while 28% of
+        # the labels sit above |600| cp, so the same signal shrank 26.5% when
+        # viewed through the WDL target. See
+        # evidence/objective_saturation_20260816.json.
+        #
+        # v8 keeps the architecture and the weights and changes only the
+        # target: CP_LOSS_WEIGHT adds Huber on the normalised cp error, and
+        # TEACHER_MIX drops below 1.0 so game outcome -- the one signal not
+        # derived from the net's own search -- re-enters. Both are
+        # objective-identity fields, hence a new OUT_ROOT with a weights-only
+        # bootstrap from cycle 146 and fresh Adam (train_torch.py:235-237
+        # permits the objective transition only when weights_only; :436-437
+        # refuses to carry optimizer state across it).
+        self.assertIn('OUT_ROOT="/workspace/piebot_campaign_v8"', environment)
         self.assertIn('TRAIN_ARCH="v2"', environment)
         self.assertIn('HIDDEN_DIM="1024"', environment)
-        self.assertIn('FRESH_INIT="1"', environment)
-        self.assertNotIn("INITIAL_CHECKPOINT_SOURCE", environment)
+        # Weights-only bootstrap, NOT fresh random: 146 cycles of learned
+        # representation are kept; only the optimizer moments are discarded.
+        self.assertIn('FRESH_INIT="0"', environment)
+        self.assertIn("campaign_v8_bootstrap/cycle_000146_checkpoint.json", environment)
+        self.assertIn('CP_LOSS_WEIGHT="1.0"', environment)
+        # The outcome signal is back on.
+        self.assertNotIn('TEACHER_MIX="1.0"', environment)
+        # Held-out loss rose after epoch 1 in 8/8 measured cycles and epoch 3
+        # was selected 0/8, so EPOCHS=3 discarded ~2/3 of GPU train time.
+        self.assertIn('EPOCHS="1"', environment)
         self.assertIn('RELABEL_DEPTH="7"', environment)
         # Teacher signal density raised 2026-08-09. At every-6 relabeling with a
         # 0.15 teacher fraction only ~12% of the gradient was search evaluation
@@ -401,11 +423,15 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('TEACHER_SAMPLE_FRACTION="1.0"', environment)
         self.assertIn('TARGET_CP="250"', environment)
         self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
-        # Actor, teacher, and gate incumbent stay the accepted cycle-98 h64 v1.
+        # v8: actor, teacher and gate incumbent start as the cycle-146 arch-v2
+        # net at blend 75 -- the strongest model v7 produced, not the h64 v1
+        # net v7 bootstrapped from. Staged out of the campaign tree because
+        # autopilot retention keeps only 8 cycles and would delete it.
         self.assertIn(
-            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v3_bootstrap/cycle_000098_nnue_quant.nnue"',
+            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v8_bootstrap/cycle_000146_nnue_quant.nnue"',
             environment,
         )
+        self.assertIn('INITIAL_ACTIVE_MODEL_BLEND_PERCENT="75"', environment)
 
     def test_launcher_wires_train_arch(self) -> None:
         launcher = self._launcher()

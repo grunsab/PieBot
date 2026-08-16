@@ -1525,6 +1525,7 @@ def run_pipeline(
     teacher_sample_fraction: float = 0.5,
     min_teacher_depth: int = 0,
     loss_kind: str = "mse",
+    cp_loss_weight: float = 0.0,
     huber_delta_cp: float = 100.0,
     wdl_scale_cp: float = 400.0,
     validation_jsonl_dir: Optional[Path] = None,
@@ -1781,6 +1782,7 @@ def run_pipeline(
     initial_optimizer_info = _file_content_identity(resolved_initial_optimizer)
     objective = train_stub.objective_metadata(
         loss_kind=loss_kind,
+        cp_loss_weight=cp_loss_weight,
         target_cp=target_cp,
         teacher_mix=teacher_mix,
         max_teacher_cp=max_teacher_cp,
@@ -1811,6 +1813,7 @@ def run_pipeline(
         "teacher_sample_fraction": teacher_sample_fraction,
         "min_teacher_depth": min_teacher_depth,
         "loss_kind": loss_kind,
+        "cp_loss_weight": cp_loss_weight,
         "huber_delta_cp": huber_delta_cp,
         "wdl_scale_cp": wdl_scale_cp,
         "validation_jsonl_dir": (
@@ -2104,6 +2107,7 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--teacher-sample-fraction", type=float, default=0.5)
     ap.add_argument("--min-teacher-depth", type=int, default=0)
     ap.add_argument("--loss-kind", choices=["mse", "huber", "wdl"], default="mse")
+    ap.add_argument("--cp-loss-weight", type=float, default=0.0)
     ap.add_argument("--huber-delta-cp", type=float, default=100.0)
     ap.add_argument("--wdl-scale-cp", type=float, default=400.0)
     ap.add_argument("--validation-jsonl-dir", type=Path, default=None)
@@ -2207,6 +2211,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         teacher_sample_fraction=args.teacher_sample_fraction,
         min_teacher_depth=args.min_teacher_depth,
         loss_kind=args.loss_kind,
+        cp_loss_weight=args.cp_loss_weight,
         huber_delta_cp=args.huber_delta_cp,
         wdl_scale_cp=args.wdl_scale_cp,
         validation_jsonl_dir=args.validation_jsonl_dir,

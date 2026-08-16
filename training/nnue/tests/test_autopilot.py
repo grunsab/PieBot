@@ -135,6 +135,10 @@ class AutopilotTests(unittest.TestCase):
         self.assertEqual("soft-cp-wdl-v2", profile["training_target_schema"])
         expected_objective = {
             "schema": "nnue-objective-v1",
+            # 0.0 is the pre-campaign_v8 objective: WDL/BCE alone. A non-zero
+            # weight adds the normalised-cp Huber term and is a DIFFERENT
+            # target, hence a different identity and a new lineage.
+            "cp_loss_weight": 0.0,
             "target_schema": "soft-cp-wdl-v2",
             "loss_kind": "wdl",
             "target_cp": 100.0,

@@ -893,10 +893,21 @@ def objective_metadata(
     min_teacher_depth: int,
     huber_delta_cp: float,
     wdl_scale_cp: float,
+    cp_loss_weight: float = 0.0,
 ) -> Dict[str, Any]:
-    """Stable identity for target semantics carried by model/optimizer state."""
+    """Stable identity for target semantics carried by model/optimizer state.
+
+    ``cp_loss_weight`` defaults to 0.0, which is exactly the pre-campaign_v8
+    objective: the WDL/BCE target alone. Any non-zero value adds a Huber term
+    on the normalised cp error and is therefore a DIFFERENT target -- it
+    changes this identity dict, so a checkpoint trained under one value can
+    only seed a run under another via a weights-only bootstrap
+    (train_torch.py:235-237), and optimizer state can never cross
+    (train_torch.py:436-437).
+    """
     return {
         "schema": OBJECTIVE_SCHEMA,
+        "cp_loss_weight": float(cp_loss_weight),
         "target_schema": TARGET_SCHEMA,
         "loss_kind": str(loss_kind),
         "target_cp": float(target_cp),
@@ -1063,6 +1074,7 @@ def _eval_split(
 def train_model(
     *,
     jsonl_dir: Path,
+    cp_loss_weight: float = 0.0,
     batch_size: int = 4096,
     max_samples: int = 200000,
     epochs: int = 8,
@@ -1120,7 +1132,15 @@ def train_model(
             Path(validation_jsonl_dir),
             Path(jsonl_dir),
         )
+    # The pure-python backend never implements a new objective term: refuse
+    # loudly rather than train a different target than the identity claims.
+    if float(cp_loss_weight) != 0.0:
+        raise NotImplementedError(
+            "cp_loss_weight is implemented only by the torch backend; "
+            "use --trainer-backend torch"
+        )
     objective = objective_metadata(
+        cp_loss_weight=cp_loss_weight,
         loss_kind=loss_kind,
         target_cp=target_cp,
         teacher_mix=teacher_mix,

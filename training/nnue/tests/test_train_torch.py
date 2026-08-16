@@ -38,6 +38,146 @@ class TorchBatchPackingTests(unittest.TestCase):
             for record in records:
                 handle.write(json.dumps(record) + "\n")
 
+    def test_cp_loss_weight_zero_is_exactly_the_legacy_objective(self) -> None:
+        """v8's cp term must be inert at weight 0 so v7 semantics are unchanged."""
+        t = train_torch.torch
+        pred = t.tensor([10.0, -450.0, 900.0, -1300.0])
+        tcp = t.tensor([40.0, -300.0, 1100.0, -900.0])
+        twdl = t.tensor([0.51, 0.28, 0.94, 0.09])
+        for kind in ("mse", "huber", "wdl"):
+            legacy = train_torch._objective_loss(
+                pred, tcp, twdl, loss_kind=kind,
+                huber_delta_cp=100.0, wdl_scale_cp=400.0,
+            )
+            with_knob = train_torch._objective_loss(
+                pred, tcp, twdl, loss_kind=kind,
+                huber_delta_cp=100.0, wdl_scale_cp=400.0, cp_loss_weight=0.0,
+            )
+            self.assertTrue(
+                t.equal(legacy, with_knob),
+                f"cp_loss_weight=0.0 changed the {kind} loss",
+            )
+
+    def test_cp_term_restores_gradient_where_the_wdl_target_saturates(self) -> None:
+        """The whole point of v8's objective change.
+
+        BCE through sigmoid(cp/400) loses gradient as |cp| grows: dp/dcp falls to
+        28% of its peak at 1000 cp and 18% at 1200 cp, while 28% of this
+        lineage's labels sit above |600| cp. Measured 2026-08-16: a depth-7
+        search still disagrees with its own net by 617 cp on average and on
+        57.5% of best moves, but that signal shrank 26.5% when viewed through
+        the WDL target. The cp term must keep gradient alive out there.
+        """
+        t = train_torch.torch
+
+        def grad(cp_value: float, weight: float) -> float:
+            pred = t.tensor([float(cp_value)], requires_grad=True)
+            # Teacher says 200 cp better than the net thinks -- a real, learnable
+            # difference at every magnitude.
+            tcp = t.tensor([float(cp_value) + 200.0])
+            twdl = t.sigmoid(tcp / 400.0)
+            loss = train_torch._objective_loss(
+                pred, tcp, twdl, loss_kind="wdl",
+                huber_delta_cp=100.0, wdl_scale_cp=400.0, cp_loss_weight=weight,
+            )
+            loss.backward()
+            return abs(float(pred.grad.item()))
+
+        # Legacy objective: gradient collapses as the eval becomes decisive.
+        near = grad(0.0, 0.0)
+        far = grad(1200.0, 0.0)
+        self.assertLess(
+            far, 0.35 * near,
+            "precondition failed: the WDL target should saturate at 1200 cp",
+        )
+
+        # With the cp term the far-field gradient must be materially restored.
+        far_fixed = grad(1200.0, 1.0)
+        self.assertGreater(
+            far_fixed, 3.0 * far,
+            f"cp term did not restore far-field gradient ({far_fixed:.3e} vs {far:.3e})",
+        )
+
+    @staticmethod
+    def _reference_pack(batch_feats, batch_targets, device):
+        """Literal transcription of the original Python packing loop.
+
+        This is the behavioural contract _pack_batch must preserve. It is
+        deliberately the slow, obvious implementation: any optimisation of the
+        production path is only legal mid-lineage if it produces byte-identical
+        tensors, because the packed batch IS the training data. Do not "fix"
+        this reference to match a new implementation -- if they disagree, the
+        implementation is wrong.
+        """
+        flat: list = []
+        offsets: list = []
+        ofs = 0
+        for feats in batch_feats:
+            if isinstance(feats, tuple):
+                for half in feats:
+                    offsets.append(ofs)
+                    flat.extend(int(x) for x in half)
+                    ofs += len(half)
+            else:
+                offsets.append(ofs)
+                flat.extend(int(x) for x in feats)
+                ofs += len(feats)
+        return (
+            train_torch.torch.tensor(flat, dtype=train_torch.torch.long, device=device),
+            train_torch.torch.tensor(offsets, dtype=train_torch.torch.long, device=device),
+            train_torch.torch.tensor(
+                batch_targets, dtype=train_torch.torch.float32, device=device
+            ),
+        )
+
+    def test_pack_batch_is_byte_identical_to_the_reference_loop(self) -> None:
+        import random
+
+        device = train_torch.torch.device("cpu")
+        rng = random.Random(20260815)
+
+        cases = []
+        # arch-v1 rows: one ragged bag per sample, including empty bags.
+        for _ in range(12):
+            cases.append(
+                [
+                    [rng.randrange(0, 40960) for _ in range(rng.randrange(0, 34))]
+                    for _ in range(rng.randrange(1, 9))
+                ]
+            )
+        # arch-v2 rows: (stm_bag, opponent_bag) tuples -- two offsets per sample.
+        for _ in range(12):
+            cases.append(
+                [
+                    (
+                        [rng.randrange(0, 40960) for _ in range(rng.randrange(0, 34))],
+                        [rng.randrange(0, 40960) for _ in range(rng.randrange(0, 34))],
+                    )
+                    for _ in range(rng.randrange(1, 9))
+                ]
+            )
+        # Degenerate shapes that have bitten this code before.
+        cases.append([[], [], []])
+        cases.append([([], [])])
+        cases.append([([1], [])])
+        cases.append([([], [7, 9])])
+
+        for index, batch_feats in enumerate(cases):
+            targets = [rng.uniform(-1500.0, 1500.0) for _ in range(len(batch_feats))]
+            want = self._reference_pack(batch_feats, targets, device)
+            got = train_torch._pack_batch(batch_feats, targets, device)
+            for name, w, g in zip(("flat", "offsets", "targets"), want, got):
+                self.assertEqual(
+                    w.dtype, g.dtype, f"case {index}: {name} dtype drifted"
+                )
+                self.assertEqual(
+                    tuple(w.shape), tuple(g.shape), f"case {index}: {name} shape drifted"
+                )
+                self.assertTrue(
+                    train_torch.torch.equal(w, g),
+                    f"case {index}: {name} is not byte-identical to the reference",
+                )
+
     def test_all_empty_feature_bags_preserve_batch_shape(self) -> None:
         device = train_torch.torch.device("cpu")
         flat, offsets, targets = train_torch._pack_batch(
