@@ -222,6 +222,13 @@ different things and must never be netted against each other.)
   this buys nothing on that list specifically. Verification failed --
   computerchess.org.uk 403s automated fetches, ccrl.chessdom.com did not
   resolve -- so a human should check.
+- **The history table is BIMODAL; never scale a constant as a fraction of
+  `HIST_MAX`.** Measured 2026-08-16 on real searches: `HIST_MAX` is 16384, but
+  the 90th percentile of non-zero entries is **4-9**, with a thin tail reaching
+  ~11,000 (midgame d11: 764 non-zero, p50 -5, p90 4, p99 3740, max 11126;
+  matein3 d7: 619 non-zero, p90 9, p99 272). Anything expressed as
+  `HIST_MAX / k` is therefore a no-op for all but a handful of moves. This had
+  never been measured and cost three failed attempts at one arm.
 - **Move ordering is a FLAT SUM, so terms must be scaled against each other.**
   Measured ceilings before H4: capture ~10,112 vs quiet 16,474, so a saturated
   history quiet outranked the best capture on the board at 54.1% of depth-10
@@ -383,9 +390,16 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
 
 ### Immediate queue for the next agent
 1. **Re-test the remaining 150 ms rejections at >= 1000 ms**: H2 continuation
-   history, history-modulated LMR, LMP. (log-log LMR was re-tested this way on
-   2026-08-16 and PROMOTED at +22.3 Elo -- the premise is now validated, not
-   just plausible.) All are depth-dependent and all
+   history and LMP. (log-log LMR was re-tested this way on 2026-08-16 and
+   PROMOTED at +22.3 Elo -- the premise is validated, not just plausible.
+   **History-modulated LMR was also re-tested and is SHELVED as a structural
+   no-op**: ordering already sorts by history, so high-history moves sit at
+   idx < 3 and never enter the LMR region, leaving nothing to modulate. Four
+   divisors spanning 512x moved matein3 nodes by at most 0.017%, so no games
+   were played. Its original +3.5 Elo was almost certainly noise. See
+   `evidence/search_arms/h5_history_modulated_lmr_shelved_20260816.json`. Any
+   replacement must use a signal ORTHOGONAL to the one ordering consumes --
+   which is exactly what makes H2 continuation history the interesting one.) All are depth-dependent and all
    were judged on a harness now proven to understate this class of change by
    ~2.3x. Cheapest real Elo available.
 2. **Watch v8**: `cp_loss_weight=1.0` is unmeasured. Failure signature is val
