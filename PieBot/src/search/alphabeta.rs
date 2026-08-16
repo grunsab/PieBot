@@ -1043,7 +1043,7 @@ impl Searcher {
                     && !gives_check
                     && !self.is_capture(board, m)
                 {
-                    1
+                    Self::lmr_reduction(depth, idx)
                 } else {
                     0
                 };
@@ -1232,6 +1232,23 @@ impl Searcher {
                 qn.revert(change);
             }
         }
+    }
+
+    /// Late-move reduction depth, as ln(depth) * ln(move_index) / 2.25.
+    ///
+    /// The flat reduction of 1 this replaces spent the same search effort on
+    /// the 4th move as on the 40th. A log-log schedule reduces late moves
+    /// harder while staying gentle near the front of the list, where ordering
+    /// is most likely to be right.
+    ///
+    /// Clamped to at least 1 (callers only ask when they intend to reduce)
+    /// and to at most `depth - 2`, so the child keeps a depth of >= 1 and
+    /// never collapses straight into quiescence.
+    fn lmr_reduction(depth: u32, idx: usize) -> u32 {
+        let ld = f64::from(depth).ln();
+        let li = (idx as f64).ln();
+        let raw = (ld * li / 2.25) as u32;
+        raw.clamp(1, depth.saturating_sub(2).max(1))
     }
 
     fn null_move_reduction(&self, depth: u32, eval: i32, beta: i32) -> u32 {
@@ -1940,5 +1957,58 @@ mod draw_policy_regressions {
             .unwrap();
 
         assert_eq!(actual, expected);
+    }
+}
+
+#[cfg(test)]
+mod lmr_reduction_schedule {
+    use super::*;
+
+    #[test]
+    fn never_reduces_below_one_where_the_caller_intends_to_reduce() {
+        for depth in 3..=32u32 {
+            for idx in 3..64usize {
+                assert!(Searcher::lmr_reduction(depth, idx) >= 1);
+            }
+        }
+    }
+
+    #[test]
+    fn always_leaves_the_child_at_least_one_ply() {
+        // The call site searches at `depth - 1 - r`; that must stay >= 0 and
+        // in practice >= 1, or a reduced search degenerates into qsearch.
+        for depth in 3..=32u32 {
+            for idx in 3..64usize {
+                let r = Searcher::lmr_reduction(depth, idx);
+                assert!(r <= depth - 2, "depth {depth} idx {idx} gave r={r}");
+            }
+        }
+    }
+
+    #[test]
+    fn reduces_later_moves_at_least_as_hard_as_earlier_ones() {
+        for depth in 3..=32u32 {
+            for idx in 4..64usize {
+                assert!(
+                    Searcher::lmr_reduction(depth, idx)
+                        >= Searcher::lmr_reduction(depth, idx - 1)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn actually_exceeds_the_flat_reduction_it_replaces() {
+        // The point of the change: deep, late moves must reduce by more than
+        // the flat 1. If this fails the schedule is a no-op.
+        assert!(Searcher::lmr_reduction(10, 10) > 1);
+        assert!(Searcher::lmr_reduction(20, 30) > Searcher::lmr_reduction(10, 10));
+    }
+
+    #[test]
+    fn stays_gentle_at_the_front_of_the_move_list() {
+        // Early moves are where ordering is most likely correct, so the
+        // schedule must not reduce them aggressively.
+        assert_eq!(Searcher::lmr_reduction(8, 3), 1);
     }
 }

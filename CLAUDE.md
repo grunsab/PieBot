@@ -100,7 +100,9 @@ wrong in ways that cost real time (see "Corrections" below).
   search selectivity as a co-tuned system (~400-500) and eval/datagen
   (~400-500, the harder half).
 
-### MEASUREMENT: both instruments are biased low — read this first
+### MEASUREMENT: the two instruments are biased in OPPOSITE directions — read this first
+(The ladder reads HIGH; the 150 ms A/B harness reads LOW. They measure
+different things and must never be netted against each other.)
 1. **The rung ladder disagrees with itself because PieBot has a draw floor.**
    A full 100-game-per-rung ladder at 3000/3190 returned 2705 [2636, 2760]
    and 2882 [2809, 2938] -- disjoint, from one binary.
@@ -191,6 +193,15 @@ wrong in ways that cost real time (see "Corrections" below).
   [+44,+68] — the largest single arm, and missing from the previous handoff),
   and 2026-08-16: **H1** history rewrite (+18.1) and **H4** winning-capture
   priority (+20.2). H1+H4 together are **+88.7 Elo at 1000 ms**.
+- **S5b log-log LMR (2026-08-16): PROMOTED, +22.3 Elo, paired-bootstrap 95%
+  CI [+12.2, +32.4] over 1000 games at 1000 ms**, +0.85 ply at equal NPS.
+  Replaces a FLAT reduction of 1 with `clamp(ln(d)*ln(i)/2.25, 1, d-2)`. This
+  is the arm shelved 2026-08-07 whose note said to revisit once ordering
+  improved -- H1+H4 did exactly that, and the original judgement had also been
+  made on the 150 ms harness that understates depth-dependent arms ~2.3x.
+  Screen +22.6 and confirmation +22.3, so this one did NOT overstate. The
+  2.25 divisor is inherited from the S5 v2 retune and is untested headroom.
+  See `evidence/search_arms/s5b_loglog_lmr_promoted_20260816.json`.
 - **SMP (2026-08-16): root splitting was DELETED and replaced with Lazy SMP.**
   The old `search_depth_parallel` was unsound, not merely unscalable: it
   scouted each tail root move against a racing `alpha_shared`, so a fail-low
@@ -220,8 +231,11 @@ wrong in ways that cost real time (see "Corrections" below).
   (+3.5), LMP (~1% nodes, loses a mate if pushed). All are depth-dependent and
   all were judged on the understating harness.
 - Node signatures (deterministic; use them to prove a remote rebuild):
-  `accept` **11742536**; `accept_temp` **11763048** when the fork is the stub.
-  History for `accept`: 14298048 (pre-H1) -> 13184884 (H1) -> 11742536 (H4).
+  `accept` **9983611**; `accept_temp` **10011374** when the fork is the stub.
+  (Both changed 2026-08-16 when log-log LMR was promoted; the pre-LMR values
+  were 11742536 and 11763048.)
+  History for `accept`: 14298048 (pre-H1) -> 13184884 (H1) -> 11742536 (H4)
+  -> 9983611 (S5b log-log LMR).
   **The two binaries are NOT comparable to each other** and never were: they
   use different option sets (`opts=alphabeta` vs `opts=(default)`), so they
   legitimately differ by ~20k nodes on an identical tree. Compare each only
@@ -368,8 +382,10 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
 
 
 ### Immediate queue for the next agent
-1. **Re-test the 150 ms rejections at >= 1000 ms**: H2 continuation history,
-   log-log LMR, history-modulated LMR, LMP. All are depth-dependent and all
+1. **Re-test the remaining 150 ms rejections at >= 1000 ms**: H2 continuation
+   history, history-modulated LMR, LMP. (log-log LMR was re-tested this way on
+   2026-08-16 and PROMOTED at +22.3 Elo -- the premise is now validated, not
+   just plausible.) All are depth-dependent and all
    were judged on a harness now proven to understate this class of change by
    ~2.3x. Cheapest real Elo available.
 2. **Watch v8**: `cp_loss_weight=1.0` is unmeasured. Failure signature is val
