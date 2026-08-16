@@ -412,7 +412,12 @@ Performance Targets
 - Search: ≥1–3 Mnps early; ≥5–10 Mnps post‑LMR/ordering.
 - Parallel: 4T ≥3.5x; 8T ≥6x. **4T met 2026-08-16 at 3.81x** once root
   splitting was replaced by Lazy SMP (it had been stuck at 2.47x *and*
-  negative Elo). 8T is untested; Lazy SMP scales sublinearly past ~8 threads
-  without further diversification (varied aspiration windows, per-thread
-  ordering noise).
+  negative Elo). 8T measured 2026-08-16 at 7.27x NPS vs 1T (target met)
+  but only **+34.9 Elo over 4T, 95% CI [-16.7, +88.0] over 100 games -- not
+  significant**. Scaling is sharply diminishing: 4T over 1T was +0.86 ply,
+  8T over 4T is +0.25. Resolving a ~35 Elo effect needs ~800-1000 games.
+  NOTE the measurement box has 12 physical cores and NO SMT, so those 8
+  threads were 8 real cores; an i7-4770k's 8 threads are 4 cores plus
+  hyperthreading and will scale worse. Further gains past ~8 threads need
+  diversification (varied aspiration windows, per-thread ordering noise).
 
