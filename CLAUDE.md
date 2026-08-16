@@ -412,8 +412,19 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
    the same day at **+4.3 Elo, CI [-9.6, +18.3]** -- shelved as positive but
    unresolved, and notably it DID buy what it promises (+0.34 ply at equal
    NPS), unlike H2 which bought nothing. Singular extensions and probcut
-   remain untried and are the largest known unclaimed search items. See
-   `evidence/search_arms/iir_shelved_20260816.json`. **H2 continuation history was re-tested 2026-08-16 and SCREENED
+   **Singular extensions were also implemented and screened 2026-08-16:
+   +4.3 Elo, CI [-11.3, +20.0]** -- shelved, same shape as IIR. Probcut and
+   razoring remain untried.
+   **THE NEXT THING TO TRY IS THE IIR + SINGULAR-EXTENSION BUNDLE.** Both
+   screened at exactly +4.3 Elo against the same baseline and they are
+   opposite halves of one idea -- IIR reduces nodes with no trustworthy first
+   guess, SE extends nodes whose answer hinges on one move -- so they do not
+   compete for the same nodes. If additive, ~+9 Elo, which resolves in
+   ~800-1200 games instead of the ~4,000 a 4 Elo effect needs. Run it as a
+   DECLARED bundle (screen the pair, then confirm at 1000 games), not as a way
+   to rescue two arms that individually failed. ~2 h of compute.
+   See `evidence/search_arms/iir_shelved_20260816.json` and
+   `evidence/search_arms/singular_extensions_shelved_20260816.json`. **H2 continuation history was re-tested 2026-08-16 and SCREENED
    NEGATIVE**: -8.7 Elo, CI [-25.2, +7.8] over 400 games, with NPS down 4.1%
    and depth FLAT (12.92 -> 12.89). The signal was real (6x more non-zero
    entries than plain history at depth 11) but a 5.2 MB table that is 0.3%
