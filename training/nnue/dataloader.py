@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,19 +28,45 @@ class TrainingRecord:
 
 
 def read_jsonl_dir(path: str) -> Iterator[dict]:
-    """Iterate over JSONL records from a directory or file."""
+    """Iterate over JSONL records from a directory or file.
+
+    Accepts both ``*.jsonl`` and ``*.jsonl.gz``. Self-play rows measure
+    374.5 bytes raw and compress 10.35x, so a gzipped corpus costs ~36
+    bytes/row. That is what makes accumulation affordable: 1e9 rows is
+    ~36 GB compressed against ~319 GB raw, and the box has 150 GB total.
+    Without this the replay window has to keep discarding history.
+
+    A shard and its gzipped twin MUST yield byte-identical records --
+    see test_dataloader.py::test_gzipped_shard_reads_identically.
+    """
 
     root = Path(path)
     if root.is_file():
         yield from _read_jsonl_file(root)
         return
-    files = sorted(p for p in root.glob('*.jsonl'))
+    # Sort on the stem so shard_000001.jsonl and shard_000001.jsonl.gz
+    # occupy the same position in the ordering regardless of suffix.
+    files = sorted(
+        (p for p in root.iterdir() if _is_jsonl_shard(p)),
+        key=lambda p: (p.name[: -len('.gz')] if p.name.endswith('.gz') else p.name),
+    )
     for file_path in files:
         yield from _read_jsonl_file(file_path)
 
 
+def _is_jsonl_shard(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    return path.name.endswith('.jsonl') or path.name.endswith('.jsonl.gz')
+
+
 def _read_jsonl_file(file_path: Path) -> Iterator[dict]:
-    with file_path.open('r', encoding='utf-8') as handle:
+    opener = (
+        (lambda: gzip.open(file_path, 'rt', encoding='utf-8'))
+        if file_path.name.endswith('.gz')
+        else (lambda: file_path.open('r', encoding='utf-8'))
+    )
+    with opener() as handle:
         for line in handle:
             line = line.strip()
             if not line:

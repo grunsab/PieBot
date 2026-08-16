@@ -176,20 +176,37 @@ def piebot_uci_options(
     )
 
 
-def stockfish_uci_options(*, elo: int, hash_mb: int) -> dict[str, Any]:
-    if elo <= 0:
-        raise ValueError("Stockfish UCI_Elo must be positive")
+def stockfish_uci_options(
+    *, elo: int, hash_mb: int, full_strength: bool = False
+) -> dict[str, Any]:
+    """UCI options for the anchor.
+
+    ``full_strength=True`` turns UCI_LimitStrength OFF entirely. This is the
+    only configuration that anchors to a rating anyone else can check: the
+    limited-strength ladder is self-inconsistent -- the same binary and net
+    measured 2146 at rungs 1800/2100 and 2422 at 2400/2700 on the same idle box,
+    with disjoint CIs -- whereas full-strength Stockfish has a published
+    CCRL 40/15 rating. See evidence/ladder_s6_controlled_and_rung_dependence_20260812.json.
+    """
     if hash_mb <= 0:
         raise ValueError("Stockfish hash size must be positive")
-    return {
+    options: dict[str, Any] = {
         "Threads": 1,
         "Hash": hash_mb,
-        "UCI_LimitStrength": True,
-        "UCI_Elo": elo,
         "Ponder": False,
         "MultiPV": 1,
         "SyzygyProbeLimit": 0,
     }
+    if full_strength:
+        # UCI_Elo is ignored by Stockfish when LimitStrength is false, but leave
+        # it out entirely so a stray value cannot be mistaken for a live rung.
+        options["UCI_LimitStrength"] = False
+        return options
+    if elo <= 0:
+        raise ValueError("Stockfish UCI_Elo must be positive")
+    options["UCI_LimitStrength"] = True
+    options["UCI_Elo"] = elo
+    return options
 
 
 def parse_time_control(raw: str) -> tuple[float, float]:
@@ -1038,7 +1055,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.piebot_nnue, blend=args.piebot_blend, hash_mb=args.piebot_hash
         )
         stockfish_options = stockfish_uci_options(
-            elo=args.stockfish_elo, hash_mb=args.stockfish_hash
+            elo=args.stockfish_elo,
+            hash_mb=args.stockfish_hash,
+            full_strength=args.stockfish_full_strength,
         )
 
         raw_openings = (
