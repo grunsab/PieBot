@@ -222,6 +222,15 @@ different things and must never be netted against each other.)
   this buys nothing on that list specifically. Verification failed --
   computerchess.org.uk 403s automated fetches, ccrl.chessdom.com did not
   resolve -- so a human should check.
+- **The matein3 pre-screen IS trustworthy for move-ordering arms.** It is
+  blind only to effects it cannot express -- thread count, NPS, time
+  management -- because it is single-threaded and fixed-depth. Ordering
+  changes ARE what it measures: ordering changes the tree and the tree is the
+  node count. On 2026-08-16 the <5% rule was overridden for H2 continuation
+  history on the argument that the suite was blind to it; the override was
+  wrong, the 400-game screen confirmed the pre-screen's null, and it cost an
+  hour. Reserve the override for arms whose effect the suite structurally
+  cannot express (the Lazy SMP fix was one; ordering arms are not).
 - **The history table is BIMODAL; never scale a constant as a fraction of
   `HIST_MAX`.** Measured 2026-08-16 on real searches: `HIST_MAX` is 16384, but
   the 90th percentile of non-zero entries is **4-9**, with a thin tail reaching
@@ -389,8 +398,14 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
 
 
 ### Immediate queue for the next agent
-1. **Re-test the remaining 150 ms rejections at >= 1000 ms**: H2 continuation
-   history and LMP. (log-log LMR was re-tested this way on 2026-08-16 and
+1. **Re-test the remaining 150 ms rejection at >= 1000 ms**: LMP is the only
+   one left. **H2 continuation history was re-tested 2026-08-16 and SCREENED
+   NEGATIVE**: -8.7 Elo, CI [-25.2, +7.8] over 400 games, with NPS down 4.1%
+   and depth FLAT (12.92 -> 12.89). The signal was real (6x more non-zero
+   entries than plain history at depth 11) but a 5.2 MB table that is 0.3%
+   dense costs more in cache pressure than its clamped contribution can
+   recover. See
+   `evidence/search_arms/h2_continuation_history_shelved_20260816.json`. (log-log LMR was re-tested this way on 2026-08-16 and
    PROMOTED at +22.3 Elo -- the premise is validated, not just plausible.
    **History-modulated LMR was also re-tested and is SHELVED as a structural
    no-op**: ordering already sorts by history, so high-history moves sit at
