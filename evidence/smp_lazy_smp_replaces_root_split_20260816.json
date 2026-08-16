@@ -137,7 +137,7 @@
   },
   "caveats": [
     "All Elo here is at 200 ms/move on an Apple-silicon Mac. Per the 2026-08-16 finding that the short-time-control harness understates depth-dependent changes ~2.3x, the true SMP gain at longer time controls is plausibly larger, but that is an extrapolation, not a measurement.",
-    "Measured at 4 threads only. 8T and higher are untested, and Lazy SMP is known to scale sublinearly past ~8 threads without additional diversification (varied aspiration windows, per-thread move-ordering noise).",
+    "4T is the only PROVEN configuration. 8T was measured (+34.9 Elo over 4T) but its interval spans zero, so it is recorded as unresolved, not banked. Past ~8 threads Lazy SMP needs additional diversification (varied aspiration windows, per-thread move-ordering noise) to keep scaling; that is untested.",
     "UNRESOLVED AND POSSIBLY DECISIVE FOR PRIORITISATION: it is unconfirmed whether the CCRL 40/15 main list gives each engine one core or all four. If one core, this fix is worth nothing on that specific list -- though it still turns multi-core play from -161 Elo into a gain, which matters for every other use. Attempts to verify failed: computerchess.org.uk returns HTTP 403 to automated fetches and ccrl.chessdom.com did not resolve."
   ]
 }
