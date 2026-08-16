@@ -1,3 +1,17 @@
+> **STATUS 2026-08-16 — historical planning document, goal superseded.**
+> This plan targeted ~2700 on the pinned Stockfish anchor scale. The user reset
+> the goal to **~3650 CCRL 40/15** (top-ten engine) on 2026-08-16. A 55-agent
+> audit priced that at **12-24 months plus a datagen and architecture rewrite**;
+> the whole verified search queue was +39 to +100 Elo against a ~1000 Elo gap.
+> A realistic target on this architecture is **2900-3100 over 6-12 months**.
+>
+> The reasoning and phase structure below remain useful. The numbers do not:
+> current strength is ~2650 CCRL 40/15 (interval 2400-2900), the lineage is
+> campaign_v8 (not v2/v5), and **both measuring instruments are biased low** —
+> the rung ladder disagrees with itself by 276 Elo, and the 150 ms A/B harness
+> understates search changes by ~2.3x. **For live status, read the Super-GM
+> Campaign Handoff in CLAUDE.md, which is maintained; this file is not.**
+
 # PieBot Campaign Plan — Final (Authoritative)
 
 **Version:** 1.0 — synthesized 2026-08-05 from three designs, three critiques, two judge reports.
