@@ -1,0 +1,63 @@
+{
+  "date_utc": "2026-08-16",
+  "what": "Every one of PieBot's 60 ladder draws was replayed and its final position evaluated at depth 18 by FULL-STRENGTH Stockfish. The draws are not defensive holds. They are positions the opponent had already won and failed to convert -- including 19 with a forced mate available.",
+
+  "headline": "Strength-limited Stockfish repeats instead of mating. PieBot's ladder rating is inflated by roughly 120-280 Elo, and 2705 should be read as ~2430-2580.",
+
+  "method": {
+    "script": "scripts/experiments/ladder_draw_provenance.py",
+    "input": "ladder_h4_20260816/rung_3000.json and rung_3190.json (100 games each)",
+    "procedure": "Replay opening_fen + moves to the final position, then evaluate with Stockfish 16 at UCI_LimitStrength=false, depth 18, scored from PieBot's point of view. Mates clamp to +-10000.",
+    "replay_integrity": "0 unreplayable games out of 200."
+  },
+
+  "result": {
+    "drawn_games": 60,
+    "all_terminations": "chess_threefold_repetition (60 of 60)",
+    "final_position_for_piebot": {
+      "forced_mate_against_piebot": 19,
+      "losing_worse_than_1000cp": 3,
+      "losing_200_to_1000cp": 24,
+      "near_level_within_200cp": 14,
+      "piebot_better": 0
+    },
+    "median_cp": -635,
+    "share_losing_worse_than_200cp": 0.767,
+    "share_losing_worse_than_500cp": 0.683,
+    "share_balanced_within_100cp": 0.217
+  },
+
+  "why_these_are_not_perpetual_checks": "A perpetual check is a draw and full-strength Stockfish evaluates it at or near 0.00, not as mate. Nineteen positions returned a forced mate AGAINST PieBot, meaning the opponent had a mating line available and played into a repetition instead. Those cannot be reinterpreted as legitimate PieBot fortresses.",
+
+  "mechanism": "UCI_LimitStrength weakens Stockfish by injecting deliberate error. That error is applied without regard to position type, so it lands in already-won positions too. The result is an opponent whose PLAYING strength is roughly correct on average -- the rung-vs-rung control measured 200.2 Elo between rungs 3000 and 3190 against a nominal 190, see evidence/ladder_draw_floor_20260816.json -- but whose CONVERSION is far worse than a real engine of that rating. A much weaker opponent therefore banks draws it could never hold against a genuine 3000.",
+
+  "corrected_estimate": {
+    "as_measured_rung_3000": {"w_d_l": [0, 31, 69], "score_rate": 0.155, "piebot_elo": 2705},
+    "counterfactual": "Reassign the losing draws to losses in proportion to how often a real opponent would convert them.",
+    "scenarios": [
+      {"conversion": 1.0, "draws_left": 7.2, "score_rate": 0.036, "piebot_elo": 2429},
+      {"conversion": 0.8, "draws_left": 12.0, "score_rate": 0.060, "piebot_elo": 2522},
+      {"conversion": 0.6, "draws_left": 16.7, "score_rate": 0.084, "piebot_elo": 2584}
+    ],
+    "read": "Even assuming a real opponent converts only 60% of the wins this one threw away, PieBot lands ~120 Elo below the ladder figure. Full conversion puts it ~275 Elo below. The honest range is ~2430-2580, at the BOTTOM of the previously quoted 2400-2900 interval rather than the top.",
+    "gap_to_goal": "~1070-1220 Elo, not ~950."
+  },
+
+  "what_this_explains": [
+    "The flat draw rate across rungs (31% vs rung 3000, 29% vs rung 3190). Conversion failure is a property of the LIMITER, not of how far ahead the opponent is, so it does not diminish as the rung rises.",
+    "PieBot overperforming its own rating by ~177 Elo against the higher rung. The unconverted-win draws are a fixed additive block on the score, which matters proportionally more the lower the expected score.",
+    "Why 0 wins in 200 games sits beside a 30% draw rate -- an implausible combination for a genuine peer, and a natural one when the draws are gifts rather than earned."
+  ],
+
+  "consequences": [
+    "Strength-limited Stockfish is not a usable anchor for an engine this far below it, at any rung. The problem is not calibration -- the rungs are correctly spaced -- but that the limiter's failure mode is concentrated exactly where a weaker engine harvests it.",
+    "This promotes the standing queue item from important to blocking: measure against a FULL-STRENGTH, CCRL-listed opponent. `scripts/uci_elo_arena.py --stockfish-full-strength` exists; at a ~1200 Elo deficit PieBot would score near zero against SF16, so a genuinely weaker CCRL-listed engine is needed for a measurable result.",
+    "Every Elo figure derived from the ladder across the campaign's history carries this inflation. Search-arm A/B numbers are UNAFFECTED -- those are engine-vs-engine and never touched the ladder."
+  ],
+
+  "caveats": [
+    "The loss control returned n=0 by construction: lost games end in checkmate, which is a terminal position the script skips. The draw figures stand on their own, but there is no matched baseline for 'how bad was PieBot's position in games it actually lost'. Sampling losses N plies before the end would fix this and has not been done.",
+    "Depth 18 on the final position. A handful of the -200 to -500 cp cases could be genuine fortresses that deeper search would revalue toward 0. The 19 forced mates are not sensitive to this.",
+    "The conversion counterfactual assumes a real opponent's conversion rate is uniform across these positions. It is a scenario table, not a measurement -- which is exactly why the real fix is playing a real opponent rather than refining this arithmetic."
+  ]
+}

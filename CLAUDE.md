@@ -74,9 +74,16 @@ wrong in ways that cost real time (see "Corrections" below).
 ### Mission and standing
 - Goal (user-set 2026-08-16): **~3650 CCRL 40/15**, i.e. a top-ten engine.
   This supersedes the earlier "~2700 on the pinned Stockfish anchor scale".
-- Best estimate 2026-08-16 (end of day): **<= 2705 CCRL 40/15, honest
-  interval 2400-2900, and 2705 is an UPPER bound rather than a midpoint.
-  Gap >= 950 Elo.**
+- Best estimate 2026-08-16 (end of day): **~2430-2580 CCRL 40/15. Gap
+  ~1070-1220 Elo.** This is a DOWNWARD revision from the long-standing
+  ~2650/2705 and it is evidence-driven, not pessimism: all 60 ladder draws
+  were replayed and evaluated at depth 18 by full-strength Stockfish, and
+  **76.7% were positions PieBot had already lost -- 19 of them with a forced
+  mate available to the opponent, which repeated instead.** The draws are
+  unconverted wins, not holds. Reassigning them at 60-100% conversion gives
+  2584 / 2429. See `evidence/ladder_draws_are_unconverted_wins_20260816.json`.
+  Search-arm A/B numbers are UNAFFECTED -- those are engine-vs-engine and
+  never went through the ladder.
 - **CORRECTION to a standing claim: the ladder is biased HIGH, not low.**
   CLAUDE.md previously said both instruments are biased low and used that to
   argue the truth sits at the upper end of the interval. Drop that argument.
