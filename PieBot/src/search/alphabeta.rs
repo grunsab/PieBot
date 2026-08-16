@@ -10,6 +10,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 const HIST_PROMO_KINDS: usize = 5; // None, N, B, R, Q
 const HIST_SIZE: usize = 64 * 64 * HIST_PROMO_KINDS;
+/// History saturation bound. Without one, `h += depth*depth` grows without
+/// limit: measured in a single 150 ms search the table reached max 11,390-17,109
+/// while the capture ordering band tops out near 10,012, so 54.1% of depth-10
+/// nodes ordered a quiet ahead of a WINNING capture. Gravity keeps the table
+/// inside the band the ordering formula was designed around.
+const HIST_MAX: i32 = 16_384;
 
 #[inline]
 fn promo_index(p: Option<cozy_chess::Piece>) -> usize {
@@ -1203,9 +1209,16 @@ impl Searcher {
         let mut best = -MATE_SCORE;
         let mut best_move_local: Option<Move> = None;
         let orig_alpha = alpha;
+        // Quiets actually searched at this node. A move that was tried and did
+        // NOT cause the cutoff is evidence AGAINST itself; without a malus the
+        // table only ever counts successes and drifts upward forever.
+        let mut tried_quiets: Vec<Move> = Vec::new();
         for (idx, m) in moves.into_iter().enumerate() {
             let mut child = board.clone();
             child.play_unchecked(m);
+            if self.use_history && !self.is_capture(board, m) && m.promotion.is_none() {
+                tried_quiets.push(m);
+            }
             let gives_check = !(child.checkers()).is_empty();
             // Futility pruning: at shallow depth, a quiet non-checking move
             // whose parent static eval plus a depth-scaled margin still cannot
@@ -1336,10 +1349,28 @@ impl Searcher {
         self.tt_put(board, depth, best, best_move_local, bound, ply);
         if let Some(mv) = best_move_local {
             let mi = move_index(mv);
-            if self.use_history {
-                let v = (depth as i32) * (depth as i32);
+            // History credits a QUIET move for causing a fail-high, and nothing
+            // else. The previous version credited every bound (including
+            // Bound::Upper, where nothing was proven) and every move type
+            // (including captures, which are already ordered by MVV/SEE), then
+            // let the value grow without bound. Killers and counter-moves below
+            // have always gated on Bound::Lower; history now matches them.
+            let quiet = !self.is_capture(board, mv) && mv.promotion.is_none();
+            if self.use_history && bound == Bound::Lower && quiet {
+                let bonus = ((depth as i32) * (depth as i32)).min(HIST_MAX);
                 if let Some(h) = self.history_table.get_mut(mi) {
-                    *h += v;
+                    // Gravity: the increment shrinks as the entry approaches
+                    // HIST_MAX, so the table saturates instead of diverging.
+                    *h += bonus - (*h * bonus / HIST_MAX);
+                }
+                for &q in &tried_quiets {
+                    if q == mv {
+                        continue;
+                    }
+                    let qi = move_index(q);
+                    if let Some(h) = self.history_table.get_mut(qi) {
+                        *h -= bonus + (*h * bonus / HIST_MAX);
+                    }
                 }
             }
             if self.use_killers && bound == Bound::Lower {
