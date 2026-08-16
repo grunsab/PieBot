@@ -74,18 +74,17 @@ wrong in ways that cost real time (see "Corrections" below).
 ### Mission and standing
 - Goal (user-set 2026-08-16): **~3650 CCRL 40/15**, i.e. a top-ten engine.
   This supersedes the earlier "~2700 on the pinned Stockfish anchor scale".
-- Best estimate 2026-08-16 (end of day): **~2705 CCRL 40/15 on the least-bad
-  rung, honest interval 2400-2900. Gap ~950 Elo.**
-- **CORRECTION to a standing claim: it is NOT established that both
-  instruments are biased low.** That was the reason for assuming the true
-  figure sits at the upper end of the interval; drop the assumption. The
-  ladder's rung saturation (below) proves the two nominal rung labels cannot
-  both be right, but says nothing about WHICH DIRECTION the error runs. If
-  the limiter plateaus *below* its nominal label -- "UCI_Elo 3000" actually
-  playing at ~2800 -- then every ladder-derived rating we hold is inflated,
-  not deflated. The 150 ms A/B harness is separately and genuinely biased low
-  (point 2); that finding stands and is unrelated. Treat the ladder's
-  direction as unknown until a real opponent settles it.
+- Best estimate 2026-08-16 (end of day): **<= 2705 CCRL 40/15, honest
+  interval 2400-2900, and 2705 is an UPPER bound rather than a midpoint.
+  Gap >= 950 Elo.**
+- **CORRECTION to a standing claim: the ladder is biased HIGH, not low.**
+  CLAUDE.md previously said both instruments are biased low and used that to
+  argue the truth sits at the upper end of the interval. Drop that argument.
+  PieBot's opponent-insensitive draw floor (point 1 below) inflates every
+  ladder rating, and inflates it more at higher rungs. The 150 ms A/B harness
+  is separately and genuinely biased low (point 2); that finding is unrelated
+  and still stands. The two biases are in opposite directions and must not be
+  netted against each other -- they apply to different measurements.
 - **Audit verdict (55 agents, 45 of 48 claimed Elo sources refuted): 3650 needs
   12-24 months plus a datagen and architecture rewrite.** The whole verified
   search queue was +39 to +100 Elo, i.e. 4-10% of the gap. A realistic target
@@ -95,20 +94,28 @@ wrong in ways that cost real time (see "Corrections" below).
   (~400-500, the harder half).
 
 ### MEASUREMENT: both instruments are biased low — read this first
-1. **The rung ladder disagrees with itself, and 2026-08-16 established WHY.**
-   The same binary and net measured 2146 at rungs 1800/2100 and 2422 at
-   2400/2700, CIs disjoint. Rung dependence appeared to flatten at the top
-   (+100, +148, then +39), which is why 3000/3190 was adopted as canonical.
-   **That flattening was the anchor running out of range, not convergence.**
+1. **The rung ladder disagrees with itself because PieBot has a draw floor.**
    A full 100-game-per-rung ladder at 3000/3190 returned 2705 [2636, 2760]
-   and 2882 [2809, 2938] -- still disjoint -- and quantified the cause: the
-   **nominal 190 Elo gap between those rungs produces 13.6 Elo of actual
-   strength difference, a ~14:1 compression.** Stockfish 16's `UCI_Elo`
-   limiter has essentially stopped increasing strength by 3000. The two
-   "rungs" are the same opponent. **Do not treat 3000/3190 as a scale**, and
-   do not spend more games on strength-limited Stockfish to resolve this --
-   a saturated limiter cannot be fixed with sample size. See
-   `evidence/ladder_rung_saturation_20260816.json`.
+   and 2882 [2809, 2938] -- disjoint, from one binary.
+   **The cause is PieBot, not the anchor.** A 200-game control played the two
+   rungs DIRECTLY against each other (`scripts/experiments/anchor_rung_saturation_probe.py`):
+   the high rung scored 76.0%, a **measured gap of 200.2 Elo, CI [166, 238]**,
+   so the nominal 190 is correct and the limiter is properly calibrated here.
+   What is broken is PieBot's score: at 2705 it should score 5.8% against
+   rung 3190 and it scored 14.5%, overperforming by ~177 Elo. Its draw rate
+   is **31% vs rung 3000 and 29% vs rung 3190 -- flat across a 190 Elo
+   increase in opponent strength**, almost all threefold repetitions, on top
+   of 0 wins in 200 games. That fixed block of draws is a score FLOOR, and
+   because it does not fall as the opponent strengthens, the derived rating
+   RISES with the rung.
+   **Therefore every ladder rating is inflated, and more so the higher the
+   rung. 2705 is an UPPER bound, not a central estimate.** Do not re-derive
+   from a higher rung to get a nicer number. See
+   `evidence/ladder_draw_floor_20260816.json`.
+   (An earlier claim today that the `UCI_Elo` limiter was SATURATED above
+   3000 was committed and is now RETRACTED -- it was inferred through PieBot
+   alone, which cannot separate "equally strong opponents" from "a score rate
+   insensitive to opponent strength". Run the direct control first.)
 2. **The 150 ms A/B harness UNDERSTATES search changes.** Measured 2026-08-16:
    H1+H4 is +38.3 Elo at 150 ms but **+88.7 Elo, CI [+65.0, +113.3] at 1000 ms**
    (200 games), depth edge 0.67 -> 1.29 ply. Ordering quality compounds with

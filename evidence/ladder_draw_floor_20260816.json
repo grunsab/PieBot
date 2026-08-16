@@ -1,0 +1,51 @@
+{
+  "date_utc": "2026-08-16",
+  "what": "Why the anchored ladder returns two disjoint ratings for the same binary. A hypothesis of Stockfish UCI_Elo saturation was formed, committed, and then REFUTED by a direct rung-vs-rung control. The real cause is on PieBot's side: an opponent-insensitive draw floor that inflates its score against stronger opponents, and therefore inflates the derived rating more at higher rungs.",
+
+  "headline": "The ladder is biased HIGH, not low, and the bias grows with the rung. The anchor was never the broken part.",
+
+  "the_observation": {
+    "ladder": "H1+H4 binary, v7 cycle-108 net, blend 75, 60+0.5, 100 games per rung.",
+    "rung_3000": {"w_d_l": [0, 31, 69], "score_rate": 0.155, "piebot_elo": 2705.4, "ci_95": [2636, 2760]},
+    "rung_3190": {"w_d_l": [0, 29, 71], "score_rate": 0.145, "piebot_elo": 2881.8, "ci_95": [2809, 2938]},
+    "problem": "Disjoint intervals from one binary. Something is wrong; the question is what."
+  },
+
+  "hypothesis_REFUTED_uci_elo_saturation": {
+    "claim": "Stockfish 16's UCI_Elo limiter stops increasing strength above ~3000, so rungs 3000 and 3190 are effectively the same opponent and the derived ratings differ only because we divide by a nominal gap that does not exist.",
+    "why_it_looked_right": "PieBot's Elo deficit grew by only 13.6 (from -294.6 to -308.2) across a nominal 190 Elo rung increase -- an apparent 14:1 compression.",
+    "the_error": "That inference is measured ENTIRELY THROUGH PieBot. It cannot distinguish 'the opponents are equally strong' from 'PieBot's score rate is insensitive to how strong they are'. The claim was committed to CLAUDE.md and an evidence file before this control was run; both have been corrected.",
+    "the_control": {
+      "method": "scripts/experiments/anchor_rung_saturation_probe.py -- the two rungs played DIRECTLY against each other, PieBot removed from the measurement. Same binary, same UCI options, same 60+0.5 clock, same paired openings as the ladder.",
+      "result": {"games": 200, "w_d_l_high": [108, 88, 4], "high_score_rate": 0.76,
+                 "measured_gap_elo": 200.2, "ci_95_elo": [166.4, 237.9], "nominal_gap_elo": 190},
+      "verdict": "REFUTED. The nominal 190 Elo gap sits comfortably inside the measured interval. The limiter is calibrated correctly across this range and the rungs are genuinely ~200 Elo apart."
+    }
+  },
+
+  "the_actual_cause_piebot_draw_floor": {
+    "reconciliation": "If PieBot is 2705 and rung 3190 is genuinely 190 Elo above rung 3000, the Elo model predicts PieBot scores 5.8% against rung 3190. It scored 14.5% -- overperforming its own rating by ~177 Elo against the stronger opponent.",
+    "smoking_gun": "PieBot's draw rate is 31% against rung 3000 and 29% against rung 3190. Essentially FLAT across a 190 Elo increase in opponent strength. A genuinely ~485-Elo-weaker player should draw far less against the stronger opponent, not the same amount.",
+    "mechanism": "PieBot banks a large, opponent-insensitive block of draws -- overwhelmingly threefold repetitions -- on top of a near-zero win rate (0 wins in 200 ladder games). That block sets a score FLOOR. Because the floor does not fall as the opponent strengthens, the measured score rate decays far more slowly than Elo predicts, and the rating derived by subtracting the deficit from the rung label rises with the rung.",
+    "consequence": "Every ladder rating is inflated, and MORE inflated the higher the rung. 2705 from rung 3000 is the least-inflated figure available, and it is an UPPER bound, not a central estimate. The true rating is <= 2705.",
+    "context": "For scale, the two Stockfish rungs drew 44% against each other at the same time control, so a high draw rate is not itself anomalous here. What is anomalous is PieBot's draw rate not responding to opponent strength."
+  },
+
+  "corrections_this_makes": [
+    "REVERSES the direction of the ladder's bias. CLAUDE.md previously said both instruments are biased LOW, which was used to argue the true rating sits at the upper end of 2400-2900. The ladder is biased HIGH. The separate finding that the 150 ms A/B harness understates depth-dependent search changes is unrelated and still stands.",
+    "RETRACTS the saturation claim and the '14:1 compression' figure committed earlier today in evidence/ladder_rung_saturation_20260816.json, which is deleted and replaced by this file.",
+    "RESTORES the 3000/3190 rungs as a legitimate scale -- they are ~200 Elo apart as labelled. The instruction not to compare across rung SETS still stands on its own earlier evidence."
+  ],
+
+  "what_to_do_next": [
+    "Find out where the repetition draws come from. Candidates: PieBot steering into repetitions when losing; strength-limited Stockfish blundering away wins in ways a real opponent would not; a contempt/draw-score setting making repetition attractive. This matters beyond measurement -- a real 30% draw rate against far stronger opposition would be a genuine asset, whereas an artefact of limited-strength Stockfish is a measurement trap.",
+    "The finding strengthens the standing queue item: play a FULL-STRENGTH, CCRL-listed opponent. Strength-limited Stockfish appears to be an unrepresentative opponent that hands a much weaker engine cheap draws. `--stockfish-full-strength` already exists in scripts/uci_elo_arena.py.",
+    "Do not re-derive PieBot's rating from a higher rung to get a better-looking number. The higher the rung, the more inflated the result."
+  ],
+
+  "caveats": [
+    "The probe is 200 games at 60+0.5 with Hash=64 MB and Threads=1 per engine. Whether the limiter stays calibrated at CCRL 40/15's 22.5 s/move is untested.",
+    "The draw-floor mechanism is inferred from the flat draw rate plus the 177 Elo overperformance. It is strongly supported but the causal chain -- specifically WHY the repetitions happen -- has not been traced to a position or a code path.",
+    "Only one rung pair was probed. Saturation could still exist further up the range; this rules it out between 3000 and 3190 only."
+  ]
+}
