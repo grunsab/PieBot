@@ -1,0 +1,53 @@
+{
+  "arm": "IIR internal iterative reduction (NEW -- not a re-test)",
+  "date_utc": "2026-08-16",
+  "verdict": "SHELVED as POSITIVE BUT UNRESOLVED: +4.3 Elo, 95% CI [-9.6, +18.3]. The mechanism works; the magnitude does not clear the bar at 400 games.",
+
+  "why_this_arm": "Phase 9 of the roadmap lists SEE pruning, singular extensions, probcut/razoring and Syzygy as goals. A grep confirms NONE of singular extensions, probcut, razoring, or IIR exists in alphabeta.rs. Closing the 150 ms re-test queue did not exhaust the search track -- it exhausted the list of things already judged once. This is the cheapest of the unimplemented four.",
+
+  "idea": "A node with no TT move has no trustworthy first guess, so its subtree is expensive to search and unlikely to hold the answer. Search it one ply shallower and spend the time on nodes that do have a move worth trying first.",
+
+  "implementation": {
+    "site": "After the TT probe in alphabeta, shadowing `depth` so every use below -- move loop, LMR, futility -- sees the reduced value.",
+    "rule": "depth >= IIR_MIN_DEPTH (4) && tt_best.is_none() && self.use_tt  =>  depth - 1",
+    "a_trap_that_was_nearly_shipped": "With `use_tt = false` the searcher replaces the TT with a fresh empty one (search_with_params), so EVERY node becomes a TT miss and IIR would have reduced the entire tree. The Searcher had no `use_tt` field -- only SearchParams did -- so the gate had nothing to test. A live `use_tt` field was added and assigned alongside the other params."
+  },
+
+  "threshold_behaviour_measured": [
+    {"IIR_MIN_DEPTH": 2, "matein3_nodes": 9562258, "delta_pct": -4.49, "cases": "91/91"},
+    {"IIR_MIN_DEPTH": 3, "matein3_nodes": 10001167, "delta_pct": -0.10, "cases": "91/91"},
+    {"IIR_MIN_DEPTH": 4, "matein3_nodes": 10002494, "delta_pct": -0.089, "cases": "91/91"},
+    {"IIR_MIN_DEPTH": 6, "matein3_nodes": 10011374, "delta_pct": 0.0, "note": "never fires in a depth-7 search"}
+  ],
+
+  "the_prescreen_override_was_justified_here": {
+    "context": "Earlier the same day the <5% pre-screen rule was overridden for H2 continuation history and the override was WRONG. This one was checked properly first.",
+    "measurement": "IIR's effect against its OWN stub grows with search depth: -0.089% at depth 7, -0.243% at depth 9, a ~2.7x increase over two plies. That is a measured growth rate, not an assertion.",
+    "category_argument": "IIR is a DEPTH-ALLOCATION change. Its payoff is reaching higher depth in the same time, which a FIXED-DEPTH suite cannot exhibit by construction -- matein3 can see IIR's cost but not its benefit. H2 was a move-ordering change, and ordering is precisely what a node count measures, which is why its small delta was real evidence of a null. This is the distinction CLAUDE.md records: reserve the override for arms whose effect the suite structurally cannot express.",
+    "outcome": "Vindicated on the narrow question. matein3 showed -0.089%; the real effect was +0.34 ply, invisible to a fixed-depth run. The arm still failed to promote, but for a different reason than the pre-screen predicted."
+  },
+
+  "measurement": {
+    "harness": "compare_play, 400 games, 1000 ms/move, paired openings, seed 20260819, 11 workers",
+    "w_d_l_experimental": [126, 153, 121],
+    "score": 0.5062,
+    "elo": 4.3,
+    "paired_bootstrap_95_ci": [-9.6, 18.3],
+    "depth": {"baseline": 12.76, "experimental": 13.10, "gain_ply": 0.34},
+    "nps": {"baseline": 2863652.4, "experimental": 2873573.1}
+  },
+
+  "why_this_is_not_the_same_as_a_failed_arm": "H2 continuation history lost Elo AND gained no depth (12.92 -> 12.89) while costing 4.1% NPS -- it did nothing useful. IIR gained +0.34 ply at equal NPS with a positive Elo point estimate. The mechanism is working as designed. What is unresolved is whether 0.34 ply is worth enough Elo to matter, and 400 games cannot answer that for an effect this size.",
+
+  "headroom_not_taken": [
+    "IIR_MIN_DEPTH was not swept against game results, only against matein3 node counts. 4 is the standard choice and what was screened; 2 and 3 are untested at the game level. A sweep risks multiple-testing inflation and each point costs ~1 h, so it needs a plan (screen the best, then CONFIRM at 1000 games) rather than picking the best of several screens.",
+    "Resolving a ~4 Elo effect needs roughly 4,000 games (~10 h at this cadence). That is a defensible spend only if IIR is bundled with the other unimplemented Phase 9 heuristics and the bundle is evaluated together.",
+    "Modern engines apply IIR more aggressively at PV nodes than non-PV. This implementation does not distinguish them."
+  ],
+
+  "caveats": [
+    "400-game screen only; no confirmation run, since the lower bound did not clear zero.",
+    "The CI spans zero, so this is 'not established', not 'proven worthless' -- and the point estimate is positive, unlike H2.",
+    "Measured against a baseline carrying both Lazy SMP and log-log LMR promoted earlier the same day."
+  ]
+}

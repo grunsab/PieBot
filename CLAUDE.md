@@ -404,8 +404,16 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
    continuation history shelved (screened -8.7 Elo, NPS -4.1% and depth flat),
    LMP shelved (<1% tree change at every budget; note that tightening it
    removed FEWER nodes, so the obvious retune direction is wrong). Do not
-   re-open these without a new mechanism. The next search Elo has to come from
-   somewhere else. **H2 continuation history was re-tested 2026-08-16 and SCREENED
+   re-open these without a new mechanism.
+   **But the search track is NOT exhausted** -- that queue only covered arms
+   already judged once. Phase 9 lists four heuristics that are still entirely
+   ABSENT from `alphabeta.rs` (verified by grep 2026-08-16): **singular
+   extensions, probcut, razoring, and IIR**. IIR was implemented and screened
+   the same day at **+4.3 Elo, CI [-9.6, +18.3]** -- shelved as positive but
+   unresolved, and notably it DID buy what it promises (+0.34 ply at equal
+   NPS), unlike H2 which bought nothing. Singular extensions and probcut
+   remain untried and are the largest known unclaimed search items. See
+   `evidence/search_arms/iir_shelved_20260816.json`. **H2 continuation history was re-tested 2026-08-16 and SCREENED
    NEGATIVE**: -8.7 Elo, CI [-25.2, +7.8] over 400 games, with NPS down 4.1%
    and depth FLAT (12.92 -> 12.89). The signal was real (6x more non-zero
    entries than plain history at depth 11) but a 5.2 MB table that is 0.3%
