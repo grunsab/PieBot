@@ -426,6 +426,19 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
 2. **Watch v8**: `cp_loss_weight=1.0` is unmeasured. Failure signature is val
    WDL loss regressing while cp RMSE improves; try 0.3. Track acceptances —
    2 in 13 cycles so far against v7's 1 in 28.
+2b. **AN OFF-BOX BACKUP NOW EXISTS (2026-08-16), verified by sha256.**
+   `~/piebot_backups/v8_20260816/` on the user's Mac, 1.3 GB, all six hashes
+   matched against the box at copy time:
+   `autopilot_state.json` (lineage record, 119,251,713 B, sha `4e4bf1c6...`),
+   `cycle_000043_checkpoint.json` (resumable weights + optimizer, sha
+   `43ce3629...`), and the accepted-model quants for cycles 3, 13, 26 and
+   **41** (the active model, sha `e9c8c198...`). `SOURCE_SHA256.txt` in that
+   directory is the manifest.
+   **This is insurance, not a migration.** It does NOT contain the 18 GB of
+   self-play shards or the replay window; reproducing those means re-running
+   cycles. It is also a single copy on one laptop, which is a stopgap rather
+   than a policy -- `rclone` is installed on the box but unconfigured, and a
+   real destination is still an open decision.
 3. **Box migration before 2026-08-26** (verified end_date, not the ~08-21 the
    old handoff claimed). Qualify successors with `scripts/cpu_benchmark.sh`
    (which is why `models/cycle_000098_quant.nnue` must not be deleted).
