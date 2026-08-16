@@ -74,9 +74,18 @@ wrong in ways that cost real time (see "Corrections" below).
 ### Mission and standing
 - Goal (user-set 2026-08-16): **~3650 CCRL 40/15**, i.e. a top-ten engine.
   This supersedes the earlier "~2700 on the pinned Stockfish anchor scale".
-- Best estimate 2026-08-16: **~2650 CCRL 40/15, honest interval 2400-2900.
-  Gap ~1000 Elo.** Both available instruments are biased LOW (see below), so
-  the true figure is probably at the upper end.
+- Best estimate 2026-08-16 (end of day): **~2705 CCRL 40/15 on the least-bad
+  rung, honest interval 2400-2900. Gap ~950 Elo.**
+- **CORRECTION to a standing claim: it is NOT established that both
+  instruments are biased low.** That was the reason for assuming the true
+  figure sits at the upper end of the interval; drop the assumption. The
+  ladder's rung saturation (below) proves the two nominal rung labels cannot
+  both be right, but says nothing about WHICH DIRECTION the error runs. If
+  the limiter plateaus *below* its nominal label -- "UCI_Elo 3000" actually
+  playing at ~2800 -- then every ladder-derived rating we hold is inflated,
+  not deflated. The 150 ms A/B harness is separately and genuinely biased low
+  (point 2); that finding stands and is unrelated. Treat the ladder's
+  direction as unknown until a real opponent settles it.
 - **Audit verdict (55 agents, 45 of 48 claimed Elo sources refuted): 3650 needs
   12-24 months plus a datagen and architecture rewrite.** The whole verified
   search queue was +39 to +100 Elo, i.e. 4-10% of the gap. A realistic target
@@ -86,10 +95,20 @@ wrong in ways that cost real time (see "Corrections" below).
   (~400-500, the harder half).
 
 ### MEASUREMENT: both instruments are biased low — read this first
-1. **The rung ladder disagrees with itself by 276 Elo.** The same binary and
-   net measured 2146 at rungs 1800/2100 and 2422 at 2400/2700 on the same idle
-   box, CIs disjoint. Rung dependence flattens at the top (+100, +148, then
-   +39), so **3000/3190 is the canonical set**. Never compare across rung sets.
+1. **The rung ladder disagrees with itself, and 2026-08-16 established WHY.**
+   The same binary and net measured 2146 at rungs 1800/2100 and 2422 at
+   2400/2700, CIs disjoint. Rung dependence appeared to flatten at the top
+   (+100, +148, then +39), which is why 3000/3190 was adopted as canonical.
+   **That flattening was the anchor running out of range, not convergence.**
+   A full 100-game-per-rung ladder at 3000/3190 returned 2705 [2636, 2760]
+   and 2882 [2809, 2938] -- still disjoint -- and quantified the cause: the
+   **nominal 190 Elo gap between those rungs produces 13.6 Elo of actual
+   strength difference, a ~14:1 compression.** Stockfish 16's `UCI_Elo`
+   limiter has essentially stopped increasing strength by 3000. The two
+   "rungs" are the same opponent. **Do not treat 3000/3190 as a scale**, and
+   do not spend more games on strength-limited Stockfish to resolve this --
+   a saturated limiter cannot be fixed with sample size. See
+   `evidence/ladder_rung_saturation_20260816.json`.
 2. **The 150 ms A/B harness UNDERSTATES search changes.** Measured 2026-08-16:
    H1+H4 is +38.3 Elo at 150 ms but **+88.7 Elo, CI [+65.0, +113.3] at 1000 ms**
    (200 games), depth edge 0.67 -> 1.29 ply. Ordering quality compounds with

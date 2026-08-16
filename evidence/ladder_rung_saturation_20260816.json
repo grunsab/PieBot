@@ -1,0 +1,67 @@
+{
+  "date_utc": "2026-08-16",
+  "what": "A full 100-game-per-rung anchored ladder of the H1+H4 binary against Stockfish 16 at UCI_Elo 3000 and 3190. The two rungs return PieBot ratings whose 95% intervals do not overlap, and the reason is measurable: the nominal 190 Elo gap between the rungs produces only 13.6 Elo of actual playing-strength difference.",
+
+  "headline": "The canonical 3000/3190 rung pair is not a ladder. It is the same opponent measured twice, and the derived Elo differs only because we divide by a nominal gap that does not exist.",
+
+  "configuration": {
+    "binary": "/workspace/piebot_h4_target/release/uci (H1 history rewrite + H4 winning-capture priority)",
+    "net": "piebot_campaign_v7 cycle_000108 nnue_quant.nnue, blend 75",
+    "opponent": "/workspace/stockfish16 with UCI_Elo limiting",
+    "time_control": "60+0.5 whole-game clock, ~1.1-1.5 s/move",
+    "games_per_rung": 100,
+    "seed": 20260816,
+    "out_dir": "/workspace/ladder_h4_20260816",
+    "box": "Threadripper PRO 7995WX, idle apart from the campaign"
+  },
+
+  "results": {
+    "rung_3000": {
+      "w_d_l": [0, 31, 69],
+      "score_rate": 0.155,
+      "elo_difference": -294.61,
+      "piebot_elo": 2705.4,
+      "ci_95_elo": [2636, 2760]
+    },
+    "rung_3190": {
+      "w_d_l": [0, 29, 71],
+      "score_rate": 0.145,
+      "elo_difference": -308.24,
+      "piebot_elo": 2881.8,
+      "ci_95_elo": [2809, 2938]
+    },
+    "disjoint": true,
+    "gap_between_intervals_elo": 49
+  },
+
+  "the_saturation_measurement": {
+    "nominal_rung_gap_elo": 190,
+    "measured_strength_gap_elo": 13.6,
+    "derivation": "PieBot's Elo deficit was -294.61 against the nominal 3000 and -308.24 against the nominal 3190. If those opponents were truly 190 Elo apart, the deficit should have grown by ~190. It grew by 13.6.",
+    "compression_ratio": "roughly 14:1",
+    "conclusion": "Stockfish 16's UCI_Elo limiter has essentially stopped increasing playing strength by the time it reaches 3000. Settings above that point are nominally distinct and practically identical."
+  },
+
+  "which_number_to_believe": {
+    "answer": "Neither, without an external check -- but 2705 is the safer of the two.",
+    "why": "The 3000 rung is less deep into the saturated region, so its nominal label is likelier to be near its true strength. The 2882 figure is high for an instrumental reason, not an engine reason.",
+    "direction_of_bias_is_UNKNOWN": "This is the important caveat and it corrects a standing assumption. CLAUDE.md has recorded that 'both available instruments are biased LOW'. That is not established for the ladder. Saturation only proves the two nominal labels cannot both be right; it does not say which way the error runs. If the limiter plateaus BELOW its nominal label -- i.e. 'UCI_Elo 3000' actually plays at, say, 2800 -- then every ladder-derived PieBot rating is INFLATED, not deflated. Treat the direction as unknown until a real opponent settles it."
+  },
+
+  "zero_wins": {
+    "record": "0 wins, 60 draws, 140 losses across both rungs (200 games).",
+    "implication": "Every non-loss was a draw, nearly all by threefold repetition. At a ~15% score rate the ladder measures how often PieBot survives, not how often it competes. Score-to-Elo conversion is unreliable in that regime in both directions, which widens the true uncertainty beyond the intervals quoted above."
+  },
+
+  "what_this_changes": [
+    "The 3000/3190 pair was chosen BECAUSE rung dependence was believed to flatten at the top (+100, +148, then +39 across earlier pairs). This run shows the flattening was not convergence toward truth -- it was the anchor running out of range. The apparent stability was the instrument dying, not settling.",
+    "Comparing across rung sets was already forbidden. This adds that comparing WITHIN the 3000/3190 set is close to meaningless, because the two rungs are not independent measurements of a scale.",
+    "It raises the priority of the standing queue item: play a real CCRL-listed engine at full strength. `scripts/uci_elo_arena.py --stockfish-full-strength` exists for this. A saturated limiter cannot be repaired by more games."
+  ],
+
+  "caveats": [
+    "100 games per rung. The disjointness is at 95% on a normal approximation of the per-game score distribution; a pentanomial/paired treatment would be tighter but the rungs' point estimates differ by 176 Elo, far more than sampling noise at this n.",
+    "Measured at ~1.1-1.5 s/move. CCRL 40/15 is 22.5 s/move, roughly 18x longer. Whether the limiter saturates identically at longer time controls is untested.",
+    "The binary carries the v7 cycle-108 net, not the current v8 cycle-26 model, so these numbers do not reflect the newest weights."
+  ]
+}
