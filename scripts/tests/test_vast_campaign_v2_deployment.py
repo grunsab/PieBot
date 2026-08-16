@@ -402,7 +402,7 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # Weights-only bootstrap, NOT fresh random: 146 cycles of learned
         # representation are kept; only the optimizer moments are discarded.
         self.assertIn('FRESH_INIT="0"', environment)
-        self.assertIn("campaign_v8_bootstrap/cycle_000146_checkpoint.json", environment)
+        self.assertIn("campaign_v8_bootstrap/cycle_000147_checkpoint.json", environment)
         self.assertIn('CP_LOSS_WEIGHT="1.0"', environment)
         # The outcome signal is back on.
         self.assertNotIn('TEACHER_MIX="1.0"', environment)
@@ -423,12 +423,12 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('TEACHER_SAMPLE_FRACTION="1.0"', environment)
         self.assertIn('TARGET_CP="250"', environment)
         self.assertNotIn("TEACHER_EXTERNAL_QUANT_FILE", environment)
-        # v8: actor, teacher and gate incumbent start as the cycle-146 arch-v2
+        # v8: actor, teacher and gate incumbent start as the cycle-147 arch-v2
         # net at blend 75 -- the strongest model v7 produced, not the h64 v1
         # net v7 bootstrapped from. Staged out of the campaign tree because
         # autopilot retention keeps only 8 cycles and would delete it.
         self.assertIn(
-            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v8_bootstrap/cycle_000146_nnue_quant.nnue"',
+            'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v8_bootstrap/cycle_000147_nnue_quant.nnue"',
             environment,
         )
         self.assertIn('INITIAL_ACTIVE_MODEL_BLEND_PERCENT="75"', environment)
