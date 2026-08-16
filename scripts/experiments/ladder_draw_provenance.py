@@ -42,10 +42,18 @@ def full_strength_options(hash_mb: int) -> dict:
     return {"Threads": 1, "Hash": hash_mb, "SyzygyProbeLimit": 0, "UCI_LimitStrength": False}
 
 
-def replay(game: dict) -> chess.Board | None:
-    """Rebuild the final position. Returns None if the record will not replay."""
+def replay(game: dict, plies_before_end: int = 0) -> chess.Board | None:
+    """Rebuild the position `plies_before_end` plies from the end.
+
+    A lost game ends in checkmate, which is terminal and cannot be evaluated.
+    Backing off a few plies gives draws and losses a COMMON, non-terminal
+    sampling point, which is what makes the two groups comparable at all.
+    """
     board = chess.Board(game["opening_fen"])
-    for uci in game.get("moves", []):
+    moves = game.get("moves", [])
+    if plies_before_end:
+        moves = moves[: max(0, len(moves) - plies_before_end)]
+    for uci in moves:
         try:
             move = chess.Move.from_uci(uci)
         except ValueError:
@@ -95,6 +103,16 @@ def main() -> None:
     ap.add_argument("--depth", type=int, default=18)
     ap.add_argument("--hash-mb", type=int, default=256)
     ap.add_argument("--max-losses", type=int, default=40, help="control sample size")
+    ap.add_argument(
+        "--plies-before-end",
+        type=int,
+        default=0,
+        help=(
+            "sample this many plies before the end. Use a non-zero value to "
+            "compare draws against losses: lost games end in checkmate, a "
+            "terminal position that cannot be evaluated, so 0 yields no losses."
+        ),
+    )
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -121,7 +139,7 @@ def main() -> None:
                 if is_loss and len(loss_cps) >= args.max_losses:
                     continue
 
-                board = replay(game)
+                board = replay(game, args.plies_before_end)
                 if board is None:
                     unreplayable += 1
                     continue
@@ -144,6 +162,7 @@ def main() -> None:
 
     report = {
         "depth": args.depth,
+        "plies_before_end": args.plies_before_end,
         "unreplayable_games": unreplayable,
         "draws": summarise("draws (final position)", draw_cps),
         "losses_control": summarise("losses (final position, control)", loss_cps),

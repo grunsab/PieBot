@@ -70,7 +70,7 @@
     "Every Elo figure derived from the ladder across the campaign's history carries this inflation. Search-arm A/B numbers are UNAFFECTED -- those are engine-vs-engine and never touched the ladder."
   ],
   "caveats": [
-    "The loss control returned n=0 by construction: lost games end in checkmate, which is a terminal position the script skips. The draw figures stand on their own, but there is no matched baseline for 'how bad was PieBot's position in games it actually lost'. Sampling losses N plies before the end would fix this and has not been done.",
+    "RESOLVED. The loss control originally returned n=0 because lost games end in checkmate, a terminal position the evaluator skips. Fixed by sampling both groups at a common offset; see matched_control_draws_vs_losses. The 30-ply comparison is the informative one.",
     "Depth 18 on the final position. A handful of the -200 to -500 cp cases could be genuine fortresses that deeper search would revalue toward 0. The 19 forced mates are not sensitive to this.",
     "The conversion counterfactual assumes a real opponent's conversion rate is uniform across these positions. It is a scenario table, not a measurement -- which is exactly why the real fix is playing a real opponent rather than refining this arithmetic."
   ],
@@ -93,5 +93,40 @@
     "draw_rate_vs_full_strength": 0.033,
     "verdict": "CONFIRMED. The draw rate falls by roughly 9x once the limiter is off. The ~30% draw block against the rungs was conversion failure, not defensive strength.",
     "what_this_does_NOT_establish": "A rating. At a 1.67% score rate the Elo conversion is unstable and the 95% interval on the score reaches zero, so the implied rating has no useful lower bound -- it is consistent with anything below roughly 3000. This was expected: the handoff already predicted ~0-4% at equal time. The run is a MECHANISM control, not a measurement. It also cannot be used to transfer the 3.3% draw rate back to rung 3000, because full-strength SF16 is several hundred Elo above that rung and would draw less for that reason alone. The 2429-2584 scenario range stands, with this result favouring its lower end."
+  },
+  "matched_control_draws_vs_losses": {
+    "purpose": "The first pass had no loss baseline (n=0: lost games end in checkmate, a terminal position the evaluator skips). This samples BOTH groups at a common non-terminal offset so 'the position was bad' can be compared against games PieBot actually lost.",
+    "at_10_plies_before_end": {
+      "draws": {
+        "n": 60,
+        "median_cp": -610,
+        "share_losing_gt_200cp": 0.767
+      },
+      "losses": {
+        "n": 60,
+        "median_cp": -9996,
+        "share_losing_gt_200cp": 1.0
+      },
+      "note": "Nearly tautological and reported only for completeness: ten plies from a checkmate the mate is already forced, so the loss median pegs at the mate score. Use the 30-ply figures."
+    },
+    "at_30_plies_before_end": {
+      "draws": {
+        "n": 60,
+        "median_cp": -474,
+        "share_losing_gt_200cp": 0.683,
+        "share_losing_gt_500cp": 0.433,
+        "share_balanced_within_100cp": 0.217
+      },
+      "losses": {
+        "n": 60,
+        "median_cp": -698,
+        "share_losing_gt_200cp": 1.0,
+        "share_losing_gt_500cp": 0.867,
+        "share_balanced_within_100cp": 0.0
+      }
+    },
+    "finding": "At a comparable point well before either outcome, the drawn games (median -474 cp) and the lost games (median -698 cp) occupy broadly similar territory, with heavily overlapping distributions. PieBot's draws did NOT come from positions materially more tenable than the ones it lost. What differed was whether the opponent converted.",
+    "convergent_estimate": "21.7% of drawn games were balanced at the 30-ply mark, against 23.3% balanced at the moment of repetition in the first pass. Two independent sampling points agree that roughly a fifth of the draws were genuinely earned and the remaining four fifths were conversion failures.",
+    "closes_caveat": "This resolves the 'loss control returned n=0' caveat recorded in this file's first version."
   }
 }
