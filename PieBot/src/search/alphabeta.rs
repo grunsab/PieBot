@@ -4,8 +4,7 @@ use crate::search::eval::{eval_cp, material_eval_cp, DRAW_SCORE, MATE_SCORE};
 use crate::search::tt::{Bound, Entry, Tt};
 use crate::search::zobrist;
 use cozy_chess::{Board, Color, Move, Square};
-use rayon::prelude::*;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 const HIST_PROMO_KINDS: usize = 5; // None, N, B, R, Q
@@ -227,6 +226,69 @@ impl Searcher {
         self.external_stop = None;
     }
 
+    /// Build a Lazy SMP helper that shares this searcher's transposition table.
+    ///
+    /// Helpers are fully independent searchers: they run their own iterative
+    /// deepening on the same root and communicate only by what they leave in
+    /// the shared TT. Nothing reads a helper's score, so no fail-soft bound
+    /// ever reaches a comparison it cannot support.
+    fn make_lazy_helper(&self, stop: &Arc<AtomicBool>) -> Searcher {
+        let mut helper = Searcher::default();
+        helper.node_limit = self.node_limit;
+        helper.deadline = self.deadline;
+        helper.order_captures = self.order_captures;
+        helper.use_history = self.use_history;
+        helper.use_killers = self.use_killers;
+        helper.use_lmr = self.use_lmr;
+        helper.use_nullmove = self.use_nullmove;
+        helper.eval_mode = self.eval_mode;
+        helper.eval_blend_percent = self.eval_blend_percent;
+        helper.use_nnue = self.use_nnue;
+        helper.tt = self.tt.clone();
+        helper.threads = 1;
+        helper.external_stop = Some(stop.clone());
+        helper.root_history.clone_from(&self.root_history);
+        helper.search_history.clone_from(&self.search_history);
+        if let Some(network) = &self.nnue_quant {
+            helper.nnue_quant = Some(network.clone_for_search());
+        }
+        helper
+    }
+
+    /// Drive one Lazy SMP helper's own iterative deepening to exhaustion or
+    /// stop. The return value is its node count; its scores are deliberately
+    /// discarded -- only what it wrote to the shared TT matters.
+    fn run_lazy_helper(mut helper: Searcher, root: &Board, index: usize, max_depth: u32) -> u64 {
+        // Half the helpers run one iteration ahead so the pool spreads across
+        // the schedule instead of every thread redoing the depth the main
+        // thread is already on.
+        let skew = (index % 2) as u32;
+        for d in 1..=max_depth {
+            let target = d + skew;
+            if target > max_depth {
+                break;
+            }
+            helper.prepare_root_state(root);
+            if helper.search_depth_internal(root, target).is_err() {
+                break;
+            }
+        }
+        helper.nodes
+    }
+
+    /// How many Lazy SMP helpers may run alongside the main search.
+    fn lazy_helper_count(&self) -> usize {
+        let eligible = self.threads > 1
+            && !self.deterministic
+            && self.node_limit == u64::MAX
+            && (!self.use_nnue || self.nnue_quant.is_some());
+        if eligible {
+            self.threads - 1
+        } else {
+            0
+        }
+    }
+
     fn prepare_root_state(&mut self, board: &Board) {
         self.search_history.clone_from(&self.root_history);
         if self.search_history.last() != Some(board) {
@@ -385,18 +447,45 @@ impl Searcher {
             }
         }
         let max_depth = if depth == 0 { 99 } else { depth };
-        let mut committed = self.fallback_result(board);
-        for d in 1..=max_depth {
-            self.tt.bump_generation();
-            self.prepare_root_state(board);
-            match self.search_depth_internal(board, d) {
-                Ok(result) => {
-                    committed = result;
-                    self.last_depth = d;
-                }
-                Err(_) => break,
+
+        // Lazy SMP: helpers race the main search through the same root over a
+        // shared TT. Their answers are discarded; their contribution is the
+        // entries they leave behind, which deepen and reorder the main
+        // thread's tree. Only the main thread's result is ever reported.
+        let lazy_stop = Arc::new(AtomicBool::new(false));
+        let mut helpers: Vec<Searcher> = (0..self.lazy_helper_count())
+            .map(|_| self.make_lazy_helper(&lazy_stop))
+            .collect();
+        let helper_nodes = AtomicU64::new(0);
+
+        let committed = std::thread::scope(|scope| {
+            for (index, helper) in helpers.drain(..).enumerate() {
+                let root = board.clone();
+                let nodes_sink = &helper_nodes;
+                scope.spawn(move || {
+                    let searched = Self::run_lazy_helper(helper, &root, index, max_depth);
+                    nodes_sink.fetch_add(searched, Ordering::Relaxed);
+                });
             }
-        }
+
+            let mut committed = self.fallback_result(board);
+            for d in 1..=max_depth {
+                self.tt.bump_generation();
+                self.prepare_root_state(board);
+                match self.search_depth_internal(board, d) {
+                    Ok(result) => {
+                        committed = result;
+                        self.last_depth = d;
+                    }
+                    Err(_) => break,
+                }
+            }
+            // Release the helpers; `scope` joins them before returning.
+            lazy_stop.store(true, Ordering::Relaxed);
+            committed
+        });
+
+        self.nodes += helper_nodes.load(Ordering::Relaxed);
         (committed.bestmove, committed.score_cp, self.nodes)
     }
 
@@ -536,15 +625,18 @@ impl Searcher {
         let mut bestmove: Option<Move> = None;
         let mut best_score = -MATE_SCORE;
 
-        // Root-split parallel search if threads > 1 and depth > 1
-        if self.threads > 1
-            && depth >= 4
-            && !self.deterministic
-            && self.node_limit == u64::MAX
-            && (!self.use_nnue || self.nnue_quant.is_some())
-        {
-            return self.search_depth_parallel(board, depth);
-        }
+        // Every depth is searched serially. Threads are spent by Lazy SMP in
+        // `search_movetime`, which runs whole independent iterative-deepening
+        // loops over the shared TT.
+        //
+        // The old root split used to fire here. It was unsound: each tail move
+        // was scouted against `alpha_shared`, an atomic other threads kept
+        // raising, so a move that failed low returned a fail-soft UPPER BOUND
+        // rather than a score -- and those bounds, taken against different
+        // alphas, were then compared to each other with `score > best_score` to
+        // choose the root move. A bound that happened to be numerically largest
+        // could win. Measured at -161 Elo (95% CI [-241, -95]) at 4 threads vs
+        // 1 thread at equal time, while searching 2.47x the nodes.
 
         if self.use_nnue {
             if let Some(qn) = self.nnue_quant.as_mut() {
@@ -694,346 +786,6 @@ impl Searcher {
         let bestmove_uci = bestmove.map(|m| format!("{m}"));
         Ok(SearchResult { depth: 0,
             bestmove: bestmove_uci,
-            score_cp: best_score,
-            nodes: self.nodes,
-        })
-    }
-
-    fn search_depth_parallel(
-        &mut self,
-        board: &Board,
-        depth: u32,
-    ) -> Result<SearchResult, SearchAbort> {
-        self.poll_abort()?;
-        let mut alpha = -MATE_SCORE;
-        let beta = MATE_SCORE;
-        let orig_alpha = alpha;
-        let mut bestmove: Option<Move>;
-        let mut best_score: i32;
-
-        if self.use_nnue {
-            if let Some(qn) = self.nnue_quant.as_mut() {
-                qn.refresh(board);
-            }
-        }
-
-        let mut moves: Vec<Move> = Vec::with_capacity(64);
-        board.generate_moves(|ml| {
-            for m in ml {
-                moves.push(m);
-            }
-            false
-        });
-        if moves.is_empty() {
-            return Ok(SearchResult { depth: 0,
-                bestmove: None,
-                score_cp: self.eval_terminal(board, 0),
-                nodes: self.nodes,
-            });
-        }
-        if self.rule_draw(board) {
-            return Ok(SearchResult { depth: 0,
-                bestmove: moves.first().map(|mv| format!("{mv}")),
-                score_cp: DRAW_SCORE,
-                nodes: self.nodes,
-            });
-        }
-
-        // TT-first
-        if let Some(en) = self.tt_get(board) {
-            if let Some(ttm) = en.best {
-                if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
-                    let mv = moves.remove(pos);
-                    moves.insert(0, mv);
-                }
-            }
-        }
-
-        // Root ordering matches serial search to make PV-split effective.
-        if self.order_captures || self.use_history || self.use_killers {
-            let opp = if board.side_to_move() == cozy_chess::Color::White {
-                cozy_chess::Color::Black
-            } else {
-                cozy_chess::Color::White
-            };
-            let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0;
-            for sq in opp_bb {
-                occ_mask |= 1u64 << (sq as usize);
-            }
-
-            let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
-            for &m in &moves {
-                let to_sq: Square = m.to;
-                let bit = 1u64 << (to_sq as usize);
-                let is_cap = if self.order_captures && (occ_mask & bit) != 0 {
-                    1
-                } else {
-                    0
-                };
-                let mvv = if is_cap == 1 {
-                    mvv_lva_score(board, m)
-                } else {
-                    0
-                };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
-                } else {
-                    0
-                };
-                let gives_check_bonus = {
-                    let mut c = board.clone();
-                    c.play_unchecked(m);
-                    if !(c.checkers()).is_empty() {
-                        30
-                    } else {
-                        0
-                    }
-                };
-                let mi = move_index(m);
-                let hist = if self.use_history {
-                    self.history_table.get(mi).copied().unwrap_or(0)
-                } else {
-                    0
-                };
-                let kb = if self.use_killers {
-                    self.killer_bonus(0, m)
-                } else {
-                    0
-                };
-                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
-                scored.push((m, score));
-            }
-            scored.sort_by_key(|&(_, score)| score);
-            moves = scored.into_iter().map(|(m, _)| m).collect();
-        }
-
-        // Root PV-split: seed first move, search tail in parallel with shared alpha.
-        let deadline = self.deadline;
-        let shared_tt = self.tt.clone();
-        let quant_network = self.nnue_quant.as_ref().map(QuantNetwork::clone_for_search);
-        let eval_mode = self.eval_mode;
-        let use_nnue = self.use_nnue;
-        let eval_blend_percent = self.eval_blend_percent;
-        let order_captures = self.order_captures;
-        let use_history = self.use_history;
-        let use_killers = self.use_killers;
-        let use_lmr = self.use_lmr;
-        let use_nullmove = self.use_nullmove;
-        let node_limit = self.node_limit;
-        let external_stop = self.external_stop.clone();
-        let search_history = self.search_history.clone();
-
-        let make_worker = || {
-            let mut w = Searcher::default();
-            w.node_limit = node_limit;
-            w.deadline = deadline;
-            w.order_captures = order_captures;
-            w.use_history = use_history;
-            w.use_killers = use_killers;
-            w.use_lmr = use_lmr;
-            w.use_nullmove = use_nullmove;
-            w.eval_mode = eval_mode;
-            w.eval_blend_percent = eval_blend_percent;
-            w.tt = shared_tt.clone();
-            w.use_nnue = use_nnue;
-            w.threads = 1;
-            w.external_stop = external_stop.clone();
-            w.search_history = search_history.clone();
-            if let Some(network) = &quant_network {
-                w.nnue_quant = Some(network.clone_for_search());
-            }
-            w
-        };
-
-        // Seed a few PV moves serially to raise alpha before tail parallelization.
-        // This reduces root over-search, especially in fixed-depth test runs.
-        let seed_count = if deadline.is_some() {
-            1
-        } else {
-            moves.len().min(4)
-        };
-        best_score = -MATE_SCORE;
-        bestmove = None;
-        for (i, &m) in moves.iter().take(seed_count).enumerate() {
-            let mut child = board.clone();
-            child.play_unchecked(m);
-            let mut seed = make_worker();
-            seed.search_history.push(child.clone());
-            if seed.use_nnue {
-                if let Some(qn) = seed.nnue_quant.as_mut() {
-                    qn.refresh(&child);
-                }
-            }
-            let ext = if !(child.checkers()).is_empty() { 1 } else { 0 };
-            let next_depth = depth.saturating_sub(1) + ext;
-            let score_result = if i == 0 {
-                seed.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m), true)
-                    .map(|score| -score)
-            } else {
-                match seed.alphabeta(
-                    &child,
-                    next_depth,
-                    -alpha - 1,
-                    -alpha,
-                    1,
-                    move_index(m),
-                    true,
-                ) {
-                    Ok(value) => {
-                        let score = -value;
-                        if score > alpha {
-                            seed.alphabeta(
-                                &child,
-                                next_depth,
-                                -beta,
-                                -alpha,
-                                1,
-                                move_index(m),
-                                true,
-                            )
-                            .map(|value| -value)
-                        } else {
-                            Ok(score)
-                        }
-                    }
-                    Err(reason) => Err(reason),
-                }
-            };
-            self.nodes += seed.nodes;
-            self.max_seldepth = self.max_seldepth.max(seed.max_seldepth);
-            let score = score_result?;
-            if score > best_score {
-                best_score = score;
-                bestmove = Some(m);
-            }
-            if score > alpha {
-                alpha = score;
-            }
-            if alpha >= beta {
-                break;
-            }
-        }
-        if alpha >= beta || seed_count >= moves.len() {
-            let root_bound = if best_score <= orig_alpha {
-                Bound::Upper
-            } else if best_score >= beta {
-                Bound::Lower
-            } else {
-                Bound::Exact
-            };
-            self.tt_put(board, depth, best_score, bestmove, root_bound, 0);
-            return Ok(SearchResult { depth: 0,
-                bestmove: bestmove.map(|m| format!("{m}")),
-                score_cp: best_score,
-                nodes: self.nodes,
-            });
-        }
-
-        let alpha_shared = AtomicI32::new(alpha);
-        let abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let tails = &moves[seed_count..];
-        let results: Vec<(Move, SearchScore, u64, u32)> = tails
-            .par_iter()
-            .map(|&m| {
-                if abort.load(Ordering::Relaxed) {
-                    return (m, Err(SearchAbort::Cancelled), 0, 0);
-                }
-                let mut child = board.clone();
-                child.play_unchecked(m);
-                let mut w = make_worker();
-                w.abort = Some(abort.clone());
-                w.search_history.push(child.clone());
-                if w.use_nnue {
-                    if let Some(qn) = w.nnue_quant.as_mut() {
-                        qn.refresh(&child);
-                    }
-                }
-                let gives_check = !(child.checkers()).is_empty();
-                let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
-                let local_alpha = alpha_shared.load(Ordering::Relaxed);
-                let first = w.alphabeta(
-                    &child,
-                    next_depth,
-                    -local_alpha - 1,
-                    -local_alpha,
-                    1,
-                    move_index(m),
-                    true,
-                );
-                let mut score = match first {
-                    Ok(value) => -value,
-                    Err(reason) => return (m, Err(reason), w.nodes, w.max_seldepth),
-                };
-                if score > local_alpha {
-                    score = match w.alphabeta(
-                        &child,
-                        next_depth,
-                        -beta,
-                        -local_alpha,
-                        1,
-                        move_index(m),
-                        true,
-                    ) {
-                        Ok(value) => -value,
-                        Err(reason) => return (m, Err(reason), w.nodes, w.max_seldepth),
-                    };
-                }
-                let mut cur = local_alpha;
-                while score > cur {
-                    match alpha_shared.compare_exchange(
-                        cur,
-                        score,
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                    ) {
-                        Ok(_) => break,
-                        Err(observed) => {
-                            if observed >= score {
-                                break;
-                            }
-                            cur = observed;
-                        }
-                    }
-                }
-                if score >= beta {
-                    abort.store(true, Ordering::Relaxed);
-                }
-                (m, Ok(score), w.nodes, w.max_seldepth)
-            })
-            .collect();
-
-        let mut interrupted = false;
-        let mut cutoff = false;
-        for (m, result, n, seldepth) in results {
-            self.nodes += n;
-            self.max_seldepth = self.max_seldepth.max(seldepth);
-            match result {
-                Ok(score) => {
-                    cutoff |= score >= beta;
-                    if score > best_score {
-                        best_score = score;
-                        bestmove = Some(m);
-                    }
-                }
-                Err(SearchAbort::Limit) => interrupted = true,
-                Err(SearchAbort::Cancelled) => {}
-            }
-        }
-        if interrupted || (abort.load(Ordering::Relaxed) && !cutoff) {
-            return Err(SearchAbort::Limit);
-        }
-
-        let root_bound = if best_score <= orig_alpha {
-            Bound::Upper
-        } else if best_score >= beta {
-            Bound::Lower
-        } else {
-            Bound::Exact
-        };
-        self.tt_put(board, depth, best_score, bestmove, root_bound, 0);
-        Ok(SearchResult { depth: 0,
-            bestmove: bestmove.map(|m| format!("{m}")),
             score_cp: best_score,
             nodes: self.nodes,
         })
@@ -1685,8 +1437,26 @@ impl Searcher {
         }
         self.deadline = params.movetime.map(|d| Instant::now() + d);
         self.prepare_root_state(board);
-        let mut committed = self.fallback_result(board);
         let max_depth = if params.depth == 0 { 99 } else { params.depth };
+
+        // Lazy SMP, as in `search_movetime`: helpers search the same root
+        // independently and contribute only through the shared TT.
+        let lazy_stop = Arc::new(AtomicBool::new(false));
+        let mut helpers: Vec<Searcher> = (0..self.lazy_helper_count())
+            .map(|_| self.make_lazy_helper(&lazy_stop))
+            .collect();
+        let helper_nodes = AtomicU64::new(0);
+
+        let mut committed = std::thread::scope(|scope| {
+        for (index, helper) in helpers.drain(..).enumerate() {
+            let root = board.clone();
+            let nodes_sink = &helper_nodes;
+            scope.spawn(move || {
+                let searched = Self::run_lazy_helper(helper, &root, index, max_depth);
+                nodes_sink.fetch_add(searched, Ordering::Relaxed);
+            });
+        }
+        let mut committed = self.fallback_result(board);
         for d in 1..=max_depth {
             self.tt.bump_generation();
             self.prepare_root_state(board);
@@ -1712,6 +1482,11 @@ impl Searcher {
                 Err(_) => break,
             }
         }
+        lazy_stop.store(true, Ordering::Relaxed);
+        committed
+        });
+
+        self.nodes += helper_nodes.load(Ordering::Relaxed);
         committed.nodes = self.nodes;
         committed.depth = self.last_depth;
         committed

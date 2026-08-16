@@ -158,6 +158,26 @@ wrong in ways that cost real time (see "Corrections" below).
   [+44,+68] — the largest single arm, and missing from the previous handoff),
   and 2026-08-16: **H1** history rewrite (+18.1) and **H4** winning-capture
   priority (+20.2). H1+H4 together are **+88.7 Elo at 1000 ms**.
+- **SMP (2026-08-16): root splitting was DELETED and replaced with Lazy SMP.**
+  The old `search_depth_parallel` was unsound, not merely unscalable: it
+  scouted each tail root move against a racing `alpha_shared`, so a fail-low
+  scout returned a fail-soft UPPER BOUND, and the aggregation then compared
+  those bounds -- taken against *different* alphas, with cancelled workers'
+  results silently dropped -- using `score > best_score` to pick the root
+  move. It could return a move it never verified. Measured **-161 Elo at 4
+  threads vs 1 thread**. Lazy SMP (independent ID loops over the shared TT,
+  helper scores never read) measures **+94.9 Elo vs 1T** and **+129 Elo
+  [+91, +170] head-to-head against root splitting at 4T over 200 games**;
+  NPS scaling 2.47x -> 3.81x. Single-threaded play is bit-identical
+  (`accept` still 11742536). Applied to BOTH iterative-deepening loops --
+  `search_movetime` *and* `search_with_params`, the latter being what the
+  real UCI `go` handler uses (`uci.rs:651`). See
+  `evidence/smp_lazy_smp_replaces_root_split_20260816.json`.
+  **Open question that decides whether to invest further: it is unconfirmed
+  whether CCRL 40/15's main list gives an engine one core or four.** If one,
+  this buys nothing on that list specifically. Verification failed --
+  computerchess.org.uk 403s automated fetches, ccrl.chessdom.com did not
+  resolve -- so a human should check.
 - **Move ordering is a FLAT SUM, so terms must be scaled against each other.**
   Measured ceilings before H4: capture ~10,112 vs quiet 16,474, so a saturated
   history quiet outranked the best capture on the board at 54.1% of depth-10
@@ -167,8 +187,13 @@ wrong in ways that cost real time (see "Corrections" below).
   (+3.5), LMP (~1% nodes, loses a mate if pushed). All are depth-dependent and
   all were judged on the understating harness.
 - Node signatures (deterministic; use them to prove a remote rebuild):
-  `accept` **11742536**, `accept_temp` 11742536 when the fork is the stub.
-  History: 14298048 (pre-H1) -> 13184884 (H1) -> 11742536 (H4).
+  `accept` **11742536**; `accept_temp` **11763048** when the fork is the stub.
+  History for `accept`: 14298048 (pre-H1) -> 13184884 (H1) -> 11742536 (H4).
+  **The two binaries are NOT comparable to each other** and never were: they
+  use different option sets (`opts=alphabeta` vs `opts=(default)`), so they
+  legitimately differ by ~20k nodes on an identical tree. Compare each only
+  against its own history. (A previous handoff claimed `accept_temp` was
+  11742536 on the stub; that was wrong and cost a false alarm.)
 - **matein3 CANNOT measure NPS changes** — it loads from FEN with a ~1-entry
   game history. It only proves whether the tree changed. Its node count plus
   mates-solved is however an excellent ~4 s pre-screen: if a change moves nodes
@@ -369,7 +394,10 @@ Phase 9: Heuristics v2 + Endgame
   and H4 winning-capture priority (+20.2); H1+H4 measure +88.7 Elo at
   1000 ms. AVX2 eval kernels are NOT the lever (the accumulator is
   memory-bandwidth-bound). Continuation history measured +2.6 and was
-  rejected at 150 ms — re-test at >= 1000 ms.
+  rejected at 150 ms — re-test at >= 1000 ms. Parallel search was rewritten
+  from root splitting to Lazy SMP on 2026-08-16: +129 Elo head-to-head at 4
+  threads, and it fixed a defect that made multi-threaded play *lose* 161
+  Elo to single-threaded.
 - Acceptance: tactical boosts; endgame correctness; fewer zugzwang/fortress traps.
 
 Phase 10: Tuning, Tooling, Release
@@ -382,5 +410,9 @@ Performance Targets
 - Eval: incr NNUE <200 ns scalar, <80 ns NEON (measured 2026-08: ~44 ns
   quiet apply/revert at h64 after the feature-major cache).
 - Search: ≥1–3 Mnps early; ≥5–10 Mnps post‑LMR/ordering.
-- Parallel: 4T ≥3.5x; 8T ≥6x.
+- Parallel: 4T ≥3.5x; 8T ≥6x. **4T met 2026-08-16 at 3.81x** once root
+  splitting was replaced by Lazy SMP (it had been stuck at 2.47x *and*
+  negative Elo). 8T is untested; Lazy SMP scales sublinearly past ~8 threads
+  without further diversification (varied aspiration windows, per-thread
+  ordering noise).
 

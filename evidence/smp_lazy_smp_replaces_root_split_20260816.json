@@ -1,0 +1,91 @@
+{
+  "date_utc": "2026-08-16",
+  "what": "PieBot's multi-threaded search was not merely failing to scale -- it was actively losing games. The root-split implementation compared fail-soft bounds across a racing shared alpha to choose the root move. Replacing it with Lazy SMP is +129 Elo at 4 threads.",
+
+  "headline": "Multi-threaded search measured -161 Elo vs single-threaded. Lazy SMP makes it +95.",
+
+  "the_defect": {
+    "location": "PieBot/src/search/alphabeta.rs, fn search_depth_parallel (deleted in this change, 341 lines)",
+    "shape": [
+      "Each tail root move read `let local_alpha = alpha_shared.load(Relaxed)` ONCE, then scouted with a null window `(-local_alpha - 1, -local_alpha)`.",
+      "A null-window scout that fails low returns a fail-soft UPPER BOUND, not a score. The true value can be arbitrarily worse.",
+      "Other threads kept raising `alpha_shared` concurrently, so different moves were scouted against DIFFERENT alphas -- their returned bounds are not on a common scale.",
+      "The aggregation then chose the root move with `if score > best_score { bestmove = Some(m) }`, comparing those incomparable bounds as if they were exact scores.",
+      "`abort.store(true)` on a beta cutoff cancelled in-flight workers whose results were silently dropped (`Err(Cancelled) => {}`), which can remove the genuinely best move from the comparison and leave a bogus fail-low bound as the winner."
+    ],
+    "consequence": "The engine could return a root move it never verified. More nodes bought worse moves."
+  },
+
+  "measurements": {
+    "harness": "PieBot/src/bin/compare_play.rs, --movetime 200 --noise-plies 12 --noise-topk 5, colours alternated, serial play (the harness forces one game at a time whenever either side uses >1 thread).",
+    "note_on_a_discarded_run": "A first 60-game run was killed and re-run: `cargo test` had been launched concurrently, and a 200 ms-per-move comparison is meaningless when the test suite is saturating every core. Only the quiet-machine runs are reported here.",
+
+    "root_split_4T_vs_1T": {
+      "games": 30,
+      "w_d_l_4T": [5, 7, 18],
+      "score": 0.2833,
+      "elo": -161.2,
+      "ci_95": [-240.8, -94.9],
+      "nps": {"one_thread": 3642187.9, "four_threads": 9009021.5, "ratio": 2.47},
+      "depth": {"one_thread": 9.98, "four_threads": 10.29}
+    },
+
+    "lazy_smp_4T_vs_1T": {
+      "games": 60,
+      "w_d_l_4T": [29, 18, 13],
+      "score": 0.6333,
+      "elo": 94.9,
+      "ci_95_unpaired": [23.0, 176.0],
+      "nps": {"one_thread": 3365456.1, "four_threads": 12832817.9, "ratio": 3.81},
+      "depth": {"one_thread": 10.03, "four_threads": 10.89}
+    },
+
+    "head_to_head_both_4T": {
+      "comment": "The decisive run: identical thread count on both sides, so the ONLY difference is root-split vs Lazy SMP.",
+      "games": 200,
+      "wins_lazy": 99,
+      "wins_root_split": 28,
+      "draws": 73,
+      "score_lazy": 0.6775,
+      "elo": 129.0,
+      "ci_95_unpaired": [91.0, 170.1],
+      "nps": {"root_split": 9322881.6, "lazy_smp": 13890159.1},
+      "depth": {"root_split": 10.07, "lazy_smp": 10.78},
+      "wall_time_s": 3993.1
+    },
+
+    "ci_method": "Normal approximation on the per-game score distribution, NOT the paired bootstrap the promotion protocol prefers. Pairing can only tighten these intervals, and every lower bound already clears zero by a wide margin, so the promotion decision does not depend on the difference."
+  },
+
+  "the_fix": {
+    "design": "Lazy SMP. Helper searchers run their own complete iterative deepening on the same root, sharing only the `Arc<Tt>`. Half are skewed one iteration ahead so the pool spreads across the depth schedule. Nothing reads a helper's score -- helpers contribute exclusively through the entries they leave in the TT -- so no fail-soft bound ever reaches a comparison it cannot support. Only the main thread's result is reported.",
+    "applied_to_both_id_loops": [
+      "`search_movetime` -- used by the compare_play harness and one UCI path.",
+      "`search_with_params` -- used by the real UCI `go` handler (uci.rs:651). The original root split fed this path too, so fixing only `search_movetime` would have left the production path broken."
+    ],
+    "eligibility": "threads > 1 && !deterministic && node_limit == u64::MAX && (!use_nnue || nnue_quant.is_some()). At threads == 1 the helper count is 0 and the code path is unchanged.",
+    "prior_art_note": "`search_movetime_lazy_smp` already existed in the file but was a stub forwarding to `search_movetime`, and nothing called it. The name predated the implementation."
+  },
+
+  "single_threaded_is_bit_identical": {
+    "accept_nodes": 11742536,
+    "accept_matches_recorded_h4_signature": true,
+    "accept_temp_nodes_with_stub_fork": 11763048,
+    "accept_temp_nodes_with_lazy_smp_fork": 11763048,
+    "cases": 91,
+    "fallback_hits": 0,
+    "correction_to_the_handoff": "CLAUDE.md records `accept_temp 11742536 when the fork is the stub`. That is wrong: the stub measures 11763048. The two binaries use different option sets (`opts=alphabeta` vs `opts=(default)`), so their node counts are not comparable to each other and never were. Each must be compared only against its own history."
+  },
+
+  "roadmap_target": {
+    "stated": "Parallel: 4T >= 3.5x",
+    "root_split": "2.47x -- never met, and the Elo was negative anyway",
+    "lazy_smp": "3.81x -- met"
+  },
+
+  "caveats": [
+    "All Elo here is at 200 ms/move on an Apple-silicon Mac. Per the 2026-08-16 finding that the short-time-control harness understates depth-dependent changes ~2.3x, the true SMP gain at longer time controls is plausibly larger, but that is an extrapolation, not a measurement.",
+    "Measured at 4 threads only. 8T and higher are untested, and Lazy SMP is known to scale sublinearly past ~8 threads without additional diversification (varied aspiration windows, per-thread move-ordering noise).",
+    "UNRESOLVED AND POSSIBLY DECISIVE FOR PRIORITISATION: it is unconfirmed whether the CCRL 40/15 main list gives each engine one core or all four. If one core, this fix is worth nothing on that specific list -- though it still turns multi-core play from -161 Elo into a gain, which matters for every other use. Attempts to verify failed: computerchess.org.uk returns HTTP 403 to automated fetches and ccrl.chessdom.com did not resolve."
+  ]
+}
