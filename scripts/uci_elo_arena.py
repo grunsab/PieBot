@@ -1002,6 +1002,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--piebot-hash", type=int, default=64, help="PieBot hash MiB")
     parser.add_argument("--stockfish-command", default="stockfish", help="Stockfish command")
     parser.add_argument("--stockfish-elo", type=int, default=2500, help="Stockfish UCI_Elo")
+    parser.add_argument(
+        "--stockfish-full-strength",
+        action="store_true",
+        help=(
+            "disable UCI_LimitStrength entirely and ignore --stockfish-elo. "
+            "The limited-strength ladder is not self-consistent (the same "
+            "binary measured 2146 at rungs 1800/2100 and 2422 at 2400/2700); "
+            "full-strength Stockfish has a published CCRL rating."
+        ),
+    )
     parser.add_argument("--stockfish-hash", type=int, default=64, help="Stockfish hash MiB")
     parser.add_argument("--games", type=int, default=100, help="even game count")
     parser.add_argument(
