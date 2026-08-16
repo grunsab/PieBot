@@ -16,6 +16,18 @@ const HIST_SIZE: usize = 64 * 64 * HIST_PROMO_KINDS;
 /// nodes ordered a quiet ahead of a WINNING capture. Gravity keeps the table
 /// inside the band the ordering formula was designed around.
 const HIST_MAX: i32 = 16_384;
+/// Ordering is a flat sum, so the terms have to be scaled against each
+/// other. Measured ceilings: a capture reaches 1000 + mvv(~9000) + see/8
+/// ~= 10,112, while a quiet reaches killer(50) + history(16,384) +
+/// counter(40) = 16,474. A saturated-history quiet therefore outranks the
+/// BEST capture on the board -- measured at 54.1% of depth-10 nodes
+/// ordering a quiet ahead of a winning capture.
+///
+/// Lifting SEE>=0 captures above the quiet ceiling restores the invariant
+/// that a capture which wins material is tried first. Losing captures are
+/// deliberately NOT lifted: a quiet with real history should be searched
+/// before a capture that hangs a piece.
+const GOOD_CAPTURE_PRIORITY: i32 = 20_000;
 
 #[inline]
 fn promo_index(p: Option<cozy_chess::Piece>) -> usize {
@@ -1165,8 +1177,14 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                let see_raw = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0)
+                } else {
+                    0
+                };
+                let see_b = see_raw / 8;
+                let good_cap = if is_cap == 1 && see_raw >= 0 {
+                    GOOD_CAPTURE_PRIORITY
                 } else {
                     0
                 };
@@ -1199,7 +1217,7 @@ impl Searcher {
                 // The TT move must stay first: the capture/history sort below
                 // would otherwise bury it and defeat the PVS first-move bet.
                 let ttb = if tt_best == Some(m) { 1_000_000 } else { 0 };
-                let score = -(ttb + is_cap * 1000 + mvv + see_b + kb + hist + cm);
+                let score = -(ttb + good_cap + is_cap * 1000 + mvv + see_b + kb + hist + cm);
                 scored.push((m, score));
             }
             scored.sort_by_key(|&(_, score)| score);
