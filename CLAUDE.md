@@ -415,14 +415,18 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
    **Singular extensions were also implemented and screened 2026-08-16:
    +4.3 Elo, CI [-11.3, +20.0]** -- shelved, same shape as IIR. Probcut and
    razoring remain untried.
-   **THE NEXT THING TO TRY IS THE IIR + SINGULAR-EXTENSION BUNDLE.** Both
-   screened at exactly +4.3 Elo against the same baseline and they are
-   opposite halves of one idea -- IIR reduces nodes with no trustworthy first
-   guess, SE extends nodes whose answer hinges on one move -- so they do not
-   compete for the same nodes. If additive, ~+9 Elo, which resolves in
-   ~800-1200 games instead of the ~4,000 a 4 Elo effect needs. Run it as a
-   DECLARED bundle (screen the pair, then confirm at 1000 games), not as a way
-   to rescue two arms that individually failed. ~2 h of compute.
+   **THE IIR + SE BUNDLE WAS TRIED 2026-08-16 AND IS REFUTED -- do not
+   re-run it.** Predicted ~+9 Elo if additive; screened **0.0 Elo, CI
+   [-14.8, +15.6]** over 400 games (115-170-115, perfectly symmetric).
+   The effects ARE additive, but in the wrong quantity: IIR BUYS +0.34 ply,
+   SE SPENDS -0.28 ply, predicted sum +0.06 and observed +0.05. They cancel.
+   The reasoning error was arguing they would not compete because they act on
+   different NODES -- true but irrelevant, since they compete for the same
+   DEPTH BUDGET in opposite directions. Note the simpler reading also fits:
+   all three measurements span zero and the bundle that should have been
+   largest was exactly nil, so both +4.3s may simply have been noise.
+   Untried in Phase 9: **probcut, razoring, Syzygy, SEE pruning in the main
+   search.**
    See `evidence/search_arms/iir_shelved_20260816.json` and
    `evidence/search_arms/singular_extensions_shelved_20260816.json`. **H2 continuation history was re-tested 2026-08-16 and SCREENED
    NEGATIVE**: -8.7 Elo, CI [-25.2, +7.8] over 400 games, with NPS down 4.1%
