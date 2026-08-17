@@ -519,6 +519,38 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
      one -- the window is.
      **To revert BOTH changes**: restore the 6/8 conf backup and set
      `MAX_SAMPLES="5000000"`.
+   - **FALSIFIER FIRED 2026-08-17: the data-VOLUME hypothesis is REFUTED.**
+     Over 11 cycles at the full window (72-82, ~11.9M rows vs the 5.0M
+     baseline) the train/val gap **WIDENED 0.03622 -> 0.03727** and the
+     `best_epoch=0` rate **ROSE 38% -> 45%**. Cycles 83-90 widened further to
+     0.03779. Both pre-agreed conditions failed, across three consecutive
+     windows. More rows of the SAME distribution made generalisation slightly
+     worse -- which is what a repetitive corpus looks like, not a small one.
+     Reverting to 6/8/5M is RECOMMENDED and awaiting a decision; the cost being
+     paid is ~65.5 -> ~33 cycles/day.
+   - **DEPLOYED 2026-08-17T18:38Z (user-authorised): `SELFPLAY_GAMES` 8000 ->
+     12000 (+50%), `TEACHER_SAMPLE_FRACTION` 1.0 -> 0.667.** Tests DIVERSITY,
+     the remaining explanation after volume was refuted. Backup:
+     `piebot_campaign_v2.conf.bak.selfplay12k.20260817T183734Z`.
+     - **Clean design**: `MAX_SAMPLES` caps training at 12.3M and we already
+       sit at 11.93M, so this does NOT grow the training set -- it draws the
+       same ~12M rows from a **16.7M pool instead of 11.2M**. Diversity at
+       constant volume.
+     - **Teacher work held constant** (~697k labelled positions/cycle), so
+       relabel -- 47% of the cycle -- does not grow. Only self-play does.
+     - **Side effect that is arguably a second benefit**: at fraction 0.667,
+       33% of rows carry NO teacher label and target the game OUTCOME alone.
+       This file records that this same parameter going 0.15 -> 1.0 was one of
+       the two changes that jointly installed v7's ceiling, by removing the
+       outcome -- the only signal not derived from PieBot's own search -- from
+       100% of rows. This partially restores it.
+     - Not a lineage change: `objective_metadata` takes `teacher_mix` but not
+       `teacher_sample_fraction`.
+     - **SUCCESS CRITERION, fixed in advance**: the gap should NARROW from
+       ~0.0378 and/or acceptances resume within ~10 cycles. If the gap is
+       unchanged-or-wider AND no acceptance lands within 15 cycles, diversity
+       is not it either, and the remaining candidates are teacher STRENGTH (a
+       depth-7 self teacher cannot exceed itself) and architecture.
    - **FALSIFIER, agreed in advance: if the train/val gap does not narrow from
      ~0.036 nats and the `best_epoch=0` rate does not fall from 38% within
      ~10 cycles of the window filling, the data hypothesis is WRONG. Revert to
