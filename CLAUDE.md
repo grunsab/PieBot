@@ -222,6 +222,14 @@ different things and must never be netted against each other.)
   this buys nothing on that list specifically. Verification failed --
   computerchess.org.uk 403s automated fetches, ccrl.chessdom.com did not
   resolve -- so a human should check.
+- **For ANY timing anomaly on the Mac, compare ELAPSED to CPU TIME before
+  theorising about the code.** `ps -Ao pid,etime,time,pcpu` answers in one
+  command. On 2026-08-16 a screen ran 2h05m against the usual 1h and two
+  hypotheses were formed about the ARM causing it; both were wrong. The
+  laptop had been closed -- 2h05m elapsed against 194 CPU-minutes, a ~14%
+  duty cycle. Wall time alone cannot separate "the work changed" from "the
+  machine was not running". Wrap long local runs in `caffeinate -dimsu`, and
+  note that a lid close still sleeps a MacBook regardless.
 - **The matein3 pre-screen IS trustworthy for move-ordering arms.** It is
   blind only to effects it cannot express -- thread count, NPS, time
   management -- because it is single-threaded and fixed-depth. Ordering
@@ -425,8 +433,18 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
    DEPTH BUDGET in opposite directions. Note the simpler reading also fits:
    all three measurements span zero and the bundle that should have been
    largest was exactly nil, so both +4.3s may simply have been noise.
-   Untried in Phase 9: **probcut, razoring, Syzygy, SEE pruning in the main
-   search.**
+   **Probcut was implemented and screened 2026-08-16: +1.7 Elo, CI
+   [-13.0, +16.5] -- shelved.** It is worth reading WHY, because it is the
+   most informative null of the day: probcut is very ACTIVE (~25% cut rate,
+   5,688 tries in one depth-12 search) and still returns nothing, with depth
+   moving only +0.10 ply. The likely cause is REDUNDANCY -- reverse futility,
+   futility, null-move and LMR already remove most of what probcut catches.
+   **Treat that as the working hypothesis for this whole class: PieBot's
+   pruning is already dense, so additional pruning heuristics overlap with it
+   and pay little.** Eight arms were tested 2026-08-16 and only ONE promoted.
+   Still untried: **razoring, Syzygy, SEE pruning in the main search** -- and
+   razoring is more pruning, so expect the same.
+   See `evidence/search_arms/probcut_shelved_20260816.json`.
    See `evidence/search_arms/iir_shelved_20260816.json` and
    `evidence/search_arms/singular_extensions_shelved_20260816.json`. **H2 continuation history was re-tested 2026-08-16 and SCREENED
    NEGATIVE**: -8.7 Elo, CI [-25.2, +7.8] over 400 games, with NPS down 4.1%

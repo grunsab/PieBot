@@ -1,0 +1,45 @@
+{
+  "arm": "Probcut (NEW -- Phase 9 item)",
+  "date_utc": "2026-08-16",
+  "verdict": "SHELVED. +1.7 Elo, 95% CI [-13.0, +16.5] over 400 games at 1000 ms.",
+
+  "idea": "If a good capture already beats beta by a wide margin at reduced depth, the full-depth search is very unlikely to come back below beta. Verify with a narrow window at beta + margin and cut.",
+
+  "implementation": {
+    "gate": "depth >= 5, not in check, beta inside the mate window, pc_beta = beta + 200 also inside it.",
+    "probe": "captures with SEE >= 0, searched at depth - 4 against (pc_beta - 1, pc_beta), capped at 4 tries per node.",
+    "placement": "after move ordering, so the best captures are tried first -- a probcut that tries bad captures first wastes most of its attempts.",
+    "accumulator_discipline": "search_history.pop() and the NNUE revert happen BEFORE the `?` propagates, matching the main loop. Reversed, an aborted probe would leave the accumulator and history stack out of step -- a corruption that would only show under time pressure."
+  },
+
+  "the_interesting_part_it_is_very_active_and_still_does_nothing": {
+    "activity": [
+      {"position": "midgame", "depth": 10, "tries": 884, "cuts": 235, "cut_rate_pct": 26.6},
+      {"position": "midgame", "depth": 12, "tries": 3702, "cuts": 927, "cut_rate_pct": 25.0},
+      {"position": "midgame b", "depth": 12, "tries": 5688, "cuts": 1396, "cut_rate_pct": 24.5}
+    ],
+    "reading": "A ~25% cut rate is healthy and normal for this heuristic -- it is not misfiring or dormant. It prunes thousands of nodes per search and returns +1.7 Elo. The most likely explanation is REDUNDANCY: reverse futility, futility, null-move pruning and LMR already remove most of what probcut would catch, so its cuts are largely nodes the existing machinery would have pruned anyway. Depth moved only +0.10 ply, consistent with very little net work being saved."
+  },
+
+  "measurement": {
+    "harness": "compare_play, 400 games, 1000 ms/move, paired openings, seed 20260822, 11 workers",
+    "w_d_l_experimental": [122, 158, 120],
+    "score": 0.5025, "elo": 1.7, "paired_bootstrap_95_ci": [-13.0, 16.5],
+    "depth": {"baseline": 12.81, "experimental": 12.91},
+    "nps": {"baseline": 2703374.6, "experimental": 2696176.8},
+    "moves": {"baseline": 19007, "experimental": 19002},
+    "wall_time_s": 3668.1
+  },
+
+  "a_measurement_lesson_that_cost_two_hours": {
+    "what_happened": "A first attempt at this screen ran 2h05m against the ~1h every other screen took. Two hypotheses were formed about probcut causing it -- longer games, or pruning away wins. BOTH WERE WRONG. The user pointed out the MacBook had been closed. pmset confirmed repeated sleeps on battery (792s, 679s, 443s), and the decisive number was elapsed vs CPU time: 2h05m wall against only 194 CPU-minutes, a ~14% duty cycle, meaning the run was ~30% done rather than misbehaving.",
+    "the_clean_rerun_settles_it": "Under caffeinate the same screen took 3668 s, in line with every other run, and game lengths were 19,002 vs 19,007 moves -- essentially identical. Probcut changes neither game length nor runtime.",
+    "the_rule": "For any timing anomaly on a laptop, compare ELAPSED to CPU TIME before theorising about the code. `ps -o etime,time` answers in one command what an hour of speculation will not. Wall time alone cannot distinguish 'the work changed' from 'the machine was not running'."
+  },
+
+  "caveats": [
+    "400-game screen only; the CI half-width is ~15 Elo, so a small positive effect is not excluded.",
+    "PROBCUT_MARGIN (200 cp), PROBCUT_REDUCTION (4 plies), PROBCUT_MIN_DEPTH (5) and PROBCUT_MAX_TRIES (4) are standard choices, none tuned.",
+    "The redundancy explanation is inferred from the combination of high cut rate and near-zero depth gain, not directly instrumented. Measuring how many probcut cuts would ALSO have been cut by RFP/futility/null-move would test it."
+  ]
+}
