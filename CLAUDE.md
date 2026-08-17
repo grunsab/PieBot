@@ -464,9 +464,25 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
    which is exactly what makes H2 continuation history the interesting one.) All are depth-dependent and all
    were judged on a harness now proven to understate this class of change by
    ~2.3x. Cheapest real Elo available.
-2. **Watch v8**: `cp_loss_weight=1.0` is unmeasured. Failure signature is val
-   WDL loss regressing while cp RMSE improves; try 0.3. Track acceptances —
-   2 in 13 cycles so far against v7's 1 in 28.
+2. **v8 IS PLATEAUING, AND THE CEILING IS DATA — do not answer it with a new
+   objective.** `cp_loss_weight=1.0` is fine: the failure signature (val WDL
+   regressing while cp RMSE improves) is ABSENT, so do NOT try 0.3.
+   As of cycle 61: **4 acceptances (3, 13, 26, 41), gaps widening 10 -> 13 ->
+   15 -> 20+**, val WDL slope turned positive, ref cp RMSE deceleration 4x,
+   no-op cycles 2/8 -> 3/8, ref cp RMSE lifetime 326 -> 218 -> 201 -> 180 -> 178.
+   **Diagnosis: DATA-limited.** train 0.5937 vs val 0.6300, a **0.036 nat gap
+   that is WIDENING (+0.00014/cycle)** and about as large as train loss's whole
+   distance from the label-entropy floor; and `best_epoch = 0` in **38%** of
+   recent cycles, i.e. even ONE epoch on 4.4M rows makes held-out loss worse.
+   Capacity is not the constraint -- that would show train and val stuck and
+   CLOSE; these are stuck and FAR APART.
+   **The tempting wrong move is another loss-function change**, because that is
+   what fixed v7. It will not fix overfitting on a static corpus. EPOCHS and
+   width are ruled out by the same measurement. Raising SELFPLAY_GAMES alone is
+   measured to buy only ~23% more games/day for a 62% longer cycle, because
+   relabel scales with it.
+   **Trigger to act: 25 cycles without an acceptance, or val WDL still rising
+   at cycle 70.** See `evidence/v8_data_ceiling_20260816.json`.
 2b. **AN OFF-BOX BACKUP NOW EXISTS (2026-08-16), verified by sha256.**
    `~/piebot_backups/v8_20260816/` on the user's Mac, 1.3 GB, all six hashes
    matched against the box at copy time:

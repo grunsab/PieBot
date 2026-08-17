@@ -1,0 +1,72 @@
+{
+  "date_utc": "2026-08-16",
+  "what": "campaign_v8 is showing plateau signals at ~cycle 60. Diagnosing WHICH ceiling it is, because v7's ceiling was the OBJECTIVE and the fix was a new loss -- repeating that move here would be wrong. The evidence says v8 is DATA-limited.",
+
+  "headline": "v8's ceiling is data, not objective and not capacity. Do not answer it with another loss-function change.",
+
+  "the_plateau_signals": {
+    "acceptances": {"cycles": [3, 13, 26, 41], "gaps": [10, 13, 15], "current_gap": "20+ and counting", "note": "monotonically widening"},
+    "val_wdl_slope": {"cycles_43_50": -0.000526, "cycles_52_59": 0.000302, "reading": "turned from improving to worsening"},
+    "ref_cp_rmse_slope": {"cycles_43_50": -0.690, "cycles_52_59": -0.179, "reading": "4x deceleration"},
+    "ref_cp_rmse_lifetime": [326, 218, 201, 180, 178],
+    "no_op_cycles": {"cycles_43_50": "2/8", "cycles_52_59": "3/8"},
+    "caveat": "8-cycle windows; the val WDL move is 0.0014 nats and would be noise alone. What makes it worth acting on is four unrelated indicators turning together."
+  },
+
+  "the_diagnosis_data_limited": {
+    "method": "Compare training loss to held-out loss. A large and widening gap with early overfitting means the model has exhausted its data, not its capacity or its objective.",
+    "measurements_retained_cycles_54_61": [
+      {"cycle": 54, "train": 0.59371, "val": 0.62843, "gap": 0.03472, "rows": 4406505, "best_epoch": 1},
+      {"cycle": 55, "train": 0.59366, "val": 0.62947, "gap": 0.03581, "rows": 4405607, "best_epoch": 1},
+      {"cycle": 56, "train": 0.59326, "val": 0.63018, "gap": 0.03692, "rows": 4403056, "best_epoch": 0},
+      {"cycle": 57, "train": 0.59366, "val": 0.63025, "gap": 0.03659, "rows": 4410051, "best_epoch": 1},
+      {"cycle": 58, "train": 0.59336, "val": 0.63010, "gap": 0.03674, "rows": 4417887, "best_epoch": 1},
+      {"cycle": 59, "train": 0.59334, "val": 0.62976, "gap": 0.03642, "rows": 4417414, "best_epoch": 0},
+      {"cycle": 60, "train": 0.59381, "val": 0.63005, "gap": 0.03625, "rows": 4415862, "best_epoch": 1},
+      {"cycle": 61, "train": 0.59372, "val": 0.63002, "gap": 0.03630, "rows": 4413461, "best_epoch": 0}
+    ],
+    "gap_mean_nats": 0.03622,
+    "gap_slope_per_cycle": 0.000142,
+    "gap_direction": "widening",
+    "best_epoch_zero_rate": "3/8 (38%)",
+    "why_this_says_DATA": [
+      "The 0.036 nat generalisation gap is roughly the same size as train loss's entire distance from the label-entropy floor (~0.5547). The model fits its rows and generalises materially worse.",
+      "EPOCHS=1 already, and in 38% of cycles even ONE epoch on 4.4M rows made held-out loss worse (best_epoch=0). There is no safe amount of training left to do on this data.",
+      "train_samples is flat at ~4.41M and has been for the whole retained window. The replay window is not growing, so each cycle re-trains on nearly the same distribution.",
+      "Capacity is NOT the constraint: a capacity-limited model would show train and val loss both stuck and CLOSE together. These are stuck and FAR apart."
+    ]
+  },
+
+  "why_this_matters_the_wrong_fix_is_tempting": {
+    "v7_ceiling": "OBJECTIVE saturation. BCE through sigmoid(cp/400) lost gradient exactly where a strengthening net put its evaluations. Fixed by adding a cp-space Huber term and restoring the outcome signal -- a loss-function change, and it worked (4 acceptances in 61 cycles vs v7's 1 in 28 at the equivalent stage).",
+    "v8_ceiling": "DATA. Overfitting within a single epoch on a fixed 4.4M-row window.",
+    "the_trap": "The natural move after a successful v7->v8 objective fix is another objective fix. That would not address overfitting on a static corpus. More capacity and more epochs are also ruled out by the same evidence -- epochs are already at 1 and still too many 38% of the time."
+  },
+
+  "converging_evidence_from_unrelated_directions": [
+    "Pipeline profiling (2026-08-16): the cycle is TEACHER-RELABEL-bound at 47%, with self-play only 15%. The constraint on data volume is the cost of LABELLING positions, not generating them. Raising SELFPLAY_GAMES scales relabel too, so it buys only ~23% more games/day for a 62% longer cycle.",
+    "Corpus economics: the field trains on 1e9-1e10 rows; PieBot uses ~4.3M per generation and ~695k fresh positions per cycle.",
+    "The standing audit independently called eval/datagen the harder half of the remaining gap."
+  ],
+
+  "what_to_do": {
+    "do_not": [
+      "Start a v9 with a new objective. That was the v7->v8 fix and it does not address this ceiling.",
+      "Raise EPOCHS or hidden width. Both are contraindicated by the same measurement.",
+      "Raise SELFPLAY_GAMES alone. Relabel scales with it; measured to buy ~23% for a 62% longer cycle."
+    ],
+    "do": [
+      "Treat data VOLUME and DIVERSITY as the binding constraint. That is a hardware and storage decision, not a code change.",
+      "Consider whether the replay window (6 cycles) is recycling too narrow a distribution -- a wider window costs disk, which is the same constraint.",
+      "Revisit the teacher-relabel cost, since it is what caps throughput. Note that TEACHER_SAMPLE_FRACTION going to 1.0 was one of the two changes that jointly installed v7's ceiling, so cutting it back is NOT a free throughput win and needs its own lineage."
+    ],
+    "trigger_to_act": "25 cycles without an acceptance, or val WDL still rising at cycle 70. At cycle 61 the gap is 20."
+  },
+
+  "caveats": [
+    "8 retained cycles; older ones were pruned by retention, so the gap trend cannot be extended backwards to v8's start.",
+    "The gap slope (+0.000142/cycle) is small and rests on 8 points. The harder evidence is the best_epoch=0 rate, which is a discrete outcome rather than a trend fit.",
+    "train_loss_history[0] is the loss after the single training epoch, not a per-step curve, so 'overfitting within one epoch' is inferred from best_epoch=0 rather than observed mid-epoch.",
+    "A single further acceptance would falsify the plateau reading. v8's own history is quiet stretches punctuated by real steps -- cycle 26 was +21.6 Elo."
+  ]
+}
