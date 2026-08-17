@@ -1,29 +1,113 @@
 {
   "date_utc": "2026-08-16",
   "what": "campaign_v8 is showing plateau signals at ~cycle 60. Diagnosing WHICH ceiling it is, because v7's ceiling was the OBJECTIVE and the fix was a new loss -- repeating that move here would be wrong. The evidence says v8 is DATA-limited.",
-
   "headline": "v8's ceiling is data, not objective and not capacity. Do not answer it with another loss-function change.",
-
   "the_plateau_signals": {
-    "acceptances": {"cycles": [3, 13, 26, 41], "gaps": [10, 13, 15], "current_gap": "20+ and counting", "note": "monotonically widening"},
-    "val_wdl_slope": {"cycles_43_50": -0.000526, "cycles_52_59": 0.000302, "reading": "turned from improving to worsening"},
-    "ref_cp_rmse_slope": {"cycles_43_50": -0.690, "cycles_52_59": -0.179, "reading": "4x deceleration"},
-    "ref_cp_rmse_lifetime": [326, 218, 201, 180, 178],
-    "no_op_cycles": {"cycles_43_50": "2/8", "cycles_52_59": "3/8"},
+    "acceptances": {
+      "cycles": [
+        3,
+        13,
+        26,
+        41
+      ],
+      "gaps": [
+        10,
+        13,
+        15
+      ],
+      "current_gap": "20+ and counting",
+      "note": "monotonically widening"
+    },
+    "val_wdl_slope": {
+      "cycles_43_50": -0.000526,
+      "cycles_52_59": 0.000302,
+      "reading": "turned from improving to worsening"
+    },
+    "ref_cp_rmse_slope": {
+      "cycles_43_50": -0.69,
+      "cycles_52_59": -0.179,
+      "reading": "4x deceleration"
+    },
+    "ref_cp_rmse_lifetime": [
+      326,
+      218,
+      201,
+      180,
+      178
+    ],
+    "no_op_cycles": {
+      "cycles_43_50": "2/8",
+      "cycles_52_59": "3/8"
+    },
     "caveat": "8-cycle windows; the val WDL move is 0.0014 nats and would be noise alone. What makes it worth acting on is four unrelated indicators turning together."
   },
-
   "the_diagnosis_data_limited": {
     "method": "Compare training loss to held-out loss. A large and widening gap with early overfitting means the model has exhausted its data, not its capacity or its objective.",
     "measurements_retained_cycles_54_61": [
-      {"cycle": 54, "train": 0.59371, "val": 0.62843, "gap": 0.03472, "rows": 4406505, "best_epoch": 1},
-      {"cycle": 55, "train": 0.59366, "val": 0.62947, "gap": 0.03581, "rows": 4405607, "best_epoch": 1},
-      {"cycle": 56, "train": 0.59326, "val": 0.63018, "gap": 0.03692, "rows": 4403056, "best_epoch": 0},
-      {"cycle": 57, "train": 0.59366, "val": 0.63025, "gap": 0.03659, "rows": 4410051, "best_epoch": 1},
-      {"cycle": 58, "train": 0.59336, "val": 0.63010, "gap": 0.03674, "rows": 4417887, "best_epoch": 1},
-      {"cycle": 59, "train": 0.59334, "val": 0.62976, "gap": 0.03642, "rows": 4417414, "best_epoch": 0},
-      {"cycle": 60, "train": 0.59381, "val": 0.63005, "gap": 0.03625, "rows": 4415862, "best_epoch": 1},
-      {"cycle": 61, "train": 0.59372, "val": 0.63002, "gap": 0.03630, "rows": 4413461, "best_epoch": 0}
+      {
+        "cycle": 54,
+        "train": 0.59371,
+        "val": 0.62843,
+        "gap": 0.03472,
+        "rows": 4406505,
+        "best_epoch": 1
+      },
+      {
+        "cycle": 55,
+        "train": 0.59366,
+        "val": 0.62947,
+        "gap": 0.03581,
+        "rows": 4405607,
+        "best_epoch": 1
+      },
+      {
+        "cycle": 56,
+        "train": 0.59326,
+        "val": 0.63018,
+        "gap": 0.03692,
+        "rows": 4403056,
+        "best_epoch": 0
+      },
+      {
+        "cycle": 57,
+        "train": 0.59366,
+        "val": 0.63025,
+        "gap": 0.03659,
+        "rows": 4410051,
+        "best_epoch": 1
+      },
+      {
+        "cycle": 58,
+        "train": 0.59336,
+        "val": 0.6301,
+        "gap": 0.03674,
+        "rows": 4417887,
+        "best_epoch": 1
+      },
+      {
+        "cycle": 59,
+        "train": 0.59334,
+        "val": 0.62976,
+        "gap": 0.03642,
+        "rows": 4417414,
+        "best_epoch": 0
+      },
+      {
+        "cycle": 60,
+        "train": 0.59381,
+        "val": 0.63005,
+        "gap": 0.03625,
+        "rows": 4415862,
+        "best_epoch": 1
+      },
+      {
+        "cycle": 61,
+        "train": 0.59372,
+        "val": 0.63002,
+        "gap": 0.0363,
+        "rows": 4413461,
+        "best_epoch": 0
+      }
     ],
     "gap_mean_nats": 0.03622,
     "gap_slope_per_cycle": 0.000142,
@@ -36,19 +120,16 @@
       "Capacity is NOT the constraint: a capacity-limited model would show train and val loss both stuck and CLOSE together. These are stuck and FAR apart."
     ]
   },
-
   "why_this_matters_the_wrong_fix_is_tempting": {
     "v7_ceiling": "OBJECTIVE saturation. BCE through sigmoid(cp/400) lost gradient exactly where a strengthening net put its evaluations. Fixed by adding a cp-space Huber term and restoring the outcome signal -- a loss-function change, and it worked (4 acceptances in 61 cycles vs v7's 1 in 28 at the equivalent stage).",
     "v8_ceiling": "DATA. Overfitting within a single epoch on a fixed 4.4M-row window.",
     "the_trap": "The natural move after a successful v7->v8 objective fix is another objective fix. That would not address overfitting on a static corpus. More capacity and more epochs are also ruled out by the same evidence -- epochs are already at 1 and still too many 38% of the time."
   },
-
   "converging_evidence_from_unrelated_directions": [
     "Pipeline profiling (2026-08-16): the cycle is TEACHER-RELABEL-bound at 47%, with self-play only 15%. The constraint on data volume is the cost of LABELLING positions, not generating them. Raising SELFPLAY_GAMES scales relabel too, so it buys only ~23% more games/day for a 62% longer cycle.",
     "Corpus economics: the field trains on 1e9-1e10 rows; PieBot uses ~4.3M per generation and ~695k fresh positions per cycle.",
     "The standing audit independently called eval/datagen the harder half of the remaining gap."
   ],
-
   "what_to_do": {
     "do_not": [
       "Start a v9 with a new objective. That was the v7->v8 fix and it does not address this ceiling.",
@@ -62,11 +143,44 @@
     ],
     "trigger_to_act": "25 cycles without an acceptance, or val WDL still rising at cycle 70. At cycle 61 the gap is 20."
   },
-
   "caveats": [
     "8 retained cycles; older ones were pruned by retention, so the gap trend cannot be extended backwards to v8's start.",
     "The gap slope (+0.000142/cycle) is small and rests on 8 points. The harder evidence is the best_epoch=0 rate, which is a discrete outcome rather than a trend fit.",
     "train_loss_history[0] is the loss after the single training epoch, not a per-step curve, so 'overfitting within one epoch' is inferred from best_epoch=0 rather than observed mid-epoch.",
     "A single further acceptance would falsify the plateau reading. v8's own history is quiet stretches punctuated by real steps -- cycle 26 was +21.6 Elo."
-  ]
+  ],
+  "the_one_lever_that_needs_no_new_hardware": {
+    "change": "REPLAY_WINDOW_CYCLES 6 -> 12, RETAIN_FULL_CYCLES 8 -> 14",
+    "rationale": "train_samples is 4.41M because the window is 6 cycles x ~695k fresh rows. Widening the window is the only way to increase rows-per-training-pass without more hardware, and rows-per-pass is exactly what the widening 0.036 nat generalisation gap says is short.",
+    "costs_measured": {
+      "train_rows_per_cycle": {
+        "now": 4171890,
+        "after": 8343780
+      },
+      "disk_gb": {
+        "now": 26.4,
+        "after": 46.2,
+        "free_after_gb": 53.2
+      },
+      "cycle_minutes": {
+        "now": 22.0,
+        "after": 28.5
+      },
+      "cycles_per_day": {
+        "now": 65.5,
+        "after": 50.5,
+        "delta_pct": -23
+      },
+      "fresh_rows_per_day": "UNCHANGED -- self-play rate is identical; only the training pass sees more"
+    },
+    "why_the_staleness_objection_does_not_apply_right_now": "The relabel teacher is `active_model`, which advances ONLY on gate acceptance. The last acceptance was cycle 41, 20 cycles ago, so every row from cycle 41 onward was labelled by the same net. Widening 6 -> 12 adds ZERO teacher staleness. The plateau that motivates the change is also what makes it safe -- and this argument EXPIRES the moment a new model is accepted.",
+    "not_a_lineage_change": "REPLAY_WINDOW_CYCLES is not part of objective_metadata (schema, target_schema, loss_kind, target_cp, teacher_mix, max_teacher_cp, outcome_decay, min_teacher_depth, huber_delta_cp, wdl_scale_cp, cp_loss_weight), so this does NOT require a fresh OUT_ROOT or a weights-only bootstrap. It is an in-lineage config change.",
+    "deployment_constraints": [
+      "RETAIN_FULL_CYCLES must exceed REPLAY_WINDOW_CYCLES or replay silently shrinks when retention deletes cycles -- the launcher enforces this with a die().",
+      "Must land at a TRUE cycle boundary: a supervisor restart re-runs the entire in-flight cycle from self-play, ~23 min.",
+      "Reversible: set the values back and restart."
+    ],
+    "expected_effect_and_how_to_falsify_it": "If the ceiling is data, doubling rows-per-pass should NARROW the train/val gap from ~0.036 and reduce the best_epoch=0 rate from 38%. If the gap and the no-op rate are unchanged after ~10 cycles, the data hypothesis is wrong and the 23% throughput was spent for nothing -- revert.",
+    "status": "ANALYSED AND COSTED, NOT DEPLOYED. Awaiting a decision, because it trades 23% of training throughput for data volume on a live production run."
+  }
 }
