@@ -483,6 +483,20 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
    relabel scales with it.
    **Trigger to act: 25 cycles without an acceptance, or val WDL still rising
    at cycle 70.** See `evidence/v8_data_ceiling_20260816.json`.
+   **DEPLOYED 2026-08-17T03:37Z (user-authorised): `REPLAY_WINDOW_CYCLES`
+   6 -> 16, `RETAIN_FULL_CYCLES` 8 -> 18.** Targets the data ceiling by
+   raising rows-per-training-pass 4.17M -> 11.1M. Conf backup:
+   `/workspace/piebot_campaign_v2.conf.bak.replay16.20260817T033724Z`.
+   Preflight clean, commit still `de34ac7`, lane split intact.
+   - **The benefit RAMPS IN over ~8-16 cycles.** Only 8 cycles were retained
+     at deploy time and `_collect_replay_jsonl_dirs` takes up to the window
+     from dirs that still EXIST, so `train_samples` climbs gradually. Do not
+     read the first cycles as a null result.
+   - Cost: throughput ~65.5 -> ~44 cycles/day. Fresh rows/day UNCHANGED.
+   - **FALSIFIER, agreed in advance: if the train/val gap does not narrow from
+     ~0.036 nats and the `best_epoch=0` rate does not fall from 38% within
+     ~10 cycles of the window filling, the data hypothesis is WRONG. Revert to
+     6/8 from the backup rather than rationalising the null.**
 2b. **AN OFF-BOX BACKUP NOW EXISTS (2026-08-16), verified by sha256.**
    `~/piebot_backups/v8_20260816/` on the user's Mac, 1.3 GB, all six hashes
    matched against the box at copy time:
