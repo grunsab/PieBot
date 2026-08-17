@@ -350,6 +350,22 @@ different things and must never be netted against each other.)
   repo).
 
 ### Durable operational rules (carried forward)
+- **HARD CONSTRAINT (measured 2026-08-17): with `CP_LOSS_WEIGHT=1.0`,
+  `TEACHER_SAMPLE_FRACTION` MUST stay at 1.0.** v8's objective adds a Huber
+  term on the centipawn error, and that term needs a teacher cp target on
+  every row. Setting the fraction to 0.667 left 34% of rows with no cp target
+  and **broke training outright**: the train/val gap jumped 0.038 -> 0.125
+  (3.3x) and `best_epoch` was **0 for five consecutive cycles** -- the trainer
+  rejected every epoch, the checkpoint never moved, and the gate reported
+  `unchanged-training-checkpoint` throughout. Five cycles of compute produced
+  no weight update at all.
+  **The trap**: v7's history records this parameter at 0.15 and working, so it
+  looks safe to lower. It was safe for v7's OBJECTIVE. It is not safe for
+  v8's. A parameter's history is only valid under the objective it was
+  measured with -- re-check it against the current `objective_metadata`.
+  **Consequence for throughput**: more self-play games now cost proportionally
+  more teacher relabeling, because coverage cannot be traded away. There is no
+  way to raise game count at constant teacher cost under this objective.
 - Relabeling is PieBot self-teacher ONLY. Never use Stockfish, another
   engine, or downloaded evaluations as training labels; Stockfish is a fixed
   external evaluation anchor only.
