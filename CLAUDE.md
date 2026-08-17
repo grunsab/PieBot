@@ -505,6 +505,20 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
      the live conf value is what caused the wrong projection. Always read the
      value in force, not the default -- the same failure mode as trusting a
      stale handoff.
+   - **DEPLOYED 2026-08-17T05:10Z (user-authorised): `MAX_SAMPLES`
+     5,000,000 -> 12,300,000**, which is what actually raises rows-per-pass to
+     the intended ~11.1M train (train is ~90% of the total). Conf backup:
+     `/workspace/piebot_campaign_v2.conf.bak.maxsamples123.20260817T051008Z`.
+     Preflight clean, commit still `de34ac7`.
+     **Combined cost of both changes: ~65.5 -> ~33 cycles/day, roughly half.**
+     That is the deliberate bet: fewer, better-trained cycles against more,
+     shallower ones.
+     **Still ramps**: at deploy time only ~9 retained cycles held shard data,
+     so expect ~6M rows next cycle and a climb toward 11.1M as retention
+     fills to 16. `MAX_SAMPLES` is now the slack constraint, not the binding
+     one -- the window is.
+     **To revert BOTH changes**: restore the 6/8 conf backup and set
+     `MAX_SAMPLES="5000000"`.
    - **FALSIFIER, agreed in advance: if the train/val gap does not narrow from
      ~0.036 nats and the `best_epoch=0` rate does not fall from 38% within
      ~10 cycles of the window filling, the data hypothesis is WRONG. Revert to
