@@ -132,6 +132,59 @@ class RunPipelineTests(unittest.TestCase):
                         initial_checkpoint=missing_checkpoint,
                     )
 
+    def test_hybrid_teacher_depth2_defaults_to_disabled(self) -> None:
+        args = run_pipeline._parse_args(["--out", "out", "--jsonl-dir", "data"])
+        self.assertEqual(args.teacher_relabel_depth2, 0)
+        self.assertEqual(args.teacher_relabel_max_records2, 0)
+
+    def test_hybrid_teacher_depth2_is_parsed(self) -> None:
+        args = run_pipeline._parse_args(
+            [
+                "--out", "out", "--jsonl-dir", "data",
+                "--teacher-relabel-depth", "7",
+                "--teacher-relabel-depth2", "9",
+                "--teacher-relabel-max-records2", "175000",
+            ]
+        )
+        self.assertEqual(args.teacher_relabel_depth2, 9)
+        self.assertEqual(args.teacher_relabel_max_records2, 175000)
+
+    def test_hybrid_second_pass_must_be_deeper_than_the_first(self) -> None:
+        # A second pass at or below the first depth cannot upgrade any label;
+        # it would burn compute rewriting rows with no gain.
+        with self.assertRaises(ValueError):
+            run_pipeline._validate_hybrid_teacher(depth=7, depth2=7)
+        with self.assertRaises(ValueError):
+            run_pipeline._validate_hybrid_teacher(depth=7, depth2=6)
+
+    def test_hybrid_second_pass_requires_a_first_pass(self) -> None:
+        # Depth2 without depth would leave most rows carrying only the actor's
+        # own depth-5 label, which MIN_TEACHER_DEPTH would then reject.
+        with self.assertRaises(ValueError):
+            run_pipeline._validate_hybrid_teacher(depth=0, depth2=9)
+
+    def test_hybrid_teacher_disabled_validates_trivially(self) -> None:
+        run_pipeline._validate_hybrid_teacher(depth=7, depth2=0)
+        run_pipeline._validate_hybrid_teacher(depth=0, depth2=0)
+
+    def test_hybrid_second_pass_builds_a_deeper_capped_command(self) -> None:
+        cmd = run_pipeline.build_relabel_command(
+            piebot_dir=Path("/piebot"),
+            jsonl_in=Path("/in"),
+            jsonl_out=Path("/out"),
+            depth=9,
+            every=1,
+            threads=112,
+            hash_mb=512,
+            max_records=175000,
+            nnue_quant_file=None,
+            nnue_blend_percent=75,
+            max_nodes=144000,
+        )
+        self.assertIn("--depth", cmd)
+        self.assertEqual(cmd[cmd.index("--depth") + 1], "9")
+        self.assertEqual(cmd[cmd.index("--max-records") + 1], "175000")
+
     def test_external_teacher_relabel_engine_is_not_a_pipeline_option(self) -> None:
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
             run_pipeline._parse_args(

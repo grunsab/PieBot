@@ -117,6 +117,8 @@ def zen5_9755_7d_profile() -> Dict[str, Any]:
         "selfplay_policy_node_cap": 10_000,
         "selfplay_bestmove_node_cap": 20_000,
         "teacher_relabel_depth": 6,
+        "teacher_relabel_depth2": 0,
+        "teacher_relabel_max_records2": 0,
         "teacher_relabel_every": 4,
         "teacher_relabel_threads": 48,
         "teacher_relabel_hash_mb": 4096,
@@ -402,6 +404,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--selfplay-threads", type=int, default=None)
     ap.add_argument("--selfplay-parallel-games", type=int, default=None)
     ap.add_argument("--teacher-relabel-depth", type=int, default=None)
+    ap.add_argument("--teacher-relabel-depth2", type=int, default=None)
+    ap.add_argument("--teacher-relabel-max-records2", type=int, default=None)
     ap.add_argument("--teacher-relabel-every", type=int, default=None)
     ap.add_argument("--teacher-relabel-threads", type=int, default=None)
     ap.add_argument("--teacher-relabel-hash-mb", type=int, default=None)
@@ -754,6 +758,8 @@ def _apply_cli_overrides(defaults: Dict[str, Any], args: argparse.Namespace) -> 
         "selfplay_threads": args.selfplay_threads,
         "selfplay_parallel_games": args.selfplay_parallel_games,
         "teacher_relabel_depth": args.teacher_relabel_depth,
+        "teacher_relabel_depth2": args.teacher_relabel_depth2,
+        "teacher_relabel_max_records2": args.teacher_relabel_max_records2,
         "teacher_relabel_every": args.teacher_relabel_every,
         "teacher_relabel_threads": args.teacher_relabel_threads,
         "teacher_relabel_hash_mb": args.teacher_relabel_hash_mb,
