@@ -493,6 +493,18 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
      from dirs that still EXIST, so `train_samples` climbs gradually. Do not
      read the first cycles as a null result.
    - Cost: throughput ~65.5 -> ~44 cycles/day. Fresh rows/day UNCHANGED.
+   - **CORRECTION 2026-08-17: the replay window ALONE cannot deliver 11.1M
+     rows, because `MAX_SAMPLES="5000000"` in the supervisor conf caps the
+     training set.** Cycle 64 hit it exactly: 4,504,012 train + 495,988 val =
+     5,000,000. Widening the window makes more rows AVAILABLE (fresher, more
+     diverse pool) but the sampler still draws only 5M. **To actually raise
+     rows-per-pass, `MAX_SAMPLES` must be raised too** -- ~12.3M for 11.1M
+     train rows, since train is ~90% of the total.
+   - **The lesson: `MAX_SAMPLES` defaults to 700,000 in the launcher but the
+     conf OVERRIDES it to 5,000,000.** Reading the launcher default instead of
+     the live conf value is what caused the wrong projection. Always read the
+     value in force, not the default -- the same failure mode as trusting a
+     stale handoff.
    - **FALSIFIER, agreed in advance: if the train/val gap does not narrow from
      ~0.036 nats and the `best_epoch=0` rate does not fall from 38% within
      ~10 cycles of the window filling, the data hypothesis is WRONG. Revert to
