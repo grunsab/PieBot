@@ -110,6 +110,12 @@ SELFPLAY_THREADS="${SELFPLAY_THREADS:-1}"
 # Slot partition: 32 autopilot lane + reserved arena/A-B lanes (plan s4).
 SELFPLAY_PARALLEL_GAMES="${SELFPLAY_PARALLEL_GAMES:-32}"
 RELABEL_DEPTH="${RELABEL_DEPTH:-7}"
+# Hybrid teacher: a capped second relabel pass at greater depth. 0 disables it.
+# Measured 2026-08-17 under the 144k node cap: at depth 9, 26% of rows reach 9,
+# 33% reach 8, 33% stay at 7, for ~2.1x the per-row cost. The node cap, not the
+# depth flag, bounds teacher strength, so the pass degrades gracefully.
+RELABEL_DEPTH2="${RELABEL_DEPTH2:-0}"
+RELABEL_MAX_RECORDS2="${RELABEL_MAX_RECORDS2:-0}"
 RELABEL_EVERY="${RELABEL_EVERY:-2}"
 RELABEL_THREADS="${RELABEL_THREADS:-32}"
 RELABEL_HASH_MB="${RELABEL_HASH_MB:-4096}"
@@ -349,6 +355,10 @@ require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODE
 # depth 9 capped at depth-7's p95 (2.5M). Any other depth is unmeasured.
 (( MIN_TEACHER_DEPTH > SELFPLAY_DEPTH )) \
   || die "MIN_TEACHER_DEPTH must exceed SELFPLAY_DEPTH: actor rows stamp teacher_depth = actor depth and would masquerade as teacher labels"
+(( RELABEL_DEPTH2 == 0 || RELABEL_DEPTH2 > RELABEL_DEPTH )) \
+  || die "RELABEL_DEPTH2 must exceed RELABEL_DEPTH or be 0; an equal or shallower second pass cannot upgrade any label"
+(( RELABEL_DEPTH2 == 0 || RELABEL_MAX_RECORDS2 > 0 )) \
+  || die "RELABEL_DEPTH2 requires RELABEL_MAX_RECORDS2 > 0; an uncapped deep pass would relabel everything and cost ~2.1x the whole relabel stage"
 [[ "$RELABEL_DEPTH" -eq 7 || "$RELABEL_DEPTH" -eq 9 ]] \
   || die "this deployment supports only the measured node-capped PieBot depth-7 or depth-9 teacher"
 (( REPLAY_WINDOW_CYCLES <= RETAIN_FULL_CYCLES )) \
@@ -518,6 +528,8 @@ if [[ -n "$TEACHER_EXTERNAL_QUANT_FILE" ]]; then
 fi
 AUTOPILOT_ARGS+=(
   "--teacher-relabel-depth" "$RELABEL_DEPTH"
+  "--teacher-relabel-depth2" "$RELABEL_DEPTH2"
+  "--teacher-relabel-max-records2" "$RELABEL_MAX_RECORDS2"
   "--teacher-relabel-every" "$RELABEL_EVERY"
   "--teacher-relabel-threads" "$RELABEL_THREADS"
   "--teacher-relabel-hash-mb" "$RELABEL_HASH_MB"

@@ -395,6 +395,37 @@ def build_selfplay_command(
     return cmd
 
 
+def _validate_hybrid_teacher(*, depth: int, depth2: int) -> None:
+    """Guard the two-pass teacher.
+
+    Pass 1 labels every row at `depth`. Pass 2 re-labels a capped subset at
+    `depth2`, overwriting those rows with a stronger label and leaving the rest
+    untouched -- relabel_jsonl copies rows beyond --max-records through
+    unchanged, stamping each with the depth that actually produced it.
+
+    Two ways to get this wrong, both silent:
+      * depth2 <= depth cannot upgrade anything, so the second pass burns
+        compute rewriting rows with no gain.
+      * depth2 without a first pass leaves most rows carrying only the actor's
+        own search depth, which MIN_TEACHER_DEPTH then rejects as teacher
+        labels -- the corpus would quietly lose most of its supervision.
+    """
+    if depth2 <= 0:
+        return
+    if depth <= 0:
+        raise ValueError(
+            "teacher_relabel_depth2 requires teacher_relabel_depth: without a "
+            "first pass most rows keep the actor's depth and fail "
+            "MIN_TEACHER_DEPTH"
+        )
+    if depth2 <= depth:
+        raise ValueError(
+            f"teacher_relabel_depth2 ({depth2}) must exceed "
+            f"teacher_relabel_depth ({depth}); a shallower or equal second "
+            "pass cannot upgrade any label"
+        )
+
+
 def build_relabel_command(
     *,
     piebot_dir: Path,
@@ -1499,6 +1530,8 @@ def run_pipeline(
     teacher_relabel_threads: int = 1,
     teacher_relabel_hash_mb: int = 64,
     teacher_relabel_max_records: int = 0,
+    teacher_relabel_depth2: int = 0,
+    teacher_relabel_max_records2: int = 0,
     teacher_relabel_max_nodes: int = 0,
     teacher_relabel_nnue_quant_file: Optional[Path] = None,
     teacher_relabel_nnue_blend_percent: int = 100,
@@ -1695,6 +1728,9 @@ def run_pipeline(
             max_bin_records=max_bin_records,
         )
 
+    _validate_hybrid_teacher(
+        depth=teacher_relabel_depth, depth2=teacher_relabel_depth2
+    )
     if teacher_relabel_depth > 0:
         if piebot_dir is None:
             piebot_dir = Path(__file__).resolve().parents[2] / "PieBot"
@@ -1744,6 +1780,46 @@ def run_pipeline(
             )
         jsonl_dir = relabeled_dir
         ingested = int(relabel_manifest["records"])
+
+        # Hybrid teacher: a capped second pass at greater depth. Every row keeps
+        # its pass-1 label; the capped subset is upgraded in place. Measured
+        # 2026-08-17 at depth 9 under a 144k node cap: 26% of rows reach 9, 33%
+        # reach 8, 33% stay at 7, for ~2.1x the per-row cost. So the node cap,
+        # not the depth flag, is what bounds teacher strength -- the second pass
+        # degrades gracefully rather than failing on expensive positions.
+        if teacher_relabel_depth2 > 0:
+            deep_dir = Path(str(relabeled_dir) + "_deep")
+            deep_manifest = (
+                _validated_jsonl_stage_manifest(
+                    deep_dir,
+                    "relabel_deep",
+                    expected_provenance=relabel_provenance,
+                )
+                if resume and relabel_cmd is None
+                else None
+            )
+            if deep_manifest is None:
+                _reset_jsonl_stage(deep_dir)
+                _relabel_jsonl(
+                    piebot_dir=piebot_dir,
+                    jsonl_in=relabeled_dir,
+                    jsonl_out=deep_dir,
+                    depth=teacher_relabel_depth2,
+                    every=teacher_relabel_every,
+                    threads=teacher_relabel_threads,
+                    hash_mb=teacher_relabel_hash_mb,
+                    max_records=teacher_relabel_max_records2,
+                    nnue_quant_file=teacher_relabel_nnue_quant_file,
+                    nnue_blend_percent=teacher_relabel_nnue_blend_percent,
+                    max_nodes=teacher_relabel_max_nodes,
+                )
+                deep_manifest = _write_jsonl_stage_manifest(
+                    deep_dir,
+                    "relabel_deep",
+                    provenance=relabel_provenance,
+                )
+            jsonl_dir = deep_dir
+            ingested = int(deep_manifest["records"])
 
     if validation_jsonl_dir is not None:
         _assert_validation_source_disjoint(
@@ -2059,6 +2135,8 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap.add_argument("--teacher-relabel-hash-mb", type=int, default=64)
     ap.add_argument("--teacher-relabel-max-nodes", type=int, default=0)
     ap.add_argument("--teacher-relabel-max-records", type=int, default=0)
+    ap.add_argument("--teacher-relabel-depth2", type=int, default=0)
+    ap.add_argument("--teacher-relabel-max-records2", type=int, default=0)
     ap.add_argument("--teacher-relabel-nnue-quant-file", type=Path, default=None)
     ap.add_argument("--teacher-relabel-nnue-blend-percent", type=int, default=100)
     ap.add_argument(
@@ -2186,6 +2264,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         teacher_relabel_hash_mb=args.teacher_relabel_hash_mb,
         teacher_relabel_max_nodes=args.teacher_relabel_max_nodes,
         teacher_relabel_max_records=args.teacher_relabel_max_records,
+        teacher_relabel_depth2=args.teacher_relabel_depth2,
+        teacher_relabel_max_records2=args.teacher_relabel_max_records2,
         teacher_relabel_nnue_quant_file=args.teacher_relabel_nnue_quant_file,
         teacher_relabel_nnue_blend_percent=args.teacher_relabel_nnue_blend_percent,
         bin_glob=args.bin_glob,
