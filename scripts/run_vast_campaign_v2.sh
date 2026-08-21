@@ -81,12 +81,11 @@ FRESH_INIT="${FRESH_INIT:-0}"
 # requires a fresh lineage (FRESH_INIT=1) because the feature set changes.
 TRAIN_ARCH="${TRAIN_ARCH:-v1}"
 
-# Teacher/actor label separation. Self-play stamps every row with
-# teacher_depth = actor depth, so MIN_TEACHER_DEPTH must EXCEED the actor
-# depth or actor self-labels masquerade as teacher labels (discovered
-# 2026-08-08; in v4 this silently made the actor its own 0.8-mix teacher on
-# non-relabeled rows). TEACHER_SAMPLE_FRACTION must match the relabel
-# cadence: every-Nth-ply relabeling yields roughly 1/N teacher rows.
+# Actor/teacher label policy. Self-play records the deepest fully completed
+# clean root iteration for each position. When RELABEL_DEPTH=0 those honest
+# actor labels are intentional supervision, so MIN_TEACHER_DEPTH may be at or
+# below SELFPLAY_DEPTH; when a full relabel pass is enabled it must remain
+# above SELFPLAY_DEPTH to preserve actor/teacher separation.
 MIN_TEACHER_DEPTH="${MIN_TEACHER_DEPTH:-5}"
 TEACHER_SAMPLE_FRACTION="${TEACHER_SAMPLE_FRACTION:-0.5}"
 
@@ -151,11 +150,12 @@ NO_RESIGN_FRACTION="${NO_RESIGN_FRACTION:-0.15}"
 DRAW_ADJ_CP="${DRAW_ADJ_CP:-10}"
 DRAW_ADJ_PLIES="${DRAW_ADJ_PLIES:-40}"
 DRAW_ADJ_MIN_PLY="${DRAW_ADJ_MIN_PLY:-80}"
-# Actor budget (Pilot C): real TT + 4x node caps; relabel dominates cycle
-# time so this raise is cheap, and it attacks the threefold repetition share.
+# Actor budget. Policy child searches remain at 40k during noisy opening plies;
+# the clean root search used for both play and supervision gets 144k. Raising
+# the policy cap too would multiply 144k by the number of legal moves.
 ACTOR_TT_MB="${ACTOR_TT_MB:-128}"
 POLICY_NODE_CAP="${POLICY_NODE_CAP:-40000}"
-BESTMOVE_NODE_CAP="${BESTMOVE_NODE_CAP:-80000}"
+BESTMOVE_NODE_CAP="${BESTMOVE_NODE_CAP:-144000}"
 # Tightened exploration window (cycle-18 tripwire response): noise plies
 # halved so the stronger actor's choices stop being diluted into repetition.
 TEMPERATURE_MOVES="${TEMPERATURE_MOVES:-12}"
@@ -320,7 +320,9 @@ require_positive_int SELFPLAY_GAMES "$SELFPLAY_GAMES"
 require_positive_int SELFPLAY_DEPTH "$SELFPLAY_DEPTH"
 require_positive_int SELFPLAY_THREADS "$SELFPLAY_THREADS"
 require_positive_int SELFPLAY_PARALLEL_GAMES "$SELFPLAY_PARALLEL_GAMES"
-require_positive_int RELABEL_DEPTH "$RELABEL_DEPTH"
+require_nonnegative_int RELABEL_DEPTH "$RELABEL_DEPTH"
+require_nonnegative_int RELABEL_DEPTH2 "$RELABEL_DEPTH2"
+require_nonnegative_int RELABEL_MAX_RECORDS2 "$RELABEL_MAX_RECORDS2"
 require_positive_int RELABEL_EVERY "$RELABEL_EVERY"
 require_positive_int RELABEL_THREADS "$RELABEL_THREADS"
 require_positive_int RELABEL_HASH_MB "$RELABEL_HASH_MB"
@@ -351,16 +353,23 @@ require_positive_int GATE_SEARCH_THREADS "$GATE_SEARCH_THREADS"
 require_positive_int GATE_PARALLEL_GAMES "$GATE_PARALLEL_GAMES"
 require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODEL_BLEND_PERCENT"
 
-# Two calibrated teacher shapes: depth 7 capped at depth-5's p95 (144k), and
-# depth 9 capped at depth-7's p95 (2.5M). Any other depth is unmeasured.
-(( MIN_TEACHER_DEPTH > SELFPLAY_DEPTH )) \
-  || die "MIN_TEACHER_DEPTH must exceed SELFPLAY_DEPTH: actor rows stamp teacher_depth = actor depth and would masquerade as teacher labels"
-(( RELABEL_DEPTH2 == 0 || RELABEL_DEPTH2 > RELABEL_DEPTH )) \
+# The full relabel pass keeps actor/teacher separation. With that pass disabled,
+# the actor's achieved-depth root labels are intentionally eligible instead.
+if (( RELABEL_DEPTH == 0 )); then
+  (( MIN_TEACHER_DEPTH <= SELFPLAY_DEPTH )) \
+    || die "MIN_TEACHER_DEPTH must not exceed SELFPLAY_DEPTH when RELABEL_DEPTH=0: no actor labels would qualify"
+else
+  (( MIN_TEACHER_DEPTH > SELFPLAY_DEPTH )) \
+    || die "MIN_TEACHER_DEPTH must exceed SELFPLAY_DEPTH when a full relabel pass is enabled"
+fi
+(( RELABEL_DEPTH2 == 0 || RELABEL_DEPTH == 0 || RELABEL_DEPTH2 > RELABEL_DEPTH )) \
   || die "RELABEL_DEPTH2 must exceed RELABEL_DEPTH or be 0; an equal or shallower second pass cannot upgrade any label"
 (( RELABEL_DEPTH2 == 0 || RELABEL_MAX_RECORDS2 > 0 )) \
   || die "RELABEL_DEPTH2 requires RELABEL_MAX_RECORDS2 > 0; an uncapped deep pass would relabel everything and cost ~2.1x the whole relabel stage"
-[[ "$RELABEL_DEPTH" -eq 7 || "$RELABEL_DEPTH" -eq 9 ]] \
-  || die "this deployment supports only the measured node-capped PieBot depth-7 or depth-9 teacher"
+[[ "$RELABEL_DEPTH" -eq 0 || "$RELABEL_DEPTH" -eq 7 || "$RELABEL_DEPTH" -eq 9 ]] \
+  || die "this deployment supports a disabled full relabel pass or a measured node-capped PieBot depth-7/depth-9 pass"
+[[ "$RELABEL_DEPTH2" -eq 0 || "$RELABEL_DEPTH2" -eq 9 ]] \
+  || die "the capped standalone upgrade pass supports only measured PieBot depth 9"
 (( REPLAY_WINDOW_CYCLES <= RETAIN_FULL_CYCLES )) \
   || die "REPLAY_WINDOW_CYCLES must not exceed RETAIN_FULL_CYCLES: replay silently shrinks when retention deletes cycles"
 (( RETAIN_FULL_CYCLES >= 1 )) \
@@ -433,6 +442,8 @@ require_autopilot_flag "--gate-incremental-pst-policy"
 require_autopilot_flag "--gate-pst-veto-margin"
 require_autopilot_flag "--selfplay-openings"
 require_autopilot_flag "--teacher-relabel-max-nodes"
+require_autopilot_flag "--teacher-relabel-depth2"
+require_autopilot_flag "--teacher-relabel-max-records2"
 require_autopilot_flag "--gate-sprt"
 require_autopilot_flag "--selfplay-resign-cp"
 require_autopilot_flag "--selfplay-actor-tt-mb"
@@ -585,11 +596,16 @@ if [[ -n "$CROSS_ARCH_GATE_BLEND_PERCENT" ]]; then
   )
 fi
 
-log "starting campaign_v2: PieBot-only node-capped depth-$RELABEL_DEPTH self-relabel training"
+log "starting campaign_v2: depth-$SELFPLAY_DEPTH actor with $BESTMOVE_NODE_CAP-node clean root labels"
 log "output root: $OUT_ROOT"
 log "deadline budget: $HOURS hours (persisted once in autopilot_state.json)"
 log "opening suite: $SELFPLAY_OPENINGS (sha256 $OPENINGS_SHA256)"
-log "teacher node cap: $RELABEL_MAX_NODES nodes/position (measured node-cost calibration)"
+if (( RELABEL_DEPTH > 0 )); then
+  log "full teacher pass: depth $RELABEL_DEPTH at $RELABEL_MAX_NODES nodes/position"
+fi
+if (( RELABEL_DEPTH2 > 0 )); then
+  log "teacher subset: up to $RELABEL_MAX_RECORDS2 positions at depth $RELABEL_DEPTH2 and $RELABEL_MAX_NODES nodes/position"
+fi
 if [[ "$FRESH_INIT" == "1" ]]; then
   log "fresh-init lineage: hidden-dim $HIDDEN_DIM from random weights, no warm-start checkpoint"
 fi

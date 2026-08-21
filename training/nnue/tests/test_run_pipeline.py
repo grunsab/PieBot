@@ -153,15 +153,26 @@ class RunPipelineTests(unittest.TestCase):
         # A second pass at or below the first depth cannot upgrade any label;
         # it would burn compute rewriting rows with no gain.
         with self.assertRaises(ValueError):
-            run_pipeline._validate_hybrid_teacher(depth=7, depth2=7)
+            run_pipeline._validate_hybrid_teacher(
+                depth=7, depth2=7, max_records2=1
+            )
         with self.assertRaises(ValueError):
-            run_pipeline._validate_hybrid_teacher(depth=7, depth2=6)
+            run_pipeline._validate_hybrid_teacher(
+                depth=7, depth2=6, max_records2=1
+            )
 
-    def test_hybrid_second_pass_requires_a_first_pass(self) -> None:
-        # Depth2 without depth would leave most rows carrying only the actor's
-        # own depth-5 label, which MIN_TEACHER_DEPTH would then reject.
+    def test_standalone_deep_pass_is_valid_for_actor_labeled_rows(self) -> None:
+        # A depth-7 actor can provide the base label itself; the capped depth-9
+        # pass then upgrades only its configured subset.
+        run_pipeline._validate_hybrid_teacher(depth=0, depth2=9, max_records2=1)
+
+    def test_deep_pass_requires_a_positive_subset_cap(self) -> None:
         with self.assertRaises(ValueError):
-            run_pipeline._validate_hybrid_teacher(depth=0, depth2=9)
+            run_pipeline._validate_hybrid_teacher(
+                depth=0,
+                depth2=9,
+                max_records2=0,
+            )
 
     def test_hybrid_teacher_disabled_validates_trivially(self) -> None:
         run_pipeline._validate_hybrid_teacher(depth=7, depth2=0)
@@ -184,6 +195,143 @@ class RunPipelineTests(unittest.TestCase):
         self.assertIn("--depth", cmd)
         self.assertEqual(cmd[cmd.index("--depth") + 1], "9")
         self.assertEqual(cmd[cmd.index("--max-records") + 1], "175000")
+
+    def test_standalone_deep_pass_reads_actor_rows_and_becomes_training_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            actor_rows = root / "actor"
+            actor_rows.mkdir()
+            _write_dataset(actor_rows, n=3, teacher_depth=7)
+            calls = []
+
+            def fake_deep_relabel(**kwargs):
+                calls.append(kwargs)
+                self.assertEqual(actor_rows, Path(kwargs["jsonl_in"]))
+                self.assertEqual(9, kwargs["depth"])
+                self.assertEqual(1, kwargs["max_records"])
+                output = Path(kwargs["jsonl_out"])
+                output.mkdir(parents=True, exist_ok=True)
+                rows = [
+                    json.loads(line)
+                    for line in (actor_rows / "shard_000000.jsonl")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                ]
+                rows[0]["teacher_depth"] = 9
+                (output / "shard_000000.jsonl").write_text(
+                    "".join(json.dumps(row) + "\n" for row in rows),
+                    encoding="utf-8",
+                )
+                return ["fake-depth9-relabel"]
+
+            with mock.patch(
+                "training.nnue.run_pipeline._relabel_jsonl",
+                side_effect=fake_deep_relabel,
+            ):
+                summary = run_pipeline.run_pipeline(
+                    out_dir=root / "out",
+                    jsonl_dir=actor_rows,
+                    teacher_relabel_depth=0,
+                    teacher_relabel_depth2=9,
+                    teacher_relabel_max_records2=1,
+                    teacher_relabel_every=1,
+                    teacher_relabel_max_nodes=144_000,
+                    teacher_sample_fraction=1.0,
+                    min_teacher_depth=6,
+                    max_samples=3,
+                    epochs=1,
+                    hidden_dim=1,
+                    trainer_backend="stub",
+                )
+
+            self.assertEqual(1, len(calls))
+            self.assertTrue(summary["jsonl_dir"].endswith("jsonl_relabel_deep"))
+            self.assertEqual(["fake-depth9-relabel"], summary["relabel_deep_command"])
+
+    def test_standalone_deep_pass_resume_binds_actor_input_and_deep_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out_dir = root / "out"
+            actor_rows = root / "actor"
+            actor_rows.mkdir()
+            _write_dataset(actor_rows, n=3, teacher_depth=7)
+            teacher = root / "teacher.nnue"
+            teacher.write_bytes(b"teacher-a")
+            calls = []
+
+            def fake_deep_relabel(**kwargs):
+                calls.append(kwargs)
+                output = Path(kwargs["jsonl_out"])
+                output.mkdir(parents=True, exist_ok=True)
+                source = Path(kwargs["jsonl_in"]) / "shard_000000.jsonl"
+                (output / "shard_000000.jsonl").write_bytes(source.read_bytes())
+                return ["fake-depth9-relabel"]
+
+            kwargs = {
+                "out_dir": out_dir,
+                "jsonl_dir": actor_rows,
+                "teacher_relabel_depth": 0,
+                "teacher_relabel_depth2": 9,
+                "teacher_relabel_max_records2": 1,
+                "teacher_relabel_every": 1,
+                "teacher_relabel_threads": 2,
+                "teacher_relabel_hash_mb": 16,
+                "teacher_relabel_max_nodes": 144_000,
+                "teacher_relabel_nnue_quant_file": teacher,
+                "teacher_sample_fraction": 1.0,
+                "min_teacher_depth": 6,
+                "max_samples": 3,
+                "epochs": 1,
+                "val_split": 0.0,
+                "hidden_dim": 1,
+                "trainer_backend": "stub",
+            }
+            with mock.patch(
+                "training.nnue.run_pipeline._relabel_jsonl",
+                side_effect=fake_deep_relabel,
+            ):
+                run_pipeline.run_pipeline(**kwargs)
+                run_pipeline.run_pipeline(**kwargs, resume=True)
+                self.assertEqual(1, len(calls))
+
+                manifest = json.loads(
+                    (out_dir / "jsonl_relabel_deep" / ".piebot_stage_complete.json")
+                    .read_text(encoding="utf-8")
+                )
+                provenance = manifest["provenance"]
+                self.assertEqual(actor_rows.resolve().as_posix(), provenance["input"]["path"])
+                self.assertEqual(9, provenance["args"]["depth"])
+                self.assertEqual(1, provenance["args"]["max_records"])
+                self.assertEqual(144_000, provenance["args"]["max_nodes"])
+
+                changed_cap = dict(kwargs, teacher_relabel_max_records2=2)
+                run_pipeline.run_pipeline(**changed_cap, resume=True)
+                self.assertEqual(2, len(calls))
+
+                changed_nodes = dict(changed_cap, teacher_relabel_max_nodes=144_001)
+                run_pipeline.run_pipeline(**changed_nodes, resume=True)
+                self.assertEqual(3, len(calls))
+
+                teacher.write_bytes(b"teacher-b")
+                run_pipeline.run_pipeline(**changed_nodes, resume=True)
+                self.assertEqual(4, len(calls))
+
+                shard = actor_rows / "shard_000000.jsonl"
+                shard.write_text(
+                    shard.read_text(encoding="utf-8")
+                    + json.dumps(
+                        {
+                            "fen": "8/8/8/8/8/8/4K3/7k w - - 0 1",
+                            "result": 0,
+                            "value_cp": 0.0,
+                            "teacher_depth": 7,
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                run_pipeline.run_pipeline(**changed_nodes, resume=True)
+                self.assertEqual(5, len(calls))
 
     def test_external_teacher_relabel_engine_is_not_a_pipeline_option(self) -> None:
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):

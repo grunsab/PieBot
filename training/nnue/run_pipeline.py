@@ -395,30 +395,30 @@ def build_selfplay_command(
     return cmd
 
 
-def _validate_hybrid_teacher(*, depth: int, depth2: int) -> None:
-    """Guard the two-pass teacher.
+def _validate_hybrid_teacher(
+    *, depth: int, depth2: int, max_records2: int = 0
+) -> None:
+    """Guard optional base and capped deep teacher passes.
 
-    Pass 1 labels every row at `depth`. Pass 2 re-labels a capped subset at
-    `depth2`, overwriting those rows with a stronger label and leaving the rest
-    untouched -- relabel_jsonl copies rows beyond --max-records through
-    unchanged, stamping each with the depth that actually produced it.
+    A base pass labels every row at `depth` when enabled. The deep pass
+    re-labels a capped subset at `depth2`, overwriting those rows with a
+    stronger label and leaving the rest untouched. It can consume either the
+    base-pass output or actor rows that already carry honest achieved-depth
+    labels.
 
     Two ways to get this wrong, both silent:
       * depth2 <= depth cannot upgrade anything, so the second pass burns
         compute rewriting rows with no gain.
-      * depth2 without a first pass leaves most rows carrying only the actor's
-        own search depth, which MIN_TEACHER_DEPTH then rejects as teacher
-        labels -- the corpus would quietly lose most of its supervision.
+      * an uncapped deep pass silently turns a bounded upgrade into a full
+        corpus relabel.
     """
     if depth2 <= 0:
         return
-    if depth <= 0:
+    if max_records2 <= 0:
         raise ValueError(
-            "teacher_relabel_depth2 requires teacher_relabel_depth: without a "
-            "first pass most rows keep the actor's depth and fail "
-            "MIN_TEACHER_DEPTH"
+            "teacher_relabel_depth2 requires teacher_relabel_max_records2 > 0"
         )
-    if depth2 <= depth:
+    if depth > 0 and depth2 <= depth:
         raise ValueError(
             f"teacher_relabel_depth2 ({depth2}) must exceed "
             f"teacher_relabel_depth ({depth}); a shallower or equal second "
@@ -1625,6 +1625,7 @@ def run_pipeline(
     ingested = 0
     selfplay_cmd: Optional[List[str]] = None
     relabel_cmd: Optional[List[str]] = None
+    relabel_deep_cmd: Optional[List[str]] = None
     selfplay_rebuilt = False
     if selfplay_games > 0:
         if jsonl_dir is not None or bin_inputs:
@@ -1729,7 +1730,9 @@ def run_pipeline(
         )
 
     _validate_hybrid_teacher(
-        depth=teacher_relabel_depth, depth2=teacher_relabel_depth2
+        depth=teacher_relabel_depth,
+        depth2=teacher_relabel_depth2,
+        max_records2=teacher_relabel_max_records2,
     )
     if teacher_relabel_depth > 0:
         if piebot_dir is None:
@@ -1781,45 +1784,59 @@ def run_pipeline(
         jsonl_dir = relabeled_dir
         ingested = int(relabel_manifest["records"])
 
-        # Hybrid teacher: a capped second pass at greater depth. Every row keeps
-        # its pass-1 label; the capped subset is upgraded in place. Measured
-        # 2026-08-17 at depth 9 under a 144k node cap: 26% of rows reach 9, 33%
-        # reach 8, 33% stay at 7, for ~2.1x the per-row cost. So the node cap,
-        # not the depth flag, is what bounds teacher strength -- the second pass
-        # degrades gracefully rather than failing on expensive positions.
-        if teacher_relabel_depth2 > 0:
-            deep_dir = Path(str(relabeled_dir) + "_deep")
-            deep_manifest = (
-                _validated_jsonl_stage_manifest(
-                    deep_dir,
-                    "relabel_deep",
-                    expected_provenance=relabel_provenance,
-                )
-                if resume and relabel_cmd is None
-                else None
+
+    # Capped deep teacher: upgrade a subset of whichever labels are current.
+    # With a base pass this is the second hybrid stage; without one it consumes
+    # honest actor labels directly. relabel_jsonl copies all cap-excess rows
+    # through unchanged, so record count and outcome coverage are preserved.
+    if teacher_relabel_depth2 > 0:
+        if piebot_dir is None:
+            piebot_dir = Path(__file__).resolve().parents[2] / "PieBot"
+        deep_input_dir = Path(jsonl_dir)
+        deep_dir = out_dir / "jsonl_relabel_deep"
+        deep_provenance = _relabel_stage_provenance(
+            piebot_dir=piebot_dir,
+            jsonl_in=deep_input_dir,
+            depth=teacher_relabel_depth2,
+            every=teacher_relabel_every,
+            threads=teacher_relabel_threads,
+            hash_mb=teacher_relabel_hash_mb,
+            max_records=teacher_relabel_max_records2,
+            nnue_quant_file=teacher_relabel_nnue_quant_file,
+            nnue_blend_percent=teacher_relabel_nnue_blend_percent,
+            max_nodes=teacher_relabel_max_nodes,
+        )
+        deep_manifest = (
+            _validated_jsonl_stage_manifest(
+                deep_dir,
+                "relabel_deep",
+                expected_provenance=deep_provenance,
             )
-            if deep_manifest is None:
-                _reset_jsonl_stage(deep_dir)
-                _relabel_jsonl(
-                    piebot_dir=piebot_dir,
-                    jsonl_in=relabeled_dir,
-                    jsonl_out=deep_dir,
-                    depth=teacher_relabel_depth2,
-                    every=teacher_relabel_every,
-                    threads=teacher_relabel_threads,
-                    hash_mb=teacher_relabel_hash_mb,
-                    max_records=teacher_relabel_max_records2,
-                    nnue_quant_file=teacher_relabel_nnue_quant_file,
-                    nnue_blend_percent=teacher_relabel_nnue_blend_percent,
-                    max_nodes=teacher_relabel_max_nodes,
-                )
-                deep_manifest = _write_jsonl_stage_manifest(
-                    deep_dir,
-                    "relabel_deep",
-                    provenance=relabel_provenance,
-                )
-            jsonl_dir = deep_dir
-            ingested = int(deep_manifest["records"])
+            if resume and not selfplay_rebuilt and relabel_cmd is None
+            else None
+        )
+        if deep_manifest is None:
+            _reset_jsonl_stage(deep_dir)
+            relabel_deep_cmd = _relabel_jsonl(
+                piebot_dir=piebot_dir,
+                jsonl_in=deep_input_dir,
+                jsonl_out=deep_dir,
+                depth=teacher_relabel_depth2,
+                every=teacher_relabel_every,
+                threads=teacher_relabel_threads,
+                hash_mb=teacher_relabel_hash_mb,
+                max_records=teacher_relabel_max_records2,
+                nnue_quant_file=teacher_relabel_nnue_quant_file,
+                nnue_blend_percent=teacher_relabel_nnue_blend_percent,
+                max_nodes=teacher_relabel_max_nodes,
+            )
+            deep_manifest = _write_jsonl_stage_manifest(
+                deep_dir,
+                "relabel_deep",
+                provenance=deep_provenance,
+            )
+        jsonl_dir = deep_dir
+        ingested = int(deep_manifest["records"])
 
     if validation_jsonl_dir is not None:
         _assert_validation_source_disjoint(
@@ -2069,6 +2086,7 @@ def run_pipeline(
         "ingested_records": ingested,
         "selfplay_command": selfplay_cmd,
         "relabel_command": relabel_cmd,
+        "relabel_deep_command": relabel_deep_cmd,
         "selfplay_nnue_quant_file": str(selfplay_nnue_quant_file) if selfplay_nnue_quant_file else None,
         "teacher_relabel_nnue_quant_file": str(teacher_relabel_nnue_quant_file)
         if teacher_relabel_nnue_quant_file

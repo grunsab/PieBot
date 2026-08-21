@@ -1,5 +1,8 @@
+use cozy_chess::Board;
+use piebot::search::alphabeta::Searcher;
 use piebot::selfplay::{
-    generate_games, AdjudicationVerdict, Adjudicator, GameTermination, SelfPlayParams,
+    bestmove_search_params, generate_games, AdjudicationVerdict, Adjudicator, GameTermination,
+    SelfPlayParams,
 };
 
 #[test]
@@ -533,4 +536,81 @@ fn actor_budget_is_configurable_with_legacy_defaults() {
     assert_eq!(Some(50_000), policy.max_nodes);
     let best = piebot::selfplay::bestmove_search_params(&raised, 2);
     assert_eq!(Some(100_000), best.max_nodes);
+}
+
+fn one_ply_engine_params() -> SelfPlayParams {
+    SelfPlayParams {
+        games: 1,
+        max_plies: 1,
+        threads: 1,
+        parallel_games: 1,
+        use_engine: true,
+        depth: 7,
+        movetime_ms: None,
+        seed: 20260821,
+        temperature_tau: 0.0,
+        temp_cp_scale: 200.0,
+        dirichlet_alpha: 0.3,
+        dirichlet_epsilon: 0.0,
+        dirichlet_plies: 0,
+        temperature_moves: 0,
+        openings_path: None,
+        temperature_tau_final: 0.1,
+        nnue_quant_model: None,
+        nnue_blend_percent: 100,
+        resign_cp: 0.0,
+        resign_plies: 0,
+        no_resign_fraction: 1.0,
+        draw_adj_cp: 0.0,
+        draw_adj_plies: 0,
+        draw_adj_min_ply: 0,
+        actor_tt_mb: 1,
+        policy_node_cap: 1,
+        bestmove_node_cap: 1,
+    }
+}
+
+#[test]
+fn actor_label_stamps_achieved_depth_under_a_node_cap() {
+    let params = one_ply_engine_params();
+    let mut searcher = Searcher::default();
+    searcher.set_tt_capacity_mb(params.actor_tt_mb);
+    let expected = searcher.search_with_params(
+        &Board::default(),
+        bestmove_search_params(&params, params.depth),
+    );
+    assert!(expected.depth < params.depth);
+
+    let game = generate_games(&params)
+        .expect("selfplay game")
+        .pop()
+        .expect("one game");
+    assert_eq!(Some(expected.depth), game.move_teacher_depth[0]);
+    assert_eq!(expected.bestmove, game.move_target_best[0]);
+    assert_eq!(Some(expected.score_cp as f32), game.move_value_cp[0]);
+}
+
+#[test]
+fn noisy_actor_uses_the_root_label_search_not_policy_scores_as_teacher() {
+    let mut greedy = one_ply_engine_params();
+    greedy.depth = 3;
+    greedy.bestmove_node_cap = 100_000;
+    let greedy_game = generate_games(&greedy)
+        .expect("greedy selfplay game")
+        .pop()
+        .expect("one greedy game");
+
+    let mut noisy = greedy.clone();
+    noisy.temperature_tau = 1.0;
+    noisy.temperature_moves = 1;
+    noisy.policy_node_cap = 1;
+    let noisy_game = generate_games(&noisy)
+        .expect("noisy selfplay game")
+        .pop()
+        .expect("one noisy game");
+
+    assert_eq!(greedy_game.move_target_best[0], noisy_game.move_target_best[0]);
+    assert_eq!(greedy_game.move_value_cp[0], noisy_game.move_value_cp[0]);
+    assert_eq!(greedy_game.move_teacher_depth[0], noisy_game.move_teacher_depth[0]);
+    assert!(!noisy_game.move_policy_top[0].is_empty());
 }

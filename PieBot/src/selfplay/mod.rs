@@ -49,7 +49,7 @@ pub fn policy_search_params(params: &SelfPlayParams, depth: u32) -> SearchParams
     p
 }
 
-/// Search budget for the played-move search.
+/// Search budget for the clean root label, also used to play outside noise.
 pub fn bestmove_search_params(params: &SelfPlayParams, depth: u32) -> SearchParams {
     let mut p = base_actor_search_params(params, depth);
     p.max_nodes = Some(params.bestmove_node_cap.max(1));
@@ -81,7 +81,7 @@ pub struct GameRecord {
     pub moves: Vec<String>,                       // played moves
     pub move_target_best: Vec<Option<String>>,    // teacher best move for each ply
     pub move_value_cp: Vec<Option<f32>>,          // white-perspective teacher value for each ply
-    pub move_teacher_depth: Vec<Option<u32>>,     // configured teacher depth for each value
+    pub move_teacher_depth: Vec<Option<u32>>,     // deepest completed root iteration
     pub move_policy_top: Vec<Vec<(String, f32)>>, // optional root policy samples
     pub result: i8,                               // 1 white win, 0 draw, -1 black win
     pub outcome_valid: bool, // false when generation stopped without a chess result
@@ -473,6 +473,33 @@ fn select_engine_move(
     game_seed: u64,
     searcher: &mut Searcher,
 ) -> Option<MoveChoice> {
+    // Produce one clean root label for every actor position. Outside the
+    // exploration window this result is also the played move. During noisy
+    // plies the policy searches below choose the played move, while this root
+    // result remains the value target. That lets a depth-7/144k actor replace
+    // a separate full-corpus depth-7 relabel pass without turning its sampled
+    // opening move into the teacher target.
+    let teacher_params = bestmove_search_params(params, params.depth);
+    let teacher_result = searcher.search_with_params(board, teacher_params);
+    let teacher_move = teacher_result.bestmove.as_ref().and_then(|best| {
+        let mut found = None;
+        board.generate_moves(|ml| {
+            for mv in ml {
+                if format!("{}", mv) == *best {
+                    found = Some(mv);
+                    break;
+                }
+            }
+            found.is_some()
+        });
+        found
+    })?;
+    let teacher_score_white = if board.side_to_move() == Color::White {
+        teacher_result.score_cp as f32
+    } else {
+        -(teacher_result.score_cp as f32)
+    };
+
     // If temperature or Dirichlet requested, compute root policy and sample
     let use_temp = params.temperature_tau > 0.0 && ply_idx < params.temperature_moves;
     let use_dir = params.dirichlet_epsilon > 0.0 && ply_idx < params.dirichlet_plies;
@@ -534,12 +561,6 @@ fn select_engine_move(
                 *p = 1.0 / n;
             }
         }
-        let mut best_idx = 0usize;
-        for i in 1..clean_probs.len() {
-            if clean_probs[i] > clean_probs[best_idx] {
-                best_idx = i;
-            }
-        }
         let mut sample_probs = clean_probs.clone();
         // Dirichlet noise
         if use_dir && params.dirichlet_alpha > 0.0 {
@@ -584,46 +605,20 @@ fn select_engine_move(
         for &idx in &order[..keep] {
             policy_top.push((format!("{}", moves[idx]), clean_probs[idx]));
         }
-        let best_cp_parent = scores[best_idx];
-        let best_cp_white = if board.side_to_move() == Color::White {
-            best_cp_parent
-        } else {
-            -best_cp_parent
-        };
         return Some(MoveChoice {
             played_mv: moves[picked_idx],
-            target_best_mv: Some(moves[best_idx]),
-            value_cp: Some(best_cp_white),
-            teacher_depth: Some(params.depth.max(1)),
+            target_best_mv: Some(teacher_move),
+            value_cp: Some(teacher_score_white),
+            teacher_depth: Some(teacher_result.depth),
             policy_top,
         });
     }
-    // Greedy best move
-    let p = bestmove_search_params(params, params.depth);
-    let res = searcher.search_with_params(board, p);
-    let score_white = if board.side_to_move() == Color::White {
-        res.score_cp as f32
-    } else {
-        -(res.score_cp as f32)
-    };
-    res.bestmove.and_then(|s| {
-        let mut choice = None;
-        board.generate_moves(|ml| {
-            for m in ml {
-                if format!("{}", m) == s {
-                    choice = Some(m);
-                    break;
-                }
-            }
-            choice.is_some()
-        });
-        choice.map(|mv| MoveChoice {
-            played_mv: mv,
-            target_best_mv: Some(mv),
-            value_cp: Some(score_white),
-            teacher_depth: Some(params.depth.max(1)),
-            policy_top: Vec::new(),
-        })
+    Some(MoveChoice {
+        played_mv: teacher_move,
+        target_best_mv: Some(teacher_move),
+        value_cp: Some(teacher_score_white),
+        teacher_depth: Some(teacher_result.depth),
+        policy_top: Vec::new(),
     })
 }
 
