@@ -82,10 +82,10 @@ FRESH_INIT="${FRESH_INIT:-0}"
 TRAIN_ARCH="${TRAIN_ARCH:-v1}"
 
 # Actor/teacher label policy. Self-play records the deepest fully completed
-# clean root iteration for each position. When RELABEL_DEPTH=0 those honest
-# actor labels are intentional supervision, so MIN_TEACHER_DEPTH may be at or
-# below SELFPLAY_DEPTH; when a full relabel pass is enabled it must remain
-# above SELFPLAY_DEPTH to preserve actor/teacher separation.
+# clean root iteration for each position. With RELABEL_DEPTH=0, qualifying
+# labels may come from either the actor or the capped RELABEL_DEPTH2 pass. When
+# a full relabel pass is enabled, the floor must remain above SELFPLAY_DEPTH to
+# preserve actor/teacher separation.
 MIN_TEACHER_DEPTH="${MIN_TEACHER_DEPTH:-5}"
 TEACHER_SAMPLE_FRACTION="${TEACHER_SAMPLE_FRACTION:-0.5}"
 
@@ -353,11 +353,13 @@ require_positive_int GATE_SEARCH_THREADS "$GATE_SEARCH_THREADS"
 require_positive_int GATE_PARALLEL_GAMES "$GATE_PARALLEL_GAMES"
 require_nonnegative_int INITIAL_ACTIVE_MODEL_BLEND_PERCENT "$INITIAL_ACTIVE_MODEL_BLEND_PERCENT"
 
-# The full relabel pass keeps actor/teacher separation. With that pass disabled,
-# the actor's achieved-depth root labels are intentionally eligible instead.
+# The full relabel pass keeps actor/teacher separation. With it disabled, at
+# least one remaining source must meet the immutable teacher-depth floor: the
+# actor itself, or a non-empty capped deep pass.
 if (( RELABEL_DEPTH == 0 )); then
-  (( MIN_TEACHER_DEPTH <= SELFPLAY_DEPTH )) \
-    || die "MIN_TEACHER_DEPTH must not exceed SELFPLAY_DEPTH when RELABEL_DEPTH=0: no actor labels would qualify"
+  (( MIN_TEACHER_DEPTH <= SELFPLAY_DEPTH \
+      || (RELABEL_DEPTH2 >= MIN_TEACHER_DEPTH && RELABEL_MAX_RECORDS2 > 0) )) \
+    || die "RELABEL_DEPTH=0 leaves no eligible teacher labels: raise SELFPLAY_DEPTH or configure a capped RELABEL_DEPTH2 at or above MIN_TEACHER_DEPTH"
 else
   (( MIN_TEACHER_DEPTH > SELFPLAY_DEPTH )) \
     || die "MIN_TEACHER_DEPTH must exceed SELFPLAY_DEPTH when a full relabel pass is enabled"

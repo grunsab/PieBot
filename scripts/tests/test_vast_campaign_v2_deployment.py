@@ -91,13 +91,14 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn(
             'require_autopilot_flag "--teacher-relabel-max-records2"', launcher
         )
-        # min_teacher_depth is env-wired (objective-identity field). When the
-        # full relabel pass is disabled, achieved-depth actor labels are the
-        # intended supervision and must be eligible.
+        # min_teacher_depth is env-wired (objective-identity field). With the
+        # full pass disabled, either actor labels or a capped deeper pass must
+        # still provide labels at or above that immutable floor.
         self.assertIn('MIN_TEACHER_DEPTH="${MIN_TEACHER_DEPTH:-5}"', launcher)
         self.assertIn('"--min-teacher-depth" "$MIN_TEACHER_DEPTH"', launcher)
         self.assertIn("RELABEL_DEPTH == 0", launcher)
-        self.assertIn("MIN_TEACHER_DEPTH <= SELFPLAY_DEPTH", launcher)
+        self.assertIn("RELABEL_DEPTH2 >= MIN_TEACHER_DEPTH", launcher)
+        self.assertIn("RELABEL_MAX_RECORDS2 > 0", launcher)
         # Teacher sample fraction must be configurable to match the relabel
         # cadence (every-Nth-ply relabeling yields ~1/N teacher rows).
         self.assertIn(
@@ -339,14 +340,16 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('"--selfplay-draw-adj-min-ply" "$DRAW_ADJ_MIN_PLY"', launcher)
         self.assertIn('require_autopilot_flag "--selfplay-resign-cp"', launcher)
 
-    def test_actor_supplies_depth_seven_labels_for_the_standalone_deep_pass(self) -> None:
+    def test_high_volume_depth_four_actor_uses_capped_deep_teacher(self) -> None:
         parser = configparser.ConfigParser()
         parser.read(SUPERVISOR)
         environment = parser["program:piebot_campaign_v2"]["environment"]
-        self.assertIn('SELFPLAY_DEPTH="7"', environment)
+        self.assertIn('SELFPLAY_GAMES="200000"', environment)
+        self.assertIn('SELFPLAY_DEPTH="4"', environment)
+        self.assertIn('MIN_TEACHER_DEPTH="6"', environment)
         self.assertIn('RELABEL_DEPTH="0"', environment)
         self.assertIn('RELABEL_DEPTH2="9"', environment)
-        self.assertIn('RELABEL_MAX_RECORDS2="200000"', environment)
+        self.assertIn('RELABEL_MAX_RECORDS2="50000"', environment)
 
     def test_actor_budget_is_deployed_with_measured_values(self) -> None:
         launcher = self._launcher()
@@ -422,8 +425,8 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # knob is an objective-identity field, so this stays inside the v6
         # lineage: weights and Adam state carry over.
         self.assertIn('RELABEL_EVERY="1"', environment)
-        # Teacher/actor separation: actor depth 5 rows must NOT count as
-        # teacher rows, and the teacher fraction matches the every-2 cadence.
+        # Preserve the v8 checkpoint objective identity. The depth-4 actor is
+        # below this floor; the capped depth-9 pass supplies eligible labels.
         self.assertIn('MIN_TEACHER_DEPTH="6"', environment)
         self.assertIn('TEACHER_SAMPLE_FRACTION="1.0"', environment)
         self.assertIn('TARGET_CP="250"', environment)
@@ -431,7 +434,7 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         # v8: actor, teacher and gate incumbent start as the cycle-147 arch-v2
         # net at blend 75 -- the strongest model v7 produced, not the h64 v1
         # net v7 bootstrapped from. Staged out of the campaign tree because
-        # autopilot retention keeps only 8 cycles and would delete it.
+        # rolling full-cycle retention would eventually delete it.
         self.assertIn(
             'INITIAL_ACTIVE_MODEL_SOURCE="/workspace/campaign_v8_bootstrap/cycle_000147_nnue_quant.nnue"',
             environment,
@@ -474,6 +477,13 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('RETAIN_FULL_CYCLES="${RETAIN_FULL_CYCLES:-8}"', launcher)
         self.assertIn('REPLAY_WINDOW_CYCLES="${REPLAY_WINDOW_CYCLES:-6}"', launcher)
         self.assertIn("REPLAY_WINDOW_CYCLES must not exceed RETAIN_FULL_CYCLES", launcher)
+
+    def test_supervisor_replays_and_retains_four_cycles(self) -> None:
+        parser = configparser.ConfigParser()
+        parser.read(SUPERVISOR)
+        environment = parser["program:piebot_campaign_v2"]["environment"]
+        self.assertIn('REPLAY_WINDOW_CYCLES="4"', environment)
+        self.assertIn('RETAIN_FULL_CYCLES="4"', environment)
 
     def test_supervisor_conf_is_restart_safe(self) -> None:
         parser = configparser.ConfigParser()
