@@ -350,7 +350,7 @@ class CampaignV2DeploymentTests(unittest.TestCase):
         self.assertIn('RELABEL_DEPTH="0"', environment)
         self.assertIn('RELABEL_DEPTH2="9"', environment)
         self.assertIn('RELABEL_MAX_RECORDS2="50000"', environment)
-        self.assertIn('MAX_SAMPLES="500000000"', environment)
+        self.assertIn('MAX_SAMPLES="70000000"', environment)
 
     def test_actor_budget_is_deployed_with_measured_values(self) -> None:
         launcher = self._launcher()
