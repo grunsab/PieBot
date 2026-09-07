@@ -469,9 +469,50 @@ class GenericOpponentTests(unittest.TestCase):
         self.assertEqual(summary["complete_pairs"], 3)
         self.assertEqual(summary["complete_opening_clusters"], 2)
         self.assertEqual(summary["bootstrap_unit"], "exact-fen-cluster-v1")
+        self.assertEqual(summary["score_interval_method"], "exact-fen-cluster-bootstrap-v1")
         self.assertAlmostEqual(summary["score_rate"], 2 / 3)
         self.assertEqual(summary["score_95_ci"], [0.0, 1.0])
         self.assertTrue(summary["measurement_eligible"])
+
+    def test_extreme_scores_use_nonzero_bounded_cluster_interval(self):
+        for score in (0.0, 1.0):
+            with self.subTest(score=score):
+                records = []
+                for index in range(4):
+                    records.extend(self.pair(index, f"unique-fen-{index}", [score, score]))
+                summary = arena.summarize_generic_results(records, bootstrap_samples=100, seed=13, expected_games=8)
+                endpoint = 0.025 ** (1 / 4)
+                expected = [0.0, 1.0 - endpoint] if score == 0 else [endpoint, 1.0]
+                self.assertEqual(summary["score_95_ci"], expected)
+                self.assertEqual(summary["score_interval_method"], "bounded-mean-extreme-clusters-v1")
+                self.assertEqual(summary["elo_difference"], -math.inf if score == 0 else math.inf)
+                self.assertTrue(math.isfinite(summary["elo_95_ci"][1 if score == 0 else 0]))
+
+    def test_extreme_repeated_equal_fens_count_clusters_instead_of_pairs(self):
+        records = []
+        for index, fen in enumerate((START_FEN, START_FEN, E4_FEN, E4_FEN)):
+            records.extend(self.pair(index, fen, [0, 0]))
+        summary = arena.summarize_generic_results(records, bootstrap_samples=100, seed=13, expected_games=8)
+        self.assertEqual(summary["complete_opening_clusters"], 2)
+        self.assertEqual(summary["score_95_ci"], [0, 1 - 0.025 ** 0.5])
+
+    def test_extreme_unequal_cluster_sizes_use_weighted_hoeffding(self):
+        for score in (0.0, 1.0):
+            with self.subTest(score=score):
+                records = []
+                for index, fen in enumerate((START_FEN, START_FEN, E4_FEN, "fen-c", "fen-d")):
+                    records.extend(self.pair(index, fen, [score, score]))
+                summary = arena.summarize_generic_results(records, bootstrap_samples=100, seed=13, expected_games=10)
+                radius = math.sqrt(0.5 * math.log(40) * ((4 / 10) ** 2 + 3 * (2 / 10) ** 2))
+                expected = [0, radius] if score == 0 else [1 - radius, 1]
+                for actual, wanted in zip(summary["score_95_ci"], expected):
+                    self.assertAlmostEqual(actual, wanted)
+                self.assertEqual(summary["score_interval_method"], "weighted-hoeffding-extreme-clusters-v1")
+
+    def test_extreme_weighted_interval_is_clamped_to_probability_bounds(self):
+        records = self.pair(0, START_FEN, [0, 0]) + self.pair(1, START_FEN, [0, 0]) + self.pair(2, E4_FEN, [0, 0])
+        summary = arena.summarize_generic_results(records, bootstrap_samples=100, seed=13, expected_games=6)
+        self.assertEqual(summary["score_95_ci"], [0, 1])
 
     def test_capped_failed_or_forfeited_matches_are_flagged(self):
         for termination in ("max_plies", "game_wall_time_cap", "opponent_start_failure", "opponent_time_forfeit"):

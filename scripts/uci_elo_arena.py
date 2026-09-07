@@ -709,7 +709,27 @@ def summarize_generic_results(
     # per-pair interval, so avoid computing an unused expensive bootstrap.
     summary = summarize_results(complete, bootstrap_samples=1, seed=seed)
     buckets = [(sum(scores), len(scores)) for _, scores in sorted(clusters.items())]
-    if buckets:
+    interval_method = "exact-fen-cluster-bootstrap-v1"
+    if buckets and summary["score_rate"] in (0.0, 1.0):
+        # At an extreme score, resampling cannot reveal uncertainty. Treat each
+        # exact FEN as one independent bounded cluster, retaining arbitrary
+        # dependence between its repeated games/colors. For equal-size clusters,
+        # P(all zero) <= (1 - mean)^n; invert each tail at alpha/2 = .025.
+        if len({count for _, count in buckets}) == 1:
+            endpoint = 0.025 ** (1.0 / len(buckets))
+            score_ci = ([0.0, 1.0 - endpoint] if summary["score_rate"] == 0.0
+                        else [endpoint, 1.0])
+            interval_method = "bounded-mean-extreme-clusters-v1"
+        else:
+            # Unequal repeat counts make the estimand a weighted cluster mean.
+            # Weighted Hoeffding supplies a conservative two-sided 95% bound.
+            total = sum(count for _, count in buckets)
+            weight_squares = sum((count / total) ** 2 for _, count in buckets)
+            radius = min(1.0, math.sqrt(0.5 * math.log(40.0) * weight_squares))
+            score_ci = ([0.0, radius] if summary["score_rate"] == 0.0
+                        else [1.0 - radius, 1.0])
+            interval_method = "weighted-hoeffding-extreme-clusters-v1"
+    elif buckets:
         rng = random.Random(seed)
         boot = []
         for _ in range(bootstrap_samples):
@@ -734,6 +754,7 @@ def summarize_generic_results(
         reasons.append("abnormal-terminations")
     summary.update(recorded_games=len(records), expected_games=expected_games,
         bootstrap_samples=bootstrap_samples, bootstrap_unit="exact-fen-cluster-v1",
+        score_interval_method=interval_method,
         complete_opening_clusters=len(clusters), score_95_ci=score_ci,
         elo_95_ci=[logistic_elo(value) if math.isfinite(value) else math.nan for value in score_ci],
         measurement_eligible=not reasons, ineligible_reasons=reasons, abnormal_terminations=abnormal,
