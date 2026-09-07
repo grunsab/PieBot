@@ -1,0 +1,76 @@
+{
+  "schema": "piebot-lc0-deployment-v1",
+  "verified_at_utc": "2026-09-07T19:41:51Z",
+  "implementation_commit": "b517c47cb86b9f524118df6469b29d7d76495898",
+  "branch": "campaign/lc0-20260907",
+  "host": {
+    "ssh": "ssh -p 40728 root@104.8.120.185",
+    "cpu": "Threadripper 3970X",
+    "threads": 64,
+    "gpu": "RTX 4080 SUPER 16 GiB",
+    "ram_gib": 62
+  },
+  "production": {
+    "root": "/workspace/piebot_lc0_20260907",
+    "supervisor": "RUNNING",
+    "stage": "acquiring",
+    "anchor_supervisor": "RUNNING",
+    "duration_hours": 336,
+    "deadline_begins_after": "corpus preparation",
+    "training_started": false,
+    "archive_download_bytes_observed_approx": 297795584,
+    "free_disk_gib_observed": 441,
+    "failures": []
+  },
+  "corpus": {
+    "since": "2026-07-07T00:00:00+00:00",
+    "until": "2026-09-07T19:39:28.530592+00:00",
+    "total_bytes": 259132354560,
+    "archives": 1433
+  },
+  "tests": {
+    "python_nnue": 308,
+    "python_scripts": 108,
+    "rust": {
+      "all_targets": {
+        "passed": 218,
+        "failed": 0
+      },
+      "all_features": {
+        "passed": 209,
+        "failed": 0
+      }
+    },
+    "matein3": {
+      "cases_per_engine": 91,
+      "depth": 7,
+      "threads": 1,
+      "baseline_nodes": 14298048,
+      "experimental_nodes": 14234337,
+      "local_remote_signatures_identical": true
+    }
+  },
+  "smoke": {
+    "real_games": 4606,
+    "training_positions_available": 540647,
+    "fixed_validation_positions": 2048,
+    "completed_chunks": 2,
+    "optimizer_restored": true,
+    "initial_validation_loss": 0.6460347175598145,
+    "final_validation_loss": 0.6440243721008301,
+    "runtime_model_loaded": true,
+    "promotion_disabled": true,
+    "no_elo_claim": true
+  },
+  "selfplay_preservation": {
+    "root": "/workspace/piebot_campaign_v8",
+    "active_cycle": 168,
+    "active_blend": 75,
+    "learner_cycle": 206,
+    "checkpoint_and_model_hashes_unchanged": true,
+    "supervisor_enabled": false,
+    "original_source_pin": "22f3e0c3d736b2151b418558c9b5f4eec8dd1905",
+    "backup_sha256": "513c6d169872a605e69c80020e69f1efd7f96704b3a272e1c1f8c37940124b9b",
+    "local_archive": "/Users/rishisachdev/piebot_backups/v8_cycle206_20260825T195236Z/piebot_v8_cycle206_coherent_20260825T195236Z.tar.zst"
+  }
+}

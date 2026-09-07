@@ -1,0 +1,171 @@
+{
+  "source_commit": "b517c47cb86b9f524118df6469b29d7d76495898",
+  "completed_chunks": 2,
+  "cursor": 2,
+  "baseline_validation": {
+    "checkpoint_sha256": "144699077a19f50f7097de8426ed73f0f9a9fa30971d9ba0219250044311697d",
+    "loss": 0.6460347175598145,
+    "validation_sha256": "07b0fb32415d39a740e21c61c5c3cadcd0ecdb37e8f2fad6837f6da468ea5062"
+  },
+  "best_validation_loss": 0.6440243721008301,
+  "best_quant_sha256": "cbc59c2594cac9b0fb34315b9876bb687b9aad196a5bcff358d285f42373f8f4",
+  "active_model_path": "/workspace/piebot_campaign_v8/cycles/cycle_000168/nnue_quant.nnue",
+  "probes": [
+    {
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "move": "e2e3",
+      "legal": true
+    },
+    {
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+      "move": "d7d5",
+      "legal": true
+    }
+  ],
+  "metrics_optimizer_fields": {
+    "selected_epoch": 1,
+    "checkpoint_selection": "latest",
+    "target_mode": "lc0-q-outcome",
+    "initialized_from": {
+      "path": "/workspace/lc0_setup/smoke_v2/training/chunks/chunk_00000000/train/checkpoint.json",
+      "sha256": "aae383f7319f30f61ee9835c3b7220db6950669c3d6cca2ec5c9ce26653a419e",
+      "format": "piebot-halfkp-dp-screlu-v1-torch",
+      "input_dim": 40960,
+      "hidden_dim": 1024,
+      "feature_set": "halfkp-dp-screlu-v1",
+      "target_schema": "soft-cp-wdl-v2",
+      "objective": {
+        "schema": "nnue-objective-v1",
+        "cp_loss_weight": 0.0,
+        "target_schema": "soft-cp-wdl-v2",
+        "loss_kind": "wdl",
+        "target_cp": 250.0,
+        "teacher_mix": 0.8,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+        "target_mode": "lc0-q-outcome"
+      },
+      "source_objective": {
+        "schema": "nnue-objective-v1",
+        "cp_loss_weight": 0.0,
+        "target_schema": "soft-cp-wdl-v2",
+        "loss_kind": "wdl",
+        "target_cp": 250.0,
+        "teacher_mix": 0.8,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+        "target_mode": "lc0-q-outcome"
+      },
+      "requested_objective": {
+        "schema": "nnue-objective-v1",
+        "cp_loss_weight": 0.0,
+        "target_schema": "soft-cp-wdl-v2",
+        "loss_kind": "wdl",
+        "target_cp": 250.0,
+        "teacher_mix": 0.8,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+        "target_mode": "lc0-q-outcome"
+      },
+      "mode": "strict",
+      "weights_only": false,
+      "objective_transition": false,
+      "weights_only_objective_transition": false,
+      "optimizer_state_sha256": "b429a992d6edb97b6ddede097eeb87d83e8caca7dc0bb0348d6a32da752d2c11"
+    },
+    "initial_checkpoint_weights_only": false,
+    "optimizer_state": {
+      "path": "/workspace/lc0_setup/smoke_v2/training/chunks/chunk_00000001/train/optimizer.pt",
+      "sha256": "4c87924134b5c6ee44fd546333c17a645604e451f55558cf4ce60b88ef71d7d0",
+      "format": "piebot-torch-adam-v3",
+      "input_dim": 40960,
+      "hidden_dim": 1024,
+      "feature_set": "halfkp-dp-screlu-v1",
+      "target_schema": "soft-cp-wdl-v2",
+      "objective": {
+        "schema": "nnue-objective-v1",
+        "cp_loss_weight": 0.0,
+        "target_schema": "soft-cp-wdl-v2",
+        "loss_kind": "wdl",
+        "target_cp": 250.0,
+        "teacher_mix": 0.8,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+        "target_mode": "lc0-q-outcome"
+      },
+      "model_parameters_sha256": "917fe0449b29b8958a4f248f9c04706fd0e8a8872436a53e529d5fb7fb44764c",
+      "best_epoch": 1
+    },
+    "optimizer_initialized_from": {
+      "path": "/workspace/lc0_setup/smoke_v2/training/chunks/chunk_00000000/train/optimizer.pt",
+      "sha256": "b429a992d6edb97b6ddede097eeb87d83e8caca7dc0bb0348d6a32da752d2c11",
+      "format": "piebot-torch-adam-v3",
+      "input_dim": 40960,
+      "hidden_dim": 1024,
+      "feature_set": "halfkp-dp-screlu-v1",
+      "target_schema": "soft-cp-wdl-v2",
+      "objective": {
+        "schema": "nnue-objective-v1",
+        "cp_loss_weight": 0.0,
+        "target_schema": "soft-cp-wdl-v2",
+        "loss_kind": "wdl",
+        "target_cp": 250.0,
+        "teacher_mix": 0.8,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+        "target_mode": "lc0-q-outcome"
+      },
+      "model_parameters_sha256": "1952f7447d9da04760e7b73830f118824ec5aad17079a4ca3617b7c2308eb718",
+      "adam_betas": [
+        0.9,
+        0.999
+      ],
+      "adam_eps": 1e-08
+    },
+    "initialized_optimizer_state": {
+      "path": "/workspace/lc0_setup/smoke_v2/training/chunks/chunk_00000000/train/optimizer.pt",
+      "sha256": "b429a992d6edb97b6ddede097eeb87d83e8caca7dc0bb0348d6a32da752d2c11",
+      "format": "piebot-torch-adam-v3",
+      "input_dim": 40960,
+      "hidden_dim": 1024,
+      "feature_set": "halfkp-dp-screlu-v1",
+      "target_schema": "soft-cp-wdl-v2",
+      "objective": {
+        "schema": "nnue-objective-v1",
+        "cp_loss_weight": 0.0,
+        "target_schema": "soft-cp-wdl-v2",
+        "loss_kind": "wdl",
+        "target_cp": 250.0,
+        "teacher_mix": 0.8,
+        "max_teacher_cp": 1500.0,
+        "outcome_decay": 1.0,
+        "min_teacher_depth": 0,
+        "huber_delta_cp": 100.0,
+        "wdl_scale_cp": 400.0,
+        "target_mode": "lc0-q-outcome"
+      },
+      "model_parameters_sha256": "1952f7447d9da04760e7b73830f118824ec5aad17079a4ca3617b7c2308eb718",
+      "adam_betas": [
+        0.9,
+        0.999
+      ],
+      "adam_eps": 1e-08
+    },
+    "optimizer_state_restored": true
+  }
+}
