@@ -46,12 +46,45 @@
       "log_sha256": "6dada7e5de1f4c8b0497b587108eea2c3cff42e88b0167b229b5167a0ea8212e"
     },
     "broader_full_battery": {
-      "status": "pending on this isolated branch",
-      "commands": [
-        "python3 -m unittest discover -v scripts/tests",
-        "cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml",
-        "cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml"
-      ]
+      "status": "passed",
+      "implementation_commit": "7c4535f82d1bf0fe26ea8a62446e89a0d65c2bba",
+      "completed_at_utc": "2026-09-07T20:57:55.677148+00:00",
+      "screen_exit_confirmed_at_utc": "2026-09-07T20:54:07Z",
+      "cargo_build_jobs": 2,
+      "rust_test_threads": 1,
+      "results": {
+        "scripts": {
+          "passed": 142,
+          "failed": 0,
+          "command": "/private/tmp/piebot-lc0-venv/bin/python -m unittest discover -v scripts/tests",
+          "log": "/private/tmp/piebot-lc0-throughput-scripts-tests.log",
+          "log_sha256": "d576ba30e9eafdd641e0bdd3e89f02f078b51f59edd25f879d3352aacb87db24",
+          "exit_code": 0
+        },
+        "rust_default": {
+          "passed": 218,
+          "failed": 0,
+          "ignored": 0,
+          "test_summary_blocks": 56,
+          "criterion_test_mode_successes": 25,
+          "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml",
+          "log": "/private/tmp/piebot-lc0-throughput-rust-default.log",
+          "log_sha256": "cd8a7797799243333949d04089986119e57b0ed0263910b8faea0258d5edf811",
+          "exit_code": 0
+        },
+        "rust_all_features": {
+          "passed": 209,
+          "failed": 0,
+          "ignored": 0,
+          "test_summary_blocks": 56,
+          "criterion_test_mode_successes": 25,
+          "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml",
+          "log": "/private/tmp/piebot-lc0-throughput-rust-all-features.log",
+          "log_sha256": "0b9fd3e8c19f0be88387b2f364bdece36e9031e68432f14215cdeaa3dbcc9c89",
+          "exit_code": 0
+        }
+      },
+      "nnue_result_reused": "The previously passing 313-test NNUE suite covers these unchanged implementation/test files; it was not rerun."
     }
   },
   "parity": {
