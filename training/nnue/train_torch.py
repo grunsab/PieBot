@@ -824,7 +824,8 @@ def train_model(
     teacher_value_available = 0
     raw_teacher_value_available = 0
     training_samples = (
-        train_stub.iterate_lc0_samples(jsonl_dir, max_samples)
+        train_stub.iterate_lc0_samples(
+            jsonl_dir, max_samples, include_legacy_features=arch != "v2")
         if target_mode == "lc0-q-outcome"
         else train_stub.iterate_samples(
             jsonl_dir, max_samples, seed=seed,
@@ -951,7 +952,9 @@ def train_model(
         }
         validation_digest = hashlib.sha256()
         reference_samples = (
-            train_stub.iterate_lc0_samples(validation_path, max_validation_samples)
+            train_stub.iterate_lc0_samples(
+                validation_path, max_validation_samples,
+                include_legacy_features=arch != "v2")
             if target_mode == "lc0-q-outcome"
             else train_stub.iterate_fixed_validation_samples(
                 validation_path, max_validation_samples, seed=validation_seed,
@@ -1343,22 +1346,32 @@ def train_model(
     selected_eval_x = val_x if val_count > 0 else train_x
     selected_eval_cp = val_y_cp if val_count > 0 else train_y_cp
     selected_eval_wdl = val_y_wdl if val_count > 0 else train_y_wdl
+    # In this mode the selected model is the unchanged final-epoch model,
+    # already evaluated on these exact splits with the same LC0 objective.
+    # Keep the legacy evaluation path for every other training mode.
+    reuse_final_evaluation = (
+        arch == "v2" and target_mode == "lc0-q-outcome"
+        and checkpoint_selection == "latest"
+    )
     (
         selected_val_loss,
         selected_val_cp_mse,
         selected_val_acc,
         selected_val_prediction_mean_abs,
         selected_val_prediction_max_abs,
-    ) = _eval_split(
-        model,
-        selected_eval_x,
-        selected_eval_cp,
-        selected_eval_wdl,
-        batch_size,
-        dev,
-        loss_kind=loss_kind,
-        huber_delta_cp=huber_delta_cp,
-        wdl_scale_cp=wdl_scale_cp,
+    ) = (
+        (va_loss, va_cp_mse, va_acc, va_prediction_mean_abs, va_prediction_max_abs)
+        if reuse_final_evaluation else _eval_split(
+            model,
+            selected_eval_x,
+            selected_eval_cp,
+            selected_eval_wdl,
+            batch_size,
+            dev,
+            loss_kind=loss_kind,
+            huber_delta_cp=huber_delta_cp,
+            wdl_scale_cp=wdl_scale_cp,
+        )
     )
     selected_reference_val_loss = None
     selected_reference_val_cp_mse = None
@@ -1372,16 +1385,20 @@ def train_model(
             selected_reference_val_acc,
             selected_reference_val_prediction_mean_abs,
             selected_reference_val_prediction_max_abs,
-        ) = _eval_split(
-            model,
-            reference_val_x,
-            reference_val_y_cp,
-            reference_val_y_wdl,
-            batch_size,
-            dev,
-            loss_kind=loss_kind,
-            huber_delta_cp=huber_delta_cp,
-            wdl_scale_cp=wdl_scale_cp,
+        ) = (
+            (reference_va_loss, reference_va_cp_mse, reference_va_acc,
+             reference_va_prediction_mean_abs, reference_va_prediction_max_abs)
+            if reuse_final_evaluation else _eval_split(
+                model,
+                reference_val_x,
+                reference_val_y_cp,
+                reference_val_y_wdl,
+                batch_size,
+                dev,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
         )
         if checkpoint_selection == "best":
             best_reference_val_loss = selected_reference_val_loss

@@ -92,6 +92,55 @@ class Lc0TargetTests(unittest.TestCase):
         self.assertNotEqual(old, new)
 
 
+class Lc0FeatureConstructionTests(unittest.TestCase):
+    def test_skipping_legacy_indices_preserves_all_rows_targets_and_provenance(self):
+        rows = [
+            dict(fen=FEN, best_q=0.5, result_q=1.0, outcome_valid=False),
+            dict(fen=FEN.replace(" w ", " b "), best_q=-0.5, result_q=-1.0),
+            dict(fen="4k3/8/8/8/8/8/4P3/4K3 w - - 0 1", best_q=0.0,
+                 result_q=0.0),
+        ]
+        for index, row in enumerate(rows):
+            row.update(run_id="fixture", game_id="game", ply=index)
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "rows.jsonl"
+            source.write_text("\n" + "\n\n".join(map(json.dumps, rows)) + "\n")
+            original = list(train_stub.iterate_lc0_samples(source, len(rows)))
+            with mock.patch.object(train_stub, "_active_halfkp_indices",
+                                   side_effect=AssertionError("unused indices built")):
+                optimized = list(train_stub.iterate_lc0_samples(
+                    source, len(rows), include_legacy_features=False))
+            self.assertEqual(len(optimized), len(rows))
+            self.assertEqual([record for _, record in original],
+                             [record for _, record in optimized])
+            self.assertEqual(original[0][0], [])  # Bare kings are still a row.
+            self.assertTrue(original[2][0])
+            for (_, before), (_, after) in zip(original, optimized):
+                self.assertEqual(
+                    train_stub._targets_for_record(before, target_mode="lc0-q-outcome", **TARGET_ARGS),
+                    train_stub._targets_for_record(after, target_mode="lc0-q-outcome", **TARGET_ARGS))
+            with self.assertRaisesRegex(ValueError, "max_samples"):
+                list(train_stub.iterate_lc0_samples(
+                    source, len(rows) - 1, include_legacy_features=False))
+
+    def test_skipping_legacy_indices_preserves_fen_and_target_validation(self):
+        invalid = [dict(fen="k7/8/8/8/8/8/8/K6 w - - 0 1"),
+                   dict(fen="k7/8/8/8/8/8/8/K8 w - - 0 1"),
+                   dict(fen="k7/8/8/8/8/8/8/8K w - - 0 1"),
+                   dict(fen="k7/8/8/8/8/8/K7 w - - 0 1"),
+                   dict(best_q=float("nan")), dict(best_q=1.1),
+                   dict(result_q=-1.1)]
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "rows.jsonl"
+            for changes in invalid:
+                source.write_text(json.dumps(dict(fen=FEN, best_q=0.5,
+                                                  result_q=1.0) | changes) + "\n")
+                for include in (True, False):
+                    with self.subTest(changes=changes, include=include), self.assertRaises(ValueError):
+                        list(train_stub.iterate_lc0_samples(
+                            source, 1, include_legacy_features=include))
+
+
 @unittest.skipUnless(train_torch.torch_available(), "torch is not installed")
 class Lc0TrainerTests(unittest.TestCase):
     def setUp(self):
@@ -136,6 +185,79 @@ class Lc0TrainerTests(unittest.TestCase):
     def test_lc0_chunk_limit_rejects_silent_subsampling(self):
         with self.assertRaisesRegex(ValueError, "max_samples"):
             self.train(max_samples=1)
+
+    def test_v2_lc0_does_not_build_legacy_indices_for_training_or_holdout(self):
+        with mock.patch.object(train_stub, "_active_halfkp_indices",
+                               side_effect=AssertionError("unused indices built")):
+            metrics = self.train()
+        self.assertEqual(metrics["train_samples"], 2)
+        self.assertEqual(metrics["reference_val_samples"], 1)
+
+    def test_latest_reuses_final_epoch_evaluations_with_exact_artifact_parity(self):
+        from training.nnue.run_pipeline import _export_v2_checkpoint
+
+        # The reference best mode selects the same final weights, and retains
+        # the original explicit selected-checkpoint evaluation path.
+        rows = [json.loads(line) for line in self.data.read_text().splitlines()]
+        for index, row in enumerate(rows):
+            row["fen"] = "4k3/8/8/8/8/8/4P3/4K3 " + ("w" if index == 0 else "b") + " - - 0 1"
+            row["game_id"] = f"train-{index}"
+        self.data.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        original_eval = train_torch._eval_split
+        self.train(out_dir=self.root / "parent")
+        resume = dict(initial_checkpoint=self.root / "parent" / "checkpoint.json",
+                      initial_optimizer_state=self.root / "parent" / "optimizer.pt")
+        cases = ((1, False, 0.0, True), (1, True, 0.0, True),
+                 (2, True, 0.0, True), (1, True, 0.5, True), (1, True, 0.0, False))
+        for index, (epochs, warm, split, holdout) in enumerate(cases):
+            with self.subTest(epochs=epochs, warm=warm, split=split, holdout=holdout):
+                options = dict(epochs=epochs, val_split=split,
+                               validation_jsonl_dir=self.validation if holdout else None,
+                               **(resume if warm else {}))
+                latest_dir = self.root / f"latest-{index}"
+                best_dir = self.root / f"best-{index}"
+                with mock.patch.object(train_stub, "is_better_checkpoint", return_value=True), \
+                     mock.patch.object(train_torch, "_eval_split", wraps=original_eval) as evaluate:
+                    latest = self.train(out_dir=latest_dir, **options)
+                splits = 1 + int(split > 0.0) + int(holdout)
+                # Evaluate each split per epoch and for the incoming warm
+                # start, without an extra pass over the unchanged final model.
+                self.assertEqual(evaluate.call_count, splits * (epochs + int(warm)))
+                with mock.patch.object(train_stub, "is_better_checkpoint", return_value=True), \
+                     mock.patch.object(train_torch, "_eval_split", wraps=original_eval) as evaluate:
+                    reference = self.train(out_dir=best_dir, checkpoint_selection="best", **options)
+                self.assertEqual(evaluate.call_count,
+                                 splits * (epochs + int(warm)) + 1 + int(holdout))
+                fields = [key for key in latest if key.startswith(("selected_val_", "selected_reference_",
+                          "initial_train_", "initial_reference_")) or key.endswith("_history")]
+                for field in fields:
+                    self.assertEqual(latest[field], reference[field], field)
+                checkpoints = [json.loads((path / "checkpoint.json").read_text())
+                               for path in (latest_dir, best_dir)]
+                for field in ("w1", "b1", "w2", "b2", "objective"):
+                    self.assertEqual(checkpoints[0][field], checkpoints[1][field], field)
+                states = [train_torch._torch_load(path / "optimizer.pt")
+                          for path in (latest_dir, best_dir)]
+                self.assertEqual(states[0]["model_parameters_sha256"], states[1]["model_parameters_sha256"])
+                self.assertEqual(states[0]["state_dict"]["param_groups"], states[1]["state_dict"]["param_groups"])
+                for parameter, values in states[0]["state_dict"]["state"].items():
+                    for name, value in values.items():
+                        self.assertTrue(train_torch.torch.equal(
+                            value, states[1]["state_dict"]["state"][parameter][name]))
+                for checkpoint, path in zip(checkpoints, (latest_dir, best_dir)):
+                    _export_v2_checkpoint(checkpoint, quant_path=path / "model.nnue")
+                self.assertEqual((latest_dir / "model.nnue").read_bytes(),
+                                 (best_dir / "model.nnue").read_bytes())
+
+    def test_v1_and_selfplay_keep_legacy_features_and_explicit_selected_evaluation(self):
+        for arch, target_mode in (("v1", "lc0-q-outcome"), ("v2", "selfplay")):
+            with self.subTest(arch=arch, target_mode=target_mode), \
+                 mock.patch.object(train_stub, "_active_halfkp_indices",
+                                   wraps=train_stub._active_halfkp_indices) as features, \
+                 mock.patch.object(train_torch, "_eval_split", wraps=train_torch._eval_split) as evaluate:
+                self.train(arch=arch, target_mode=target_mode)
+            self.assertGreater(features.call_count, 0)
+            self.assertEqual(evaluate.call_count, 4)
 
     def test_lc0_rejects_auxiliary_loss_or_wrong_probability_scale(self):
         for override in [dict(cp_loss_weight=1.0), dict(wdl_scale_cp=250.0),

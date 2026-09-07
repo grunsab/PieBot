@@ -957,7 +957,7 @@ def _lc0_probability_for_record(record: TrainingRecord, teacher_mix: float) -> f
 
 
 def iterate_lc0_samples(
-    jsonl_dir: Path, max_samples: int,
+    jsonl_dir: Path, max_samples: int, *, include_legacy_features: bool = True,
 ) -> Iterator[Tuple[List[int], TrainingRecord]]:
     """Read a complete bounded corpus chunk, without self-play stratification.
 
@@ -978,7 +978,15 @@ def iterate_lc0_samples(
                 count += 1
                 if max_samples > 0 and count > max_samples:
                     raise ValueError("LCZero chunk exceeds max_samples; split the corpus chunk")
-                yield _active_halfkp_indices(record.fen), record
+                if include_legacy_features:
+                    feats = _active_halfkp_indices(record.fen)
+                else:
+                    # V2 constructs its own indices, but the legacy parser
+                    # also enforces rank widths. Keep that validation and
+                    # every row, including positions with empty feature bags.
+                    _parse_board_fen(record.fen)
+                    feats = []
+                yield feats, record
 
 
 def _target_wdl_probability_for_record(
