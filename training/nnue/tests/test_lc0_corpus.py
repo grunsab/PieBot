@@ -22,10 +22,10 @@ def good_record(**kwargs):
     return _make_chunk(planes=planes, best_q=.5, result_q=1., **kwargs)
 
 
-def archive(path, games):
+def archive(path, games, *, gzip_mtime=0):
     with tarfile.open(path, 'w') as tf:
         for name, date, payload in games:
-            compressed = gzip.compress(payload, mtime=0)
+            compressed = gzip.compress(payload, mtime=gzip_mtime)
             info = tarfile.TarInfo(name)
             info.mtime = dt.datetime.fromisoformat(date).replace(tzinfo=dt.timezone.utc).timestamp()
             info.size = len(compressed)
@@ -66,7 +66,8 @@ class CorpusTests(unittest.TestCase):
         manifest = self.prepare([a,b])
         rows = self.training_rows(manifest)
         self.assertEqual(4, len(rows))
-        self.assertEqual({'training.1.gz','training.2.gz'}, {r['game_id'] for r in rows})
+        self.assertEqual({'training.1.gz','training.2.gz'}, {r['source_game_id'] for r in rows})
+        self.assertEqual(hashlib.sha256(good_record()*3).hexdigest(), rows[0]['game_id'])
         self.assertEqual(4, len({r['record_id'] for r in rows}))
         self.assertEqual(-.5, rows[-1]['best_q'])
         self.assertEqual(-1., rows[-1]['result_q'])
@@ -78,7 +79,7 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(manifest.read_bytes(), self.prepare([a,b]).read_bytes())
 
     def test_hash_holdout_is_game_level_and_global_sample_is_fixed(self):
-        games = [(f'training.{i}.gz','2026-08-01T00:00:00',good_record()*3) for i in range(40)]
+        games = [(f'training.{i}.gz','2026-08-01T00:00:00',good_record(visits=i)*3) for i in range(40)]
         a = archive(self.root/'a.tar', games[:20])
         b = archive(self.root/'b.tar', games[20:])
         path = self.prepare([a,b],validation_fraction=.5,validation_samples=5)
@@ -173,7 +174,7 @@ class CorpusTests(unittest.TestCase):
                 self.assertEqual(self.corpus._sample(reference),self.corpus._sample(actual))
 
     def test_parallel_game_conversion_matches_sequential_order_and_split(self):
-        a = archive(self.root/'a.tar', [(f'training.{i}.gz','2026-08-01T00:00:00',good_record()*3) for i in range(12)])
+        a = archive(self.root/'a.tar', [(f'training.{i}.gz','2026-08-01T00:00:00',good_record(visits=i)*3) for i in range(12)])
         path=self.prepare([a],validation_fraction=.5,validation_samples=5,workers=1)
         expected=self.training_rows(path)
         ref=json.loads(path.read_text())
@@ -190,6 +191,53 @@ class CorpusTests(unittest.TestCase):
         a = archive(self.root/'a.tar', [('training.1.gz','2026-08-01T00:00:00',good_record())])
         with self.assertRaisesRegex(ValueError,'holdout'):
             self.prepare([a],validation_fraction=.01)
+
+    def test_repacked_same_game_dedups_and_split_ignores_source_name(self):
+        games = [(f'training.{i}.gz','2026-08-01T00:00:00',good_record(visits=i)*3) for i in range(40)]
+        first = archive(self.root/'a.tar', games)
+        copies = [('training.renamed'+str(i)+'.gz',date,raw) for i,(_name,date,raw) in enumerate(games)]
+        second = archive(self.root/'b.tar', copies, gzip_mtime=123456)
+        path = self.prepare([first,second],validation_fraction=.5,validation_samples=1000,workers=2)
+        obj = json.loads(path.read_text())
+        self.assertEqual(40,obj['stats']['games'])
+        self.assertEqual(40,obj['stats']['duplicate_games'])
+        train = self.training_rows(path)
+        val = [json.loads(line) for line in Path(obj['validation']['path']).read_text().splitlines()]
+        self.assertEqual(120,len(train)+len(val))
+        self.assertFalse({r['game_id'] for r in train} & {r['game_id'] for r in val})
+        other_raw=self.root/'other_raw.json'
+        other_raw.write_text(json.dumps({'files':[second,first]}))
+        reversed_path=self.corpus.prepare_corpus(other_raw,self.root/'reversed',
+                        since='2026-07-07',until='2026-09-08T00:00:00Z',min_free_bytes=0,
+                        validation_fraction=.5,validation_samples=1000,workers=1)
+        self.assertEqual({r['record_id'] for r in train},
+                         {r['record_id'] for r in self.training_rows(reversed_path)})
+
+    def test_empty_archive_is_classified_by_inspection(self):
+        empty=archive(self.root/'empty.tar',[])
+        small=archive(self.root/'small.tar',[('training.1.gz','2026-08-01T00:00:00',good_record())])
+        self.assertEqual(empty['size'],small['size'])
+        path=self.prepare([empty,small])
+        obj=json.loads(path.read_text())
+        self.assertEqual(1,obj['stats']['empty_archives'])
+        self.assertEqual(1,obj['stats']['game_members'])
+        self.assertEqual(1,len(self.training_rows(path)))
+
+    def test_renamed_alias_with_changed_contents_fails_and_rolls_back(self):
+        first=archive(self.root/'a.tar',[('training.original.gz','2026-08-01T00:00:00',good_record())])
+        alias=archive(self.root/'b.tar',[('training.copy.gz','2026-08-01T00:00:00',good_record())])
+        conflict=archive(self.root/'c.tar',[
+            ('training.new.gz','2026-08-01T00:00:00',good_record(visits=1)),
+            ('training.copy.gz','2026-08-01T00:00:00',good_record(visits=2))])
+        with self.assertRaisesRegex(ValueError,'source game content conflict'):
+            self.prepare([first,alias,conflict],workers=2)
+        import sqlite3
+        conn=sqlite3.connect(self.root/'corpus'/'progress.sqlite3')
+        self.assertEqual(2,conn.execute('SELECT COUNT(*) FROM archives').fetchone()[0])
+        self.assertEqual(2,conn.execute('SELECT COUNT(*) FROM source_aliases').fetchone()[0])
+        self.assertEqual(1,conn.execute('SELECT COUNT(*) FROM games').fetchone()[0])
+        conn.close()
+        self.assertFalse((self.root/'corpus'/'corpus_manifest.json').exists())
 
 
 if __name__ == '__main__':

@@ -25,11 +25,12 @@ class SnapshotTests(unittest.TestCase):
         manifest = self.fetch.discover_snapshot(['test91'], self.root, '2026-07-07',
                    '2026-09-07', listing_func=listing,
                    now=dt.datetime(2026,9,7,12,tzinfo=dt.timezone.utc))
-        self.assertEqual(2,len(manifest['files']))
-        self.assertEqual(91356,manifest['total_bytes'])
+        self.assertEqual(3,len(manifest['files']))
+        self.assertEqual(101596,manifest['total_bytes'])
         self.assertEqual('2026-09-07T12:00:00+00:00',manifest['until'])
         self.assertEqual('tar_member_mtime',manifest['date_basis'])
-        self.assertTrue(manifest['empty_archives'])
+        self.assertEqual([],manifest['empty_archives'])
+        self.assertIn(10240,[entry['size'] for entry in manifest['files']])
 
     def test_snapshot_resume_verifies_sha_and_reuses_frozen_inventory(self):
         dest=self.root/'test91'/'a.tar'

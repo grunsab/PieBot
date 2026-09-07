@@ -28,10 +28,14 @@ def make_corpus_smoke_fixture(root):
     from training.nnue import lc0_corpus
     from training.nnue.tests.test_lc0_corpus import archive, good_record
 
-    payload = (good_record() + good_record(side_to_move_or_enpassant=1)
-               + good_record(invariance_info=1 << 4)
-               + good_record(invariance_info=1 << 6))
-    games = [(f"training.{i}.gz", "2026-08-01T00:00:00", payload) for i in range(20)]
+    games = []
+    for i in range(20):
+        # Distinct searches of the same small positions are separate game
+        # payloads, while duplicated payloads must be removed by the importer.
+        payload = (good_record(visits=i) + good_record(side_to_move_or_enpassant=1, visits=i)
+                   + good_record(invariance_info=1 << 4, visits=i)
+                   + good_record(invariance_info=1 << 6, visits=i))
+        games.append((f"training.{i}.gz", "2026-08-01T00:00:00", payload))
     entry = archive(root / "games.tar", games)
     manifest = root / "raw.json"
     manifest.write_text(json.dumps({"files": [entry]}))

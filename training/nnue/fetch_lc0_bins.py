@@ -147,14 +147,13 @@ def discover_snapshot(suites: Iterable[str], out_dir: Path, since: str, until: s
             entry = {'name': name, 'suite': suite + '/', 'url': url + name,
                      'archive_timestamp': date.isoformat(), 'size': size,
                      'dest': str((out_dir / suite / name).resolve()), 'status': 'queued'}
-            if size <= 10240:
-                manifest['empty_archives'].append(entry)
-                continue
+            if size <= 0:
+                raise ValueError(f'archive listing has a zero-byte object: {name}')
             manifest['files'].append(entry)
             manifest['total_bytes'] += size
     manifest['files'].sort(key=lambda entry: (entry['archive_timestamp'], entry['url']))
     if not manifest['files']:
-        raise ValueError('no nonempty LCZero archives in requested date window')
+        raise ValueError('no LCZero archives in requested date window')
     return manifest
 
 

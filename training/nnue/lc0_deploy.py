@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -53,6 +54,16 @@ def pin_source(output: Path, commit: str) -> None:
         stream.write(commit + '\n')
         stream.flush()
         os.fsync(stream.fileno())
+
+
+def wait_for_training(command: list[str], **kwargs):
+    # Supervisor signals the entire group. The trainer saves at a chunk boundary;
+    # keep its supervised parent alive until that save and lock release finish.
+    previous = signal.signal(signal.SIGTERM, lambda *_: None)
+    try:
+        return subprocess.run(command, **kwargs)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def main(argv=None) -> int:
@@ -117,7 +128,7 @@ def main(argv=None) -> int:
                    '--hours', str(args.hours), '--device', 'cuda',
                    '--disk-reserve-gib', str(args.min_free_gib)]
         # Stay in the supervisor process group through every data/training stage.
-        subprocess.run(command, cwd=repo, check=True)
+        wait_for_training(command, cwd=repo, check=True)
     return 0
 
 

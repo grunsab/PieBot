@@ -2,6 +2,8 @@
 import configparser
 import hashlib
 import json
+import os
+import signal
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,22 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Lc0DeploymentTests(unittest.TestCase):
+    def test_parent_waits_for_training_child_on_group_shutdown(self):
+        received = []
+        previous = signal.signal(signal.SIGTERM, lambda *_: received.append('term'))
+        try:
+            def child_run(*args, **kwargs):
+                os.kill(os.getpid(), signal.SIGTERM)
+                self.assertEqual(received, [])
+                return 'child checkpoint committed'
+            with mock.patch.object(lc0_deploy.subprocess, 'run', side_effect=child_run):
+                self.assertEqual(lc0_deploy.wait_for_training(['trainer']),
+                                 'child checkpoint committed')
+            os.kill(os.getpid(), signal.SIGTERM)
+            self.assertEqual(received, ['term'])
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+
     def test_invalid_bootstrap_does_not_create_source_pin(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

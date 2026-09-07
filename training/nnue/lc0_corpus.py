@@ -36,12 +36,14 @@ _HEADER = struct.Struct('<II')
 _VALUE_BODY = struct.Struct('<104Q8B15fIHHfI')
 
 
-def iter_value_records(stream: BinaryIO) -> Iterator[lc0_bin.V6Record]:
+def iter_value_records(stream: BinaryIO, *, digest=None) -> Iterator[lc0_bin.V6Record]:
     """Decode only value/board fields, skipping 1,858 unused policy floats."""
     while True:
         raw = stream.read(lc0_bin.RECORD_SIZE)
         if not raw:
             return
+        if digest is not None:
+            digest.update(raw)
         if len(raw) != lc0_bin.RECORD_SIZE:
             raise ValueError('Truncated V6 record encountered')
         version, fmt = _HEADER.unpack_from(raw)
@@ -136,13 +138,14 @@ def _archive_entries(raw: dict) -> list[dict]:
     return entries
 
 
-def _decode_game_payload(payload: bytes, compressed: bool) -> tuple[list[tuple[int, dict]], int]:
+def _decode_game_payload(payload: bytes, compressed: bool) -> tuple[list[tuple[int, dict]], int, str]:
     """Bound one chess game's expansion before sending rows back to the writer."""
     samples, rejected = [], 0
+    digest = hashlib.sha256()
     with contextlib.ExitStack() as stack:
         source = io.BytesIO(payload)
         stream = stack.enter_context(gzip.GzipFile(fileobj=source)) if compressed else source
-        for ply, record in enumerate(iter_value_records(stream)):
+        for ply, record in enumerate(iter_value_records(stream, digest=digest)):
             # Even theoretical maximum-length standard games fit below this bound.
             if ply >= 32768:
                 raise ValueError('LCZero game exceeds maximum supported chess game length')
@@ -151,24 +154,45 @@ def _decode_game_payload(payload: bytes, compressed: bool) -> tuple[list[tuple[i
                 rejected += 1
             else:
                 samples.append((ply, sample))
-    return samples, rejected
+    return samples, rejected, digest.hexdigest()
 
 
 def _convert_archive(entry: dict, stage: Path, conn: sqlite3.Connection, config: dict) -> dict:
     lower, upper = utc_bound(config['since']).timestamp(), utc_bound(config['until']).timestamp()
     run = 'lc0:' + entry.get('suite', 'test91').strip('/')
     stats = {'games': 0, 'holdout_games': 0, 'training_positions': 0, 'holdout_positions': 0,
-             'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0}
+             'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0,
+             'game_members': 0, 'empty_archives': 0}
     dates: set[str] = set()
     training = _Chunks(stage, 'train', config['chunk_positions'], config['min_free_bytes'])
     holdout = _Chunks(stage, 'holdout', config['chunk_positions'], config['min_free_bytes'])
     pending = deque()
 
-    def emit(game: str, collected: str, is_holdout: bool, decoded: tuple) -> None:
-        samples, rejected = decoded
+    def emit(source_game: str, collected: str, decoded: tuple) -> None:
+        samples, rejected, game = decoded
+        # Archive writers may rename or recompress the same game. The raw game
+        # digest anchors both deduplication and split assignment independently of
+        # every transport filename and gzip timestamp.
+        game_key = _hash([run, game])
+        source_key = _hash([run, source_game])
+        alias = conn.execute('SELECT content_sha256 FROM source_aliases WHERE source_key=?',
+                             (source_key,)).fetchone()
+        if alias and alias[0] != game:
+            raise ValueError(f'source game content conflict for {run}/{source_game}')
+        if not alias:
+            # Remember renamed copies even when their content was already seen.
+            conn.execute('INSERT INTO source_aliases VALUES(?,?)', (source_key, game))
+        if conn.execute('SELECT 1 FROM games WHERE game_key=?', (game_key,)).fetchone():
+            stats['duplicate_games'] += 1
+            return
+        conn.execute('INSERT INTO games(game_key) VALUES(?)', (game_key,))
+        is_holdout = is_holdout_game(run, game, config['seed'], config['validation_fraction'])
+        stats['games'] += 1
+        stats['holdout_games'] += int(is_holdout)
+        dates.add(collected[:10])
         stats['rejected_records'] += rejected
         for ply, sample in samples:
-            sample.update(run_id=run, game_id=game, ply=ply,
+            sample.update(run_id=run, game_id=game, source_game_id=source_game, ply=ply,
                           record_id=_hash([run, game, ply]),
                           collected_at=collected, source_archive_sha256=entry['sha256'])
             (holdout if is_holdout else training).write(sample)
@@ -188,21 +212,13 @@ def _convert_archive(entry: dict, stage: Path, conn: sqlite3.Connection, config:
                 game = Path(member.name).name
                 if not member.isfile() or not GAME_NAME.fullmatch(game):
                     continue
+                stats['game_members'] += 1
                 if not math.isfinite(member.mtime):
                     raise ValueError(f'invalid collection timestamp: {member.name}')
                 if not lower <= member.mtime < upper:
                     stats['outside_window_games'] += 1
                     continue
-                game_key = _hash([run, game])
-                if conn.execute('SELECT 1 FROM games WHERE game_key=?', (game_key,)).fetchone():
-                    stats['duplicate_games'] += 1
-                    continue
-                conn.execute('INSERT INTO games(game_key) VALUES(?)', (game_key,))
-                is_holdout = is_holdout_game(run, game, config['seed'], config['validation_fraction'])
-                stats['games'] += 1
-                stats['holdout_games'] += int(is_holdout)
                 collected = datetime.fromtimestamp(member.mtime, timezone.utc).isoformat()
-                dates.add(collected[:10])
                 extracted = archive.extractfile(member)
                 if extracted is None:
                     raise ValueError(f'cannot read tar member: {member.name}')
@@ -211,20 +227,21 @@ def _convert_archive(entry: dict, stage: Path, conn: sqlite3.Connection, config:
                         raise ValueError(f'LCZero game member exceeds 64 MiB: {member.name}')
                     payload = extracted.read()
                 if pool is None:
-                    emit(game, collected, is_holdout, _decode_game_payload(payload, game.endswith('.gz')))
+                    emit(game, collected, _decode_game_payload(payload, game.endswith('.gz')))
                 else:
-                    pending.append((game, collected, is_holdout,
+                    pending.append((game, collected,
                                     pool.submit(_decode_game_payload, payload, game.endswith('.gz'))))
                     # Archive/game order is preserved, independently of worker completion.
                     if len(pending) >= workers * 2:
-                        name, stamp, split, future = pending.popleft()
-                        emit(name, stamp, split, future.result())
+                        name, stamp, future = pending.popleft()
+                        emit(name, stamp, future.result())
             while pending:
-                name, stamp, split, future = pending.popleft()
-                emit(name, stamp, split, future.result())
+                name, stamp, future = pending.popleft()
+                emit(name, stamp, future.result())
     finally:
         training.close()
         holdout.close()
+    stats['empty_archives'] = int(stats['game_members'] == 0)
     return {'chunks': training.entries, 'holdout': holdout.entries, 'stats': stats,
             'collection_dates': sorted(dates)}
 
@@ -280,6 +297,8 @@ def prepare_corpus(raw_manifest: Path, out_dir: Path, *, since: str, until: str,
     out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     config = {'schema': SCHEMA, 'since': lower.isoformat(), 'until': upper.isoformat(),
+              'game_identity': 'sha256_decompressed_v6_game_v1',
+              'source_alias_policy': 'immutable_content_v1',
               'chunk_positions': chunk_positions, 'validation_fraction': validation_fraction,
               'validation_samples': validation_samples, 'seed': seed,
               'sources': [{k: entry.get(k) for k in ('url', 'sha256', 'size', 'suite')} for entry in entries]}
@@ -299,6 +318,7 @@ def prepare_corpus(raw_manifest: Path, out_dir: Path, *, since: str, until: str,
         conn = sqlite3.connect(out_dir / 'progress.sqlite3')
         try:
             conn.execute('CREATE TABLE IF NOT EXISTS games(game_key TEXT PRIMARY KEY)')
+            conn.execute('CREATE TABLE IF NOT EXISTS source_aliases(source_key TEXT PRIMARY KEY, content_sha256 TEXT NOT NULL)')
             conn.execute('CREATE TABLE IF NOT EXISTS archives(archive_key TEXT PRIMARY KEY, directory TEXT, metadata TEXT)')
             conn.commit()
             all_archives = []
