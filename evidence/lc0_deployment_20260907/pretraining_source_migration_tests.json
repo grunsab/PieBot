@@ -1,0 +1,43 @@
+{
+  "recorded_at_utc": "2026-09-07T21:30:07Z",
+  "status": "isolated local implementation; no deployment",
+  "branch": "campaign/lc0-pretraining-migration-20260907",
+  "base_commit": "2bf4d90ddff7abaad5d38122c8d833dc755b0531",
+  "source_sha256": "896df01d6ed08c62f397ced49bc5fe207c04c12220518c4544ae2ddebafeb1ae",
+  "new_test_file_sha256": "9a580964c87d807b51b526fe607fd6951f831afdda2d0e6cb3754c6fb7d4ebcc",
+  "red": {
+    "command": "/private/tmp/piebot-lc0-venv/bin/python -m unittest scripts.tests.test_migrate_lc0_pretraining_source_commit",
+    "result": "11 initial tests failed because LC0 migration API and CLI mode were absent",
+    "log_path": "/private/tmp/piebot-lc0-pretraining-migration-red.log",
+    "log_sha256": "0019c7cc1659fe29a7b3c3eb709816862494709064189365df63fd2c97c3e77e",
+    "additional_red_before_fix": [
+      "intermediate directory aliases",
+      "audit removal, corruption or replacement before pin update",
+      "optional lock appearing after acquisition",
+      "launcher lock inode replaced after acquisition",
+      "prepared audit directory alias on retry",
+      "corpus manifest date bounds disagreeing with frozen identity"
+    ]
+  },
+  "green": {
+    "command": "/private/tmp/piebot-lc0-venv/bin/python -m unittest discover -v scripts/tests",
+    "exit_code": 0,
+    "passed": 160,
+    "new_lc0_migration_tests": 18,
+    "existing_selfplay_migration_tests": 10,
+    "elapsed_seconds": 12.054,
+    "log_path": "/private/tmp/piebot-lc0-pretraining-migration-scripts.log",
+    "log_sha256": "6a5c260566dd9711666ff2e4247acc578c386a3240cdc4aed4b5934ef26fe19b",
+    "git_diff_check": "passed"
+  },
+  "independent_read_only_review": {
+    "agent": "ranked_opponents",
+    "result": "identified path, prepared-audit and optional-lock races closed; no remaining blocking finding"
+  },
+  "limits": [
+    "No remote stop, source edit, migration, pin update or deployment performed",
+    "Supervisor stop and unchanged 336-hour configuration remain externally verified operator requirements",
+    "Raw archives and compressed corpus payloads are not rehashed by migration; only existing commitments are audited",
+    "Current script change has not rerun NNUE/Rust checks; eventual integrated candidate requires the full merge/deployment battery"
+  ]
+}

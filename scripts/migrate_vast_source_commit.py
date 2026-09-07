@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Audit and advance the source pin for a stopped restart-safe Vast.ai run.
 
-The utility intentionally does not stop the trainer.  It acquires the existing
-autopilot lock nonblocking and refuses to continue if another process owns it.
+The utility intentionally does not stop the trainer or control supervisor.
+Self-play uses its existing autopilot lock. The opt-in LC0-pretraining mode
+requires external supervisor-stop verification and the real launcher lock,
+and refuses once any training state or learner output exists.
 The prepared audit is durable before the source pin is replaced, which makes a
 retry safe after a crash at either side of the atomic pin update.
 """
@@ -19,7 +21,7 @@ import stat
 import subprocess
 import sys
 import tempfile
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +34,7 @@ except ImportError:  # pragma: no cover - the production Vast host is Linux.
 
 
 AUDIT_SCHEMA = "piebot-source-commit-migration-v1"
+LC0_AUDIT_SCHEMA = "piebot-lc0-pretraining-source-commit-migration-v1"
 AUDIT_PHASE = "prepared"
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -421,7 +424,7 @@ def _atomic_replace_pin(path: Path, commit: str) -> None:
             pass
 
 
-def _load_audit(path: Path) -> dict[str, Any]:
+def _load_audit(path: Path, *, expected_schema: str = AUDIT_SCHEMA) -> dict[str, Any]:
     path = _require_regular_file(path, label="prepared audit")
     try:
         payload = json.loads(
@@ -439,7 +442,7 @@ def _load_audit(path: Path) -> dict[str, Any]:
         datetime.fromisoformat(timestamp.removesuffix("Z") + "+00:00")
     except ValueError as exc:
         raise MigrationError("prepared audit has an invalid UTC timestamp") from exc
-    if payload.get("schema") != AUDIT_SCHEMA or payload.get("phase") != AUDIT_PHASE:
+    if payload.get("schema") != expected_schema or payload.get("phase") != AUDIT_PHASE:
         raise MigrationError("prepared audit has an unsupported schema or phase")
     return payload
 
@@ -596,24 +599,339 @@ def migrate_source_commit(
         )
 
 
+def _present(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _within(path: Path, root: Path, *, label: str) -> Path:
+    if not path.is_absolute():
+        raise MigrationError(f"{label} path must be absolute: {path}")
+    if ".." in path.parts:
+        raise MigrationError(f"{label} path must not contain parent traversal: {path}")
+    # Approved roots are canonical. Permit a system alias before that root
+    # (e.g. macOS /var), but reject every alias at or below the root itself.
+    anchor = next((parent for parent in reversed((path, *path.parents))
+                   if parent.resolve() == root), None)
+    if anchor is None:
+        raise MigrationError(f"{label} is outside its approved root: {path}")
+    component = anchor
+    for part in (None, *path.relative_to(anchor).parts):
+        if part is not None:
+            component /= part
+        if component.is_symlink():
+            raise MigrationError(f"{label} must not contain a symlink: {component}")
+    resolved = path.resolve()
+    if not resolved.is_relative_to(root):
+        raise MigrationError(f"{label} is outside its approved root: {path}")
+    return resolved
+
+
+def _require_sha256(value: Any, *, label: str) -> str:
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise MigrationError(f"{label} must be a lowercase SHA-256")
+    return value
+
+
+def _file_commitment(path: Path, *, label: str) -> dict[str, Any]:
+    path = _require_regular_file(path, label=label)
+    return {"path": str(path), "sha256": _sha256_file(path), "bytes": path.stat().st_size}
+
+
+def _json_commitment(path: Path, *, label: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    path = _require_regular_file(path, label=label)
+    raw = path.read_bytes()
+    try:
+        value = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MigrationError(f"invalid {label} JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise MigrationError(f"{label} must be a JSON object")
+    return value, {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
+
+
+def _require_lc0_pretraining(out_root: Path) -> None:
+    for relative in ("training/lc0_state.json", "lc0_state.json", "autopilot_state.json"):
+        if _present(out_root / relative):
+            raise MigrationError(f"training or self-play state exists; pretraining migration refused: {relative}")
+    # Even a zero-chunk state owns an identity and deadline. Refuse orphaned
+    # output too; never infer that deleting state made a lineage fresh again.
+    for name in ("chunks", "cycles", "train", "checkpoint.json", "optimizer.pt", "accepted", "baseline"):
+        if _present(out_root / name):
+            raise MigrationError(f"learner artifact exists; pretraining migration refused: {name}")
+    training = out_root / "training"
+    if _present(training):
+        training = _require_directory(training, label="LC0 training directory")
+        if any(path.name != "lc0.lock" for path in training.iterdir()):
+            raise MigrationError("training artifacts exist; only an unused lc0.lock may precede training")
+
+
+def _raw_snapshot(out_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    raw_root = _within(out_root / "data/raw", out_root, label="LC0 raw data root")
+    raw_root = _require_directory(raw_root, label="LC0 raw data root")
+    raw, commitment = _json_commitment(raw_root / "manifest.json", label="frozen raw manifest")
+    if raw.get("schema") != "piebot-lc0-raw-v1" or not isinstance(raw.get("files"), list) or not raw["files"]:
+        raise MigrationError("raw manifest must be a non-empty frozen LC0 snapshot")
+    bounds = []
+    for key in ("since", "until"):
+        try:
+            bound = datetime.fromisoformat(raw[key].replace("Z", "+00:00"))
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
+            raise MigrationError(f"invalid frozen raw manifest {key}") from exc
+        if bound.tzinfo is None or bound.utcoffset() is None:
+            raise MigrationError(f"frozen raw manifest {key} must include a UTC offset")
+        bounds.append(bound)
+    if bounds[0] >= bounds[1]:
+        raise MigrationError("invalid frozen raw manifest date bounds")
+    urls, destinations = set(), set()
+    for entry in raw["files"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("url"), str) or not entry["url"]:
+            raise MigrationError("invalid raw archive URL commitment")
+        _positive_int(entry.get("size"), label="raw archive size")
+        if not isinstance(entry.get("dest"), str):
+            raise MigrationError("raw archive destination is missing")
+        dest = _within(Path(entry["dest"]), raw_root, label="raw archive")
+        if entry["url"] in urls or dest in destinations:
+            raise MigrationError("duplicate raw archive URL or destination")
+        urls.add(entry["url"])
+        destinations.add(dest)
+        if entry.get("sha256") is not None:
+            _require_sha256(entry["sha256"], label="raw archive checksum commitment")
+        elif entry.get("status") in {"downloaded", "verified"}:
+            raise MigrationError("completed raw archive lacks its checksum commitment")
+    commitment.update(schema=raw["schema"], since=raw["since"], until=raw["until"],
+                      archive_count=len(raw["files"]), payloads_rehashed=False)
+    return raw, commitment
+
+
+def _corpus_snapshot(out_root: Path, raw: dict[str, Any], raw_sha: str) -> dict[str, Any] | None:
+    corpus = _within(out_root / "data/corpus", out_root, label="LC0 corpus root")
+    if not _present(corpus):
+        return None
+    corpus = _require_directory(corpus, label="LC0 corpus root")
+    files: dict[str, Any] = {}
+    result: dict[str, Any] = {"path": str(corpus), "files": files,
+                              "chunk_commitments": [], "payloads_rehashed": False}
+    identity = None
+    identity_path = corpus / "identity.json"
+    if _present(identity_path):
+        identity, files["identity.json"] = _json_commitment(identity_path, label="corpus identity")
+        config = {key: value for key, value in identity.items() if key != "corpus_id"}
+        actual_id = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        expected_sources = [{key: row.get(key) for key in ("url", "sha256", "size", "suite")}
+                            for row in raw["files"]]
+        if (identity.get("schema") != "piebot-lc0-corpus-v1" or identity.get("corpus_id") != actual_id
+                or identity.get("since") != raw["since"] or identity.get("until") != raw["until"]
+                or identity.get("sources") != expected_sources):
+            raise MigrationError("corpus identity does not match frozen raw manifest")
+        result["corpus_id"] = actual_id
+    for name in ("progress.sqlite3", "progress.sqlite3-journal", "progress.sqlite3-wal", "progress.sqlite3-shm"):
+        if _present(corpus / name):
+            files[name] = _file_commitment(corpus / name, label=f"corpus {name}")
+
+    chunks: dict[str, dict[str, Any]] = {}
+    def chunk_commitment(path: Path, entry: dict[str, Any]) -> None:
+        path = _within(path, corpus, label="committed corpus chunk")
+        path = _require_regular_file(path, label="committed corpus chunk")
+        checksum = _require_sha256(entry.get("sha256"), label="corpus chunk checksum commitment")
+        count = _positive_int(entry.get("positions"), label="corpus chunk positions")
+        value = {"path": str(path), "sha256_commitment": checksum,
+                 "positions": count, "bytes": path.stat().st_size}
+        if str(path) in chunks and chunks[str(path)] != value:
+            raise MigrationError("conflicting corpus chunk commitments")
+        chunks[str(path)] = value
+
+    archives = corpus / "archives"
+    if _present(archives):
+        _require_directory(archives, label="corpus archives directory")
+        for directory in sorted(archives.iterdir()):
+            _require_directory(directory, label="corpus archive directory")
+            if directory.name.endswith(".part"):
+                # This cache is outside a committed archive transaction.
+                continue
+            info, commitment = _json_commitment(directory / "archive.json", label="corpus archive metadata")
+            files[str((directory / "archive.json").relative_to(corpus))] = commitment
+            for key in ("chunks", "holdout"):
+                if not isinstance(info.get(key), list):
+                    raise MigrationError(f"invalid corpus archive {key}")
+                for entry in info[key]:
+                    name = entry.get("name") if isinstance(entry, dict) else None
+                    if not isinstance(name, str) or Path(name).name != name or name in {".", ".."}:
+                        raise MigrationError("invalid committed corpus chunk name")
+                    chunk_commitment(directory / name, entry)
+    manifest_path = corpus / "corpus_manifest.json"
+    if _present(manifest_path):
+        manifest, files["corpus_manifest.json"] = _json_commitment(manifest_path, label="corpus manifest")
+        if (identity is None or manifest.get("complete") is not True
+                or manifest.get("schema") != "piebot-lc0-corpus-v1"
+                or manifest.get("corpus_id") != identity["corpus_id"]
+                or manifest.get("since") != identity["since"]
+                or manifest.get("until") != identity["until"]
+                or manifest.get("raw_manifest_sha256") != raw_sha):
+            raise MigrationError("corpus manifest does not match frozen raw manifest/identity")
+        if not isinstance(manifest.get("chunks"), list) or not manifest["chunks"]:
+            raise MigrationError("complete corpus manifest has no chunks")
+        for entry in manifest["chunks"]:
+            if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                raise MigrationError("invalid corpus manifest chunk")
+            chunk_commitment(Path(entry["path"]), entry)
+        validation = manifest.get("validation")
+        if not isinstance(validation, dict) or not isinstance(validation.get("path"), str):
+            raise MigrationError("invalid corpus validation commitment")
+        validation_path = _within(Path(validation["path"]), corpus, label="fixed validation")
+        files["validation.jsonl"] = _file_commitment(validation_path, label="fixed validation")
+        if files["validation.jsonl"]["sha256"] != validation.get("sha256"):
+            raise MigrationError("fixed validation SHA-256 mismatch")
+    if identity is None and (files or chunks):
+        raise MigrationError("corpus cache commitments exist without an identity")
+    result["chunk_commitments"] = [chunks[key] for key in sorted(chunks)]
+    return result
+
+
+def migrate_lc0_pretraining_source_commit(
+    *, repo_root: Path, out_root: Path, expected_old_commit: str, expected_new_commit: str,
+    bootstrap_root: Path, bootstrap_checkpoint: Path, expected_bootstrap_sha256: str,
+    active_model: Path, expected_active_sha256: str, supervisor_stop_verified: bool = False,
+    before_pin_replace: Optional[Callable[[Path, Path], None]] = None,
+) -> MigrationResult:
+    """Audit a pin-only LC0 transition before a training identity/clock exists.
+
+    The caller must externally verify supervisor is stopped and its descendants
+    have exited. The explicit attestation is recorded, not checked by this tool.
+    Raw/chunk payloads are not rehashed; their frozen metadata commitments are
+    audited, while bootstrap, validation and corpus metadata bytes are hashed.
+    """
+    if supervisor_stop_verified is not True:
+        raise MigrationError("LC0 migration requires an externally verified supervisor stop attestation")
+    old = _require_commit(expected_old_commit, label="expected old commit")
+    new = _require_commit(expected_new_commit, label="expected new commit")
+    if old == new:
+        raise MigrationError("old and new source commits must differ")
+    repo_root = _require_directory(repo_root, label="repository root")
+    out_root = _require_directory(out_root, label="LC0 output root")
+    bootstrap_root = _require_directory(bootstrap_root, label="bootstrap root")
+    if bootstrap_root.is_relative_to(out_root) or out_root.is_relative_to(bootstrap_root):
+        raise MigrationError("bootstrap root must be separate from LC0 output root")
+    bootstrap_checkpoint = _within(Path(bootstrap_checkpoint), bootstrap_root, label="bootstrap checkpoint")
+    active_model = _within(Path(active_model), bootstrap_root, label="active model")
+    expected_bootstrap_sha256 = _require_sha256(expected_bootstrap_sha256, label="bootstrap checkpoint checksum")
+    expected_active_sha256 = _require_sha256(expected_active_sha256, label="active model checksum")
+    pin = out_root / "source_git_commit"
+    lock = out_root / "launcher.lock"
+    audit_path = audit_path_for(out_root, old, new)
+    with ExitStack() as stack:
+        held_locks = {lock: stack.enter_context(_existing_nonblocking_lock(lock))}
+        _require_lc0_pretraining(out_root)
+        optional_locks = (out_root / "data/corpus/prepare.lock", out_root / "training/lc0.lock")
+        for path in optional_locks:
+            _within(path, out_root, label="optional LC0 lock")
+            if _present(path):
+                held_locks[path] = stack.enter_context(_existing_nonblocking_lock(path))
+        acquired_optional_locks = {path for path in held_locks if path != lock}
+
+        def snapshot() -> dict[str, Any]:
+            _validate_repository(repo_root, old_commit=old, new_commit=new)
+            _require_lc0_pretraining(out_root)
+            if {path for path in optional_locks if _present(path)} != acquired_optional_locks:
+                raise MigrationError("optional LC0 lock presence changed after acquisition")
+            for path, handle in held_locks.items():
+                _within(path, out_root, label="held LC0 lock")
+                current_lock = _require_regular_file(path, label="held LC0 lock").stat()
+                held_lock = os.fstat(handle.fileno())
+                if (current_lock.st_dev, current_lock.st_ino) != (held_lock.st_dev, held_lock.st_ino):
+                    raise MigrationError(f"held LC0 lock path changed: {path}")
+            _within(bootstrap_checkpoint, bootstrap_root, label="bootstrap checkpoint")
+            _within(active_model, bootstrap_root, label="active model")
+            checkpoint = _file_commitment(bootstrap_checkpoint, label="bootstrap checkpoint")
+            incumbent = _file_commitment(active_model, label="active model")
+            if checkpoint["sha256"] != expected_bootstrap_sha256 or incumbent["sha256"] != expected_active_sha256:
+                raise MigrationError("bootstrap checkpoint or incumbent SHA-256 mismatch")
+            raw, raw_commitment = _raw_snapshot(out_root)
+            delta = _git(repo_root, "diff", "--binary", "--full-index", old, new).stdout
+            return {"schema": LC0_AUDIT_SCHEMA, "phase": AUDIT_PHASE, "mode": "lc0-pretraining",
+                "repo_root": str(repo_root), "out_root": str(out_root),
+                "source_commit": {"old": old, "new": new, "fast_forward_verified": True},
+                "source_delta": {"sha256": hashlib.sha256(delta.encode()).hexdigest(),
+                                 "name_status": _git(repo_root, "diff", "--name-status", old, new).stdout},
+                "lock": {"path": str(lock), "mode": "exclusive-nonblocking", "acquired": True},
+                "additional_locks": [str(path) for path in optional_locks if path in acquired_optional_locks],
+                "supervisor_stop": {"externally_verified_by_caller": True, "verified_by_tool": False},
+                "training": {"state_path": str(out_root / "training/lc0_state.json"),
+                             "clock_started": False, "required_budget_hours": 336,
+                             "live_budget_verified_by_tool": False,
+                             "budget_basis": "required unchanged launch setting; supervisor configuration is external",
+                             "state_created_or_modified": False},
+                "bootstrap_root": str(bootstrap_root), "bootstrap_checkpoint": checkpoint,
+                "active_model": incumbent, "raw_manifest": raw_commitment,
+                "corpus": _corpus_snapshot(out_root, raw, raw_commitment["sha256"])}
+
+        stored = _read_source_pin(pin)
+        if stored not in {old, new}:
+            raise MigrationError("stored source pin matches neither expected old nor new commit")
+        current = snapshot()
+        _within(audit_path, out_root, label="prepared LC0 audit")
+        if _present(audit_path):
+            audit = _load_audit(audit_path, expected_schema=LC0_AUDIT_SCHEMA)
+            if _without_timestamp(audit) != current:
+                raise MigrationError("prepared LC0 audit no longer matches current data/artifacts")
+        elif stored == new:
+            raise MigrationError("new LC0 source pin has no prepared audit")
+        else:
+            _atomic_write_json(audit_path, {**current, "prepared_at_utc": _utc_now()})
+            audit = _load_audit(audit_path, expected_schema=LC0_AUDIT_SCHEMA)
+            if _without_timestamp(audit) != current:
+                raise MigrationError("prepared LC0 audit does not match the verified snapshot")
+        if stored == new:
+            return MigrationResult("already-applied", audit_path, old, new)
+        if before_pin_replace is not None:
+            before_pin_replace(audit_path, pin)
+        if _read_source_pin(pin) != old or snapshot() != current:
+            raise MigrationError("LC0 data/source pin changed before replacement")
+        _within(audit_path, out_root, label="prepared LC0 audit")
+        if _load_audit(audit_path, expected_schema=LC0_AUDIT_SCHEMA) != audit:
+            raise MigrationError("prepared LC0 audit changed before replacement")
+        _atomic_replace_pin(pin, new)
+        if _read_source_pin(pin) != new:
+            raise MigrationError("LC0 source pin verification failed after replacement")
+        return MigrationResult("migrated", audit_path, old, new)
+
+
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--out-root", type=Path, required=True)
     parser.add_argument("--expected-old-commit", required=True)
     parser.add_argument("--expected-new-commit", required=True)
-    return parser.parse_args(argv)
+    parser.add_argument("--mode", choices=("selfplay", "lc0-pretraining"), default="selfplay")
+    parser.add_argument("--bootstrap-root", type=Path)
+    parser.add_argument("--bootstrap-checkpoint", type=Path)
+    parser.add_argument("--bootstrap-checkpoint-sha256")
+    parser.add_argument("--active-model", type=Path)
+    parser.add_argument("--active-model-sha256")
+    parser.add_argument("--supervisor-stop-verified", action="store_true",
+                        help="LC0 only: attest supervisor STOPPED and all descendants exited; externally verified, not tool-checked")
+    args = parser.parse_args(argv)
+    lc0_values = (args.bootstrap_root, args.bootstrap_checkpoint, args.bootstrap_checkpoint_sha256,
+                  args.active_model, args.active_model_sha256)
+    if args.mode == "lc0-pretraining" and (not all(lc0_values) or not args.supervisor_stop_verified):
+        parser.error("lc0-pretraining requires bootstrap root/checkpoint/hash, active model/hash and --supervisor-stop-verified")
+    if args.mode == "selfplay" and (any(lc0_values) or args.supervisor_stop_verified):
+        parser.error("LC0 options require --mode lc0-pretraining")
+    return args
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parse_args(argv)
     try:
-        result = migrate_source_commit(
-            repo_root=args.repo_root,
-            out_root=args.out_root,
-            expected_old_commit=args.expected_old_commit,
-            expected_new_commit=args.expected_new_commit,
-        )
+        common = dict(repo_root=args.repo_root, out_root=args.out_root,
+                      expected_old_commit=args.expected_old_commit, expected_new_commit=args.expected_new_commit)
+        if args.mode == "lc0-pretraining":
+            result = migrate_lc0_pretraining_source_commit(**common,
+                bootstrap_root=args.bootstrap_root, bootstrap_checkpoint=args.bootstrap_checkpoint,
+                expected_bootstrap_sha256=args.bootstrap_checkpoint_sha256,
+                active_model=args.active_model, expected_active_sha256=args.active_model_sha256,
+                supervisor_stop_verified=args.supervisor_stop_verified)
+        else:
+            result = migrate_source_commit(**common)
     except MigrationError as exc:
         print(f"source commit migration refused: {exc}", file=sys.stderr)
         return 2
