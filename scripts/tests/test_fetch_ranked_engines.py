@@ -162,6 +162,41 @@ class ArchiveSafetyTests(unittest.TestCase):
 
 
 class UciQualificationTests(unittest.TestCase):
+    def test_explicitly_disabled_tablebases_allow_only_the_known_empty_path_notice(self):
+        cases = (
+            (True, 'info string Tablebases failed to load', {}, True),
+            (False, 'info string Tablebases failed to load', {}, False),
+            (True, 'info string Tablebases failed to load', {'SyzygyPath': '/missing'}, False),
+            (True, 'info string Network failed to load', {}, False),
+            (True, 'info string Tablebases failed to load: missing runtime', {}, False),
+        )
+        for advertises_path, notice, overrides, accepted in cases:
+            with self.subTest(notice=notice, path=advertises_path), tempfile.TemporaryDirectory() as tmp:
+                executable = Path(tmp) / "test"
+                executable.write_text(f"""#!/usr/bin/env python3
+import sys
+for line in sys.stdin:
+    line = line.strip()
+    if line == 'uci':
+        print('id name Test 1')
+        print('option name Threads type spin default 4 min 1 max 16')
+        if {advertises_path!r}: print('option name SyzygyPath type string default <empty>')
+        print('uciok', flush=True)
+    elif line == 'isready':
+        print({notice!r})
+        print('readyok', flush=True)
+    elif line.startswith('go '): print('bestmove e2e4', flush=True)
+    elif line == 'quit': break
+""")
+                executable.chmod(0o755)
+                if accepted:
+                    result = fetch.qualify_engine(executable, descriptor(), overrides)
+                    self.assertEqual(result['options']['SyzygyPath'], '')
+                    self.assertEqual(result['status'], 'passed')
+                else:
+                    with self.assertRaisesRegex(ValueError, 'rejected qualification options'):
+                        fetch.qualify_engine(executable, descriptor(), overrides)
+
     def test_bounded_search_records_legal_move_name_and_single_thread_options(self):
         with tempfile.TemporaryDirectory() as tmp:
             executable = Path(tmp) / "test"

@@ -863,11 +863,22 @@ def run_uci_preflight(
             send(f"setoption name {name} value {_uci_value(value)}")
         send("isready")
         read_until("readyok")
-        folded_transcript = "\n".join(transcript).casefold()
+        # PlentyChess reports this exact diagnostic when an explicitly empty
+        # SyzygyPath disables tablebases. Other load failures, including NNUE
+        # failures and errors for a nonempty tablebase path, remain fatal.
+        tablebases_explicitly_disabled = any(
+            name.casefold() == "syzygypath" and value == ""
+            for name, value in options.items()
+        )
+        checked_transcript = [line for line in transcript if not (
+            tablebases_explicitly_disabled
+            and line.strip() == "info string Tablebases failed to load"
+        )]
+        folded_transcript = "\n".join(checked_transcript).casefold()
         for marker in failure_markers:
             if marker.casefold() in folded_transcript:
                 matching = next(
-                    (line for line in transcript if marker.casefold() in line.casefold()), marker
+                    (line for line in checked_transcript if marker.casefold() in line.casefold()), marker
                 )
                 raise RuntimeError(matching)
         return {

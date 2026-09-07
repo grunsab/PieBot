@@ -229,7 +229,13 @@ def qualify_engine(executable: Path, spec: dict, network_options: dict,
             send(f"setoption name {key} value {encoded}")
         send("isready")
         ready = receive_until(lambda line: line == "readyok")
-        if any(re.search(r"\b(error|failed|invalid|unknown)\b", line, re.I) for line in ready):
+        # PlentyChess reports this exact notice when explicitly disabling its
+        # tablebases. It is not an NNUE/runtime error; all other failures remain
+        # fatal, including this notice when a nonempty path was requested.
+        if any(re.search(r"\b(error|failed|invalid|unknown)\b", line, re.I)
+               and not (configured.get("SyzygyPath") == ""
+                        and line == "info string Tablebases failed to load")
+               for line in ready):
             raise ValueError(f"engine rejected qualification options: {ready}")
         send("ucinewgame")
         send("position startpos")

@@ -383,6 +383,44 @@ class GenericOpponentTests(unittest.TestCase):
             self.assertEqual(metadata["uci_id"], ["id name Minimal UCI"])
             self.assertEqual(metadata["argument_files"], [{"path": str(script.resolve()), "sha256": arena.sha256_file(script)}])
 
+    def test_exact_disabled_tablebase_message_requires_explicit_empty_path(self):
+        fake_uci = textwrap.dedent("""
+            import sys
+            for raw in sys.stdin:
+                line = raw.strip()
+                if line == "uci":
+                    print("id name Tablebase fixture", flush=True)
+                    print("option name SyzygyPath type string default <empty>", flush=True)
+                    print("uciok", flush=True)
+                elif line == "isready":
+                    print("info string Tablebases failed to load", flush=True)
+                    for message in sys.argv[1:]:
+                        print(message, flush=True)
+                    print("readyok", flush=True)
+                elif line == "quit":
+                    break
+        """)
+        cases = [
+            ({}, [], False),
+            ({"SyzygyPath": "/configured/tablebases"}, [], False),
+            ({"SyzygyPath": ""}, [], True),
+            ({"SyzygyPath": ""}, ["info string NNUE failed to load"], False),
+            ({"SyzygyPath": ""}, ["info string Tablebases failed to load: unexpected error"], False),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "engine.py"
+            script.write_text(fake_uci)
+            for options, extra_messages, accepted in cases:
+                with self.subTest(options=options, extra_messages=extra_messages):
+                    call = lambda: arena.run_uci_preflight(
+                        [sys.executable, "-u", str(script), *extra_messages], options,
+                        required_options=set(options), failure_markers=("failed to load",), timeout_s=2)
+                    if accepted:
+                        self.assertEqual(call()["id"], ["id name Tablebase fixture"])
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "failed to load"):
+                            call()
+
     def test_identity_validation_rejects_changed_executable_network_or_wrapper_argument(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "engine"
