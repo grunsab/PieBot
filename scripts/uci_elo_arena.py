@@ -24,6 +24,18 @@ Example::
 ``--openings-file`` accepts newline-delimited FEN/EPD positions, a JSON list
 of positions, or a ``compare_play`` JSON result. For the latter, the final
 position from each ``pairing.openings[].positions`` entry is extracted.
+
+For a full-strength ranked opponent, use ``--opponent-command`` together with
+``--opponent-sha256``, ``--opponent-name``, ``--opponent-rating``,
+``--opponent-rating-source`` and ``--opponent-rating-snapshot YYYY-MM-DD``.
+The rating is reporting metadata; it is never sent to the engine. Opponents
+without a Threads option require ``--opponent-single-thread-qualified``.
+Run from the opponent's working directory with absolute arena/model/book/result
+paths when it loads relative assets. Pin such files with repeated
+``--opponent-asset PATH --opponent-asset-sha256 SHA`` pairs. To set a network
+option explicitly, use ``--opponent-network OPTION=PATH`` and the corresponding
+``--opponent-network-sha256 SHA``. Generic mode uses exact-FEN cluster intervals
+and flags incomplete, capped or failed matches as ineligible measurements.
 """
 
 from __future__ import annotations
@@ -45,6 +57,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Any, Iterable, Mapping, Sequence
 
 
@@ -192,6 +205,45 @@ def stockfish_uci_options(*, elo: int, hash_mb: int) -> dict[str, Any]:
     }
 
 
+def generic_opponent_uci_options(
+    advertised: Sequence[str], *, hash_mb: int, single_thread_qualified: bool,
+    spin_ranges: Mapping[str, Mapping[str, int]] | None = None,
+) -> dict[str, Any]:
+    """Full-strength settings, restricted to options this opponent advertises."""
+    if hash_mb <= 0:
+        raise ValueError("opponent hash size must be positive")
+    names = {name.casefold(): name for name in advertised}
+    if "threads" not in names and not single_thread_qualified:
+        raise ValueError("opponent lacks Threads; explicit single-thread qualification is required")
+    desired = {"Threads": 1, "Hash": hash_mb, "Ponder": False, "MultiPV": 1,
+               "UCI_LimitStrength": False, "OwnBook": False, "BookFile": "",
+               "SyzygyPath": "", "SyzygyProbeLimit": 0, "GaviotaTbPath": ""}
+    # Some full-strength engines also expose a skill dial independent of the
+    # Elo limiter. Select its advertised maximum, never a guessed numeric value.
+    for name, bounds in (spin_ranges or {}).items():
+        if name.casefold() == "skill level":
+            desired[name] = int(bounds["max"])
+    return {names[key.casefold()]: value for key, value in desired.items()
+            if key.casefold() in names}
+
+
+@contextmanager
+def results_lock(path: Path):
+    """One writer per results path, released automatically after a crash."""
+    import fcntl
+    path = path.expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(path.name + ".lock").open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            raise RuntimeError(f"arena results already locked: {path}") from error
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def parse_time_control(raw: str) -> tuple[float, float]:
     match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)\s*", raw)
     if not match:
@@ -227,6 +279,87 @@ def command_identity(command: Sequence[str]) -> dict[str, Any]:
         "executable": str(executable),
         "executable_sha256": sha256_file(executable),
     }
+
+
+def _file_pin(path: Path, expected_sha256: str) -> dict[str, str]:
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256):
+        raise ValueError("an explicit 64-character artifact SHA-256 is required")
+    path = path.expanduser().resolve(strict=True)
+    if not path.is_file() or sha256_file(path) != expected_sha256.lower():
+        raise ValueError(f"artifact checksum mismatch: {path}")
+    return {"path": str(path), "sha256": expected_sha256.lower()}
+
+
+def pinned_command_identity(command: Sequence[str], *, expected_sha256: str) -> dict[str, Any]:
+    pin = _file_pin(Path(command[0]), expected_sha256)
+    identity = command_identity(command)
+    if identity["executable_sha256"] != pin["sha256"]:
+        raise ValueError("executable checksum changed while pinning arena")
+    identity["cwd"] = str(Path.cwd().resolve())
+    arguments = []
+    for value in command[1:]:
+        candidate = Path(value).expanduser()
+        # Pin scripts/runtimes supplied through command arguments as well as
+        # the launcher itself (for example: dotnet /path/Engine.dll).
+        if not candidate.is_file() and not value.startswith("-"):
+            found = shutil.which(value)
+            if found:
+                candidate = Path(found)
+        if candidate.is_file():
+            candidate = candidate.resolve()
+            arguments.append({"path": str(candidate), "sha256": sha256_file(candidate)})
+    identity["argument_files"] = arguments
+    return identity
+
+
+def verify_pinned_artifacts(identity: Mapping[str, Any], assets: Sequence[Mapping[str, str]] = ()) -> None:
+    _file_pin(Path(str(identity["executable"])), str(identity["executable_sha256"]))
+    if identity.get("cwd") != str(Path.cwd().resolve()):
+        raise ValueError("arena working directory changed")
+    for item in list(identity.get("argument_files", [])) + list(assets):
+        _file_pin(Path(item["path"]), item["sha256"])
+
+
+def prepare_generic_opponent(args) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+    required = ("opponent_name", "opponent_rating_source", "opponent_rating_snapshot", "opponent_sha256")
+    if any(not getattr(args, name) for name in required) or args.opponent_rating is None:
+        raise ValueError("generic opponent requires name, rating, rating source/snapshot and binary SHA-256")
+    if not math.isfinite(args.opponent_rating) or args.opponent_rating <= 0:
+        raise ValueError("opponent rating must be finite and positive")
+    dt.date.fromisoformat(args.opponent_rating_snapshot)
+    command = parse_command(args.opponent_command)
+    identity = pinned_command_identity(command, expected_sha256=args.opponent_sha256)
+    if len(args.opponent_network) != len(args.opponent_network_sha256):
+        raise ValueError("each opponent network option needs a corresponding SHA-256")
+    if len(args.opponent_asset) != len(args.opponent_asset_sha256):
+        raise ValueError("each opponent asset needs a corresponding SHA-256")
+    networks = []
+    for setting, sha in zip(args.opponent_network, args.opponent_network_sha256):
+        name, separator, path = setting.partition("=")
+        if not separator or not name.strip() or not path:
+            raise ValueError("opponent network must use OPTION=PATH")
+        networks.append({"option": name.strip(), **_file_pin(Path(path), sha)})
+    assets = [_file_pin(Path(path), sha) for path, sha in zip(args.opponent_asset, args.opponent_asset_sha256)]
+    preflight = run_uci_preflight(command, {}, required_options=set(), timeout_s=args.startup_timeout)
+    options = generic_opponent_uci_options(preflight["advertised_options"], hash_mb=args.opponent_hash,
+        single_thread_qualified=args.opponent_single_thread_qualified, spin_ranges=preflight["spin_ranges"])
+    advertised = {name.casefold(): name for name in preflight["advertised_options"]}
+    for network in networks:
+        name = network["option"].casefold()
+        if name not in advertised:
+            raise ValueError(f"opponent does not advertise network option {network['option']}")
+        if name in {key.casefold() for key in options} or name in {"uci_elo", "skill level"}:
+            raise ValueError("network option cannot override engine strength/resource controls")
+        options[advertised[name]] = network["path"]
+    configured = run_uci_preflight(command, options, required_options=set(options), timeout_s=args.startup_timeout,
+        failure_markers=("failed to load", "could not load", "cannot load", "unable to load", "could not open"))
+    verify_pinned_artifacts(identity, assets + networks)
+    metadata = {**identity, "name": args.opponent_name, "rating": args.opponent_rating,
+        "rating_source": args.opponent_rating_source, "rating_snapshot": args.opponent_rating_snapshot,
+        "strength": "full", "uci_id": configured["id"], "options": options,
+        "single_thread_qualification": "Threads=1" if "threads" in advertised else "explicit-operator-qualification",
+        "networks": networks, "assets": assets}
+    return command, options, metadata
 
 
 def _deduplicate(values: Iterable[str]) -> list[str]:
@@ -544,6 +677,68 @@ def summarize_results(
         "score_95_ci": score_ci,
         "elo_95_ci": elo_ci,
     }
+
+
+def summarize_generic_results(
+    records: Sequence[Mapping[str, Any]], *, bootstrap_samples: int, seed: int,
+    expected_games: int,
+) -> dict[str, Any]:
+    """Use complete color pairs for every estimate; resample exact-FEN clusters."""
+    if bootstrap_samples <= 0:
+        raise ValueError("bootstrap sample count must be positive")
+    pairs: dict[int, list[Mapping[str, Any]]] = {}
+    indexes = set()
+    for record in records:
+        if record["game_index"] in indexes:
+            raise ValueError("duplicate generic arena game index")
+        indexes.add(record["game_index"])
+        pairs.setdefault(int(record["pair_index"]), []).append(record)
+    complete = []
+    clusters: dict[str, list[float]] = {}
+    for pair in pairs.values():
+        if len(pair) > 2:
+            raise ValueError("generic arena pair has more than two games")
+        if len(pair) != 2:
+            continue
+        if ({item["piebot_color"] for item in pair} != {"white", "black"}
+                or pair[0]["opening_fen"] != pair[1]["opening_fen"]):
+            raise ValueError("generic arena pair must reverse colors on the same exact FEN")
+        complete.extend(pair)
+        clusters.setdefault(str(pair[0]["opening_fen"]), []).extend(float(item["piebot_score"]) for item in pair)
+    # Reuse W/D/L and pentanomial bookkeeping; this mode replaces the legacy
+    # per-pair interval, so avoid computing an unused expensive bootstrap.
+    summary = summarize_results(complete, bootstrap_samples=1, seed=seed)
+    buckets = [(sum(scores), len(scores)) for _, scores in sorted(clusters.items())]
+    if buckets:
+        rng = random.Random(seed)
+        boot = []
+        for _ in range(bootstrap_samples):
+            sampled = [rng.choice(buckets) for _ in buckets]
+            boot.append(sum(points for points, _ in sampled) / sum(count for _, count in sampled))
+        boot.sort()
+        score_ci = [_percentile(boot, 0.025), _percentile(boot, 0.975)]
+    else:
+        score_ci = [math.nan, math.nan]
+    valid_terminations = {"chess_checkmate", "chess_stalemate", "chess_insufficient_material",
+        "chess_seventyfive_moves", "chess_fivefold_repetition", "chess_fifty_moves", "chess_threefold_repetition"}
+    abnormal = sorted({str(item.get("termination", "unknown")) for item in records
+                       if item.get("termination") not in valid_terminations})
+    reasons = []
+    if len(complete) != len(records):
+        reasons.append("incomplete-pairs")
+    if len(records) != expected_games:
+        reasons.append("match-incomplete")
+    if len(clusters) < 2:
+        reasons.append("insufficient-opening-clusters")
+    if abnormal:
+        reasons.append("abnormal-terminations")
+    summary.update(recorded_games=len(records), expected_games=expected_games,
+        bootstrap_samples=bootstrap_samples, bootstrap_unit="exact-fen-cluster-v1",
+        complete_opening_clusters=len(clusters), score_95_ci=score_ci,
+        elo_95_ci=[logistic_elo(value) if math.isfinite(value) else math.nan for value in score_ci],
+        measurement_eligible=not reasons, ineligible_reasons=reasons, abnormal_terminations=abnormal,
+        rating_interpretation="local opponent-anchored performance; not an official rating")
+    return summary
 
 
 def _uci_value(value: Any) -> str:
@@ -983,9 +1178,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--piebot-nnue", type=Path, required=True, help="quantized NNUE model")
     parser.add_argument("--piebot-blend", type=int, default=100, help="EvalBlend, 0..100")
     parser.add_argument("--piebot-hash", type=int, default=64, help="PieBot hash MiB")
-    parser.add_argument("--stockfish-command", default="stockfish", help="Stockfish command")
+    opponents = parser.add_mutually_exclusive_group()
+    opponents.add_argument("--stockfish-command", default="stockfish", help="Stockfish command")
+    opponents.add_argument("--opponent-command", help="Opt-in full-strength arbitrary UCI opponent command")
     parser.add_argument("--stockfish-elo", type=int, default=2500, help="Stockfish UCI_Elo")
     parser.add_argument("--stockfish-hash", type=int, default=64, help="Stockfish hash MiB")
+    parser.add_argument("--opponent-name")
+    parser.add_argument("--opponent-rating", type=float, help="Published rating used only as reporting metadata")
+    parser.add_argument("--opponent-rating-source", help="Source URL for the published rating")
+    parser.add_argument("--opponent-rating-snapshot", help="Rating snapshot date, YYYY-MM-DD")
+    parser.add_argument("--opponent-sha256", help="Expected executable SHA-256; required in generic mode")
+    parser.add_argument("--opponent-hash", type=int, default=64)
+    parser.add_argument("--opponent-single-thread-qualified", action="store_true",
+                        help="Attest that an opponent without a Threads option is single-threaded")
+    parser.add_argument("--opponent-network", action="append", default=[], metavar="OPTION=PATH")
+    parser.add_argument("--opponent-network-sha256", action="append", default=[], metavar="SHA256",
+                        help="Expected network hashes in the same order as --opponent-network")
+    parser.add_argument("--opponent-asset", action="append", default=[], type=Path,
+                        help="Additional immutable runtime/default-network file")
+    parser.add_argument("--opponent-asset-sha256", action="append", default=[], metavar="SHA256",
+                        help="Expected asset hashes in the same order as --opponent-asset")
     parser.add_argument("--games", type=int, default=100, help="even game count")
     parser.add_argument(
         "--time-control", default=DEFAULT_TIME_CONTROL, help="Fischer INITIAL+INCREMENT seconds"
@@ -1016,8 +1228,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+def _run_arena(args: argparse.Namespace) -> int:
     try:
         initial_time, increment = parse_time_control(args.time_control)
         settings = GameSettings(
@@ -1033,12 +1244,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("startup timeout must be positive")
 
         piebot_command = parse_command(args.piebot_command)
-        stockfish_command = parse_command(args.stockfish_command)
+        generic = args.opponent_command is not None
+        opponent_metadata = None
+        if generic:
+            stockfish_command, stockfish_options, opponent_metadata = prepare_generic_opponent(args)
+        else:
+            stockfish_command = parse_command(args.stockfish_command)
+            stockfish_options = stockfish_uci_options(
+                elo=args.stockfish_elo, hash_mb=args.stockfish_hash
+            )
         piebot_options, model_sha = piebot_uci_options(
             args.piebot_nnue, blend=args.piebot_blend, hash_mb=args.piebot_hash
-        )
-        stockfish_options = stockfish_uci_options(
-            elo=args.stockfish_elo, hash_mb=args.stockfish_hash
         )
 
         raw_openings = (
@@ -1056,12 +1272,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             failure_markers=("failed to load NNUEQuantFile",),
             timeout_s=args.startup_timeout,
         )
-        stockfish_preflight = run_uci_preflight(
-            stockfish_command,
-            stockfish_options,
-            required_options=STOCKFISH_REQUIRED_OPTIONS,
-            timeout_s=args.startup_timeout,
-        )
+        if generic:
+            stockfish_preflight = {"id": opponent_metadata["uci_id"]}
+        else:
+            stockfish_preflight = run_uci_preflight(
+                stockfish_command,
+                stockfish_options,
+                required_options=STOCKFISH_REQUIRED_OPTIONS,
+                timeout_s=args.startup_timeout,
+            )
 
         config = {
             "piebot": {
@@ -1090,6 +1309,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             "openings_count": len(openings),
             "pairing": "same-position-colors-reversed-v1",
         }
+        if generic:
+            config.pop("stockfish")
+            config["opponent"] = opponent_metadata
+            config["piebot"].update(pinned_command_identity(piebot_command,
+                expected_sha256=config["piebot"]["executable_sha256"]))
+            config["measurement_mode"] = "full-strength-generic-opponent-v1"
+            config["statistics_schema"] = "complete-pairs-exact-fen-bootstrap-v1"
         state = load_or_create_state(args.results, config, plans)
         remaining = pending_plans(state, plans)
         print(
@@ -1098,9 +1324,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         model_path = Path(str(piebot_options["NNUEQuantFile"]))
-        for plan in remaining:
+        def validate_live_artifacts():
             if sha256_file(model_path) != model_sha:
                 raise RuntimeError("PieBot NNUE model changed during the arena")
+            if generic:
+                verify_pinned_artifacts(config["piebot"])
+                verify_pinned_artifacts(opponent_metadata,
+                    opponent_metadata["networks"] + opponent_metadata["assets"])
+
+        def summarize():
+            if generic:
+                result = summarize_generic_results(state["games"], bootstrap_samples=args.bootstrap_samples,
+                    seed=args.seed, expected_games=args.games)
+                result["opponent_anchored_performance"] = args.opponent_rating + result["elo_difference"]
+                result["opponent_anchored_performance_95_ci"] = [args.opponent_rating + value for value in result["elo_95_ci"]]
+                return result
+            return summarize_results(state["games"], bootstrap_samples=args.bootstrap_samples, seed=args.seed)
+
+        validate_live_artifacts()
+        for plan in remaining:
+            validate_live_artifacts()
             record = play_isolated_game(
                 plan,
                 settings,
@@ -1110,11 +1353,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stockfish_options=stockfish_options,
                 startup_timeout_s=args.startup_timeout,
             )
+            if generic:
+                validate_live_artifacts()
+                if str(record.get("termination", "")).startswith("stockfish_"):
+                    record["termination"] = "opponent_" + record["termination"][len("stockfish_"):]
             state["games"].append(record)
             state["games"].sort(key=lambda game: int(game["game_index"]))
-            summary = summarize_results(
-                state["games"], bootstrap_samples=args.bootstrap_samples, seed=args.seed
-            )
+            summary = summarize()
             state["summary"] = _json_safe(summary)
             save_state(args.results, state)
             print(
@@ -1123,13 +1368,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"termination={record['termination']} plies={record['plies']}"
             )
 
-        summary = summarize_results(
-            state["games"], bootstrap_samples=args.bootstrap_samples, seed=args.seed
-        )
+        summary = summarize()
         state["summary"] = _json_safe(summary)
         save_state(args.results, state)
-        print_summary(summary, stockfish_elo=args.stockfish_elo)
+        if generic:
+            print(f"score={summary['score_rate']:.3%} W-D-L={summary['wins']}-{summary['draws']}-{summary['losses']} "
+                  f"versus={args.opponent_name}; opponent-relative={_format_elo(summary['elo_difference'])} Elo; "
+                  f"local opponent-anchored performance={summary['opponent_anchored_performance']:.1f}; "
+                  f"measurement_eligible={summary['measurement_eligible']}")
+        else:
+            print_summary(summary, stockfish_elo=args.stockfish_elo)
         return 0
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        with results_lock(args.results):
+            return _run_arena(args)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

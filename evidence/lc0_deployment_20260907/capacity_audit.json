@@ -1,0 +1,120 @@
+{
+  "schema": "piebot-lc0-capacity-audit-v1",
+  "observed_at_utc": "2026-09-07T19:56:52.122960+00:00",
+  "method": "Read-only file metadata, existing smoke logs, and bounded record/header samples; no production changes or new performance benchmarks.",
+  "source_commit": "b517c47cb86b9f524118df6469b29d7d76495898",
+  "sources": [
+    "/workspace/piebot_lc0_20260907/data/raw/manifest.json",
+    "/workspace/lc0_setup/smoke_prepare.log",
+    "/workspace/lc0_setup/smoke_train.log",
+    "/workspace/lc0_setup/smoke_v2/corpus/corpus_manifest.json",
+    "/workspace/lc0_setup/smoke_v2/training/lc0_state.json"
+  ],
+  "units": {"GB": 1000000000, "GiB": 1073741824, "MB_per_second": 1000000},
+  "inventory": {
+    "archives": 1433,
+    "total_bytes": 259132354560,
+    "first_archive": "training-run2-test91-20260709-0306.tar",
+    "first_archive_bytes": 40661790720,
+    "next_largest_archive_bytes": 340193280,
+    "completed_archives_at_first_observation": 0,
+    "first_archive_sample": {
+      "headers": 999,
+      "minimum_member_mtime_utc": "2026-06-27T16:16:09+00:00",
+      "maximum_member_mtime_utc": "2026-07-09T02:58:01+00:00",
+      "implication": "The oversized archive mixes out-of-window backfill with eligible dates; this sample does not justify omitting the archive."
+    }
+  },
+  "download": {
+    "partial_observations": [
+      {"utc": "2026-09-07T19:51:41.463546+00:00", "unix_seconds": 1788810701.463546, "bytes": 1515810816},
+      {"utc": "2026-09-07T19:52:44.331578+00:00", "unix_seconds": 1788810764.331578, "bytes": 1647079424},
+      {"utc": "2026-09-07T19:56:52.122960+00:00", "unix_seconds": 1788811012.1229599, "bytes": 2164420608}
+    ],
+    "measured_bytes_per_second_first_interval": 2088002.5009319247,
+    "first_archive_remaining_hours_at_second_observation_and_measured_rate": 5.190328938594398,
+    "all_remaining_archives_hours_if_same_rate": 34.254598596436104,
+    "other_archives_minutes_if_100_MB_per_second": 36.41176064,
+    "formula": "rate=(partial_bytes_2-partial_bytes_1)/(time_2-time_1); durations=remaining_bytes/rate",
+    "limitations": "The 100 MB/s alternative is a scenario based on the earlier small-file observation, not a sustained whole-corpus measurement. Fetches are sequential. Curl does not use byte-range continuation, so an interrupted object restarts from byte zero."
+  },
+  "smoke_preparation": {
+    "archive_bytes": 115517440,
+    "elapsed_seconds": 24.65818747226149,
+    "games": 4606,
+    "training_positions": 540647,
+    "holdout_positions": 5069,
+    "rejected_records": 6266,
+    "training_gzip_bytes": 55391329,
+    "all_corpus_file_bytes": 58995141,
+    "sqlite_bytes": 1777664,
+    "smoke_chunk_positions": 32768,
+    "smoke_chunks": 17,
+    "smoke_validation_positions": 2048
+  },
+  "smoke_training": {
+    "arch": "v2",
+    "hidden_dim": 1024,
+    "device": "cuda",
+    "batch_size": 16384,
+    "learning_rate": 0.001,
+    "positions_per_completed_chunk": 32768,
+    "starting_state_timestamp": 1788809633.6536658,
+    "chunk_completion_timestamps": [1788809694.7685595, 1788809819.8881917],
+    "first_completion_interval_seconds": 61.114893674850464,
+    "second_completion_interval_seconds": 125.11963224411011,
+    "checkpoint_json_bytes": 888630323,
+    "optimizer_bytes": 335574605,
+    "objective": "0.8 LCZero search Q probability + 0.2 outcome probability; Q-only for invalid outcomes; BCE on predicted CP/400",
+    "initial_validation_loss": 0.6460347175598145,
+    "completed_validation_losses": [0.6451084613800049, 0.6440243721008301],
+    "limitations": "Completion intervals include loading, validation, checkpoint writing, export and controller work; they are not isolated GPU training timings. Production chunks and holdout are larger. Validation loss improvement alone is not Elo evidence."
+  },
+  "projections": {
+    "assumption": "Apply the one smoke archive's position and derived-size ratios uniformly before date filtering or content deduplication. Actual archive composition can differ.",
+    "training_positions": 1212796354.3496144,
+    "derived_bytes": 132339755754.01596,
+    "preparation_hours_if_all_bytes_have_smoke_cost": 15.36500601811249,
+    "preparation_hours_for_all_except_oversized_archive_at_smoke_cost": 12.954003886862337,
+    "estimated_production_chunks_per_pass": 2587,
+    "estimated_chunks_excluding_oversized_archive": 2315,
+    "position_formula": "sum(archive.size)*540647/115517440",
+    "derived_bytes_formula": "sum(archive.size)*58995141/115517440",
+    "chunk_formula": "sum(ceil(archive.size*540647/115517440/700000)); each archive starts its own chunk sequence",
+    "time_formula": "sum(archive.size)/115517440*24.65818747226149/3600",
+    "limitations": "Out-of-window backfill and duplicate games reduce output. Preparation time and the number of passes completed in fourteen training days cannot be guaranteed from this sample. Download and preparation complete before the training deadline starts."
+  },
+  "capacity": {
+    "observed_at_utc": "2026-09-07T19:52:44.331578+00:00",
+    "free_bytes": 471162392576,
+    "remaining_raw_bytes_at_observation": 257485275136,
+    "reserve_bytes": 53687091200,
+    "projected_free_after_remaining_raw_and_derived_bytes": 81337361685.98404,
+    "projected_headroom_above_reserve_before_training_working_files": 27650270485.98404,
+    "illustrative_training_working_allowance_bytes": 7000000000,
+    "maximum_derived_to_raw_ratio_with_that_allowance_and_reserve": 0.5903933783173201,
+    "cpu_count_visible": 64,
+    "cgroup_memory_limit_bytes": 45668630528,
+    "limitations": "A measured-ratio projection fits, but it is not a hard upper bound. The 7 GB working allowance is an estimate, not a measured peak; retain the 50 GiB reserve and monitor actual derived growth."
+  },
+  "runtime_findings": [
+    {
+      "finding": "Preparation checks free space before removing an unfinished archive's derived .part directory. A reserve-triggered failure can therefore recur on restart before its own partial cache is reclaimed.",
+      "operational_recovery": "Only after a verified supervisor stop, inspect and remove the specific uncommitted data/corpus/archives/*.part cache, restore sufficient headroom and resume. Do not remove checkpoints, accepted models, SQLite progress, source pins or state."
+    },
+    {
+      "finding": "Per-archive chunk boundaries can produce many short final chunks. Every chunk still reloads the checkpoint/Adam, reads the fixed holdout, writes approximately 1.22 GB of checkpoint/optimizer artifacts and exports a quant.",
+      "operational_response": "Measure production chunk completion times from existing logs before estimating passes; do not change chunking or pinned code mid-run."
+    }
+  ],
+  "record_quality_sample": {
+    "method": "At most 64 records from every hundredth game in the existing 115 MB smoke archive; no production data mutation.",
+    "records": 2857,
+    "input_format_1_records": 2857,
+    "valid_standard_fen_records": 2715,
+    "bad_castling_rights_records": 142,
+    "python_chess_status": 256,
+    "example_fen": "nnrkqrbb/pppppppp/8/8/8/8/PPPPPPPP/NNRKQRBB w KQkq - 0 1",
+    "interpretation": "The source includes Chess960 games encoded as input format 1. Invalid standard-castling rows are filtered; later positions from those games can be accepted once they are valid standard FENs. The current guarantee is individual standard-FEN validity, not exclusion of every Chess960-origin game. This sample is biased toward early plies and is not a whole-corpus rejection estimate."
+  }
+}

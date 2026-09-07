@@ -10,7 +10,7 @@ starts fresh because the target changes. The old campaign remains restartable.
 The original local archive is:
 
 ```
-~/piebot_backups/v8_cycle 206_20260825T195236Z/piebot_v8_cycle 206_coherent_20260825T195236Z.tar.zst
+~/piebot_backups/v8_cycle206_20260825T195236Z/piebot_v8_cycle206_coherent_20260825T195236Z.tar.zst
 SHA256 513c6d169872a605e69c80020e69f1efd7f96704b3a272e1c1f8c37940124b9b
 ```
 
@@ -38,9 +38,10 @@ cycle 207 was omitted intentionally and will rerun from the committed boundary.
 
 ## Fixed corpus and targets
 
-Source: `https://storage.lczero.org/files/training_data/test91/`. Initial discovery
-found 1,432 archives totaling 259,016,028,160 bytes. The source inventory is frozen on
-first acquisition; subsequent restarts verify the same inventory and checksums.
+Source: `https://storage.lczero.org/files/training_data/test91/`. The deployed snapshot
+contains 1,433 archives totaling 259,132,354,560 bytes, with acquisition cutoff
+`2026-09-07T19:39:28.530592+00:00`. The source inventory is frozen on first
+acquisition; subsequent restarts verify the same inventory and checksums.
 No daily refresh or older-data substitution occurs.
 
 Select games collected from July 7 inclusive through the September 7 acquisition
