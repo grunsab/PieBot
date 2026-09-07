@@ -5,9 +5,13 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as cf
 import datetime as _dt
+import hashlib
+import html
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -19,6 +23,7 @@ TRAINING_DATA_BASE = "https://storage.lczero.org/files/training_data/"
 DEFAULT_SUITES: tuple[str, ...] = ("test90/", "test80/")
 BIN_SUFFIXES: tuple[str, ...] = (".bin", ".bin.zst", ".bin.zstd")
 LINK_RE = re.compile(r'<a href="([^"]+)">')
+ARCHIVE_NAME_RE = re.compile(r'^training-[A-Za-z0-9_-]+-(\d{8})-(\d{4})\.tar$')
 
 
 def _require_requests():
@@ -75,6 +80,142 @@ def write_json_atomic(path: Path, payload: dict) -> None:
         os.replace(part, path)
     finally:
         part.unlink(missing_ok=True)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as fh:
+        for chunk in iter(lambda: fh.read(8 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def utc_bound(value: str, *, upper: bool = False) -> _dt.datetime:
+    """Dates include their named day; timestamp upper bounds are exclusive."""
+    parsed = _dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    if upper and len(value) == 10:
+        parsed += _dt.timedelta(days=1)
+    return parsed.astimezone(_dt.timezone.utc)
+
+
+def curl_listing(url: str) -> str:
+    return subprocess.run(
+        ['curl', '--fail', '--location', '--silent', '--show-error', '--retry', '4',
+         '--connect-timeout', '30', '--max-time', '180', url],
+        check=True, capture_output=True, text=True,
+    ).stdout
+
+
+def discover_snapshot(suites: Iterable[str], out_dir: Path, since: str, until: str,
+                      *, listing_func: Callable[[str], str] = curl_listing,
+                      now: Optional[_dt.datetime] = None) -> dict:
+    """Freeze the dated official tar inventory. Member mtimes filter actual games."""
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    lower, upper = utc_bound(since), min(utc_bound(until, upper=True), now)
+    if lower >= upper:
+        raise ValueError('since must precede the snapshot cutoff')
+    manifest = {'schema': 'piebot-lc0-raw-v1', 'base': TRAINING_DATA_BASE,
+                'generated_at': now.isoformat(), 'since': lower.isoformat(),
+                'until': upper.isoformat(), 'date_basis': 'tar_member_mtime',
+                'files': [], 'empty_archives': [], 'failures': [], 'total_bytes': 0}
+    seen = set()
+    for suite in suites:
+        suite = suite.strip('/')
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', suite):
+            raise ValueError(f'invalid suite: {suite}')
+        url = TRAINING_DATA_BASE + suite + '/'
+        listing = listing_func(url)
+        for line in listing.splitlines():
+            match = LINK_RE.search(line)
+            if not match:
+                continue
+            name = html.unescape(match.group(1))
+            date_match = ARCHIVE_NAME_RE.fullmatch(name)
+            if not date_match:
+                continue
+            date = _dt.datetime.strptime(''.join(date_match.groups()), '%Y%m%d%H%M').replace(tzinfo=_dt.timezone.utc)
+            if not lower <= date < upper or (suite, name) in seen:
+                continue
+            seen.add((suite, name))
+            # nginx's default autoindex emits an exact byte count after the link/date.
+            size_match = re.search(r'\s(\d+)\s*(?:<[^>]*>\s*)*$', line)
+            if not size_match:
+                raise ValueError(f'archive listing has no exact byte size: {name}')
+            size = int(size_match.group(1))
+            entry = {'name': name, 'suite': suite + '/', 'url': url + name,
+                     'archive_timestamp': date.isoformat(), 'size': size,
+                     'dest': str((out_dir / suite / name).resolve()), 'status': 'queued'}
+            if size <= 10240:
+                manifest['empty_archives'].append(entry)
+                continue
+            manifest['files'].append(entry)
+            manifest['total_bytes'] += size
+    manifest['files'].sort(key=lambda entry: (entry['archive_timestamp'], entry['url']))
+    if not manifest['files']:
+        raise ValueError('no nonempty LCZero archives in requested date window')
+    return manifest
+
+
+def download_curl(job: DownloadJob, *, expected_size: Optional[int] = None,
+                  expected_sha256: Optional[str] = None) -> dict:
+    """Use curl's HTTP verification/retry; publish only a complete hashed object."""
+    job.dest.parent.mkdir(parents=True, exist_ok=True)
+    part = _part_path(job.dest)
+    started = time.monotonic()
+    try:
+        subprocess.run(
+            ['curl', '--fail', '--location', '--silent', '--show-error', '--retry', '5',
+             '--retry-all-errors', '--connect-timeout', '30', '--speed-limit', '1024',
+             '--speed-time', '120', '--output', str(part), job.url], check=True,
+        )
+        size = part.stat().st_size
+        if size == 0 or (expected_size is not None and size != expected_size):
+            raise ValueError(f'download size mismatch for {job.url}: {size}, expected {expected_size}')
+        digest = sha256_file(part)
+        if expected_sha256 is not None and digest != expected_sha256:
+            raise ValueError(f'download checksum mismatch for {job.url}')
+        with part.open('rb') as fh:
+            os.fsync(fh.fileno())
+        os.replace(part, job.dest)
+        return {'url': job.url, 'path': str(job.dest), 'size': size,
+                'sha256': digest, 'elapsed': time.monotonic() - started}
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def download_snapshot(manifest_path: Path, *, min_free_bytes: int = 50 * 1024**3) -> int:
+    """Resume a frozen inventory, verifying every cached object's recorded SHA."""
+    manifest = json.loads(manifest_path.read_text())
+    manifest['failures'] = []
+    for entry in manifest['files']:
+        dest = Path(entry['dest'])
+        digest = entry.get('sha256')
+        if (digest and is_complete_download(dest) and dest.stat().st_size == entry['size']
+                and sha256_file(dest) == digest):
+            # Preserve completed manifest bytes: corpus provenance pins this SHA.
+            if entry.get('status') not in {'downloaded', 'verified'}:
+                entry['status'] = 'verified'
+            continue
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if shutil.disk_usage(dest.parent).free - entry['size'] < min_free_bytes:
+                raise OSError('download would consume the protected disk reserve')
+            info = download_curl(DownloadJob(entry['url'], dest), expected_size=entry['size'],
+                                 expected_sha256=digest)
+            entry.update(sha256=info['sha256'], status='downloaded')
+        except Exception as exc:
+            manifest['complete'] = False
+            entry['status'] = f'error: {exc}'
+            manifest['failures'].append({'stage': 'download', 'url': entry['url'], 'error': str(exc)})
+            write_json_atomic(manifest_path, manifest)
+            return 1
+        write_json_atomic(manifest_path, manifest)
+        print(f"downloaded {entry['name'] if 'name' in entry else dest.name}", flush=True)
+    manifest['complete'] = True
+    write_json_atomic(manifest_path, manifest)
+    return 0
 
 
 def list_dir(url: str) -> List[str]:
@@ -314,11 +455,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decompress", action="store_true")
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument('--since', help='Opt-in frozen .tar snapshot; inclusive ISO date/time')
+    parser.add_argument('--until', help='Snapshot upper UTC date (inclusive) or timestamp (exclusive)')
+    parser.add_argument('--backend', choices=('requests', 'curl'), default='curl',
+                        help='Snapshot mode uses curl; legacy BIN mode remains requests')
+    parser.add_argument('--dry-run', action='store_true', help='Print snapshot inventory and sizes without writing files')
+    parser.add_argument('--min-free-gib', type=float, default=50.)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if getattr(args, 'since', None) or getattr(args, 'until', None):
+        if not args.since or not args.until:
+            raise ValueError('snapshot mode requires both --since and --until')
+        manifest_path = args.manifest or (args.out / 'manifest.json')
+        if manifest_path.exists():
+            snapshot = json.loads(manifest_path.read_text())
+            if snapshot.get('schema') != 'piebot-lc0-raw-v1':
+                raise ValueError('existing manifest is not a frozen LCZero snapshot')
+            if (snapshot['since'] != utc_bound(args.since).isoformat()
+                    or utc_bound(snapshot['until']) > utc_bound(args.until, upper=True)):
+                raise ValueError('existing snapshot date identity differs')
+        else:
+            snapshot = discover_snapshot(args.suites, args.out, args.since, args.until)
+        if args.dry_run:
+            print(json.dumps(snapshot, indent=2))
+            return 0
+        write_json_atomic(manifest_path, snapshot)
+        return download_snapshot(manifest_path, min_free_bytes=int(args.min_free_gib * 1024**3))
     threshold = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=max(0, args.days))
     manifest, jobs = plan_suite_downloads(
         suites=args.suites,

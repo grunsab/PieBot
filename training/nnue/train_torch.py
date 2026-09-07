@@ -741,12 +741,16 @@ def train_model(
     arch: str = "v1",
     quant_qa: int = 255,
     quant_qb: int = 64,
+    target_mode: str = "selfplay",
+    checkpoint_selection: str = "best",
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
     arch = str(arch).lower()
     if arch not in {"v1", "v2"}:
         raise ValueError("arch must be v1 or v2")
+    if checkpoint_selection not in {"best", "latest"}:
+        raise ValueError("checkpoint_selection must be best or latest")
     quant_qa = max(1, int(quant_qa))
     quant_qb = max(1, int(quant_qb))
     initial_checkpoint_weights_only = bool(initial_checkpoint_weights_only)
@@ -801,6 +805,7 @@ def train_model(
         huber_delta_cp=huber_delta_cp,
         wdl_scale_cp=wdl_scale_cp,
         cp_loss_weight=cp_loss_weight,
+        target_mode=target_mode,
     )
     rng = random.Random(seed)
     torch.manual_seed(seed)
@@ -818,14 +823,21 @@ def train_model(
     best_move_available = 0
     teacher_value_available = 0
     raw_teacher_value_available = 0
-    for feats, record in train_stub.iterate_samples(
-        jsonl_dir,
-        max_samples,
-        seed=seed,
-        primary_sample_fraction=primary_sample_fraction,
-        teacher_sample_fraction=teacher_sample_fraction,
-        min_teacher_depth=min_teacher_depth,
-    ):
+    training_samples = (
+        train_stub.iterate_lc0_samples(jsonl_dir, max_samples)
+        if target_mode == "lc0-q-outcome"
+        else train_stub.iterate_samples(
+            jsonl_dir, max_samples, seed=seed,
+            primary_sample_fraction=primary_sample_fraction,
+            teacher_sample_fraction=teacher_sample_fraction,
+            min_teacher_depth=min_teacher_depth,
+        )
+    )
+    for feats, record in training_samples:
+        has_teacher = (
+            record.best_q is not None if target_mode == "lc0-q-outcome"
+            else train_stub._teacher_available(record, min_teacher_depth)
+        )
         if arch == "v2":
             xs.append(features_v2.stm_ordered(record.fen))
         else:
@@ -833,9 +845,7 @@ def train_model(
         validation_group_identities.append(
             train_stub._validation_group_identity(record)
         )
-        validation_teacher_flags.append(
-            train_stub._teacher_available(record, min_teacher_depth)
-        )
+        validation_teacher_flags.append(has_teacher)
         cp, probability = train_stub._targets_for_record(
             record,
             loss_kind=loss_kind,
@@ -845,6 +855,7 @@ def train_model(
             outcome_decay=outcome_decay,
             min_teacher_depth=min_teacher_depth,
             wdl_scale_cp=wdl_scale_cp,
+            target_mode=target_mode,
         )
         if arch == "v2" and not _fen_stm_is_white(record.fen):
             # Stored labels are white-POV; the v2 network is stm-relative.
@@ -854,16 +865,20 @@ def train_model(
         ys_wdl.append(probability)
         if record.best_move:
             best_move_available += 1
-        if record.value_cp is not None:
+        if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
             raw_teacher_value_available += 1
-        if train_stub._teacher_available(record, min_teacher_depth):
+        if has_teacher:
             teacher_value_available += 1
     if not xs:
         raise ValueError("no training samples were loaded")
-    requested_teacher_samples = int(round(len(xs) * teacher_sample_fraction))
+    requested_teacher_samples = (
+        len(xs) if target_mode == "lc0-q-outcome"
+        else int(round(len(xs) * teacher_sample_fraction))
+    )
     teacher_sampling_satisfied = teacher_value_available == requested_teacher_samples
     if (
-        max_samples > 0
+        target_mode == "selfplay"
+        and max_samples > 0
         and 0 < teacher_value_available < len(xs)
         and not teacher_sampling_satisfied
     ):
@@ -935,20 +950,24 @@ def train_model(
             "seed": validation_seed,
         }
         validation_digest = hashlib.sha256()
-        for feats, record in train_stub.iterate_fixed_validation_samples(
-            validation_path,
-            max_validation_samples,
-            seed=validation_seed,
-            min_teacher_depth=min_teacher_depth,
-            require_teacher=validation_require_teacher,
-        ):
+        reference_samples = (
+            train_stub.iterate_lc0_samples(validation_path, max_validation_samples)
+            if target_mode == "lc0-q-outcome"
+            else train_stub.iterate_fixed_validation_samples(
+                validation_path, max_validation_samples, seed=validation_seed,
+                min_teacher_depth=min_teacher_depth,
+                require_teacher=validation_require_teacher,
+            )
+        )
+        for feats, record in reference_samples:
             validation_digest.update(
                 train_stub._record_identity(record).encode("utf-8")
             )
             validation_digest.update(b"\0")
-            if record.value_cp is not None:
+            if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
                 validation_raw_teacher_value_available += 1
-            if train_stub._teacher_available(record, min_teacher_depth):
+            if (record.best_q is not None if target_mode == "lc0-q-outcome"
+                    else train_stub._teacher_available(record, min_teacher_depth)):
                 validation_teacher_value_available += 1
             if arch == "v2":
                 reference_val_x.append(features_v2.stm_ordered(record.fen))
@@ -963,6 +982,7 @@ def train_model(
                 outcome_decay=outcome_decay,
                 min_teacher_depth=min_teacher_depth,
                 wdl_scale_cp=wdl_scale_cp,
+                target_mode=target_mode,
             )
             if arch == "v2" and not _fen_stm_is_white(record.fen):
                 cp = -cp
@@ -1309,11 +1329,16 @@ def train_model(
                 reference_va_prediction_max_abs
             )
 
-    if best_state is not None:
+    selected_epoch = epochs if checkpoint_selection == "latest" else best_epoch
+    selected_optimizer_state = (
+        _to_cpu_tree(opt.state_dict())
+        if checkpoint_selection == "latest" else best_optimizer_state
+    )
+    if checkpoint_selection == "best" and best_state is not None:
         model.load_state_dict(best_state)
 
-    if best_optimizer_state is None:
-        best_optimizer_state = _to_cpu_tree(opt.state_dict())
+    if selected_optimizer_state is None:
+        selected_optimizer_state = _to_cpu_tree(opt.state_dict())
 
     selected_eval_x = val_x if val_count > 0 else train_x
     selected_eval_cp = val_y_cp if val_count > 0 else train_y_cp
@@ -1358,24 +1383,21 @@ def train_model(
             huber_delta_cp=huber_delta_cp,
             wdl_scale_cp=wdl_scale_cp,
         )
-        best_reference_val_loss = selected_reference_val_loss
-        best_reference_val_cp_mse = selected_reference_val_cp_mse
-        best_reference_val_acc = selected_reference_val_acc
-        best_reference_val_prediction_mean_abs = (
-            selected_reference_val_prediction_mean_abs
-        )
-        best_reference_val_prediction_max_abs = (
-            selected_reference_val_prediction_max_abs
-        )
+        if checkpoint_selection == "best":
+            best_reference_val_loss = selected_reference_val_loss
+            best_reference_val_cp_mse = selected_reference_val_cp_mse
+            best_reference_val_acc = selected_reference_val_acc
+            best_reference_val_prediction_mean_abs = selected_reference_val_prediction_mean_abs
+            best_reference_val_prediction_max_abs = selected_reference_val_prediction_max_abs
 
     out_dir.mkdir(parents=True, exist_ok=True)
     optimizer_state = _save_optimizer_state(
-        best_optimizer_state,
+        selected_optimizer_state,
         model,
         out_dir / "optimizer.pt",
         input_dim=input_dim,
         hidden_dim=hidden_dim,
-        best_epoch=best_epoch,
+        best_epoch=selected_epoch,
         objective=objective,
         arch=arch,
     )
@@ -1412,6 +1434,9 @@ def train_model(
         "seed": seed,
         "epochs": epochs,
         "best_epoch": best_epoch,
+        "selected_epoch": selected_epoch,
+        "checkpoint_selection": checkpoint_selection,
+        "target_mode": target_mode,
         "device": str(dev),
         "initialized_from": initialized_from,
         "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
@@ -1421,12 +1446,19 @@ def train_model(
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
-        "sampling_schema": train_stub.SAMPLING_SCHEMA,
+        "sampling_schema": (
+            "complete-lc0-chunk-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.SAMPLING_SCHEMA
+        ),
         "validation_sampling_schema": train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
         "reference_validation_sampling_schema": (
-            train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            "complete-lc0-fixed-holdout-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
         ),
-        "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
+        "checkpoint_selection_schema": (
+            "latest-complete-epoch-v1" if checkpoint_selection == "latest"
+            else train_stub.CHECKPOINT_SELECTION_SCHEMA
+        ),
         "reference_validation_max_relative_loss_regression": (
             train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
@@ -1470,12 +1502,19 @@ def train_model(
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
-        "sampling_schema": train_stub.SAMPLING_SCHEMA,
+        "sampling_schema": (
+            "complete-lc0-chunk-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.SAMPLING_SCHEMA
+        ),
         "validation_sampling_schema": train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
         "reference_validation_sampling_schema": (
-            train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            "complete-lc0-fixed-holdout-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
         ),
-        "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
+        "checkpoint_selection_schema": (
+            "latest-complete-epoch-v1" if checkpoint_selection == "latest"
+            else train_stub.CHECKPOINT_SELECTION_SCHEMA
+        ),
         "reference_validation_max_relative_loss_regression": (
             train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
@@ -1506,6 +1545,9 @@ def train_model(
             else 0.0
         ),
         "best_epoch": best_epoch,
+        "selected_epoch": selected_epoch,
+        "checkpoint_selection": checkpoint_selection,
+        "target_mode": target_mode,
         "best_val_loss": best_val,
         "selected_val_loss": selected_val_loss,
         "selected_val_cp_mse": selected_val_cp_mse,
@@ -1653,6 +1695,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     ap.add_argument("--quant-qa", type=int, default=255)
     ap.add_argument("--quant-qb", type=int, default=64)
+    ap.add_argument("--target-mode", choices=("selfplay", "lc0-q-outcome"), default="selfplay")
+    ap.add_argument("--checkpoint-selection", choices=("best", "latest"), default="best")
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
     ap.add_argument("--max-teacher-cp", type=float, default=1500.0)
@@ -1687,6 +1731,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         arch=args.arch,
         quant_qa=args.quant_qa,
         quant_qb=args.quant_qb,
+        target_mode=args.target_mode,
+        checkpoint_selection=args.checkpoint_selection,
         target_cp=args.target_cp,
         teacher_mix=args.teacher_mix,
         max_teacher_cp=args.max_teacher_cp,

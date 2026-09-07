@@ -1,3 +1,26 @@
+LCZero training pivot (2026-09-07) — CURRENT
+==========================================
+
+The user authorized replacing self-training with LCZero game training. This
+supersedes the older self-teacher-only prohibition below for the separate LCZero
+lineage; Stockfish remains an evaluation anchor, never a source of training labels.
+The requested budget is now 14 days (336 hours), beginning after corpus preparation.
+Use the fixed July 7–September 7, 2026 corpus, filtered by each game's collection
+timestamp because exact played timestamps are unavailable. Train the unchanged
+v2 h1024 NNUE from cycle-206 float weights, weights-only with fresh Adam, using
+LCZero best-Q plus outcomes. Preserve self-play cycle-168 quant at blend 75 and the
+complete cycle-206 checkpoint/optimizer/replay/source backup for a future restart.
+Do not automatically resume the self-play supervisor.
+
+New box: `ssh -p 40728 root@104.8.120.185` (verified September 7: TR 3970X, 64 threads,
+RTX 4080 SUPER 16 GB, 62 GiB RAM, 478 GB initial workspace). Read its agent guide first.
+New code checkout `/workspace/piebot_lc0_repo`; campaign root
+`/workspace/piebot_lc0_20260907`; supervisor programs `piebot_lc0` and
+`piebot_lc0_anchor`. The original self-play root `/workspace/piebot_campaign_v8`
+is preserved separately, with its original source pin unchanged. See
+`documents/LCZeroTraining.md` for source, testing, monitoring and restart details.
+Re-verify live state before acting. The August handoff below is historical.
+
 Cozy Search Change Management and A/B Comparison
 ================================================
 
@@ -367,4 +390,3 @@ Performance Targets
   quiet apply/revert at h64 after the feature-major cache).
 - Search: ≥1–3 Mnps early; ≥5–10 Mnps post‑LMR/ordering.
 - Parallel: 4T ≥3.5x; 8T ≥6x.
-

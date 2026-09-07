@@ -24,6 +24,7 @@ class TrainingRecord:
     best_move: Optional[str] = None
     policy_top: List[tuple[str, float]] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
+    best_q: Optional[float] = None
 
 
 def read_jsonl_dir(path: str) -> Iterator[dict]:
@@ -155,4 +156,10 @@ def jsonl_to_training_samples(records: Iterable[dict]) -> Iterator[TrainingRecor
             best_move=best_move,
             policy_top=policy_top,
             raw=record,
+            best_q=(
+                float(record['best_q'])
+                if isinstance(record.get('best_q'), (int, float))
+                and not isinstance(record.get('best_q'), bool)
+                else None
+            ),
         )
