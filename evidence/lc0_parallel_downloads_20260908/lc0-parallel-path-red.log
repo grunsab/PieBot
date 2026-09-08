@@ -1,0 +1,18 @@
+test_cli_rejects_output_collision_before_rewriting_manifest (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_cli_rejects_output_collision_before_rewriting_manifest) ... FAIL
+
+======================================================================
+FAIL: test_cli_rejects_output_collision_before_rewriting_manifest (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_cli_rejects_output_collision_before_rewriting_manifest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 210, in test_cli_rejects_output_collision_before_rewriting_manifest
+    write.assert_not_called()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 947, in assert_not_called
+    raise AssertionError(msg)
+AssertionError: Expected 'write_json_atomic' to not have been called. Called 1 times.
+Calls: [call(PosixPath('/private/var/folders/qt/908md9g12ys3th9sw1ll3x740000gn/T/tmpvfxy1hir/manifest.json'), {'files': [{'name': '0.tar', 'dest': '/private/var/folders/qt/908md9g12ys3th9sw1ll3x740000gn/T/tmpvfxy1hir/manifest.json.part', 'url': 'https://example.invalid/0.tar', 'size': 8, 'status': 'queued'}], 'complete': False, 'failures': [], 'schema': 'piebot-lc0-raw-v1', 'since': '2026-07-07T00:00:00+00:00', 'until': '2026-09-07T19:39:28+00:00'})].
+
+----------------------------------------------------------------------
+Ran 1 test in 0.003s
+
+FAILED (failures=1)

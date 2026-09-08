@@ -249,10 +249,31 @@ def _resume_corpus_snapshot(manifest_path: Path, corpus: Path, raw_root: Path) -
         return 1
 
 
+def validate_download_concurrency(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 16:
+        raise ValueError('download concurrency must be an integer from 1 to 16')
+    return value
+
+
+def _snapshot_paths(manifest_path: Path, entries: list[dict]) -> None:
+    # Workers must never share output/staging paths or overwrite their manifest.
+    occupied = {manifest_path.resolve(), _part_path(manifest_path).resolve()}
+    for entry in entries:
+        dest = Path(entry['dest'])
+        paths = {dest.resolve(), _part_path(dest).resolve()}
+        if len(paths) != 2 or occupied.intersection(paths):
+            raise ValueError(f'snapshot download paths overlap: {dest}')
+        occupied.update(paths)
+        size = entry['size']
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise ValueError('snapshot archive size must be a positive integer')
+
+
 def download_snapshot(manifest_path: Path, *, min_free_bytes: int = 50 * 1024**3,
                       eviction_corpus: Path | None = None, raw_root: Path | None = None,
-                      capacity_bytes: int | None = None) -> int:
+                      capacity_bytes: int | None = None, concurrency: int = 1) -> int:
     """Resume a frozen inventory, verifying every cached object's recorded SHA."""
+    validate_download_concurrency(concurrency)
     if capacity_bytes is not None and (
             isinstance(capacity_bytes, bool) or not isinstance(capacity_bytes, int)
             or capacity_bytes <= 0):
@@ -266,31 +287,72 @@ def download_snapshot(manifest_path: Path, *, min_free_bytes: int = 50 * 1024**3
         if _has_corpus_evidence(corpus):
             return _resume_corpus_snapshot(manifest_path, corpus, Path(raw_root))
     manifest = json.loads(manifest_path.read_text())
+    _snapshot_paths(manifest_path, manifest['files'])
     manifest['failures'] = []
-    for entry in manifest['files']:
-        dest = Path(entry['dest'])
-        digest = entry.get('sha256')
-        if (digest and is_complete_download(dest) and dest.stat().st_size == entry['size']
-                and sha256_file(dest) == digest):
-            # Preserve completed manifest bytes: corpus provenance pins this SHA.
-            if entry.get('status') not in {'downloaded', 'verified'}:
-                entry['status'] = 'verified'
-            continue
-        try:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            if available_bytes(dest.parent, capacity_bytes=capacity_bytes) - entry['size'] < min_free_bytes:
-                raise OSError('download would consume the protected disk reserve')
-            info = download_curl(DownloadJob(entry['url'], dest), expected_size=entry['size'],
-                                 expected_sha256=digest)
-            entry.update(sha256=info['sha256'], status='downloaded')
-        except Exception as exc:
-            manifest['complete'] = False
-            entry['status'] = f'error: {exc}'
-            manifest['failures'].append({'stage': 'download', 'url': entry['url'], 'error': str(exc)})
-            write_json_atomic(manifest_path, manifest)
-            return 1
+    cursor = 0
+    pending = {}
+    failed = False
+
+    def failure(entry, exc):
+        nonlocal failed
+        failed = True
+        manifest['complete'] = False
+        entry['status'] = f'error: {exc}'
+        manifest['failures'].append({'stage': 'download', 'url': entry['url'], 'error': str(exc)})
         write_json_atomic(manifest_path, manifest)
-        print(f"downloaded {entry['name'] if 'name' in entry else dest.name}", flush=True)
+
+    # Only this coordinator mutates the manifest. Workers atomically publish
+    # their individual files; completed results are saved without input-order waits.
+    with cf.ThreadPoolExecutor(max_workers=concurrency) as pool:
+        while cursor < len(manifest['files']) or pending:
+            while not failed and cursor < len(manifest['files']) and len(pending) < concurrency:
+                if any(future.done() for future in pending):
+                    break
+                entry = manifest['files'][cursor]
+                dest, digest = Path(entry['dest']), entry.get('sha256')
+                try:
+                    if (digest and is_complete_download(dest) and dest.stat().st_size == entry['size']
+                            and sha256_file(dest) == digest):
+                        if entry.get('status') not in {'downloaded', 'verified'}:
+                            entry['status'] = 'verified'
+                        cursor += 1
+                        continue
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    # Reserve whole expected sizes until results are collected.
+                    # Partially written bytes may also reduce filesystem free
+                    # space, deliberately making this accounting conservative.
+                    reserved = sum(item[1]['size'] for item in pending.values())
+                    free = available_bytes(dest.parent, capacity_bytes=capacity_bytes)
+                    if free - reserved - entry['size'] < min_free_bytes:
+                        if pending:
+                            break  # Recheck after a current download completes.
+                        raise OSError('download would consume the protected disk reserve')
+                    if manifest.get('complete') is not False:
+                        manifest['complete'] = False
+                        write_json_atomic(manifest_path, manifest)
+                    future = pool.submit(download_curl, DownloadJob(entry['url'], dest),
+                                         expected_size=entry['size'], expected_sha256=digest)
+                    pending[future] = (cursor, entry)
+                    cursor += 1
+                except Exception as exc:
+                    failure(entry, exc)
+            if not pending:
+                break
+            done, _ = cf.wait(pending, return_when=cf.FIRST_COMPLETED)
+            for future in sorted(done, key=lambda item: pending[item][0]):
+                _, entry = pending.pop(future)
+                try:
+                    info = future.result()
+                except Exception as exc:
+                    failure(entry, exc)
+                else:
+                    entry.update(sha256=info['sha256'], status='downloaded')
+                    write_json_atomic(manifest_path, manifest)
+                    print(f"downloaded {entry.get('name', Path(entry['dest']).name)}", flush=True)
+            # On failure admit no more work, but save all successful in-flight
+            # downloads before returning. Resume then retries unfinished files only.
+    if failed:
+        return 1
     manifest['complete'] = True
     write_json_atomic(manifest_path, manifest)
     return 0
@@ -555,6 +617,7 @@ def main() -> int:
     if eviction_corpus is not None and not (getattr(args, 'since', None) and getattr(args, 'until', None)):
         raise ValueError('--eviction-corpus requires frozen snapshot mode (--since and --until)')
     if getattr(args, 'since', None) or getattr(args, 'until', None):
+        concurrency = validate_download_concurrency(getattr(args, 'concurrency', 4))
         if not args.since or not args.until:
             raise ValueError('snapshot mode requires both --since and --until')
         manifest_path = args.manifest or (args.out / 'manifest.json')
@@ -576,9 +639,10 @@ def main() -> int:
         if args.dry_run:
             print(json.dumps(snapshot, indent=2))
             return 0
+        _snapshot_paths(manifest_path, snapshot['files'])
         if not existing_manifest or eviction_corpus is None:
             write_json_atomic(manifest_path, snapshot)
-        options = {'min_free_bytes': int(args.min_free_gib * 1024**3)}
+        options = {'min_free_bytes': int(args.min_free_gib * 1024**3), 'concurrency': concurrency}
         if capacity is not None:
             options['capacity_bytes'] = capacity
         if eviction_corpus is not None:

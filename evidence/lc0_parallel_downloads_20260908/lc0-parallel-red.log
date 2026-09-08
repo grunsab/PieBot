@@ -1,0 +1,148 @@
+test_failure_drains_existing_jobs_and_resume_fetches_only_unfinished (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_failure_drains_existing_jobs_and_resume_fetches_only_unfinished) ... ERROR
+test_inflight_sizes_are_reserved_together_and_low_space_waits_for_completion (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_inflight_sizes_are_reserved_together_and_low_space_waits_for_completion) ... ERROR
+test_insufficient_space_stops_without_downloading (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_insufficient_space_stops_without_downloading) ... ERROR
+test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) ... 
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=0) ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=-1) ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=17) ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=1.5) ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=True) ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='0.tar') ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='0.tar.part') ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='manifest.json') ... ERROR
+  test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='manifest.json.part') ... ERROR
+test_out_of_order_completion_is_persisted_before_slow_first_download (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_out_of_order_completion_is_persisted_before_slow_first_download) ... FAIL
+test_snapshot_cli_forwards_existing_concurrency_option (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_snapshot_cli_forwards_existing_concurrency_option) ... ERROR
+
+======================================================================
+ERROR: test_failure_drains_existing_jobs_and_resume_fetches_only_unfinished (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_failure_drains_existing_jobs_and_resume_fetches_only_unfinished)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 118, in test_failure_drains_existing_jobs_and_resume_fetches_only_unfinished
+    self.assertEqual(fetch.download_snapshot(self.manifest, min_free_bytes=0, concurrency=2), 1)
+                     ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_inflight_sizes_are_reserved_together_and_low_space_waits_for_completion (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_inflight_sizes_are_reserved_together_and_low_space_waits_for_completion)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 155, in test_inflight_sizes_are_reserved_together_and_low_space_waits_for_completion
+    self.assertEqual(fetch.download_snapshot(self.manifest, min_free_bytes=0, concurrency=2,
+                     ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                            capacity_bytes=478_000_000_000), 0)
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_insufficient_space_stops_without_downloading (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_insufficient_space_stops_without_downloading)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 163, in test_insufficient_space_stops_without_downloading
+    self.assertEqual(fetch.download_snapshot(self.manifest, min_free_bytes=0, concurrency=4), 1)
+                     ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=0)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 172, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=value)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=-1)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 172, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=value)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=17)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 172, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=value)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=1.5)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 172, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=value)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (concurrency=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 172, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=value)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='0.tar')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 181, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=2)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='0.tar.part')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 181, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=2)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='manifest.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 181, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=2)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) (collision='manifest.json.part')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 181, in test_invalid_concurrency_and_destination_collisions_fail_before_writing
+    fetch.download_snapshot(self.manifest, concurrency=2)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: download_snapshot() got an unexpected keyword argument 'concurrency'
+
+======================================================================
+ERROR: test_snapshot_cli_forwards_existing_concurrency_option (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_snapshot_cli_forwards_existing_concurrency_option)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 195, in test_snapshot_cli_forwards_existing_concurrency_option
+    self.assertEqual(download.call_args.kwargs['concurrency'], 3)
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'concurrency'
+
+======================================================================
+FAIL: test_out_of_order_completion_is_persisted_before_slow_first_download (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_out_of_order_completion_is_persisted_before_slow_first_download)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/tests/test_fetch_lc0_parallel.py", line 79, in test_out_of_order_completion_is_persisted_before_slow_first_download
+    self.assertTrue(second_saved.wait(5), str(errors))
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true : [TypeError("download_snapshot() got an unexpected keyword argument 'concurrency'")]
+
+----------------------------------------------------------------------
+Ran 6 tests in 5.028s
+
+FAILED (failures=1, errors=13)

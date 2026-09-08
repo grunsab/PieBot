@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 from .disk_budget import available_bytes, decimal_gb_bytes
+from .fetch_lc0_bins import validate_download_concurrency
 
 CHECKPOINT_SHA = '144699077a19f50f7097de8426ed73f0f9a9fa30971d9ba0219250044311697d'
 ACTIVE_SHA = '271a5a108ee03e20a0036b683e108f76dd44fc2e6d289cc3d3f8c839082c519c'
@@ -77,6 +78,8 @@ def main(argv=None) -> int:
     parser.add_argument('--since', default='2026-07-07')
     parser.add_argument('--until', default='2026-09-07')
     parser.add_argument('--min-free-gib', type=float, default=50)
+    parser.add_argument('--download-concurrency', type=int, default=4,
+                        help='Concurrent archive downloads (1-16); independent of preparation workers')
     parser.add_argument('--evict-raw', action=argparse.BooleanOptionalAction, default=False,
                         help='Evict each raw archive only after durable corpus receipt verification')
     parser.add_argument('--disk-capacity-gb', type=float, default=0,
@@ -84,6 +87,7 @@ def main(argv=None) -> int:
     parser.add_argument('--preflight-only', action='store_true')
     args = parser.parse_args(argv)
     capacity = decimal_gb_bytes(args.disk_capacity_gb)
+    validate_download_concurrency(args.download_concurrency)
     repo = args.repo.resolve()
     output = args.out_root.resolve()
     assert_separate_root(output, args.selfplay_root)
@@ -126,7 +130,8 @@ def main(argv=None) -> int:
             '--manifest', str(manifest), '--since', args.since, '--until', args.until,
             '--suites', 'test91', '--limit-per-suite', '0', '--backend', 'curl',
             '--skip-existing', '--min-free-gib', str(args.min_free_gib),
-            '--disk-capacity-gb', str(args.disk_capacity_gb)]
+            '--disk-capacity-gb', str(args.disk_capacity_gb),
+            '--concurrency', str(args.download_concurrency)]
         if args.evict_raw:
             fetch_command += ['--eviction-corpus', str(output / 'data/corpus')]
         subprocess.run(fetch_command, cwd=repo, check=True)
