@@ -11,6 +11,8 @@ import signal
 import subprocess
 import sys
 
+from .disk_budget import available_bytes, decimal_gb_bytes
+
 CHECKPOINT_SHA = '144699077a19f50f7097de8426ed73f0f9a9fa30971d9ba0219250044311697d'
 ACTIVE_SHA = '271a5a108ee03e20a0036b683e108f76dd44fc2e6d289cc3d3f8c839082c519c'
 
@@ -71,12 +73,17 @@ def main(argv=None) -> int:
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--out-root', type=Path, default=Path('/workspace/piebot_lc0_20260907'))
     parser.add_argument('--selfplay-root', type=Path, default=Path('/workspace/piebot_campaign_v8'))
-    parser.add_argument('--hours', type=float, default=336)
+    parser.add_argument('--hours', type=float, default=720)
     parser.add_argument('--since', default='2026-07-07')
     parser.add_argument('--until', default='2026-09-07')
     parser.add_argument('--min-free-gib', type=float, default=50)
+    parser.add_argument('--evict-raw', action=argparse.BooleanOptionalAction, default=False,
+                        help='Evict each raw archive only after durable corpus receipt verification')
+    parser.add_argument('--disk-capacity-gb', type=float, default=0,
+                        help='Decimal disk capacity ceiling; 0 uses filesystem free space')
     parser.add_argument('--preflight-only', action='store_true')
     args = parser.parse_args(argv)
+    capacity = decimal_gb_bytes(args.disk_capacity_gb)
     repo = args.repo.resolve()
     output = args.out_root.resolve()
     assert_separate_root(output, args.selfplay_root)
@@ -101,7 +108,8 @@ def main(argv=None) -> int:
     while not ancestor.exists():
         ancestor = ancestor.parent
     min_free = int(args.min_free_gib * 1024 ** 3)
-    if shutil.disk_usage(ancestor).free < min_free:
+    minimum = max(min_free, 1 if capacity is not None else 0)
+    if available_bytes(ancestor, capacity_bytes=capacity) < minimum:
         raise ValueError('insufficient free disk reserve')
     print(json.dumps({'preflight': 'passed', 'source_commit': commit,
                       'checkpoint_sha256': CHECKPOINT_SHA, 'active_sha256': ACTIVE_SHA}), flush=True)
@@ -113,20 +121,28 @@ def main(argv=None) -> int:
     with _single_instance_lock(output / 'launcher.lock'):
         raw = output / 'data/raw'
         manifest = raw / 'manifest.json'
-        subprocess.run([
+        fetch_command = [
             sys.executable, '-m', 'training.nnue.fetch_lc0_bins', '--out', str(raw),
             '--manifest', str(manifest), '--since', args.since, '--until', args.until,
             '--suites', 'test91', '--limit-per-suite', '0', '--backend', 'curl',
-            '--skip-existing'], cwd=repo, check=True)
+            '--skip-existing', '--min-free-gib', str(args.min_free_gib),
+            '--disk-capacity-gb', str(args.disk_capacity_gb)]
+        if args.evict_raw:
+            fetch_command += ['--eviction-corpus', str(output / 'data/corpus')]
+        subprocess.run(fetch_command, cwd=repo, check=True)
         from .lc0_corpus import prepare_corpus
-        corpus = prepare_corpus(manifest, output / 'data/corpus', since=args.since,
-                                until=args.until, min_free_bytes=min_free, workers=16)
+        corpus_options = dict(since=args.since, until=args.until, min_free_bytes=min_free,
+                              workers=16, capacity_bytes=capacity)
+        if args.evict_raw:
+            corpus_options.update(evict_raw=True, raw_root=raw)
+        corpus = prepare_corpus(manifest, output / 'data/corpus', **corpus_options)
         command = [sys.executable, '-m', 'training.nnue.lc0_autopilot',
                    '--corpus-manifest', str(corpus), '--out-root', str(output / 'training'),
                    '--initial-checkpoint', str(checkpoint), '--initial-active-model', str(active),
                    '--source-commit', commit, '--piebot-dir', str(repo / 'PieBot'),
                    '--hours', str(args.hours), '--device', 'cuda',
-                   '--disk-reserve-gib', str(args.min_free_gib)]
+                   '--disk-reserve-gib', str(args.min_free_gib),
+                   '--disk-capacity-gb', str(args.disk_capacity_gb)]
         # Stay in the supervisor process group through every data/training stage.
         wait_for_training(command, cwd=repo, check=True)
     return 0

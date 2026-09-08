@@ -1,0 +1,58 @@
+{
+  "README.md": {
+    "bytes": 3069,
+    "sha256": "5dc9878dc2182cd9c16da02b160ed105be48d67ee4cb99c4fea5bdec8e70dd3e"
+  },
+  "migration720.json": {
+    "bytes": 794,
+    "sha256": "9f60c13a64332a17f5e4948a284871529780774e0f1c7a592c37332ad585a562"
+  },
+  "migration720_green.log": {
+    "bytes": 6156,
+    "sha256": "73feba3b56896303471d2cf787d1d011a895a921265c8da6cd206f68afa40fe2"
+  },
+  "migration720_red.log": {
+    "bytes": 6942,
+    "sha256": "1dd3161a72ab6fa22de119d44fdace0b4000191473017d54b01f311b57bd7100"
+  },
+  "nnue.log": {
+    "bytes": 80196,
+    "sha256": "c0338c2b3e55f2faa8a4761f5251f51c34ad0aa34405279d999863d069c456ac"
+  },
+  "rust_all_features.log": {
+    "bytes": 27522,
+    "sha256": "0b9fd3e8c19f0be88387b2f364bdece36e9031e68432f14215cdeaa3dbcc9c89"
+  },
+  "rust_default.log": {
+    "bytes": 30352,
+    "sha256": "cd8a7797799243333949d04089986119e57b0ed0263910b8faea0258d5edf811"
+  },
+  "rust_reuse.json": {
+    "bytes": 2358,
+    "sha256": "37bb49286e855309a109fc6db44f37db19260eb1217d0222dc4c2c7e56bbd176"
+  },
+  "scope.json": {
+    "bytes": 5397,
+    "sha256": "88294352e72c97b81946871ae031a82b1a3fd75deb78287779362f23ae1863fa"
+  },
+  "scripts.log": {
+    "bytes": 24845,
+    "sha256": "d54a6cad45c09b6ea152c2b7c11096ffb38f7fe0b3852c277d13cded733d0c8b"
+  },
+  "selected_sources.json": {
+    "bytes": 3871,
+    "sha256": "c6d01f985298771c77fd56db5aca6c3b29379878b4efbcfcacb40281c58756ef"
+  },
+  "validate_candidate.py": {
+    "bytes": 4796,
+    "sha256": "d4c4b902b23a16e2444da9fd1b7593680fc66627dce1df25f0d53c73fb6775c5"
+  },
+  "validation.json": {
+    "bytes": 24802,
+    "sha256": "9c2a913972c8697c7a479d61bb9004836288feeef04862dae3661b2d51e6d9fa"
+  },
+  "validation_driver.log": {
+    "bytes": 523,
+    "sha256": "234b027857da6d475b160181ea9375e3d44ba98b2810acb32a1436be2641f738"
+  }
+}

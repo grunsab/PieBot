@@ -3,6 +3,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
 
@@ -145,13 +146,13 @@ class LC0CampaignTests(unittest.TestCase):
         clock = [100.0]
         def expire(**kwargs):
             result = self.trainer(**kwargs)
-            clock[0] = 2_000_000.0
+            clock[0] = 100.0 + self.args.hours * 3600 + 1
             return result
         self.run_campaign(trainer=expire, now=lambda: clock[0])
         count = len(self.calls)
         self.assertLessEqual(count, 1)
         self.assertEqual(self.state()["status"], "complete")
-        self.run_campaign(now=lambda: 2_000_001.0)
+        self.run_campaign(now=lambda: clock[0] + 1)
         self.assertEqual(len(self.calls), count)
 
     def test_committed_checkpoint_corruption_refuses_resume(self):
@@ -243,6 +244,62 @@ class LC0CampaignTests(unittest.TestCase):
 
     def test_default_parallel_gate_uses_eight_single_thread_games(self):
         self.assertEqual(self.args.gate_parallel_games, 8)
+
+    def test_default_30_day_budget_sets_one_immutable_deadline(self):
+        self.assertEqual(self.args.hours, 720.0)
+        self.run_campaign(now=lambda: 100.0)
+        deadline = 100.0 + 720 * 3600
+        self.assertEqual(self.state()['deadline_at'], deadline)
+        self.run_campaign(now=lambda: 200.0)
+        self.assertEqual(self.state()['deadline_at'], deadline)
+        self.args.hours = 336.0
+        with self.assertRaisesRegex(ValueError, 'identity'):
+            self.run_campaign(now=lambda: 300.0)
+
+    def test_capacity_is_decimal_disabled_by_default_and_immutable_on_resume(self):
+        self.assertEqual(self.args.disk_capacity_gb, 0)
+        self.args.disk_capacity_gb = 478
+        with mock.patch.object(lc0_autopilot.shutil, 'disk_usage',
+                               return_value=SimpleNamespace(total=400_000_000_000, free=200_000_000_000)):
+            self.run_campaign(now=lambda: 100.)
+            self.assertEqual(self.state()['identity']['disk_capacity_bytes'], 478_000_000_000)
+            self.args.disk_capacity_gb = 513
+            with self.assertRaisesRegex(ValueError, 'identity'):
+                self.run_campaign(now=lambda: 101.)
+
+    def test_disk_ceiling_stops_before_training_even_with_filesystem_space(self):
+        self.args.disk_capacity_gb = 478
+        self.args.disk_reserve_gib = 50
+        with mock.patch.object(lc0_autopilot.shutil, 'disk_usage',
+                               return_value=SimpleNamespace(total=600_000_000_000, free=150_000_000_000)):
+            with self.assertRaisesRegex(RuntimeError, 'disk reserve'):
+                self.run_campaign()
+        self.assertEqual(self.calls, [])
+        self.assertTrue(self.initial.exists())
+        self.assertTrue(self.incumbent.exists())
+
+    def test_disk_ceiling_rechecked_after_chunk_expansion(self):
+        self.args.disk_capacity_gb = 478
+        self.args.disk_reserve_gib = 50
+        usage = [SimpleNamespace(total=600_000_000_000, free=200_000_000_000)]
+        expand = lc0_autopilot._expand_chunk
+        def use_working_space(*args, **kwargs):
+            result = expand(*args, **kwargs)
+            usage[0] = SimpleNamespace(total=600_000_000_000, free=150_000_000_000)
+            return result
+        with mock.patch.object(lc0_autopilot.shutil, 'disk_usage', side_effect=lambda _: usage[0]), \
+                mock.patch.object(lc0_autopilot, '_expand_chunk', side_effect=use_working_space):
+            with self.assertRaisesRegex(RuntimeError, 'disk reserve'):
+                self.run_campaign()
+        self.assertEqual(self.calls, [])
+
+    def test_invalid_capacity_rejected_before_state_creation(self):
+        for amount in (-1, float('nan'), float('inf')):
+            with self.subTest(amount=amount):
+                self.args.disk_capacity_gb = amount
+                with self.assertRaisesRegex(ValueError, 'disk capacity'):
+                    self.run_campaign()
+                self.assertFalse((self.out / 'lc0_state.json').exists())
 
 
 if __name__ == "__main__":

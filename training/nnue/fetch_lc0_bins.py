@@ -19,6 +19,11 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
 
+if __package__:
+    from .disk_budget import available_bytes, decimal_gb_bytes
+else:
+    from disk_budget import available_bytes, decimal_gb_bytes
+
 TRAINING_DATA_BASE = "https://storage.lczero.org/files/training_data/"
 DEFAULT_SUITES: tuple[str, ...] = ("test90/", "test80/")
 BIN_SUFFIXES: tuple[str, ...] = (".bin", ".bin.zst", ".bin.zstd")
@@ -184,8 +189,82 @@ def download_curl(job: DownloadJob, *, expected_size: Optional[int] = None,
         part.unlink(missing_ok=True)
 
 
-def download_snapshot(manifest_path: Path, *, min_free_bytes: int = 50 * 1024**3) -> int:
+def _has_corpus_evidence(corpus: Path) -> bool:
+    return any(os.path.lexists(corpus / name) for name in
+               ('identity.json', 'progress.sqlite3', 'raw_evictions', 'corpus_manifest.json', 'prepare.lock'))
+
+
+def _canonical_regular_file(path: Path) -> bool:
+    try:
+        absolute = path.absolute()
+        return absolute.is_file() and absolute.resolve(strict=True) == absolute
+    except OSError:
+        return False
+
+
+def _resume_corpus_snapshot(manifest_path: Path, corpus: Path, raw_root: Path) -> int:
+    """Verify a frozen prepared inventory under its lock; never write or fetch."""
+    if __package__:
+        from .lc0_archive_receipts import ArchiveReceiptStore, ReceiptError
+    else:  # Preserve direct-script invocation as well as python -m usage.
+        from lc0_archive_receipts import ArchiveReceiptStore, ReceiptError
+    try:
+        with ArchiveReceiptStore(manifest_path, corpus, raw_root=raw_root) as store:
+            if not _canonical_regular_file(store.raw_manifest):
+                raise ValueError('frozen raw manifest is missing, nonregular, or aliased')
+            manifest = json.loads(manifest_path.read_text())
+            if (manifest.get('schema') != 'piebot-lc0-raw-v1' or manifest.get('complete') is not True
+                    or manifest.get('failures') or not isinstance(manifest.get('files'), list)
+                    or not manifest['files']):
+                raise ValueError('initialized corpus requires its complete frozen raw manifest')
+            if os.path.lexists(store.receipts) and (store.receipts.is_symlink() or not store.receipts.is_dir()):
+                raise ValueError('receipt directory must be a regular directory')
+            for entry in manifest['files']:
+                dest, digest = Path(entry['dest']), entry.get('sha256')
+                if (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+                        or entry.get('status') not in {'downloaded', 'verified'}):
+                    raise ValueError('prepared inventory contains an unverified archive')
+                if (not dest.is_absolute() or store.raw_root not in dest.parents
+                        or dest.suffix != '.tar' or dest == store.raw_manifest or '..' in dest.parts):
+                    raise ValueError('archive must be a complete .tar beneath the explicit raw root')
+                key = hashlib.sha256(json.dumps([entry['url'], digest],
+                                                separators=(',', ':')).encode()).hexdigest()
+                present = os.path.lexists(dest)
+                if not present or os.path.lexists(store.receipts / (key + '.json')):
+                    store.verify(key)
+                if not present:
+                    continue
+                if dest.resolve(strict=True) != dest or not is_complete_download(dest):
+                    raise ValueError('present raw archive is partial, nonregular, or uses a symlink')
+                before = dest.stat()
+                if before.st_size != entry['size'] or sha256_file(dest) != digest:
+                    raise ValueError(f'present raw archive checksum or size mismatch: {dest}')
+                after = dest.stat()
+                fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+                if any(getattr(before, key) != getattr(after, key) for key in fields):
+                    raise ValueError(f'present raw archive changed while verifying: {dest}')
+        return 0
+    except (ReceiptError, OSError, ValueError, TypeError, KeyError) as exc:
+        print(f'LCZero receipt resume refused: {exc}', file=sys.stderr)
+        return 1
+
+
+def download_snapshot(manifest_path: Path, *, min_free_bytes: int = 50 * 1024**3,
+                      eviction_corpus: Path | None = None, raw_root: Path | None = None,
+                      capacity_bytes: int | None = None) -> int:
     """Resume a frozen inventory, verifying every cached object's recorded SHA."""
+    if capacity_bytes is not None and (
+            isinstance(capacity_bytes, bool) or not isinstance(capacity_bytes, int)
+            or capacity_bytes <= 0):
+        raise ValueError('capacity_bytes must be a positive integer or None')
+    if eviction_corpus is not None:
+        if raw_root is None:
+            raise ValueError('eviction resume requires an explicit raw_root')
+        corpus = Path(eviction_corpus)
+        # Even damaged/partial corpus evidence makes this a strict resume.
+        # It must never fall back to redownloading and changing frozen provenance.
+        if _has_corpus_evidence(corpus):
+            return _resume_corpus_snapshot(manifest_path, corpus, Path(raw_root))
     manifest = json.loads(manifest_path.read_text())
     manifest['failures'] = []
     for entry in manifest['files']:
@@ -199,7 +278,7 @@ def download_snapshot(manifest_path: Path, *, min_free_bytes: int = 50 * 1024**3
             continue
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if shutil.disk_usage(dest.parent).free - entry['size'] < min_free_bytes:
+            if available_bytes(dest.parent, capacity_bytes=capacity_bytes) - entry['size'] < min_free_bytes:
                 raise OSError('download would consume the protected disk reserve')
             info = download_curl(DownloadJob(entry['url'], dest), expected_size=entry['size'],
                                  expected_sha256=digest)
@@ -460,16 +539,32 @@ def parse_args() -> argparse.Namespace:
                         help='Snapshot mode uses curl; legacy BIN mode remains requests')
     parser.add_argument('--dry-run', action='store_true', help='Print snapshot inventory and sizes without writing files')
     parser.add_argument('--min-free-gib', type=float, default=50.)
+    parser.add_argument('--disk-capacity-gb', type=float, default=0,
+                        help='Snapshot mode: decimal disk capacity ceiling; 0 uses filesystem free space')
+    parser.add_argument('--eviction-corpus', type=Path,
+                        help='Snapshot mode: verify corpus receipts for deliberately evicted raw archives')
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    capacity = decimal_gb_bytes(getattr(args, 'disk_capacity_gb', 0))
+    eviction_corpus = getattr(args, 'eviction_corpus', None)
+    if capacity is not None and not (getattr(args, 'since', None) and getattr(args, 'until', None)):
+        raise ValueError('--disk-capacity-gb requires frozen snapshot mode (--since and --until)')
+    if eviction_corpus is not None and not (getattr(args, 'since', None) and getattr(args, 'until', None)):
+        raise ValueError('--eviction-corpus requires frozen snapshot mode (--since and --until)')
     if getattr(args, 'since', None) or getattr(args, 'until', None):
         if not args.since or not args.until:
             raise ValueError('snapshot mode requires both --since and --until')
         manifest_path = args.manifest or (args.out / 'manifest.json')
-        if manifest_path.exists():
+        existing_manifest = manifest_path.exists()
+        if (eviction_corpus is not None and _has_corpus_evidence(eviction_corpus)
+                and not _canonical_regular_file(manifest_path)):
+            print('LCZero receipt resume refused: frozen raw manifest is missing, nonregular, or aliased',
+                  file=sys.stderr)
+            return 1
+        if existing_manifest:
             snapshot = json.loads(manifest_path.read_text())
             if snapshot.get('schema') != 'piebot-lc0-raw-v1':
                 raise ValueError('existing manifest is not a frozen LCZero snapshot')
@@ -481,8 +576,14 @@ def main() -> int:
         if args.dry_run:
             print(json.dumps(snapshot, indent=2))
             return 0
-        write_json_atomic(manifest_path, snapshot)
-        return download_snapshot(manifest_path, min_free_bytes=int(args.min_free_gib * 1024**3))
+        if not existing_manifest or eviction_corpus is None:
+            write_json_atomic(manifest_path, snapshot)
+        options = {'min_free_bytes': int(args.min_free_gib * 1024**3)}
+        if capacity is not None:
+            options['capacity_bytes'] = capacity
+        if eviction_corpus is not None:
+            options.update(eviction_corpus=eviction_corpus, raw_root=args.out)
+        return download_snapshot(manifest_path, **options)
     threshold = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=max(0, args.days))
     manifest, jobs = plan_suite_downloads(
         suites=args.suites,

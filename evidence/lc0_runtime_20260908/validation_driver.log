@@ -1,0 +1,20 @@
+{
+  "nnue": {
+    "tests": 385,
+    "exit_code": 0,
+    "seconds": 26.56813208400854,
+    "log": "evidence/lc0_runtime_20260908/nnue.log",
+    "sha256": "c0338c2b3e55f2faa8a4761f5251f51c34ad0aa34405279d999863d069c456ac",
+    "skipped": 0,
+    "ok": true
+  },
+  "scripts": {
+    "tests": 139,
+    "exit_code": 0,
+    "seconds": 10.86618491698755,
+    "log": "evidence/lc0_runtime_20260908/scripts.log",
+    "sha256": "d54a6cad45c09b6ea152c2b7c11096ffb38f7fe0b3852c277d13cded733d0c8b",
+    "skipped": 0,
+    "ok": true
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "candidate_base": "a50a0759f785ead89d0651a673c3089cc9afcc28",
+  "changed_from_candidate_base": {
+    "deploy/vast/piebot_lc0.conf": "ee976e51c8412cdc67d4ae7c5dad36a4f40c24bcaf10ec3c086795cb7a6353d5",
+    "scripts/migrate_vast_source_commit.py": "97d5d11079dc459dfebb744d0a7aa043915a34113f7cd11d51dd7e37b4eae802",
+    "scripts/run_vast_lc0.sh": "0d74938ce98b223666d3b17b21f4f37cd91bdcdfe8c89dd1b978466c0e6aa8b3",
+    "scripts/tests/test_lc0_deployment.py": "e9f1e8327741e904e66d2071ac98586d182396da29c3e8c0cc7d5d954a82096d",
+    "scripts/tests/test_lc0_storage_deployment.py": "75a980a764d8c24173b832c75264007920efdfbffdc1950b270f6d175252b22d",
+    "scripts/tests/test_migrate_lc0_pretraining_source_commit.py": "e2572773634d43a9486fb1acebef21c5c20068dd0e71cb110189b03f88f99249",
+    "training/nnue/disk_budget.py": "6d0d60dc8fcfb0f40ea22700fc504dca839664f821fd41daa47482b7aa73354b",
+    "training/nnue/fetch_lc0_bins.py": "6e0f3c6a1c002d4f753bfa3fff4f2c007079428a0a809b3e587f1ca868acdfde",
+    "training/nnue/lc0_archive_receipts.py": "86ee45c5fe331398b42b9ea548861ad7b1360529e6996f547747d294040943b0",
+    "training/nnue/lc0_autopilot.py": "ff5b1e898459b02474cf07de42e44d5a3726befc798c00b0d71f6464d773fb07",
+    "training/nnue/lc0_corpus.py": "edcf7f7a64f386b09b030e1d5f87c9ec6858c4a4b98aebed2db3bb0ca1a42f69",
+    "training/nnue/lc0_deploy.py": "8599c17d2eddbd1f749cd02b3eff454a6758f60f1ef16c48c9acc408c2c8f391",
+    "training/nnue/tests/test_disk_budget.py": "9b8c6634efeadedd115ef179dd8a6651fbea9783473cd8165dcceef1308192f0",
+    "training/nnue/tests/test_fetch_lc0_eviction.py": "169ea587f029c2f9304b8042d66580e22d14fb5a30693d214b61a2161ec1da88",
+    "training/nnue/tests/test_lc0_archive_receipts.py": "8cee6d789caa5a301bbf9a0291c71a140251cb692fdb570ed7cde71dd3e02ece",
+    "training/nnue/tests/test_lc0_autopilot.py": "6363587ecac219f733007a362ff2c08c2abff056232a966483824417c6aad3f9",
+    "training/nnue/tests/test_lc0_corpus_eviction.py": "53a028a3f26297d65d445baea4500df30e2114f38278a965648424a28a8d53b0"
+  },
+  "deployment_status": "local candidate only; no push, remote action or production source pin change; source-pin approval pending",
+  "preexisting_evidence_commits_retained": true,
+  "production_base": "b517c47cb86b9f524118df6469b29d7d76495898",
+  "protected_paths": {
+    "scripts/lc0_anchor_monitor.py": "286130a88e2fe70d4ccf6031fe29be32952b4759c04450379540ae96c9b6bebc",
+    "scripts/ranked_engine_monitor.py": null,
+    "scripts/uci_elo_arena.py": "e3fdf511065998a67c36125fe39f93b783b0714700c9c52b4f3bd015ca09b737",
+    "scripts/uci_elo_ladder.py": "f93855d9c225208c3993fac314a750bdcb2b965a55367196749008e8a5cde911"
+  },
+  "runtime_update_sha256": "68b3468d9761662c7bd04de3253d127724baea2d1b0a8f4e6400c8232c6017be",
+  "selected_source_commit": "5c608217833244e0637cae72844c286dbd8240a0",
+  "settings": {
+    "cadence": "existing daily or pass-end promotion evaluations; no proposed cadence changes",
+    "disk_capacity_bytes": 478000000000,
+    "evict_raw": true,
+    "hours": 720,
+    "reserve_gib": 50
+  },
+  "source_and_test_changes_from_production": {
+    "deploy/vast/piebot_lc0.conf": "ee976e51c8412cdc67d4ae7c5dad36a4f40c24bcaf10ec3c086795cb7a6353d5",
+    "scripts/migrate_vast_source_commit.py": "97d5d11079dc459dfebb744d0a7aa043915a34113f7cd11d51dd7e37b4eae802",
+    "scripts/run_vast_lc0.sh": "0d74938ce98b223666d3b17b21f4f37cd91bdcdfe8c89dd1b978466c0e6aa8b3",
+    "scripts/tests/test_lc0_deployment.py": "e9f1e8327741e904e66d2071ac98586d182396da29c3e8c0cc7d5d954a82096d",
+    "scripts/tests/test_lc0_storage_deployment.py": "75a980a764d8c24173b832c75264007920efdfbffdc1950b270f6d175252b22d",
+    "scripts/tests/test_migrate_lc0_pretraining_source_commit.py": "e2572773634d43a9486fb1acebef21c5c20068dd0e71cb110189b03f88f99249",
+    "training/nnue/disk_budget.py": "6d0d60dc8fcfb0f40ea22700fc504dca839664f821fd41daa47482b7aa73354b",
+    "training/nnue/fetch_lc0_bins.py": "6e0f3c6a1c002d4f753bfa3fff4f2c007079428a0a809b3e587f1ca868acdfde",
+    "training/nnue/lc0_archive_receipts.py": "86ee45c5fe331398b42b9ea548861ad7b1360529e6996f547747d294040943b0",
+    "training/nnue/lc0_autopilot.py": "ff5b1e898459b02474cf07de42e44d5a3726befc798c00b0d71f6464d773fb07",
+    "training/nnue/lc0_corpus.py": "edcf7f7a64f386b09b030e1d5f87c9ec6858c4a4b98aebed2db3bb0ca1a42f69",
+    "training/nnue/lc0_deploy.py": "8599c17d2eddbd1f749cd02b3eff454a6758f60f1ef16c48c9acc408c2c8f391",
+    "training/nnue/tests/test_disk_budget.py": "9b8c6634efeadedd115ef179dd8a6651fbea9783473cd8165dcceef1308192f0",
+    "training/nnue/tests/test_fetch_lc0_eviction.py": "169ea587f029c2f9304b8042d66580e22d14fb5a30693d214b61a2161ec1da88",
+    "training/nnue/tests/test_lc0_archive_receipts.py": "8cee6d789caa5a301bbf9a0291c71a140251cb692fdb570ed7cde71dd3e02ece",
+    "training/nnue/tests/test_lc0_autopilot.py": "6363587ecac219f733007a362ff2c08c2abff056232a966483824417c6aad3f9",
+    "training/nnue/tests/test_lc0_corpus_eviction.py": "53a028a3f26297d65d445baea4500df30e2114f38278a965648424a28a8d53b0",
+    "training/nnue/tests/test_lc0_targets.py": "7eaa6a14cec7bc6581bf6ca87694ee06d8eeb6adf5ef3693397d28a81183b7ba",
+    "training/nnue/train_stub.py": "cf72906c30dd8b7eaada31de94f17fefaaa40cab06e6e9ff8b118c076131f6fa",
+    "training/nnue/train_torch.py": "b33dbd61bf6ae9eeab12860ec66a8313337c291ce2bc9060f6158ff7f4456c90"
+  },
+  "whole_piebot_tree": "5c6360ddbead51609f71aa70737a57956531ffe2"
+}

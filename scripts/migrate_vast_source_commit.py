@@ -856,7 +856,7 @@ def migrate_lc0_pretraining_source_commit(
                 "additional_locks": [str(path) for path in optional_locks if path in acquired_optional_locks],
                 "supervisor_stop": {"externally_verified_by_caller": True, "verified_by_tool": False},
                 "training": {"state_path": str(out_root / "training/lc0_state.json"),
-                             "clock_started": False, "required_budget_hours": 336,
+                             "clock_started": False, "required_budget_hours": 720,
                              "live_budget_verified_by_tool": False,
                              "budget_basis": "required unchanged launch setting; supervisor configuration is external",
                              "state_created_or_modified": False},

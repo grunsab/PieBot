@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import autopilot, run_pipeline
+from .disk_budget import available_bytes, decimal_gb_bytes
 
 SCHEMA = "piebot-lc0-autopilot-v1"
 CHUNK_LIMIT = 700_000
@@ -44,7 +45,7 @@ def _parse_args(argv=None):
     parser.add_argument("--initial-active-model", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--piebot-dir", type=Path, default=Path("PieBot"))
-    parser.add_argument("--hours", type=float, default=336)
+    parser.add_argument("--hours", type=float, default=720)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--seed", type=int, default=20260907)
     parser.add_argument("--batch-size", type=int, default=16_384)
@@ -55,6 +56,8 @@ def _parse_args(argv=None):
     parser.add_argument("--max-chunks", type=int, default=0,
                         help="Stop after this many additional chunks; 0 runs until deadline")
     parser.add_argument("--disk-reserve-gib", type=float, default=50)
+    parser.add_argument("--disk-capacity-gb", type=float, default=0,
+                        help="Optional decimal GB ceiling; 0 uses filesystem availability")
     return parser.parse_args(argv)
 
 
@@ -117,6 +120,7 @@ def _identity(args, corpus: dict[str, Any]) -> dict[str, Any]:
         "learning_rate": args.learning_rate, "seed": args.seed,
         "hours": args.hours, "gate_games": args.gate_games,
         "gate_parallel_games": args.gate_parallel_games,
+        "disk_capacity_bytes": decimal_gb_bytes(args.disk_capacity_gb),
         "gate_confirmation_games": 1000, "blend_percent": 75,
         "validation_sha256": corpus["validation"]["sha256"],
     }
@@ -128,11 +132,12 @@ def _order(count: int, seed: int, pass_number: int) -> list[int]:
     return order
 
 
-def _check_disk(root: Path, reserve_gib: float) -> None:
-    if shutil.disk_usage(root).free < reserve_gib * (1024 ** 3):
+def _check_disk(root: Path, reserve_gib: float, capacity_bytes: int | None = None) -> None:
+    minimum = max(reserve_gib * (1024 ** 3), 1 if capacity_bytes is not None else 0)
+    if available_bytes(root, capacity_bytes=capacity_bytes) < minimum:
         # Only the expanded training cache is reproducible and unprotected.
         shutil.rmtree(root / "cache" / "training", ignore_errors=True)
-        if shutil.disk_usage(root).free < reserve_gib * (1024 ** 3):
+        if available_bytes(root, capacity_bytes=capacity_bytes) < minimum:
             raise RuntimeError(f"disk reserve below {reserve_gib:g} GiB; protected corpus/checkpoints retained")
 
 
@@ -249,6 +254,7 @@ def _evaluate_candidate(args, root: Path, state: dict[str, Any], *, stamp: float
 
 
 def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[[], bool] = lambda: False) -> int:
+    capacity_bytes = decimal_gb_bytes(args.disk_capacity_gb)
     root = args.out_root.resolve()
     if not math.isfinite(args.hours) or args.hours <= 0 or args.max_chunks < 0:
         raise ValueError("hours must be positive and max-chunks nonnegative")
@@ -323,7 +329,7 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                     state["status"] = "paused"
                     autopilot._atomic_write_json(state_path, state)
                     return 0
-                _check_disk(root, args.disk_reserve_gib)
+                _check_disk(root, args.disk_reserve_gib, capacity_bytes)
                 order = _order(len(corpus["chunks"]), args.seed, state["pass_number"])
                 index = order[state["cursor"]]
                 chunk = corpus["chunks"][index]
@@ -345,7 +351,9 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                 completed = _completed_chunk(output, pending)
                 if completed is None:
                     _expand_chunk(chunk, train_jsonl)
-                    if shutil.disk_usage(root).free < args.disk_reserve_gib * (1024 ** 3):
+                    minimum = max(args.disk_reserve_gib * (1024 ** 3),
+                                  1 if capacity_bytes is not None else 0)
+                    if available_bytes(root, capacity_bytes=capacity_bytes) < minimum:
                         raise RuntimeError("disk reserve exhausted by expanded corpus cache")
                     # Partial outputs are never resumed as checkpoints. Replay
                     # unfinished work from the preceding committed learner.

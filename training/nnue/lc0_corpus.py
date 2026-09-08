@@ -1,8 +1,9 @@
 """Build a frozen, resumable NNUE corpus from dated official LCZero game archives.
 
 Archive dates select source files; tar member mtimes are the game's collection
-timestamp (not a verified played date). Raw archives remain intact. Work is
-committed one archive at a time, so only an unfinished archive repeats on resume.
+timestamp (not a verified played date). Raw archives remain intact by default;
+optional verified eviction removes each raw archive after durable conversion.
+Work is committed one archive at a time, so only an unfinished archive repeats.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import tarfile
 from typing import BinaryIO, Iterator
 
 from . import lc0_bin
+from .disk_budget import available_bytes, decimal_gb_bytes
 from .fetch_lc0_bins import sha256_file, utc_bound, write_json_atomic
 
 SCHEMA = 'piebot-lc0-corpus-v1'
@@ -62,14 +64,17 @@ def is_holdout_game(run_id: str, game_id: str, seed: int, fraction: float) -> bo
     return int(_hash([seed, run_id, game_id]), 16) < int(fraction * 2**256)
 
 
-def _space(path: Path, reserve: int) -> None:
-    if shutil.disk_usage(path).free < reserve:
+def _space(path: Path, reserve: int, capacity_bytes: int | None = None) -> None:
+    minimum = max(reserve, 1 if capacity_bytes is not None else 0)
+    if available_bytes(path, capacity_bytes=capacity_bytes) < minimum:
         raise OSError('corpus preparation reached the protected disk reserve')
 
 
 class _Chunks:
-    def __init__(self, stage: Path, prefix: str, limit: int, reserve: int):
+    def __init__(self, stage: Path, prefix: str, limit: int, reserve: int,
+                 capacity_bytes: int | None = None):
         self.stage, self.prefix, self.limit, self.reserve = stage, prefix, limit, reserve
+        self.capacity_bytes = capacity_bytes
         self.fp = None
         self.count = 0
         self.entries: list[dict] = []
@@ -77,7 +82,7 @@ class _Chunks:
     def write(self, sample: dict) -> None:
         if self.fp is None or self.count == self.limit:
             self.close()
-            _space(self.stage, self.reserve)
+            _space(self.stage, self.reserve, self.capacity_bytes)
             path = self.stage / f'{self.prefix}_{len(self.entries):06}.jsonl.gz'
             self.fp = gzip.open(path, 'wt', encoding='utf-8', compresslevel=1)
             self.entries.append({'name': path.name, 'positions': 0})
@@ -86,7 +91,7 @@ class _Chunks:
         self.count += 1
         self.entries[-1]['positions'] = self.count
         if self.count % 4096 == 0:
-            _space(self.stage, self.reserve)
+            _space(self.stage, self.reserve, self.capacity_bytes)
 
     def close(self) -> None:
         if self.fp is not None:
@@ -164,8 +169,10 @@ def _convert_archive(entry: dict, stage: Path, conn: sqlite3.Connection, config:
              'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0,
              'game_members': 0, 'empty_archives': 0}
     dates: set[str] = set()
-    training = _Chunks(stage, 'train', config['chunk_positions'], config['min_free_bytes'])
-    holdout = _Chunks(stage, 'holdout', config['chunk_positions'], config['min_free_bytes'])
+    training = _Chunks(stage, 'train', config['chunk_positions'], config['min_free_bytes'],
+                       config.get('capacity_bytes'))
+    holdout = _Chunks(stage, 'holdout', config['chunk_positions'], config['min_free_bytes'],
+                      config.get('capacity_bytes'))
     pending = deque()
 
     def emit(source_game: str, collected: str, decoded: tuple) -> None:
@@ -276,7 +283,9 @@ def _validation(archives: list[tuple[Path, dict]], dest: Path, size: int, seed: 
 def prepare_corpus(raw_manifest: Path, out_dir: Path, *, since: str, until: str,
                    chunk_positions: int = 700000, validation_fraction: float = .01,
                    validation_samples: int = 100000, seed: int = 20260907,
-                   min_free_bytes: int = 50 * 1024**3, workers: int = 8) -> Path:
+                   min_free_bytes: int = 50 * 1024**3, workers: int = 8,
+                   evict_raw: bool = False, raw_root: Path | None = None,
+                   capacity_bytes: int | None = None) -> Path:
     """Return a complete frozen corpus; completed archives survive interruptions."""
     if chunk_positions < 1 or not 0 <= validation_fraction < 1 or validation_samples < 1 or workers < 1:
         raise ValueError('invalid chunk size or validation settings')
@@ -295,6 +304,19 @@ def prepare_corpus(raw_manifest: Path, out_dir: Path, *, since: str, until: str,
         if not entry.get('sha256') or len(entry['sha256']) != 64:
             raise ValueError(f"archive has no verified checksum: {entry.get('dest')}")
     out_dir = out_dir.resolve()
+    if capacity_bytes is not None:
+        existing = out_dir
+        while not existing.exists():
+            existing = existing.parent
+        _space(existing, min_free_bytes, capacity_bytes)
+    receipt_store = None
+    if evict_raw:
+        from . import lc0_archive_receipts as archive_receipts
+        if raw_root is None:
+            raise ValueError('raw eviction requires an explicit raw root')
+        if raw.get('schema') != 'piebot-lc0-raw-v1' or raw.get('complete') is not True:
+            raise ValueError('raw eviction requires a complete frozen raw inventory')
+        receipt_store = archive_receipts.ArchiveReceiptStore(raw_manifest.resolve(), out_dir, raw_root=raw_root)
     out_dir.mkdir(parents=True, exist_ok=True)
     config = {'schema': SCHEMA, 'since': lower.isoformat(), 'until': upper.isoformat(),
               'game_identity': 'sha256_decompressed_v6_game_v1',
@@ -304,19 +326,36 @@ def prepare_corpus(raw_manifest: Path, out_dir: Path, *, since: str, until: str,
               'sources': [{k: entry.get(k) for k in ('url', 'sha256', 'size', 'suite')} for entry in entries]}
     identity = _hash(config)
     config_path = out_dir / 'identity.json'
-    if config_path.exists():
-        if json.loads(config_path.read_text())['corpus_id'] != identity:
-            raise ValueError('corpus identity changed; use a new output root')
-    else:
-        write_json_atomic(config_path, dict(config, corpus_id=identity))
+    identity_record = dict(config, corpus_id=identity)
     manifest_path = out_dir / 'corpus_manifest.json'
     config['min_free_bytes'] = min_free_bytes
     config['workers'] = workers
+    config['capacity_bytes'] = capacity_bytes
     import fcntl
-    with (out_dir / 'prepare.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with contextlib.ExitStack() as resources:
+        lock = resources.enter_context((out_dir / 'prepare.lock').open('a'))
+        if receipt_store is not None:
+            # The receipt context is the sole flock owner across conversion,
+            # database commit, proof publication and raw deletion.
+            resources.enter_context(receipt_store)
+            # A crash after identity publication must still leave the lock
+            # needed by a strict acquisition resume.
+            os.fsync(lock.fileno())
+            archive_receipts._fsync_directory(out_dir)
+            archive_receipts._fsync_directory(out_dir.parent)
+        else:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if config_path.exists():
+            if json.loads(config_path.read_text())['corpus_id'] != identity:
+                raise ValueError('corpus identity changed; use a new output root')
+        else:
+            write_json_atomic(config_path, identity_record)
         conn = sqlite3.connect(out_dir / 'progress.sqlite3')
         try:
+            if receipt_store is not None:
+                if conn.execute('PRAGMA journal_mode').fetchone()[0] != 'delete':
+                    raise ValueError('raw eviction requires SQLite DELETE journal mode')
+                conn.execute('PRAGMA synchronous=FULL')
             conn.execute('CREATE TABLE IF NOT EXISTS games(game_key TEXT PRIMARY KEY)')
             conn.execute('CREATE TABLE IF NOT EXISTS source_aliases(source_key TEXT PRIMARY KEY, content_sha256 TEXT NOT NULL)')
             conn.execute('CREATE TABLE IF NOT EXISTS archives(archive_key TEXT PRIMARY KEY, directory TEXT, metadata TEXT)')
@@ -331,12 +370,14 @@ def prepare_corpus(raw_manifest: Path, out_dir: Path, *, since: str, until: str,
                     for cached in info['chunks'] + info['holdout']:
                         if sha256_file(Path(directory) / cached['name']) != cached['sha256']:
                             raise ValueError(f'corpus cache checksum mismatch: {cached["name"]}')
+                    if receipt_store is not None:
+                        receipt_store.evict(archive_key)
                     all_archives.append((Path(directory), info))
                     continue
                 source = Path(entry['dest'])
                 if sha256_file(source) != entry['sha256']:
                     raise ValueError(f'archive checksum mismatch: {source}')
-                _space(out_dir, min_free_bytes)
+                _space(out_dir, min_free_bytes, capacity_bytes)
                 directory = out_dir / 'archives' / f'{index:06}_{archive_key[:16]}'
                 stage = directory.with_name(directory.name + '.part')
                 # Only these reproducible outputs from an unfinished transaction are removed.
@@ -347,13 +388,24 @@ def prepare_corpus(raw_manifest: Path, out_dir: Path, *, since: str, until: str,
                 try:
                     info = _convert_archive(entry, stage, conn, config)
                     write_json_atomic(stage / 'archive.json', info)
+                    if receipt_store is not None:
+                        archive_receipts._fsync_directory(stage)
                     os.replace(stage, directory)
+                    if receipt_store is not None:
+                        # Publish the derived directory durably before the
+                        # database makes its deduplication rows committed.
+                        archive_receipts._fsync_directory(directory.parent)
+                        archive_receipts._fsync_directory(out_dir)
                     conn.execute('INSERT INTO archives VALUES(?,?,?)',
                                  (archive_key, str(directory), json.dumps(info, sort_keys=True)))
                     conn.commit()
                 except BaseException:
                     conn.rollback()
                     raise
+                if receipt_store is not None:
+                    # The committed derived data and its eviction proof are
+                    # fsynced and rechecked before this removes the raw copy.
+                    receipt_store.evict(archive_key)
                 all_archives.append((directory, info))
                 print(f"corpus archive {index+1}/{len(entries)}: {info['stats']}", flush=True)
             if manifest_path.exists():
@@ -402,12 +454,20 @@ def main() -> None:
     parser.add_argument('--validation-samples', type=int, default=100000)
     parser.add_argument('--seed', type=int, default=20260907)
     parser.add_argument('--min-free-gib', type=float, default=50.)
+    parser.add_argument('--disk-capacity-gb', type=float, default=0,
+                        help='Optional decimal GB ceiling; 0 uses filesystem availability')
     parser.add_argument('--workers', type=int, default=8)
+    parser.add_argument('--evict-raw', action='store_true',
+                        help='Remove each raw archive only after verified durable conversion')
+    parser.add_argument('--raw-root', type=Path,
+                        help='Explicit raw directory required with --evict-raw')
     args = parser.parse_args()
     print(prepare_corpus(args.raw_manifest, args.out, since=args.since, until=args.until,
                          chunk_positions=args.chunk_positions, validation_fraction=args.validation_fraction,
                          validation_samples=args.validation_samples, seed=args.seed,
-                         min_free_bytes=int(args.min_free_gib * 1024**3), workers=args.workers))
+                         min_free_bytes=int(args.min_free_gib * 1024**3), workers=args.workers,
+                         evict_raw=args.evict_raw, raw_root=args.raw_root,
+                         capacity_bytes=decimal_gb_bytes(args.disk_capacity_gb)))
 
 
 if __name__ == '__main__':

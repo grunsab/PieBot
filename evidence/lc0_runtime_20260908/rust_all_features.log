@@ -1,0 +1,651 @@
+   Compiling autocfg v0.1.8
+   Compiling rand_core v0.4.2
+   Compiling rand_pcg v0.1.2
+   Compiling rand_core v0.3.1
+   Compiling rand_chacha v0.1.1
+   Compiling rand v0.6.5
+   Compiling rand_hc v0.1.0
+   Compiling rand_isaac v0.1.1
+   Compiling rand_xorshift v0.1.1
+   Compiling rand_jitter v0.1.4
+   Compiling rand_os v0.1.3
+   Compiling num_cpus v1.17.0
+   Compiling bitflags v1.3.2
+   Compiling lazy_static v1.5.0
+   Compiling mucow v0.1.0
+   Compiling pleco v0.5.0
+   Compiling piebot v0.1.0 (/private/tmp/piebot-lc0-throughput/PieBot)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.76s
+     Running unittests src/lib.rs (PieBot/target/debug/deps/piebot-55bf8d07661b5229)
+
+running 23 tests
+test eval::nnue::features::tests::direct_piece_indices_match_full_extractors ... ok
+test eval::nnue::loader::tests::quant_loader_rejects_non_positive_scales ... ok
+test eval::nnue::loader::tests::quant_loader_rejects_truncated_payload ... ok
+test eval::nnue::network::tests::feature_major_runtime_layout_preserves_every_weight ... ok
+test eval::nnue::network::tests::screlu_dot_is_exact_above_the_i16_intermediate_limit ... ok
+test eval::nnue::network::tests::screlu_dot_matches_reference_at_production_width ... ok
+test eval::nnue::network::tests::screlu_dot_matches_reference_on_adversarial_inputs ... ok
+test eval::nnue::network::tests::screlu_dot_matches_reference_on_ragged_lengths ... ok
+test eval::nnue::network::tests::search_clone_shares_immutable_allocations_without_cache_invalidation ... ok
+test eval::nnue::tests::dense_halfkp_input_uses_active_features ... ok
+test eval::nnue::tests::dense_loader_rejects_truncated_payload ... ok
+test eval::nnue::tests::refresh_and_update_on_move_maintain_incremental_state ... ok
+test search::alphabeta::draw_policy_regressions::low_clock_exact_tt_score_cannot_cut_off_near_fifty_move_draw ... ok
+test search::alphabeta::draw_policy_regressions::near_draw_tt_result_cannot_poison_the_same_low_clock_position ... ok
+test search::alphabeta::draw_policy_regressions::real_children_of_a_synthetic_null_node_restore_draw_checks ... ok
+test search::alphabeta::mate_tt_score_tests::mate_score_is_adjusted_when_probed_at_a_different_ply ... ok
+test search::alphabeta::mate_tt_score_tests::ordinary_centipawn_scores_are_not_ply_adjusted ... ok
+test search::safety::tests::detects_a_stalemating_move_from_user_fen ... ok
+test search::see::tests::see_detects_bad_exchange_rook_x_pawn_on_h7 ... ok
+test selfplay::tests::adjudicates_fifty_move_rule ... ok
+test selfplay::tests::adjudicates_threefold_repetition ... ok
+test selfplay::tests::detects_only_strict_insufficient_material_cases ... ok
+test test_support::tests::loads_quant_nnue_test_config_from_env ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running unittests src/bin/accept.rs (PieBot/target/debug/deps/accept-9fa0accef33831e1)
+
+running 1 test
+test tests::missing_acceptance_suite_is_an_error ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/accept_simple.rs (PieBot/target/debug/deps/accept_simple-a76c605d72940e72)
+
+running 1 test
+test tests::missing_acceptance_suite_is_an_error ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/accept_temp.rs (PieBot/target/debug/deps/accept_temp-99c3510c5a2215ce)
+
+running 1 test
+test tests::missing_acceptance_suite_is_an_error ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/analyze_jsonl.rs (PieBot/target/debug/deps/analyze_jsonl-387f0b8142e8b736)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/bench.rs (PieBot/target/debug/deps/bench-1ba52ae355e176e1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/bench_pleco.rs (PieBot/target/debug/deps/bench_pleco-2d0e06046ecd432e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/build_mate_suite.rs (PieBot/target/debug/deps/build_mate_suite-10ecbadcef75f254)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/compare_play.rs (PieBot/target/debug/deps/compare_play-71b6d954a3f86cf5)
+
+running 30 tests
+test tests::canonical_result_order_is_independent_of_worker_completion_order ... ok
+test tests::cli_accepts_fixed_depth_mode ... ok
+test tests::cli_accepts_opt_in_paired_openings ... ok
+test tests::cli_parallel_games_is_opt_in_and_does_not_replace_engine_threads ... ok
+test tests::cli_rejects_zero_fixed_depth ... ok
+test tests::different_pairs_use_different_deterministic_seeds_and_openings ... ok
+test tests::fixed_depth_paired_results_match_between_serial_and_parallel_workers ... ok
+test tests::game_over_recognizes_bare_kings_as_insufficient_material ... ok
+test tests::game_over_recognizes_fifty_move_draw_with_legal_moves ... ok
+test tests::game_over_recognizes_threefold_repetition ... ok
+test tests::missing_or_empty_suite_is_a_hard_error ... ok
+test tests::noisy_baseline_uses_engine_order_for_top1 ... ok
+test tests::noisy_choice_topk_one_picks_first ... ok
+test tests::noisy_experimental_uses_engine_order_for_top1 ... ok
+test tests::openings_file_requires_paired_openings ... ok
+test tests::paired_games_replay_the_identical_opening_with_colors_reversed ... ok
+test tests::paired_neutral_order_is_deterministic_and_score_descending ... ok
+test tests::paired_opening_is_deterministic ... ok
+test tests::paired_opening_topk_never_selects_below_the_neutral_score_cutoff ... ok
+test tests::paired_openings_require_an_even_game_count_without_affecting_legacy_mode ... ok
+test tests::paired_parallelism_is_bounded_and_multi_threaded_search_stays_serial ... ok
+test tests::paired_result_serialization_preserves_games_and_pair_scores ... ok
+test tests::parallel_work_units_keep_color_reversed_opening_pairs_together ... ok
+test tests::san_formats_cozy_castling_encoding ... ok
+test tests::san_formats_en_passant_as_capture ... ok
+test tests::san_formats_promotion_check_and_checkmate_suffixes ... ok
+test tests::san_uses_file_when_ambiguous_pieces_share_a_rank ... ok
+test tests::san_uses_rank_when_ambiguous_pieces_share_a_file ... ok
+test tests::suite_opening_games_start_from_the_suite_fen ... ok
+test tests::suite_paired_openings_are_deterministic_distinct_and_fen_seeded ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+     Running unittests src/bin/perft.rs (PieBot/target/debug/deps/perft-7b7941eb62a017bf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/relabel_jsonl.rs (PieBot/target/debug/deps/relabel_jsonl-26b71e9ebb854758)
+
+running 13 tests
+test tests::different_games_can_use_different_phase_offsets ... ok
+test tests::every_position_in_the_same_game_uses_the_same_phase ... ok
+test tests::expensive_relabel_tasks_are_balanced_across_reusable_workers ... ok
+test tests::game_phases_cover_both_side_to_move_parities ... ok
+test tests::legacy_records_without_provenance_keep_zero_phase_selection ... ok
+test tests::node_capped_relabel_stamps_achieved_depth_not_requested ... ok
+test tests::node_capped_teacher_still_produces_a_label ... ok
+test tests::provenance_phase_is_exact_and_deterministic ... ok
+test tests::selected_relabel_preserves_provenance_and_overwrites_teacher_depth ... ok
+test tests::teacher_hash_budget_is_shared_across_workers ... ok
+test tests::teacher_search_params_apply_optional_node_cap ... ok
+test tests::teacher_search_params_clamp_depth_and_use_single_search_thread ... ok
+test tests::unselected_legacy_record_remains_readable_and_keeps_its_teacher_depth ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/bin/selfplay.rs (PieBot/target/debug/deps/selfplay-68d06c1b4344ff9e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/uci.rs (PieBot/target/debug/deps/uci-db578298442a48a7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/alphabeta_accept.rs (PieBot/target/debug/deps/alphabeta_accept-b6d97308010c280c)
+
+running 2 tests
+test alphabeta_finds_simple_mate_in_one ... ok
+test temp_search_keeps_forcing_checking_sacrifice_at_root ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+     Running tests/eval_blend.rs (PieBot/target/debug/deps/eval_blend-0296f580b283b630)
+
+running 1 test
+test eval_blend_dense_bias_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/eval_blend_quant.rs (PieBot/target/debug/deps/eval_blend_quant-9329d765b5641e8d)
+
+running 1 test
+test eval_blend_quant_bias_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/eval_blend_temp.rs (PieBot/target/debug/deps/eval_blend_temp-378989a828cb2d7a)
+
+running 1 test
+test eval_blend_temp_quant_bias_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/eval_pst.rs (PieBot/target/debug/deps/eval_pst-c7f8d59cee3d6f8d)
+
+running 2 tests
+test knight_center_better_than_rim ... ok
+test pawn_advanced_better_than_back ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/heuristics_v1.rs (PieBot/target/debug/deps/heuristics_v1-9dffbfadf15b93c8)
+
+running 2 tests
+test aspiration_retains_score_and_can_reduce_nodes ... ok
+test killers_lmr_reduce_nodes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests/history_table.rs (PieBot/target/debug/deps/history_table-b2014780e4472811)
+
+running 1 test
+test history_table_reduces_nodes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/nnue_arch_v2.rs (PieBot/target/debug/deps/nnue_arch_v2-dce3f70a341198d2)
+
+running 7 tests
+test dual_perspective_indices_match_python_fixture ... ok
+test incremental_updates_match_full_recompute_over_random_games ... ok
+test null_move_child_is_not_merely_the_negated_parent ... ok
+test null_move_flips_the_side_to_move_seen_by_the_head ... ok
+test python_exported_gold_model_evaluates_identically ... ok
+test screlu_head_matches_reference_formula ... ok
+test unwinding_a_deep_line_restores_every_ancestor_exactly ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/nnue_eval.rs (PieBot/target/debug/deps/nnue_eval-66fd8646a08ecc8f)
+
+running 1 test
+test nnue_eval_bias_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/nnue_file.rs (PieBot/target/debug/deps/nnue_file-68752265b2a44181)
+
+running 2 tests
+test nnue_loader_reads_header ... ok
+test nnue_loader_rejects_truncated_payload ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/nnue_halfkp.rs (PieBot/target/debug/deps/nnue_halfkp-6bb03c3d0d27a09d)
+
+running 2 tests
+test halfkp_active_count_startpos ... ok
+test halfkp_incremental_matches_full_over_sequence ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+
+     Running tests/nnue_incremental.rs (PieBot/target/debug/deps/nnue_incremental-37da5e5fbbbbb6bf)
+
+running 8 tests
+test halfkp_indices_are_unique_and_in_range ... ok
+test halfkp_king_move_changes_feature_indices ... ok
+test incremental_parity_across_sibling_moves_and_special_positions ... ok
+test incremental_parity_castling_and_king_moves ... ok
+test incremental_parity_en_passant ... ok
+test incremental_parity_long_nested_walk_and_full_unwind ... ok
+test incremental_parity_promotion ... ok
+test nnue_eval_flips_with_side_to_move ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/nnue_quant.rs (PieBot/target/debug/deps/nnue_quant-9cb07a8ef9ca2999)
+
+running 3 tests
+test nnue_quant_loader_reads_header ... ok
+test nnue_quant_loader_rejects_truncated_payload ... ok
+test quant_scales_are_applied_in_eval ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/nnue_stub.rs (PieBot/target/debug/deps/nnue_stub-430d3814de279d18)
+
+running 1 test
+test nnue_stub_evaluate_returns_zero ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/nnue_v2.rs (PieBot/target/debug/deps/nnue_v2-e7a83f3f7ae401e0)
+
+running 6 tests
+test dense_v2_incremental_update_uses_full_schema ... ok
+test dense_v2_selects_features_from_its_input_dimension ... ok
+test full_schema_keys_an_opponent_piece_to_each_king ... ok
+test quant_v2_incremental_matches_full_and_revert ... ok
+test quant_v2_selects_features_from_its_input_dimension ... ok
+test schemas_preserve_legacy_and_add_full_perspective_features ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/nullmove.rs (PieBot/target/debug/deps/nullmove-867e63e9e31d319e)
+
+running 4 tests
+test nullmove_disabled_in_check ... ok
+test nullmove_disabled_in_simple_zugzwang ... ok
+test nullmove_reduces_nodes_midgame ... ok
+test nullmove_reduces_nodes_shallow_depth ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/openings_suite.rs (PieBot/target/debug/deps/openings_suite-c2bb62766afb865d)
+
+running 4 tests
+test four_field_epd_lines_are_padded_and_loaded ... ok
+test invalid_suite_line_is_an_error_citing_the_line ... ok
+test missing_suite_file_is_an_error ... ok
+test suite_with_no_positions_is_an_error ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ordering.rs (PieBot/target/debug/deps/ordering-d71e38c2cb360d47)
+
+running 1 test
+test captures_first_reduces_nodes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/perft.rs (PieBot/target/debug/deps/perft-9661aa2255b438fc)
+
+running 2 tests
+test perft_kiwipete_exercises_castling_checks_and_pins ... ok
+test perft_startpos_small_depths ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.57s
+
+     Running tests/pleco_positions.rs (PieBot/target/debug/deps/pleco_positions-3d5553e4f6988349)
+
+running 2 tests
+test pleco_positions_shallow_bestmove ... ok
+test pleco_root_smp_scales_nodes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/position_history.rs (PieBot/target/debug/deps/position_history-fd4257d9d31b41da)
+
+running 2 tests
+test fen_history_starts_at_the_loaded_position ... ok
+test position_tracks_every_reachable_board_for_repetition_search ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/positions_consistency.rs (PieBot/target/debug/deps/positions_consistency-54c80ce362034606)
+
+running 2 tests
+test positions_consistent_across_threads ... ok
+test positions_single_thread_correct_move ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests/qsearch.rs (PieBot/target/debug/deps/qsearch-89d103fa6054e313)
+
+running 2 tests
+test qsearch_equals_standpat_without_captures ... ok
+test qsearch_improves_tactical_position ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/root_parallel.rs (PieBot/target/debug/deps/root_parallel-a9459dca09100aaf)
+
+running 2 tests
+test root_parallel_bestmove_equals_single_thread ... ok
+test root_parallel_returns_move_with_movetime ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/root_parallel_quant.rs (PieBot/target/debug/deps/root_parallel_quant-8a6a1bb69932b80e)
+
+running 1 test
+test root_parallel_quant_bestmove_equals_single_thread ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/search_basic.rs (PieBot/target/debug/deps/search_basic-5a382dbcd4f4593a)
+
+running 4 tests
+test eval_material_known_advantage ... ok
+test eval_material_startpos_is_zeroish ... ok
+test search_prefers_winning_queen_capture ... ok
+test search_returns_legal_move_startpos ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/search_core_temp_regressions.rs (PieBot/target/debug/deps/search_core_temp_regressions-d4f13d452da77e8a)
+
+running 16 tests
+test checkmate_outranks_a_fifty_move_claim_in_qsearch ... ok
+test completed_search_reports_completed_depth_and_real_selective_depth ... ok
+test dense_nnue_remains_full_recompute_correct_when_threads_are_requested ... ok
+test external_stop_returns_fallback_without_completing_a_partial_iteration ... ok
+test interrupted_iteration_keeps_last_completed_depth_result ... ok
+test parallel_search_aggregates_worker_selective_depth ... ok
+test qsearch_in_check_searches_quiet_legal_evasions_instead_of_stand_pat ... ok
+test qsearch_includes_en_passant_and_promotions ... ok
+test qsearch_obeys_node_budget_and_does_not_complete_partial_depth ... ok
+test qsearch_scores_checkmate_and_stalemate_as_terminal ... ok
+test quiet_mate_on_halfmove_one_hundred_is_scored_as_mate ... ok
+test recursive_quant_search_does_not_leak_accumulator_between_siblings_or_searches ... ok
+test recursive_quant_search_matches_full_recompute_for_special_move_paths ... ok
+test search_returns_draw_for_fifty_move_and_insufficient_material_positions ... ok
+test search_returns_draw_for_supplied_threefold_history ... ok
+test zero_movetime_reports_no_completed_iteration_but_returns_legal_fallback ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.80s
+
+     Running tests/search_draw_rules.rs (PieBot/target/debug/deps/search_draw_rules-97f5c9500fd36d97)
+
+running 3 tests
+test recognizes_fifty_move_claim_at_one_hundred_halfmoves ... ok
+test recognizes_only_dead_minor_piece_endings ... ok
+test requires_three_occurrences_of_the_same_rule_position ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/search_movetime.rs (PieBot/target/debug/deps/search_movetime-13a3be355e6423ce)
+
+running 1 test
+test movetime_only_searches_nodes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/search_threads.rs (PieBot/target/debug/deps/search_threads-fbf2ca94960e0658)
+
+running 3 tests
+test multi_thread_search_produces_valid_result_under_time ... ok
+test threaded_search_respects_pruning_flags ... ok
+test threads_param_propagates ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/see.rs (PieBot/target/debug/deps/see-3c5105b1f833b111)
+
+running 4 tests
+test see_counts_the_queen_a_promotion_puts_on_the_board ... ok
+test see_sees_that_a_defended_promotion_square_makes_the_push_losing ... ok
+test see_values_the_pawn_an_en_passant_capture_actually_wins ... ok
+test see_winning_capture_positive ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/selfplay.rs (PieBot/target/debug/deps/selfplay-18223bc7d793d54d)
+
+running 24 tests
+test actor_budget_is_configurable_with_legacy_defaults ... ok
+test actor_label_stamps_achieved_depth_under_a_node_cap ... ok
+test adjudication_same_seed_reproduces_identical_games ... ok
+test adjudication_terminations_serialize_snake_case ... ok
+test adjudicator_black_wins_when_white_is_lost ... ok
+test adjudicator_draw_streak_resets_when_out_of_band ... ok
+test adjudicator_draw_waits_for_min_ply ... ok
+test adjudicator_resign_fires_after_exact_consecutive_plies ... ok
+test adjudicator_resign_streak_resets_on_missing_value ... ok
+test adjudicator_resign_streak_resets_on_sign_break ... ok
+test adjudicator_sign_flip_restarts_the_streak ... ok
+test adjudicator_zero_thresholds_disable_adjudication ... ok
+test engine_game_resigns_lopsided_position_for_white ... ok
+test games_start_from_openings_suite_positions ... ok
+test max_ply_cutoff_is_not_labeled_as_a_real_draw ... ok
+test missing_openings_file_is_an_error ... ok
+test no_resign_fraction_one_keeps_lopsided_game_alive ... ok
+test noisy_actor_uses_the_root_label_search_not_policy_scores_as_teacher ... ok
+test openings_file_with_invalid_line_is_an_error ... ok
+test openings_file_without_valid_positions_is_an_error ... ok
+test selfplay_generates_games_deterministically ... ok
+test selfplay_noise_changes_moves_with_different_seeds ... ok
+test selfplay_parallel_engine_matches_serial_by_seed ... ok
+test selfplay_parallel_random_matches_serial_by_seed ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+
+     Running tests/selfplay_io.rs (PieBot/target/debug/deps/selfplay_io-9e756fde90eef736)
+
+running 5 tests
+test binary_records_omit_games_without_a_real_outcome ... ok
+test selfplay_preserves_opening_start_fen ... ok
+test write_and_read_shard ... ok
+test write_jsonl_shard_contains_fen_result_best_move ... ok
+test write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/split_points.rs (PieBot/target/debug/deps/split_points-98ed663a22626bed)
+
+running 1 test
+test split_points_score_equal_multi_vs_single ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/time_manager.rs (PieBot/target/debug/deps/time_manager-85d886add5943c64)
+
+running 1 test
+test movetime_returns_quickly_with_move ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/tt_aging.rs (PieBot/target/debug/deps/tt_aging-f0f489ff727879af)
+
+running 1 test
+test aging_eviction_prefers_oldest_when_depth_equal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tt_and_time.rs (PieBot/target/debug/deps/tt_and_time-148bce5128ab9f31)
+
+running 2 tests
+test node_limit_stops_early_and_returns_move ... ok
+test tt_reduces_nodes_on_second_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/tt_bucket.rs (PieBot/target/debug/deps/tt_bucket-eefd8e4bdecb407f)
+
+running 2 tests
+test bucket_replacement_prefers_deeper ... ok
+test bucket_same_key_replaced_if_deeper ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tt_capacity.rs (PieBot/target/debug/deps/tt_capacity-80d40fc738346f66)
+
+running 2 tests
+test tt_capacity_enforced ... ok
+test tt_depth_preferred_on_eviction ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tt_flags.rs (PieBot/target/debug/deps/tt_flags-4e2bbd596efa37bb)
+
+running 2 tests
+test tt_depth_preferred_not_replaced ... ok
+test tt_exact_after_search ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/uci_moves.rs (PieBot/target/debug/deps/uci_moves-cbc1e493b79b13fd)
+
+running 2 tests
+test apply_moves_relative_to_a_fen_position ... ok
+test apply_startpos_moves_sequence ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/uci_stop.rs (PieBot/target/debug/deps/uci_stop-b45271d20a9a3165)
+
+running 1 test
+test stop_interrupts_an_active_search_and_returns_bestmove ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.54s
+
+     Running tests/zobrist_rule_state.rs (PieBot/target/debug/deps/zobrist_rule_state-7c531b31d7898f21)
+
+running 4 tests
+test castling_rights_are_part_of_the_position_key ... ok
+test equivalent_positions_have_the_same_key ... ok
+test legal_en_passant_state_is_part_of_the_position_key ... ok
+test side_to_move_is_part_of_the_position_key ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/blend_bench.rs (PieBot/target/debug/deps/blend_bench-fba7603681f987ca)
+Gnuplot not found, using plotters backend
+Testing blended_eval/blend_0
+Success
+Testing blended_eval/blend_25
+Success
+Testing blended_eval/blend_50
+Success
+Testing blended_eval/blend_75
+Success
+Testing blended_eval/blend_100
+Success
+
+     Running benches/eval_bench.rs (PieBot/target/debug/deps/eval_bench-4deadf071df1a9a8)
+Gnuplot not found, using plotters backend
+Testing eval_cp_startpos
+Success
+
+     Running benches/nnue_bench.rs (PieBot/target/debug/deps/nnue_bench-bddfdca60de051a2)
+Gnuplot not found, using plotters backend
+Testing nnue_quant_eval_full_startpos
+Success
+
+     Running benches/nnue_inc_bench.rs (PieBot/target/debug/deps/nnue_inc_bench-ff0a3953a071cf24)
+Gnuplot not found, using plotters backend
+Testing nnue_v2_eval_current
+Success
+
+Testing nnue_v2_quiet_apply_revert
+Success
+
+Testing nnue_v2_quiet_apply_eval_revert
+Success
+
+Testing nnue_v2_refresh_startpos
+Success
+
+Testing nnue_v2_opening_line_apply_eval_unwind
+Success
+
+     Running benches/nnue_v2_head_bench.rs (PieBot/target/debug/deps/nnue_v2_head_bench-3a818728a60f2e4a)
+Gnuplot not found, using plotters backend
+Testing v2_screlu_head_h256
+Success
+
+Testing v2_screlu_head_h1024
+Success
+
+Testing v2_apply_eval_revert_h256
+Success
+
+Testing v2_apply_eval_revert_h1024
+Success
+
+Testing v2_apply_eval_revert_varied_h1024
+Success
+
+     Running benches/nps_bench.rs (PieBot/target/debug/deps/nps_bench-013e5ed9d938cef1)
+Gnuplot not found, using plotters backend
+Testing nps/nps_pst_t1
+pst_t1: nodes=14696, elapsed=0.100 s, nps=146685.1
+Success
+Testing nps/nps_pst_t4
+pst_t4: nodes=20438, elapsed=0.100 s, nps=204076.2
+Success
+Testing nps/nps_nnue_t1
+nnue_t1: nodes=8787, elapsed=0.100 s, nps=87712.6
+Success
+Testing nps/nps_nnue_t4
+nnue_t4: nodes=14684, elapsed=0.100 s, nps=146580.6
+Success
+Testing nps/nps_blend50_t1
+blend50_t1: nodes=8641, elapsed=0.100 s, nps=86250.5
+Success
+Testing nps/nps_blend50_t4
+blend50_t4: nodes=14535, elapsed=0.100 s, nps=145083.8
+Success
+
+     Running benches/qsearch_bench.rs (PieBot/target/debug/deps/qsearch_bench-3664d91e8d940c41)
+Gnuplot not found, using plotters backend
+Testing qsearch_startpos
+Success
+
+     Running benches/search_bench.rs (PieBot/target/debug/deps/search_bench-568163b654b6a39e)
+Gnuplot not found, using plotters backend
+Testing search_depth_4_startpos
+Success
+

@@ -1,0 +1,18 @@
+{
+  "focused_tests": 28,
+  "logs": {
+    "green": {
+      "path": "evidence/lc0_runtime_20260908/migration720_green.log",
+      "sha256": "73feba3b56896303471d2cf787d1d011a895a921265c8da6cd206f68afa40fe2"
+    },
+    "red": {
+      "path": "evidence/lc0_runtime_20260908/migration720_red.log",
+      "sha256": "1dd3161a72ab6fa22de119d44fdace0b4000191473017d54b01f311b57bd7100"
+    }
+  },
+  "scope": "LC0 pretraining source migration required budget336->720 and its expected-value test only; selfplay behavior unchanged",
+  "source_sha256": {
+    "scripts/migrate_vast_source_commit.py": "97d5d11079dc459dfebb744d0a7aa043915a34113f7cd11d51dd7e37b4eae802",
+    "scripts/tests/test_migrate_lc0_pretraining_source_commit.py": "e2572773634d43a9486fb1acebef21c5c20068dd0e71cb110189b03f88f99249"
+  }
+}

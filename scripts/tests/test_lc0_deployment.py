@@ -15,6 +15,30 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Lc0DeploymentTests(unittest.TestCase):
+    def test_deployer_parser_defaults_to_30_days_and_keeps_explicit_overrides(self):
+        original = lc0_deploy.argparse.ArgumentParser.parse_args
+
+        class Parsed(Exception):
+            pass
+
+        for argv, expected in (([], 720.0), (['--hours', '48'], 48.0)):
+            with self.subTest(argv=argv):
+                observed = []
+
+                def capture(parser, args):
+                    observed.append(original(parser, args))
+                    raise Parsed
+
+                with mock.patch.object(lc0_deploy.argparse.ArgumentParser, 'parse_args', autospec=True, side_effect=capture):
+                    with self.assertRaises(Parsed):
+                        lc0_deploy.main(argv)
+                self.assertEqual(observed[0].hours, expected)
+
+    def test_launcher_defaults_to_30_days_and_forwards_hours(self):
+        launcher = (ROOT / 'scripts/run_vast_lc0.sh').read_text()
+        self.assertIn('HOURS="${HOURS:-720}"', launcher)
+        self.assertIn('--hours "$HOURS"', launcher)
+
     def test_parent_waits_for_training_child_on_group_shutdown(self):
         received = []
         previous = signal.signal(signal.SIGTERM, lambda *_: received.append('term'))
@@ -77,7 +101,7 @@ class Lc0DeploymentTests(unittest.TestCase):
         self.assertTrue(run.getboolean('stopasgroup'))
         self.assertTrue(run.getboolean('killasgroup'))
         self.assertEqual(run['autorestart'], 'unexpected')
-        self.assertIn('HOURS="336"', run['environment'])
+        self.assertIn('HOURS="720"', run['environment'])
         self.assertIn('/workspace/piebot_lc0_repo', run['directory'])
 
 

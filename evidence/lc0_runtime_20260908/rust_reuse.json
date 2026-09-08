@@ -1,0 +1,48 @@
+{
+  "cargo_git_objects": {
+    "PieBot/Cargo.lock": "bf8b25889825004daa3707fbc2a634deac7b5f3f",
+    "PieBot/Cargo.toml": "2e0bbcf03c4f29ebdd40179b1e3a63317278b765"
+  },
+  "prior_qualifying_evidence": "evidence/lc0_throughput_20260907/trainer_parity.json",
+  "prior_qualifying_evidence_sha256": "65ba6cd03df4a16dd8ba16c82aaa83b201c4a9d16827ba1fe5e6ac899637c275",
+  "production_tree": "5c6360ddbead51609f71aa70737a57956531ffe2",
+  "protected_script_sha256": {
+    "scripts/lc0_anchor_monitor.py": "286130a88e2fe70d4ccf6031fe29be32952b4759c04450379540ae96c9b6bebc",
+    "scripts/ranked_engine_monitor.py": null,
+    "scripts/uci_elo_arena.py": "e3fdf511065998a67c36125fe39f93b783b0714700c9c52b4f3bd015ca09b737",
+    "scripts/uci_elo_ladder.py": "f93855d9c225208c3993fac314a750bdcb2b965a55367196749008e8a5cde911"
+  },
+  "rust_runs": {
+    "rust_all_features": {
+      "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml",
+      "criterion_test_mode_successes": 25,
+      "exit_code": 0,
+      "failed": 0,
+      "ignored": 0,
+      "log": "evidence/lc0_runtime_20260908/rust_all_features.log",
+      "log_sha256": "0b9fd3e8c19f0be88387b2f364bdece36e9031e68432f14215cdeaa3dbcc9c89",
+      "passed": 209,
+      "status": "reused, not rerun",
+      "test_summary_blocks": 56
+    },
+    "rust_default": {
+      "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml",
+      "criterion_test_mode_successes": 25,
+      "exit_code": 0,
+      "failed": 0,
+      "ignored": 0,
+      "log": "evidence/lc0_runtime_20260908/rust_default.log",
+      "log_sha256": "cd8a7797799243333949d04089986119e57b0ed0263910b8faea0258d5edf811",
+      "passed": 218,
+      "status": "reused, not rerun",
+      "test_summary_blocks": 56
+    }
+  },
+  "status": "reused, not rerun; exact entire production PieBot tree, working files, original log hashes and test counts verified",
+  "whole_piebot_tree_objects": {
+    "7c4535f82d1bf0fe26ea8a62446e89a0d65c2bba": "5c6360ddbead51609f71aa70737a57956531ffe2",
+    "a50a0759f785ead89d0651a673c3089cc9afcc28": "5c6360ddbead51609f71aa70737a57956531ffe2",
+    "b517c47cb86b9f524118df6469b29d7d76495898": "5c6360ddbead51609f71aa70737a57956531ffe2"
+  },
+  "working_tree_diff_from_production_empty": true
+}

@@ -1,0 +1,75 @@
+{
+  "candidate_base": "a50a0759f785ead89d0651a673c3089cc9afcc28",
+  "captured_at_utc": "2026-09-08T01:16:17.601463+00:00",
+  "clean_candidate_verified_before_work": true,
+  "migration_owner": "lc0_targets; LC0-only720 correction pending, no other migration changes by this task",
+  "preserved_throughput_files": {
+    "training/nnue/tests/test_lc0_targets.py": "7eaa6a14cec7bc6581bf6ca87694ee06d8eeb6adf5ef3693397d28a81183b7ba",
+    "training/nnue/train_stub.py": "cf72906c30dd8b7eaada31de94f17fefaaa40cab06e6e9ff8b118c076131f6fa",
+    "training/nnue/train_torch.py": "b33dbd61bf6ae9eeab12860ec66a8313337c291ce2bc9060f6158ff7f4456c90"
+  },
+  "production_base": "b517c47cb86b9f524118df6469b29d7d76495898",
+  "selected_files": {
+    "deploy/vast/piebot_lc0.conf": {
+      "before_sha256": "34ea6fa229b115164a1ddb7ae42a5174c90a98acf3ab413cb6ddfda95ab740d0",
+      "source_sha256": "ee976e51c8412cdc67d4ae7c5dad36a4f40c24bcaf10ec3c086795cb7a6353d5"
+    },
+    "scripts/run_vast_lc0.sh": {
+      "before_sha256": "d0c2124b2449042a9b864a4d7bec22fa32706c732744ab8572c94eb3a6eb7176",
+      "source_sha256": "0d74938ce98b223666d3b17b21f4f37cd91bdcdfe8c89dd1b978466c0e6aa8b3"
+    },
+    "scripts/tests/test_lc0_deployment.py": {
+      "before_sha256": "43b8bb94dceb2b1b097f556a8a0a312803b48491bd8775c2c5df8f66ca8009b5",
+      "source_sha256": "e9f1e8327741e904e66d2071ac98586d182396da29c3e8c0cc7d5d954a82096d"
+    },
+    "scripts/tests/test_lc0_storage_deployment.py": {
+      "before_sha256": null,
+      "source_sha256": "75a980a764d8c24173b832c75264007920efdfbffdc1950b270f6d175252b22d"
+    },
+    "training/nnue/disk_budget.py": {
+      "before_sha256": null,
+      "source_sha256": "6d0d60dc8fcfb0f40ea22700fc504dca839664f821fd41daa47482b7aa73354b"
+    },
+    "training/nnue/fetch_lc0_bins.py": {
+      "before_sha256": "1e010656c3fcfc31b1b9eec13f26c5ea7ed382a90cf007839852813589339a52",
+      "source_sha256": "6e0f3c6a1c002d4f753bfa3fff4f2c007079428a0a809b3e587f1ca868acdfde"
+    },
+    "training/nnue/lc0_archive_receipts.py": {
+      "before_sha256": null,
+      "source_sha256": "86ee45c5fe331398b42b9ea548861ad7b1360529e6996f547747d294040943b0"
+    },
+    "training/nnue/lc0_autopilot.py": {
+      "before_sha256": "5ee253c7265bad73529b6cba248a331e825194af1bba2cff71db61cdaf5b84dd",
+      "source_sha256": "ff5b1e898459b02474cf07de42e44d5a3726befc798c00b0d71f6464d773fb07"
+    },
+    "training/nnue/lc0_corpus.py": {
+      "before_sha256": "2d28268d1c8deb458f3e59a70222c76b0ddd6e4a3c1c1e96b7bc057baed9b07f",
+      "source_sha256": "edcf7f7a64f386b09b030e1d5f87c9ec6858c4a4b98aebed2db3bb0ca1a42f69"
+    },
+    "training/nnue/lc0_deploy.py": {
+      "before_sha256": "58f75a8a49b08a28bc891f0796b3afd4253956204a075c57a6efe9671d6b2c83",
+      "source_sha256": "8599c17d2eddbd1f749cd02b3eff454a6758f60f1ef16c48c9acc408c2c8f391"
+    },
+    "training/nnue/tests/test_disk_budget.py": {
+      "before_sha256": null,
+      "source_sha256": "9b8c6634efeadedd115ef179dd8a6651fbea9783473cd8165dcceef1308192f0"
+    },
+    "training/nnue/tests/test_fetch_lc0_eviction.py": {
+      "before_sha256": null,
+      "source_sha256": "169ea587f029c2f9304b8042d66580e22d14fb5a30693d214b61a2161ec1da88"
+    },
+    "training/nnue/tests/test_lc0_archive_receipts.py": {
+      "before_sha256": null,
+      "source_sha256": "8cee6d789caa5a301bbf9a0291c71a140251cb692fdb570ed7cde71dd3e02ece"
+    },
+    "training/nnue/tests/test_lc0_autopilot.py": {
+      "before_sha256": "3cb3147efe24864e889fbf1ff3176ba10b07c9e502a2ddcbe4bf9d8ae7d0eae2",
+      "source_sha256": "6363587ecac219f733007a362ff2c08c2abff056232a966483824417c6aad3f9"
+    },
+    "training/nnue/tests/test_lc0_corpus_eviction.py": {
+      "before_sha256": null,
+      "source_sha256": "53a028a3f26297d65d445baea4500df30e2114f38278a965648424a28a8d53b0"
+    }
+  },
+  "selected_source_commit": "5c608217833244e0637cae72844c286dbd8240a0"
+}

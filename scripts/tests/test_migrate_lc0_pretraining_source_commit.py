@@ -114,7 +114,7 @@ class Lc0PretrainingMigrationTests(unittest.TestCase):
         self.assertEqual(observed['active_model']['sha256'], _sha256(self.active))
         self.assertEqual(observed['raw_manifest']['sha256'], _sha256(self.raw))
         self.assertEqual(observed['raw_manifest']['until'], '2026-09-07T19:39:28.530592+00:00')
-        self.assertEqual(observed['training']['required_budget_hours'], 336)
+        self.assertEqual(observed['training']['required_budget_hours'], 720)
         self.assertFalse(observed['training']['live_budget_verified_by_tool'])
         self.assertFalse(observed['training']['clock_started'])
         self.assertIn('trainer.py', observed['source_delta']['name_status'])
