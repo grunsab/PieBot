@@ -1,0 +1,24 @@
+{
+  "selected_files": {
+    "training/nnue/features_v2.py": {
+      "source_commit": "a13ad857067891f33ee391e159531d183ed91af1",
+      "source_sha256": "c000d828a9fd7f91611dc7009b46b6ebc95062d87d83152f1a8fe971cd214560"
+    },
+    "training/nnue/lc0_bin.py": {
+      "source_commit": "a13ad857067891f33ee391e159531d183ed91af1",
+      "source_sha256": "c774f36dadd0582c4fc101a01875712d83cd955e3bf21872cb39265913b3e0a6"
+    },
+    "training/nnue/tests/test_features_v2_throughput.py": {
+      "source_commit": "a13ad857067891f33ee391e159531d183ed91af1",
+      "source_sha256": "fbb960cf7cd18c8b7acb6eb795d8dc38422e30735f87e42b780cf8c2de8bf163"
+    },
+    "training/nnue/tests/test_lc0_fen_throughput.py": {
+      "source_commit": "a13ad857067891f33ee391e159531d183ed91af1",
+      "source_sha256": "7aef5ece893b08a6a5cdda7efa7313a6bbaa3040f7c1d354b0c41b15d9e639e5"
+    }
+  },
+  "selected_source_commit": {
+    "current_runtime_base": "9c432db72bff8d406765caafc8fe0dfff096fa97",
+    "reviewed_encoder_source": "a13ad857067891f33ee391e159531d183ed91af1"
+  }
+}

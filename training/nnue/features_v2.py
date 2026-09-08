@@ -18,6 +18,7 @@ from typing import List, Tuple
 PER_PERSPECTIVE_DIM = 64 * 10 * 64  # 40,960
 FEATURE_SET_V2 = "halfkp-dp-screlu-v1"
 PIECE_PLANES = "PNBRQ"
+_PIECE_PLANE_BY_SYMBOL = {symbol: plane for plane, symbol in enumerate(PIECE_PLANES)}
 
 
 def _parse_board(fen: str) -> Tuple[List[Tuple[str, int]], int, int, bool]:
@@ -65,17 +66,24 @@ def active_indices(fen: str) -> Tuple[List[int], List[int], bool]:
     square index).
     """
     pieces, wk, bk, stm_white = _parse_board(fen)
+    # Both perspectives use the same color/plane/square traversal. Group once
+    # instead of scanning every piece for each of the twenty perspective bins.
+    buckets: List[List[int]] = [[] for _ in range(10)]
+    for ch, sq in pieces:
+        plane = _PIECE_PLANE_BY_SYMBOL.get(ch.upper())
+        if plane is not None:
+            buckets[plane if ch.isupper() else 5 + plane].append(sq)
+    for squares in buckets:
+        # Keep original square order even for black's flipped perspective.
+        squares.sort()
     out: List[List[int]] = []
     for persp_white, ksq in ((True, wk), (False, bk)):
         idxs: List[int] = []
-        for want_white in (True, False):
-            for plane, plane_ch in enumerate(PIECE_PLANES):
-                selected = [
-                    (ch, sq) for ch, sq in pieces
-                    if ch.upper() == plane_ch and ch.isupper() == want_white
-                ]
-                for _ch, sq in sorted(selected, key=lambda t: t[1]):
-                    idxs.append(dp_idx_for(persp_white, ksq, want_white, plane, sq))
+        for colored_plane, squares in enumerate(buckets):
+            want_white = colored_plane < 5
+            plane = colored_plane % 5
+            for sq in squares:
+                idxs.append(dp_idx_for(persp_white, ksq, want_white, plane, sq))
         out.append(idxs)
     return out[0], out[1], stm_white
 

@@ -1,0 +1,18 @@
+{
+  "command": [
+    "/private/tmp/piebot-lc0-venv/bin/python",
+    "-m",
+    "unittest",
+    "-v",
+    "training.nnue.tests.test_features_v2_throughput",
+    "training.nnue.tests.test_lc0_fen_throughput"
+  ],
+  "exit_code": 1,
+  "log_sha256": "0a5c8939b0f0e52eefff2ab2761f8ae828472cbf272998c832fbd1d8e25b665b",
+  "new_tests": {
+    "training/nnue/tests/test_features_v2_throughput.py": "fbb960cf7cd18c8b7acb6eb795d8dc38422e30735f87e42b780cf8c2de8bf163",
+    "training/nnue/tests/test_lc0_fen_throughput.py": "7aef5ece893b08a6a5cdda7efa7313a6bbaa3040f7c1d354b0c41b15d9e639e5"
+  },
+  "runtime_still_base": true,
+  "seconds": 0.36444479099009186
+}

@@ -1,0 +1,5 @@
+Starting nnue
+{"command": ["/private/tmp/piebot-lc0-venv/bin/python", "-m", "unittest", "discover", "-v", "training/nnue/tests"], "exit_code": 0, "log": "evidence/lc0_runtime_current_20260908/nnue.log", "ok": true, "seconds": 29.106977916992037, "sha256": "002ee61cabdae1317f531aa8abe9c70d015b06e11fba008586679d9c526e21cd", "skipped": 0, "tests": 403}
+Starting scripts
+{"command": ["/private/tmp/piebot-lc0-venv/bin/python", "-m", "unittest", "discover", "-v", "scripts/tests"], "exit_code": 0, "log": "evidence/lc0_runtime_current_20260908/scripts.log", "ok": true, "seconds": 11.947343415988144, "sha256": "77b5ac28c3071c4da3d67b234ace1608ac6c3454833915a35ebb2ca0ecdbb90b", "skipped": 0, "tests": 142}
+QUALIFICATION COMPLETE; all child test processes exited.
