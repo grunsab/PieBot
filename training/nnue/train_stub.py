@@ -970,7 +970,10 @@ def iterate_lc0_samples(
             for line in handle:
                 if not line.strip():
                     continue
-                row = json.loads(line)
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
                 if not isinstance(row, dict) or not isinstance(row.get("fen"), str):
                     continue
                 record = next(jsonl_to_training_samples([row]))
