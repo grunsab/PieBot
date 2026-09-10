@@ -972,7 +972,7 @@ def iterate_lc0_samples(
                     continue
                 row = json.loads(line)
                 if not isinstance(row, dict) or not isinstance(row.get("fen"), str):
-                    raise ValueError("LCZero chunk contains a record without a FEN")
+                    continue
                 record = next(jsonl_to_training_samples([row]))
                 _lc0_probability_for_record(record, 0.8)
                 count += 1
