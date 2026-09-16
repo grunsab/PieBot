@@ -29,6 +29,22 @@ except Exception:  # pragma: no cover - torch ships numpy, but stay defensive
     _np = None  # type: ignore
 
 try:
+    import orjson  # type: ignore
+except Exception:  # pragma: no cover
+    orjson = None  # type: ignore
+
+_INITIAL_CHECKPOINT_CACHE: Dict[
+    Tuple[str, int, int],
+    Tuple[Dict[str, Any], Dict[str, "torch.Tensor"], str],
+] = {}
+
+
+def clear_checkpoint_cache() -> None:
+    """Clear the in-memory checkpoint cache."""
+    _INITIAL_CHECKPOINT_CACHE.clear()
+
+
+try:
     from . import train_stub
 except Exception:
     import train_stub  # type: ignore
@@ -193,18 +209,106 @@ def _load_initial_checkpoint(
     path = Path(checkpoint_path)
     if not path.is_file():
         raise ValueError(f"initial checkpoint does not exist: {path}")
-    try:
-        checkpoint = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
-    if not isinstance(checkpoint, dict):
-        raise ValueError("initial checkpoint must be a JSON object")
-    checkpoint_format = checkpoint.get("format")
+
+    stat = path.stat()
+    cache_key = (path.resolve().as_posix(), stat.st_mtime_ns, stat.st_size)
     allowed_formats = (
         {"piebot-halfkp-dp-screlu-v1-torch"}
         if arch == "v2"
         else _DIRECT_CHECKPOINT_FORMATS
     )
+    expected_feature_set = (
+        features_v2.FEATURE_SET_V2 if arch == "v2" else train_stub.FEATURE_SET
+    )
+    out_width = 2 * hidden_dim if arch == "v2" else hidden_dim
+
+    if cache_key in _INITIAL_CHECKPOINT_CACHE:
+        checkpoint_meta, cpu_tensors, file_sha256 = _INITIAL_CHECKPOINT_CACHE[cache_key]
+        checkpoint_format = checkpoint_meta.get("format")
+        if checkpoint_format not in allowed_formats:
+            raise ValueError(f"unsupported initial checkpoint format: {checkpoint_format!r}")
+        if int(checkpoint_meta.get("input_dim", 0)) != int(input_dim):
+            raise ValueError(
+                f"initial checkpoint input_dim mismatch: expected {input_dim}, "
+                f"got {checkpoint_meta.get('input_dim')}"
+            )
+        if int(checkpoint_meta.get("hidden_dim", 0)) != int(hidden_dim):
+            raise ValueError(
+                f"initial checkpoint hidden_dim mismatch: expected {hidden_dim}, "
+                f"got {checkpoint_meta.get('hidden_dim')}"
+            )
+        checkpoint_feature_set = checkpoint_meta.get("feature_set")
+        if checkpoint_feature_set != expected_feature_set:
+            raise ValueError(
+                f"initial checkpoint feature_set mismatch: expected {expected_feature_set!r}, "
+                f"got {checkpoint_feature_set!r}"
+            )
+        checkpoint_target_schema = checkpoint_meta.get("target_schema")
+        if checkpoint_target_schema != train_stub.TARGET_SCHEMA:
+            raise ValueError(
+                f"initial checkpoint target_schema mismatch: expected "
+                f"{train_stub.TARGET_SCHEMA!r}, got {checkpoint_target_schema!r}"
+            )
+        checkpoint_objective = checkpoint_meta.get("objective")
+        if not isinstance(checkpoint_objective, dict):
+            raise ValueError("initial checkpoint objective metadata is missing or invalid")
+        objective_transition = checkpoint_objective != objective
+        if objective_transition and not weights_only:
+            raise ValueError("initial checkpoint objective does not match this training run")
+
+        with torch.no_grad():
+            model.embed.weight.copy_(
+                cpu_tensors["w1"].to(device=device, dtype=model.embed.weight.dtype)
+                .view(hidden_dim, input_dim).transpose(0, 1)
+            )
+            model.b1.copy_(cpu_tensors["b1"].to(device=device, dtype=model.b1.dtype))
+            model.out.weight.copy_(
+                cpu_tensors["w2"].to(device=device, dtype=model.out.weight.dtype)
+                .view(1, out_width)
+            )
+            model.out.bias.copy_(
+                cpu_tensors["b2"].to(device=device, dtype=model.out.bias.dtype)
+            )
+
+        optimizer_state = checkpoint_meta.get("optimizer_state")
+        optimizer_state_sha256 = (
+            optimizer_state.get("sha256") if isinstance(optimizer_state, dict) else None
+        )
+        return {
+            "path": path.resolve().as_posix(),
+            "sha256": file_sha256,
+            "format": str(checkpoint_format),
+            "input_dim": int(input_dim),
+            "hidden_dim": int(hidden_dim),
+            "feature_set": checkpoint_feature_set,
+            "target_schema": checkpoint_target_schema,
+            "objective": copy.deepcopy(objective),
+            "source_objective": copy.deepcopy(checkpoint_objective),
+            "requested_objective": copy.deepcopy(objective),
+            "mode": "weights-only" if weights_only else "strict",
+            "weights_only": bool(weights_only),
+            "objective_transition": bool(objective_transition),
+            "weights_only_objective_transition": bool(
+                weights_only and objective_transition
+            ),
+            "optimizer_state_sha256": optimizer_state_sha256,
+        }
+
+    # Cache miss: load from disk
+    if orjson is not None:
+        try:
+            checkpoint = orjson.loads(path.read_bytes())
+        except Exception as exc:
+            raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
+    else:
+        try:
+            checkpoint = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
+
+    if not isinstance(checkpoint, dict):
+        raise ValueError("initial checkpoint must be a JSON object")
+    checkpoint_format = checkpoint.get("format")
     if checkpoint_format not in allowed_formats:
         raise ValueError(f"unsupported initial checkpoint format: {checkpoint_format!r}")
     if int(checkpoint.get("input_dim", 0)) != int(input_dim):
@@ -218,9 +322,6 @@ def _load_initial_checkpoint(
             f"got {checkpoint.get('hidden_dim')}"
         )
     checkpoint_feature_set = checkpoint.get("feature_set")
-    expected_feature_set = (
-        features_v2.FEATURE_SET_V2 if arch == "v2" else train_stub.FEATURE_SET
-    )
     if checkpoint_feature_set != expected_feature_set:
         raise ValueError(
             f"initial checkpoint feature_set mismatch: expected {expected_feature_set!r}, "
@@ -239,84 +340,87 @@ def _load_initial_checkpoint(
     if objective_transition and not weights_only:
         raise ValueError("initial checkpoint objective does not match this training run")
 
-    out_width = 2 * hidden_dim if arch == "v2" else hidden_dim
     expected_lengths = {
         "w1": input_dim * hidden_dim,
         "b1": hidden_dim,
         "w2": out_width,
     }
-    values: Dict[str, List[float]] = {}
+    cpu_tensors: Dict[str, torch.Tensor] = {}
     for key, expected_len in expected_lengths.items():
         raw = checkpoint.get(key)
-        if not isinstance(raw, list) or len(raw) != expected_len:
+        if (
+            not isinstance(raw, (list, _np.ndarray if _np is not None else list))
+            or len(raw) != expected_len
+        ):
             raise ValueError(
                 f"initial checkpoint {key} size mismatch: expected {expected_len}"
             )
         try:
-            converted = [float(value) for value in raw]
+            if _np is not None:
+                arr = _np.asarray(raw, dtype=_np.float32)
+                t = torch.from_numpy(arr)
+            else:
+                converted = [float(value) for value in raw]
+                t = torch.tensor(converted, dtype=torch.float32)
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(f"initial checkpoint {key} contains non-numeric values") from exc
-        if not all(math.isfinite(value) for value in converted):
-            raise ValueError(f"initial checkpoint {key} contains non-finite values")
-        values[key] = converted
+        if not bool(torch.isfinite(t).all().item()):
+            raise ValueError(
+                f"initial checkpoint {key} contains non-finite model tensor values"
+            )
+        cpu_tensors[key] = t
+
     try:
         b2 = float(checkpoint["b2"])
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError("initial checkpoint b2 is missing or non-numeric") from exc
     if not math.isfinite(b2):
         raise ValueError("initial checkpoint b2 contains a non-finite value")
-
-    try:
-        w1_tensor = torch.tensor(
-            values["w1"], dtype=model.embed.weight.dtype, device=device
-        )
-        b1_tensor = torch.tensor(values["b1"], dtype=model.b1.dtype, device=device)
-        w2_tensor = torch.tensor(
-            values["w2"], dtype=model.out.weight.dtype, device=device
-        )
-        b2_tensor = torch.tensor([b2], dtype=model.out.bias.dtype, device=device)
-    except (TypeError, ValueError, OverflowError, RuntimeError) as exc:
-        raise ValueError(
-            "initial checkpoint weights cannot be represented as finite model tensors"
-        ) from exc
-    tensors = {
-        "w1": w1_tensor,
-        "b1": b1_tensor,
-        "w2": w2_tensor,
-        "b2": b2_tensor,
-    }
-    for key, tensor in tensors.items():
-        if not bool(torch.isfinite(tensor).all().item()):
-            raise ValueError(
-                f"initial checkpoint {key} contains non-finite model tensor values"
-            )
+    cpu_tensors["b2"] = torch.tensor([b2], dtype=torch.float32)
 
     with torch.no_grad():
         # Serialized w1 is row-major [hidden][input], while EmbeddingBag stores
         # [input][hidden]. The transpose is required for an exact warm start.
         model.embed.weight.copy_(
-            w1_tensor.view(hidden_dim, input_dim).transpose(0, 1)
+            cpu_tensors["w1"].to(device=device, dtype=model.embed.weight.dtype)
+            .view(hidden_dim, input_dim).transpose(0, 1)
         )
-        model.b1.copy_(b1_tensor)
-        model.out.weight.copy_(w2_tensor.view(1, out_width))
-        model.out.bias.copy_(b2_tensor)
+        model.b1.copy_(cpu_tensors["b1"].to(device=device, dtype=model.b1.dtype))
+        model.out.weight.copy_(
+            cpu_tensors["w2"].to(device=device, dtype=model.out.weight.dtype)
+            .view(1, out_width)
+        )
+        model.out.bias.copy_(
+            cpu_tensors["b2"].to(device=device, dtype=model.out.bias.dtype)
+        )
 
     optimizer_state = checkpoint.get("optimizer_state")
     optimizer_state_sha256 = (
         optimizer_state.get("sha256") if isinstance(optimizer_state, dict) else None
     )
 
+    file_sha256 = _sha256_file(path)
+    meta = {
+        "format": checkpoint_format,
+        "input_dim": int(input_dim),
+        "hidden_dim": int(hidden_dim),
+        "feature_set": checkpoint_feature_set,
+        "target_schema": checkpoint_target_schema,
+        "objective": copy.deepcopy(checkpoint_objective),
+        "optimizer_state": copy.deepcopy(optimizer_state) if optimizer_state is not None else None,
+    }
+    _INITIAL_CHECKPOINT_CACHE[cache_key] = (meta, cpu_tensors, file_sha256)
+    while len(_INITIAL_CHECKPOINT_CACHE) > 2:
+        _INITIAL_CHECKPOINT_CACHE.pop(next(iter(_INITIAL_CHECKPOINT_CACHE)))
+
     return {
         "path": path.resolve().as_posix(),
-        "sha256": _sha256_file(path),
+        "sha256": file_sha256,
         "format": str(checkpoint_format),
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
         "feature_set": checkpoint_feature_set,
         "target_schema": checkpoint_target_schema,
-        # ``objective`` remains the requested objective as a compatibility
-        # alias. The explicit source/requested fields make transitions
-        # auditable without changing existing provenance consumers.
         "objective": copy.deepcopy(objective),
         "source_objective": copy.deepcopy(checkpoint_objective),
         "requested_objective": copy.deepcopy(objective),
@@ -1643,10 +1747,20 @@ def train_model(
         arch=arch,
     )
     emb = model.embed.weight.detach().cpu()  # [input, hidden]
-    w1 = emb.transpose(0, 1).contiguous().view(-1).tolist()  # row-major [hidden][input]
-    b1 = model.b1.detach().cpu().view(-1).tolist()
-    w2 = model.out.weight.detach().cpu().view(-1).tolist()  # [hidden]
-    b2 = float(model.out.bias.detach().cpu().item())
+    w1_tensor = emb.transpose(0, 1).contiguous().view(-1)  # row-major [hidden][input]
+    b1_tensor = model.b1.detach().cpu().view(-1)
+    w2_tensor = model.out.weight.detach().cpu().view(-1)  # [hidden]
+    b2_val = float(model.out.bias.detach().cpu().item())
+
+    if orjson is not None and _np is not None:
+        w1 = w1_tensor.numpy()
+        b1 = b1_tensor.numpy()
+        w2 = w2_tensor.numpy()
+    else:
+        w1 = w1_tensor.tolist()
+        b1 = b1_tensor.tolist()
+        w2 = w2_tensor.tolist()
+    b2 = b2_val
 
     checkpoint = {
         "format": (
@@ -1904,8 +2018,45 @@ def train_model(
         "backend": "torch",
         "device": str(dev),
     }
-    (out_dir / "checkpoint.json").write_text(json.dumps(checkpoint), encoding="utf-8")
-    (out_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    cp_path = out_dir / "checkpoint.json"
+    if orjson is not None and _np is not None:
+        cp_bytes = orjson.dumps(checkpoint, option=orjson.OPT_SERIALIZE_NUMPY)
+        cp_path.write_bytes(cp_bytes)
+        cp_sha256 = hashlib.sha256(cp_bytes).hexdigest()
+    else:
+        cp_text = json.dumps(checkpoint)
+        cp_path.write_text(cp_text, encoding="utf-8")
+        cp_sha256 = hashlib.sha256(cp_text.encode("utf-8")).hexdigest()
+
+    if orjson is not None:
+        (out_dir / "metrics.json").write_bytes(orjson.dumps(metrics))
+    else:
+        (out_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+
+    stat = cp_path.resolve().stat()
+    meta = {
+        "format": checkpoint["format"],
+        "input_dim": checkpoint["input_dim"],
+        "hidden_dim": checkpoint["hidden_dim"],
+        "feature_set": checkpoint["feature_set"],
+        "target_schema": checkpoint["target_schema"],
+        "objective": copy.deepcopy(checkpoint["objective"]),
+        "optimizer_state": copy.deepcopy(checkpoint.get("optimizer_state")) if checkpoint.get("optimizer_state") is not None else None,
+    }
+    tensors = {
+        "w1": w1_tensor.clone(),
+        "b1": b1_tensor.clone(),
+        "w2": w2_tensor.clone(),
+        "b2": torch.tensor([b2_val], dtype=torch.float32, device="cpu"),
+    }
+    _INITIAL_CHECKPOINT_CACHE[(cp_path.resolve().as_posix(), stat.st_mtime_ns, stat.st_size)] = (
+        meta,
+        tensors,
+        cp_sha256,
+    )
+    while len(_INITIAL_CHECKPOINT_CACHE) > 2:
+        _INITIAL_CHECKPOINT_CACHE.pop(next(iter(_INITIAL_CHECKPOINT_CACHE)))
+
     if selected_checkpoint_sink is not None:
         selected_checkpoint_sink(checkpoint)
     return metrics
