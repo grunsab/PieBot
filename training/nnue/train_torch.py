@@ -8,10 +8,13 @@ import copy
 import hashlib
 import json
 import math
+import multiprocessing as mp
+import os
 import random
+import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from itertools import chain
 
@@ -704,6 +707,119 @@ def _eval_split(
     )
 
 
+def _find_byte_chunks(file_path: Path, n_chunks: int) -> List[Tuple[str, int, int]]:
+    size = file_path.stat().st_size
+    if size == 0 or n_chunks <= 1:
+        return [(str(file_path), 0, size)]
+    chunks: List[Tuple[str, int, int]] = []
+    with file_path.open("rb") as f:
+        prev_end = 0
+        for i in range(1, n_chunks):
+            target = (size * i) // n_chunks
+            f.seek(target)
+            f.readline()
+            end = f.tell()
+            if end > prev_end:
+                chunks.append((str(file_path), prev_end, end))
+                prev_end = end
+        if prev_end < size:
+            chunks.append((str(file_path), prev_end, size))
+    return chunks
+
+
+def _worker_parse_lc0_chunk(
+    args: Tuple[str, int, int, str, float, float, float, float, int, float]
+) -> Tuple[List[Tuple[List[int], List[int]]], List[float], List[float], List[str], List[bool], int, int, int]:
+    (
+        file_path,
+        start_byte,
+        end_byte,
+        loss_kind,
+        target_cp,
+        teacher_mix,
+        max_teacher_cp,
+        outcome_decay,
+        min_teacher_depth,
+        wdl_scale_cp,
+    ) = args
+
+    xs: List[Tuple[List[int], List[int]]] = []
+    ys_cp: List[float] = []
+    ys_wdl: List[float] = []
+    group_ids: List[str] = []
+    teacher_flags: List[bool] = []
+    best_move_count = 0
+    raw_teacher_count = 0
+    teacher_val_count = 0
+
+    with open(file_path, "r", encoding="utf-8") as handle:
+        handle.seek(start_byte)
+        while handle.tell() < end_byte:
+            line = handle.readline()
+            if not line:
+                break
+            if not line.strip():
+                continue
+            try:
+                row = train_stub.json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(row, dict) or not isinstance(row.get("fen"), str):
+                continue
+            record = next(train_stub.jsonl_to_training_samples([row]))
+            train_stub._lc0_probability_for_record(record, teacher_mix)
+            feats = features_v2.stm_ordered(record.fen)
+            cp, prob = train_stub._targets_for_record(
+                record,
+                loss_kind=loss_kind,
+                target_cp=target_cp,
+                teacher_mix=teacher_mix,
+                max_teacher_cp=max_teacher_cp,
+                outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+                wdl_scale_cp=wdl_scale_cp,
+                target_mode="lc0-q-outcome",
+            )
+            if not _fen_stm_is_white(record.fen):
+                cp = -cp
+                prob = 1.0 - prob
+            xs.append(feats)
+            ys_cp.append(cp)
+            ys_wdl.append(prob)
+            group_ids.append(train_stub._validation_group_identity(record))
+            has_teacher = record.best_q is not None
+            teacher_flags.append(has_teacher)
+            if record.best_move:
+                best_move_count += 1
+            if record.best_q is not None:
+                raw_teacher_count += 1
+            if has_teacher:
+                teacher_val_count += 1
+
+    return (
+        xs,
+        ys_cp,
+        ys_wdl,
+        group_ids,
+        teacher_flags,
+        best_move_count,
+        raw_teacher_count,
+        teacher_val_count,
+    )
+
+
+def _get_mp_context():
+    if hasattr(os, "fork") and sys.platform.startswith("linux"):
+        try:
+            return mp.get_context("forkserver")
+        except ValueError:
+            pass
+    return mp.get_context()
+
+
+_FIXED_VALIDATION_CACHE: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+
+
 def train_model(
     *,
     jsonl_dir: Path,
@@ -743,6 +859,7 @@ def train_model(
     quant_qb: int = 64,
     target_mode: str = "selfplay",
     checkpoint_selection: str = "best",
+    selected_checkpoint_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
@@ -751,6 +868,11 @@ def train_model(
         raise ValueError("arch must be v1 or v2")
     if checkpoint_selection not in {"best", "latest"}:
         raise ValueError("checkpoint_selection must be best or latest")
+    if selected_checkpoint_sink is not None:
+        if not callable(selected_checkpoint_sink):
+            raise ValueError("selected_checkpoint_sink must be callable")
+        if (arch, target_mode, checkpoint_selection) != ("v2", "lc0-q-outcome", "latest"):
+            raise ValueError("selected_checkpoint_sink requires v2 LC0 latest selection")
     quant_qa = max(1, int(quant_qa))
     quant_qb = max(1, int(quant_qb))
     initial_checkpoint_weights_only = bool(initial_checkpoint_weights_only)
@@ -823,53 +945,112 @@ def train_model(
     best_move_available = 0
     teacher_value_available = 0
     raw_teacher_value_available = 0
-    training_samples = (
-        train_stub.iterate_lc0_samples(
-            jsonl_dir, max_samples, include_legacy_features=arch != "v2")
-        if target_mode == "lc0-q-outcome"
-        else train_stub.iterate_samples(
-            jsonl_dir, max_samples, seed=seed,
-            primary_sample_fraction=primary_sample_fraction,
-            teacher_sample_fraction=teacher_sample_fraction,
-            min_teacher_depth=min_teacher_depth,
+    parallel_loaded = False
+    if target_mode == "lc0-q-outcome" and arch == "v2":
+        jsonl_files = train_stub._jsonl_files(Path(jsonl_dir))
+        if len(jsonl_files) == 1:
+            target_file = jsonl_files[0]
+            try:
+                file_size = target_file.stat().st_size
+                n_workers = min(12, os.cpu_count() or 1)
+                if file_size > 1024 * 1024 and n_workers > 1:
+                    chunks = _find_byte_chunks(target_file, n_workers)
+                    worker_args = [
+                        (
+                            c[0],
+                            c[1],
+                            c[2],
+                            loss_kind,
+                            target_cp,
+                            teacher_mix,
+                            max_teacher_cp,
+                            outcome_decay,
+                            min_teacher_depth,
+                            wdl_scale_cp,
+                        )
+                        for c in chunks
+                    ]
+                    ctx = _get_mp_context()
+                    with ctx.Pool(len(chunks)) as pool:
+                        results = pool.map(_worker_parse_lc0_chunk, worker_args)
+
+                    total_count = sum(len(r[0]) for r in results)
+                    if max_samples <= 0 or total_count <= max_samples:
+                        for r in results:
+                            xs.extend(r[0])
+                            ys_cp.extend(r[1])
+                            ys_wdl.extend(r[2])
+                            validation_group_identities.extend(r[3])
+                            validation_teacher_flags.extend(r[4])
+                            best_move_available += r[5]
+                            raw_teacher_value_available += r[6]
+                            teacher_value_available += r[7]
+                        parallel_loaded = True
+                    elif max_samples > 0 and total_count > max_samples:
+                        raise ValueError(
+                            "LCZero chunk exceeds max_samples; split the corpus chunk"
+                        )
+            except ValueError:
+                raise
+            except Exception:
+                xs.clear()
+                ys_cp.clear()
+                ys_wdl.clear()
+                validation_group_identities.clear()
+                validation_teacher_flags.clear()
+                best_move_available = 0
+                raw_teacher_value_available = 0
+                teacher_value_available = 0
+                parallel_loaded = False
+
+    if not parallel_loaded:
+        training_samples = (
+            train_stub.iterate_lc0_samples(
+                jsonl_dir, max_samples, include_legacy_features=arch != "v2")
+            if target_mode == "lc0-q-outcome"
+            else train_stub.iterate_samples(
+                jsonl_dir, max_samples, seed=seed,
+                primary_sample_fraction=primary_sample_fraction,
+                teacher_sample_fraction=teacher_sample_fraction,
+                min_teacher_depth=min_teacher_depth,
+            )
         )
-    )
-    for feats, record in training_samples:
-        has_teacher = (
-            record.best_q is not None if target_mode == "lc0-q-outcome"
-            else train_stub._teacher_available(record, min_teacher_depth)
-        )
-        if arch == "v2":
-            xs.append(features_v2.stm_ordered(record.fen))
-        else:
-            xs.append(feats)
-        validation_group_identities.append(
-            train_stub._validation_group_identity(record)
-        )
-        validation_teacher_flags.append(has_teacher)
-        cp, probability = train_stub._targets_for_record(
-            record,
-            loss_kind=loss_kind,
-            target_cp=target_cp,
-            teacher_mix=teacher_mix,
-            max_teacher_cp=max_teacher_cp,
-            outcome_decay=outcome_decay,
-            min_teacher_depth=min_teacher_depth,
-            wdl_scale_cp=wdl_scale_cp,
-            target_mode=target_mode,
-        )
-        if arch == "v2" and not _fen_stm_is_white(record.fen):
-            # Stored labels are white-POV; the v2 network is stm-relative.
-            cp = -cp
-            probability = 1.0 - probability
-        ys_cp.append(cp)
-        ys_wdl.append(probability)
-        if record.best_move:
-            best_move_available += 1
-        if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
-            raw_teacher_value_available += 1
-        if has_teacher:
-            teacher_value_available += 1
+        for feats, record in training_samples:
+            has_teacher = (
+                record.best_q is not None if target_mode == "lc0-q-outcome"
+                else train_stub._teacher_available(record, min_teacher_depth)
+            )
+            if arch == "v2":
+                xs.append(features_v2.stm_ordered(record.fen))
+            else:
+                xs.append(feats)
+            validation_group_identities.append(
+                train_stub._validation_group_identity(record)
+            )
+            validation_teacher_flags.append(has_teacher)
+            cp, probability = train_stub._targets_for_record(
+                record,
+                loss_kind=loss_kind,
+                target_cp=target_cp,
+                teacher_mix=teacher_mix,
+                max_teacher_cp=max_teacher_cp,
+                outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+                wdl_scale_cp=wdl_scale_cp,
+                target_mode=target_mode,
+            )
+            if arch == "v2" and not _fen_stm_is_white(record.fen):
+                # Stored labels are white-POV; the v2 network is stm-relative.
+                cp = -cp
+                probability = 1.0 - probability
+            ys_cp.append(cp)
+            ys_wdl.append(probability)
+            if record.best_move:
+                best_move_available += 1
+            if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
+                raw_teacher_value_available += 1
+            if has_teacher:
+                teacher_value_available += 1
     if not xs:
         raise ValueError("no training samples were loaded")
     requested_teacher_samples = (
@@ -940,70 +1121,113 @@ def train_model(
     reference_val_y_cp: List[float] = []
     reference_val_y_wdl: List[float] = []
     if fixed_validation:
-        validation_teacher_value_available = 0
-        validation_raw_teacher_value_available = 0
         validation_path = Path(validation_jsonl_dir)  # type: ignore[arg-type]
-        validation_source_before = {
-            "path": validation_path.resolve().as_posix(),
-            "sha256": _sha256_jsonl_source(validation_path),
-            "records": _count_jsonl_source_records(validation_path),
-            "max_samples": max_validation_samples,
-            "seed": validation_seed,
-        }
-        validation_digest = hashlib.sha256()
-        reference_samples = (
-            train_stub.iterate_lc0_samples(
-                validation_path, max_validation_samples,
-                include_legacy_features=arch != "v2")
-            if target_mode == "lc0-q-outcome"
-            else train_stub.iterate_fixed_validation_samples(
-                validation_path, max_validation_samples, seed=validation_seed,
-                min_teacher_depth=min_teacher_depth,
-                require_teacher=validation_require_teacher,
+        files = [validation_path] if validation_path.is_file() else sorted(validation_path.glob("*.jsonl"))
+        try:
+            stat_sig = tuple((f.name, f.stat().st_size, f.stat().st_mtime_ns) for f in files)
+        except OSError:
+            stat_sig = None
+
+        cache_key = (
+            validation_path.resolve().as_posix(),
+            stat_sig,
+            max_validation_samples,
+            validation_seed,
+            validation_require_teacher,
+            arch,
+            target_mode,
+            loss_kind,
+            target_cp,
+            teacher_mix,
+            max_teacher_cp,
+            outcome_decay,
+            min_teacher_depth,
+            wdl_scale_cp,
+        ) if stat_sig is not None else None
+
+        if cache_key is not None and cache_key in _FIXED_VALIDATION_CACHE:
+            cached = _FIXED_VALIDATION_CACHE[cache_key]
+            reference_val_x = cached["reference_val_x"]
+            reference_val_y_cp = cached["reference_val_y_cp"]
+            reference_val_y_wdl = cached["reference_val_y_wdl"]
+            validation_source = copy.deepcopy(cached["validation_source"])
+            validation_sample_sha256 = cached["validation_sample_sha256"]
+            validation_raw_teacher_value_available = cached["validation_raw_teacher_value_available"]
+            validation_teacher_value_available = cached["validation_teacher_value_available"]
+        else:
+            validation_teacher_value_available = 0
+            validation_raw_teacher_value_available = 0
+            validation_source_before = {
+                "path": validation_path.resolve().as_posix(),
+                "sha256": _sha256_jsonl_source(validation_path),
+                "records": _count_jsonl_source_records(validation_path),
+                "max_samples": max_validation_samples,
+                "seed": validation_seed,
+            }
+            validation_digest = hashlib.sha256()
+            reference_samples = (
+                train_stub.iterate_lc0_samples(
+                    validation_path, max_validation_samples,
+                    include_legacy_features=arch != "v2")
+                if target_mode == "lc0-q-outcome"
+                else train_stub.iterate_fixed_validation_samples(
+                    validation_path, max_validation_samples, seed=validation_seed,
+                    min_teacher_depth=min_teacher_depth,
+                    require_teacher=validation_require_teacher,
+                )
             )
-        )
-        for feats, record in reference_samples:
-            validation_digest.update(
-                train_stub._record_identity(record).encode("utf-8")
-            )
-            validation_digest.update(b"\0")
-            if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
-                validation_raw_teacher_value_available += 1
-            if (record.best_q is not None if target_mode == "lc0-q-outcome"
-                    else train_stub._teacher_available(record, min_teacher_depth)):
-                validation_teacher_value_available += 1
-            if arch == "v2":
-                reference_val_x.append(features_v2.stm_ordered(record.fen))
-            else:
-                reference_val_x.append(feats)
-            cp, probability = train_stub._targets_for_record(
-                record,
-                loss_kind=loss_kind,
-                target_cp=target_cp,
-                teacher_mix=teacher_mix,
-                max_teacher_cp=max_teacher_cp,
-                outcome_decay=outcome_decay,
-                min_teacher_depth=min_teacher_depth,
-                wdl_scale_cp=wdl_scale_cp,
-                target_mode=target_mode,
-            )
-            if arch == "v2" and not _fen_stm_is_white(record.fen):
-                cp = -cp
-                probability = 1.0 - probability
-            reference_val_y_cp.append(cp)
-            reference_val_y_wdl.append(probability)
-        if not reference_val_x:
-            raise ValueError("no fixed reference validation samples were loaded")
-        validation_source = {
-            "path": validation_path.resolve().as_posix(),
-            "sha256": _sha256_jsonl_source(validation_path),
-            "records": _count_jsonl_source_records(validation_path),
-            "max_samples": max_validation_samples,
-            "seed": validation_seed,
-        }
-        if validation_source != validation_source_before:
-            raise ValueError("fixed validation source changed while trainer was reading it")
-        validation_sample_sha256 = validation_digest.hexdigest()
+            for feats, record in reference_samples:
+                validation_digest.update(
+                    train_stub._record_identity(record).encode("utf-8")
+                )
+                validation_digest.update(b"\0")
+                if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
+                    validation_raw_teacher_value_available += 1
+                if (record.best_q is not None if target_mode == "lc0-q-outcome"
+                        else train_stub._teacher_available(record, min_teacher_depth)):
+                    validation_teacher_value_available += 1
+                if arch == "v2":
+                    reference_val_x.append(features_v2.stm_ordered(record.fen))
+                else:
+                    reference_val_x.append(feats)
+                cp, probability = train_stub._targets_for_record(
+                    record,
+                    loss_kind=loss_kind,
+                    target_cp=target_cp,
+                    teacher_mix=teacher_mix,
+                    max_teacher_cp=max_teacher_cp,
+                    outcome_decay=outcome_decay,
+                    min_teacher_depth=min_teacher_depth,
+                    wdl_scale_cp=wdl_scale_cp,
+                    target_mode=target_mode,
+                )
+                if arch == "v2" and not _fen_stm_is_white(record.fen):
+                    cp = -cp
+                    probability = 1.0 - probability
+                reference_val_y_cp.append(cp)
+                reference_val_y_wdl.append(probability)
+            if not reference_val_x:
+                raise ValueError("no fixed reference validation samples were loaded")
+            validation_source = {
+                "path": validation_path.resolve().as_posix(),
+                "sha256": _sha256_jsonl_source(validation_path),
+                "records": _count_jsonl_source_records(validation_path),
+                "max_samples": max_validation_samples,
+                "seed": validation_seed,
+            }
+            if validation_source != validation_source_before:
+                raise ValueError("fixed validation source changed while trainer was reading it")
+            validation_sample_sha256 = validation_digest.hexdigest()
+            if cache_key is not None:
+                _FIXED_VALIDATION_CACHE[cache_key] = {
+                    "reference_val_x": reference_val_x,
+                    "reference_val_y_cp": reference_val_y_cp,
+                    "reference_val_y_wdl": reference_val_y_wdl,
+                    "validation_source": validation_source,
+                    "validation_sample_sha256": validation_sample_sha256,
+                    "validation_raw_teacher_value_available": validation_raw_teacher_value_available,
+                    "validation_teacher_value_available": validation_teacher_value_available,
+                }
     reference_val_count = len(reference_val_x)
 
     if arch == "v2":
@@ -1682,6 +1906,8 @@ def train_model(
     }
     (out_dir / "checkpoint.json").write_text(json.dumps(checkpoint), encoding="utf-8")
     (out_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    if selected_checkpoint_sink is not None:
+        selected_checkpoint_sink(checkpoint)
     return metrics
 
 

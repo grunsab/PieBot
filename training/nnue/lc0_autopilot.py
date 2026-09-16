@@ -358,24 +358,37 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                     # Partial outputs are never resumed as checkpoints. Replay
                     # unfinished work from the preceding committed learner.
                     shutil.rmtree(output / "train", ignore_errors=True)
-                    metrics = _train(
-                        jsonl_dir=train_jsonl, out_dir=output / "train", arch="v2", hidden_dim=1024,
-                        batch_size=args.batch_size, max_samples=CHUNK_LIMIT, epochs=1, val_split=0.0,
-                        learning_rate=args.learning_rate, target_cp=250.0, cp_loss_weight=0.0,
-                        teacher_mix=0.8, min_teacher_depth=0, loss_kind="wdl", wdl_scale_cp=400.0,
-                        primary_sample_fraction=1.0, teacher_sample_fraction=0.0,
-                        validation_jsonl_dir=validation_dir, max_validation_samples=VALIDATION_LIMIT,
-                        validation_seed=args.seed, validation_require_teacher=False,
-                        initial_checkpoint=args.initial_checkpoint.resolve() if first else Path(state["training_checkpoint_path"]),
-                        initial_checkpoint_weights_only=first,
-                        initial_optimizer_state=None if first else Path(state["training_optimizer_path"]),
-                        seed=seed, device=args.device, target_mode="lc0-q-outcome", checkpoint_selection="latest",
-                    )
-                    if not checkpoint_path.is_file() or not optimizer_path.is_file():
-                        raise RuntimeError("trainer did not write both latest checkpoint and Adam state")
-                    checkpoint = json.loads(checkpoint_path.read_text())
-                    run_pipeline._export_v2_checkpoint(checkpoint, quant_path=candidate)
-                    del checkpoint
+                    captured: List[Dict[str, Any]] = []
+                    def capture_sink(cp: Dict[str, Any]) -> None:
+                        captured.append(cp)
+
+                    try:
+                        metrics = _train(
+                            jsonl_dir=train_jsonl, out_dir=output / "train", arch="v2", hidden_dim=1024,
+                            batch_size=args.batch_size, max_samples=CHUNK_LIMIT, epochs=1, val_split=0.0,
+                            learning_rate=args.learning_rate, target_cp=250.0, cp_loss_weight=0.0,
+                            teacher_mix=0.8, min_teacher_depth=0, loss_kind="wdl", wdl_scale_cp=400.0,
+                            primary_sample_fraction=1.0, teacher_sample_fraction=0.0,
+                            validation_jsonl_dir=validation_dir, max_validation_samples=VALIDATION_LIMIT,
+                            validation_seed=args.seed, validation_require_teacher=False,
+                            initial_checkpoint=args.initial_checkpoint.resolve() if first else Path(state["training_checkpoint_path"]),
+                            initial_checkpoint_weights_only=first,
+                            initial_optimizer_state=None if first else Path(state["training_optimizer_path"]),
+                            seed=seed, device=args.device, target_mode="lc0-q-outcome", checkpoint_selection="latest",
+                            selected_checkpoint_sink=capture_sink,
+                        )
+                        if not checkpoint_path.is_file() or not optimizer_path.is_file():
+                            raise RuntimeError("trainer did not write both latest checkpoint and Adam state")
+                        if len(captured) == 1:
+                            checkpoint = captured.pop()
+                        else:
+                            checkpoint = json.loads(checkpoint_path.read_text())
+                        try:
+                            run_pipeline._export_v2_checkpoint(checkpoint, quant_path=candidate)
+                        finally:
+                            del checkpoint
+                    finally:
+                        captured.clear()
                     with candidate.open("rb") as handle:
                         if handle.read(8) != b"PIENNQ02":
                             raise ValueError("LC0 candidate export must be PIENNQ02")
