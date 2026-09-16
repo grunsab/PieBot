@@ -77,13 +77,12 @@ def preflight() -> tuple[dict, str]:
         raise RuntimeError(f"State schema mismatch: {state.get('schema')}")
     log(f"Current state: completed_chunks={state.get('completed_chunks')}, pass={state.get('pass_number')}, status={state.get('status')}")
 
-    # Check repo has target commit
-    rev_res = run_cmd(["git", "rev-parse", TARGET_COMMIT], check=False, cwd=REPO_PATH)
-    if rev_res.returncode != 0:
-        log(f"Fetching {TARGET_BRANCH} from GitHub...")
-        run_cmd(["git", "fetch", "https://github.com/grunsab/PieBot.git", TARGET_BRANCH], cwd=REPO_PATH)
-        run_cmd(["git", "branch", "-f", TARGET_BRANCH, "FETCH_HEAD"], cwd=REPO_PATH)
-    target_commit = TARGET_COMMIT
+    # Fetch latest branch from GitHub
+    log(f"Fetching {TARGET_BRANCH} from GitHub...")
+    run_cmd(["git", "fetch", "https://github.com/grunsab/PieBot.git", TARGET_BRANCH], cwd=REPO_PATH)
+    run_cmd(["git", "branch", "-f", TARGET_BRANCH, "FETCH_HEAD"], cwd=REPO_PATH)
+    rev_res = run_cmd(["git", "rev-parse", "FETCH_HEAD"], check=True, cwd=REPO_PATH)
+    target_commit = rev_res.stdout.strip()
     log(f"Target commit: {target_commit}")
 
     # Check source pin
