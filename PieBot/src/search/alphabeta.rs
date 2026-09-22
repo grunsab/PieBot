@@ -664,11 +664,6 @@ impl Searcher {
                     0
                 };
 
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
-                } else {
-                    0
-                };
                 let gives_check_bonus = {
                     let mut c = board.clone();
                     c.play_unchecked(m);
@@ -690,8 +685,22 @@ impl Searcher {
                 } else {
                     0
                 };
-                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
-                scored.push((m, score));
+
+                let is_tt = moves.first().copied() == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + see_gain + gives_check_bonus
+                    }
+                } else {
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
+                };
+                scored.push((m, -sort_score));
             }
 
             // Sort by pre-computed scores
@@ -850,13 +859,21 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                let is_tt = moves.first().copied() == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + see_gain + gives_check_bonus
+                    }
                 } else {
-                    0
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
                 };
-                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
-                scored.push((m, score));
+                scored.push((m, -sort_score));
             }
             scored.sort_by_key(|&(_, score)| score);
             moves = scored.into_iter().map(|(m, _)| m).collect();
@@ -1278,14 +1295,21 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                let sort_score = if tt_best == Some(m) {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + see_gain
+                    } else {
+                        -1_000_000 + see_gain
+                    }
                 } else {
-                    0
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    let cm_weight = if cm > 0 { 20_000 } else { 0 };
+                    (killer_weight + cm_weight + hist + conthist).clamp(-500_000, 500_000)
                 };
-                let ttb = if tt_best == Some(m) { 1_000_000 } else { 0 };
-                let score = -(ttb + is_cap * 1000 + mvv + see_b + kb + hist + conthist + cm);
-                scored.push((m, score));
+                scored.push((m, -sort_score));
             }
             scored.sort_by_key(|&(_, score)| score);
             moves = scored.into_iter().map(|(m, _)| m).collect();
@@ -1988,13 +2012,31 @@ impl Searcher {
                 } else {
                     0
                 };
+                let mvv = if is_cap == 1 {
+                    mvv_lva_score(board, m)
+                } else {
+                    0
+                };
                 let kb = if self.use_killers {
                     self.killer_bonus(0, m)
                 } else {
                     0
                 };
-                let score = -(is_cap * 10 + gives_check_bonus + kb + hist);
-                scored.push((m, score));
+                let is_tt = moves.first().copied() == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + see_gain + gives_check_bonus
+                    }
+                } else {
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
+                };
+                scored.push((m, -sort_score));
             }
 
             // Sort by pre-computed scores
@@ -2169,13 +2211,21 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                let is_tt = moves.first().copied() == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + see_gain + gives_check_bonus
+                    }
                 } else {
-                    0
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
                 };
-                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
-                scored.push((m, score));
+                scored.push((m, -sort_score));
             }
 
             scored.sort_by_key(|&(_, score)| score);
