@@ -423,7 +423,9 @@ impl Searcher {
         self.max_seldepth = 0;
         self.abort = None;
         self.node_limit = u64::MAX;
-        self.deadline = Some(Instant::now() + Duration::from_millis(millis));
+        let start_time = Instant::now();
+        let allotted = Duration::from_millis(millis);
+        self.deadline = Some(start_time + allotted);
         self.prepare_root_state(board);
         if self.use_history {
             self.history_table.fill(0);
@@ -434,10 +436,52 @@ impl Searcher {
         }
         let max_depth = if depth == 0 { 99 } else { depth };
         let mut committed = self.fallback_result(board);
+
+        let mut legal_move_count = 0;
+        board.generate_moves(|ml| {
+            legal_move_count += ml.len();
+            false
+        });
+
         for d in 1..=max_depth {
+            if d >= 2 && legal_move_count <= 1 {
+                break;
+            }
+            if start_time.elapsed() >= allotted * 55 / 100 {
+                break;
+            }
             self.tt.bump_generation();
             self.prepare_root_state(board);
-            match self.search_depth_internal(board, d) {
+            let iteration = if self.use_aspiration && d > 1 {
+                let mut delta = 30;
+                let mut alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                let mut beta = (committed.score_cp + delta).min(MATE_SCORE);
+                loop {
+                    match self.search_depth_window(board, d, alpha, beta) {
+                        Ok(result) => {
+                            if result.score_cp <= alpha {
+                                delta *= 2;
+                                alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else if result.score_cp >= beta {
+                                delta *= 2;
+                                beta = (committed.score_cp + delta).min(MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else {
+                                break Ok(result);
+                            }
+                            if delta > 300 {
+                                self.prepare_root_state(board);
+                                break self.search_depth_internal(board, d);
+                            }
+                        }
+                        Err(e) => break Err(e),
+                    }
+                }
+            } else {
+                self.search_depth_internal(board, d)
+            };
+            match iteration {
                 Ok(result) => {
                     committed = result;
                     self.last_depth = d;
@@ -622,11 +666,13 @@ impl Searcher {
             });
         }
         // TT-first
+        let mut tt_move = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_move = Some(mv);
                 }
             }
         }
@@ -686,7 +732,7 @@ impl Searcher {
                     0
                 };
 
-                let is_tt = moves.first().copied() == Some(m);
+                let is_tt = tt_move == Some(m);
                 let sort_score = if is_tt {
                     10_000_000
                 } else if is_cap == 1 {
@@ -803,11 +849,13 @@ impl Searcher {
         }
 
         // TT-first
+        let mut tt_move = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_move = Some(mv);
                 }
             }
         }
@@ -859,7 +907,7 @@ impl Searcher {
                 } else {
                     0
                 };
-                let is_tt = moves.first().copied() == Some(m);
+                let is_tt = tt_move == Some(m);
                 let sort_score = if is_tt {
                     10_000_000
                 } else if is_cap == 1 {
@@ -1890,23 +1938,54 @@ impl Searcher {
             self.counter_move.fill(usize::MAX);
             self.move_stack.fill(None);
         }
-        self.deadline = params.movetime.map(|d| Instant::now() + d);
+        let start_time = Instant::now();
+        self.deadline = params.movetime.map(|d| start_time + d);
         self.prepare_root_state(board);
         let mut committed = self.fallback_result(board);
         let max_depth = if params.depth == 0 { 99 } else { params.depth };
+
+        let mut legal_move_count = 0;
+        board.generate_moves(|ml| {
+            legal_move_count += ml.len();
+            false
+        });
+
         for d in 1..=max_depth {
+            if d >= 2 && legal_move_count <= 1 {
+                break;
+            }
+            if let Some(movetime) = params.movetime {
+                if start_time.elapsed() >= movetime * 55 / 100 {
+                    break;
+                }
+            }
             self.tt.bump_generation();
             self.prepare_root_state(board);
             let iteration = if self.use_aspiration && d > 1 {
-                let window = params.aspiration_window_cp.max(10);
-                let alpha = committed.score_cp - window;
-                let beta = committed.score_cp + window;
-                match self.search_depth_window(board, d, alpha, beta) {
-                    Ok(result) if result.score_cp <= alpha || result.score_cp >= beta => {
-                        self.prepare_root_state(board);
-                        self.search_depth_internal(board, d)
+                let mut delta = params.aspiration_window_cp.max(15);
+                let mut alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                let mut beta = (committed.score_cp + delta).min(MATE_SCORE);
+                loop {
+                    match self.search_depth_window(board, d, alpha, beta) {
+                        Ok(result) => {
+                            if result.score_cp <= alpha {
+                                delta *= 2;
+                                alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else if result.score_cp >= beta {
+                                delta *= 2;
+                                beta = (committed.score_cp + delta).min(MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else {
+                                break Ok(result);
+                            }
+                            if delta > 300 {
+                                self.prepare_root_state(board);
+                                break self.search_depth_internal(board, d);
+                            }
+                        }
+                        Err(e) => break Err(e),
                     }
-                    other => other,
                 }
             } else {
                 self.search_depth_internal(board, d)
@@ -1967,11 +2046,13 @@ impl Searcher {
                 nodes: self.nodes,
             });
         }
+        let mut tt_move = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_move = Some(mv);
                 }
             }
         }
@@ -2029,7 +2110,7 @@ impl Searcher {
                 } else {
                     0
                 };
-                let is_tt = moves.first().copied() == Some(m);
+                let is_tt = tt_move == Some(m);
                 let sort_score = if is_tt {
                     10_000_000
                 } else if is_cap == 1 {
@@ -2163,11 +2244,13 @@ impl Searcher {
             return moves;
         }
 
+        let mut tt_move = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_move = Some(mv);
                 }
             }
         }
@@ -2218,7 +2301,7 @@ impl Searcher {
                 } else {
                     0
                 };
-                let is_tt = moves.first().copied() == Some(m);
+                let is_tt = tt_move == Some(m);
                 let sort_score = if is_tt {
                     10_000_000
                 } else if is_cap == 1 {

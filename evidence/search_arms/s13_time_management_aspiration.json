@@ -1,0 +1,26 @@
+{
+  "arm": "Arm S13: Iterative Deepening Time Allocation, Single-Reply Early Exit, and Geometric Aspiration Widening",
+  "hypothesis": "Stopping early when a single legal move exists at root, preventing doomed iterations when elapsed time exceeds 55% of movetime, and widening aspiration windows geometrically avoids tree-blowing fail-lows/highs and banks time efficiently.",
+  "results_100g": {
+    "games": 100,
+    "experimental_pts": 39,
+    "baseline_pts": 24,
+    "draws": 37,
+    "score_rate": 0.575,
+    "elo_delta": 52.5,
+    "ci_95": [-1.2, 108.9],
+    "time_baseline": 490.81,
+    "time_experimental": 406.99,
+    "time_saved_pct": 17.1,
+    "nodes_baseline": 1065971080,
+    "nodes_experimental": 878571420,
+    "node_reduction_pct": 17.6
+  },
+  "acceptance_test": {
+    "suite": "matein3.txt",
+    "solved": "91/91",
+    "time": "3.301s",
+    "nodes": 8800808
+  },
+  "decision": "PROMOTE to alphabeta.rs"
+}
