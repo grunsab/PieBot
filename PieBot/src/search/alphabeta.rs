@@ -10,6 +10,62 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 const HIST_PROMO_KINDS: usize = 5; // None, N, B, R, Q
 const HIST_SIZE: usize = 64 * 64 * HIST_PROMO_KINDS;
+const PIECE_SQUARE_ENTRIES: usize = 6 * 64; // 384
+const CONTHIST_SIZE: usize = PIECE_SQUARE_ENTRIES * PIECE_SQUARE_ENTRIES; // 147,456
+const HISTORY_MAX: i32 = 400;
+
+pub static LMR_TABLE: std::sync::LazyLock<[[i32; 64]; 64]> = std::sync::LazyLock::new(|| {
+    let mut table = [[0i32; 64]; 64];
+    for depth in 1..64 {
+        for m in 1..64 {
+            let d_f = depth as f64;
+            let m_f = m as f64;
+            let r = 0.5 + (d_f.ln() * m_f.ln()) / 2.75;
+            table[depth][m] = r.max(0.0).round() as i32;
+        }
+    }
+    table
+});
+
+pub fn lmr_reduction(depth: u32, move_idx: usize, history_score: i32) -> u32 {
+    if depth < 3 || move_idx < 3 {
+        return 0;
+    }
+    let d = (depth as usize).min(63);
+    let m = move_idx.min(63);
+    let mut r = LMR_TABLE[d][m];
+
+    if history_score > 4000 {
+        r = r.saturating_sub(1);
+    } else if history_score < -4000 {
+        r += 1;
+    }
+
+    r.max(0) as u32
+}
+
+#[inline]
+fn piece_to_idx(piece: cozy_chess::Piece) -> usize {
+    match piece {
+        cozy_chess::Piece::Pawn => 0,
+        cozy_chess::Piece::Knight => 1,
+        cozy_chess::Piece::Bishop => 2,
+        cozy_chess::Piece::Rook => 3,
+        cozy_chess::Piece::Queen => 4,
+        cozy_chess::Piece::King => 5,
+    }
+}
+
+#[inline]
+fn piece_sq_index(piece: cozy_chess::Piece, sq: Square) -> usize {
+    piece_to_idx(piece) * 64 + (sq as usize)
+}
+
+#[inline]
+fn update_history_score(entry: &mut i32, bonus: i32) {
+    let clamped_bonus = bonus.clamp(-HISTORY_MAX, HISTORY_MAX);
+    *entry += clamped_bonus - (*entry * clamped_bonus.abs()) / HISTORY_MAX;
+}
 
 #[inline]
 fn promo_index(p: Option<cozy_chess::Piece>) -> usize {
@@ -138,8 +194,11 @@ pub struct Searcher {
     nnue: Option<crate::eval::nnue::Nnue>,
     nnue_quant: Option<QuantNetwork>,
     eval_blend_percent: u8, // 0..100, 0=PST only, 100=NNUE only
-    // New: array-based history and counter-move tables
+    // New: array-based history, continuation history, and counter-move tables
     history_table: Vec<i32>,
+    conthist_1ply: Vec<i32>,
+    conthist_2ply: Vec<i32>,
+    move_stack: Vec<Option<(cozy_chess::Piece, Square)>>,
     counter_move: Vec<usize>,
     deterministic: bool,
     // Eval mode: material-only, PST, or NNUE
@@ -175,6 +234,9 @@ impl Default for Searcher {
             nnue_quant: None,
             eval_blend_percent: 100,
             history_table: vec![0; HIST_SIZE],
+            conthist_1ply: vec![0; CONTHIST_SIZE],
+            conthist_2ply: vec![0; CONTHIST_SIZE],
+            move_stack: vec![None; 128],
             counter_move: vec![usize::MAX; HIST_SIZE],
             deterministic: false,
             eval_mode: EvalMode::Pst,
@@ -187,6 +249,11 @@ impl Default for Searcher {
 }
 
 impl Searcher {
+    pub fn continuation_history_entries_count(&self) -> usize {
+        self.conthist_1ply.iter().filter(|&&x| x != 0).count()
+            + self.conthist_2ply.iter().filter(|&&x| x != 0).count()
+    }
+
     /// Supply the real game history, including the current root position, so
     /// recursive search can recognize threefold repetitions.
     pub fn set_position_history(&mut self, history: &[Board]) {
@@ -359,12 +426,11 @@ impl Searcher {
         self.deadline = Some(Instant::now() + Duration::from_millis(millis));
         self.prepare_root_state(board);
         if self.use_history {
-            for h in &mut self.history_table {
-                *h = 0;
-            }
-            for c in &mut self.counter_move {
-                *c = usize::MAX;
-            }
+            self.history_table.fill(0);
+            self.conthist_1ply.fill(0);
+            self.conthist_2ply.fill(0);
+            self.counter_move.fill(usize::MAX);
+            self.move_stack.fill(None);
         }
         let max_depth = if depth == 0 { 99 } else { depth };
         let mut committed = self.fallback_result(board);
@@ -597,13 +663,12 @@ impl Searcher {
                 } else {
                     0
                 };
+
                 let see_b = if is_cap == 1 {
                     crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
                 } else {
                     0
                 };
-
-                // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
                     let mut c = board.clone();
                     c.play_unchecked(m);
@@ -644,10 +709,17 @@ impl Searcher {
             }
             let gives_check = !(child.checkers()).is_empty();
             let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
+            let moving_piece = board.piece_on(m.from).unwrap();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = Some((moving_piece, m.to));
+            }
             self.search_history.push(child.clone());
             let child_score =
                 self.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m), true);
             self.search_history.pop();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = None;
+            }
             if let Some(ch) = change {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     qn.revert(ch);
@@ -758,11 +830,6 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
-                } else {
-                    0
-                };
                 let gives_check_bonus = {
                     let mut c = board.clone();
                     c.play_unchecked(m);
@@ -780,6 +847,11 @@ impl Searcher {
                 };
                 let kb = if self.use_killers {
                     self.killer_bonus(0, m)
+                } else {
+                    0
+                };
+                let see_b = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
                 } else {
                     0
                 };
@@ -1159,14 +1231,30 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
-                } else {
-                    0
-                };
                 let mi = move_index(m);
                 let hist = if self.use_history {
                     self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let conthist = if self.use_history && is_cap == 0 {
+                    let mut ch = 0;
+                    if let Some(piece) = board.piece_on(m.from) {
+                        let curr_psi = piece_sq_index(piece, m.to);
+                        if ply > 0 {
+                            if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
+                                let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
+                                ch += 2 * self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + curr_psi];
+                            }
+                        }
+                        if ply > 1 {
+                            if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
+                                let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
+                                ch += self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + curr_psi];
+                            }
+                        }
+                    }
+                    (ch / 3).clamp(-300, 300)
                 } else {
                     0
                 };
@@ -1190,10 +1278,13 @@ impl Searcher {
                 } else {
                     0
                 };
-                // The TT move must stay first: the capture/history sort below
-                // would otherwise bury it and defeat the PVS first-move bet.
+                let see_b = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
+                } else {
+                    0
+                };
                 let ttb = if tt_best == Some(m) { 1_000_000 } else { 0 };
-                let score = -(ttb + is_cap * 1000 + mvv + see_b + kb + hist + cm);
+                let score = -(ttb + is_cap * 1000 + mvv + see_b + kb + hist + conthist + cm);
                 scored.push((m, score));
             }
             scored.sort_by_key(|&(_, score)| score);
@@ -1203,16 +1294,29 @@ impl Searcher {
         let mut best = -MATE_SCORE;
         let mut best_move_local: Option<Move> = None;
         let orig_alpha = alpha;
+        let non_pv = beta <= alpha + 1;
+        let mut quiets_tried = [Move {
+            from: Square::A1,
+            to: Square::A1,
+            promotion: None,
+        }; 64];
+        let mut num_quiets_tried: usize = 0;
         for (idx, m) in moves.into_iter().enumerate() {
+            let is_capture_move = self.is_capture(board, m);
+            if !is_capture_move && num_quiets_tried < 64 {
+                quiets_tried[num_quiets_tried] = m;
+                num_quiets_tried += 1;
+            }
             let mut child = board.clone();
             child.play_unchecked(m);
             let gives_check = !(child.checkers()).is_empty();
-            // Futility pruning: at shallow depth, a quiet non-checking move
+            // Futility pruning: at shallow depth in non-PV nodes, a quiet non-checking move
             // whose parent static eval plus a depth-scaled margin still cannot
             // reach alpha is skipped before paying eval-update and child-search
             // costs. The first move is always searched; mate windows and
             // in-check parents are exempt.
             if self.use_nullmove
+                && non_pv
                 && idx > 0
                 && depth <= 3
                 && !gives_check
@@ -1228,11 +1332,16 @@ impl Searcher {
                     continue;
                 }
             }
+
             let mut change = None;
             if self.use_nnue {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     change = Some(qn.apply_move(board, m, &child));
                 }
+            }
+            let moving_piece = board.piece_on(m.from).unwrap();
+            if (ply as usize) < self.move_stack.len() {
+                self.move_stack[ply as usize] = Some((moving_piece, m.to));
             }
             self.search_history.push(child.clone());
             let ext = if gives_check { 1 } else { 0 };
@@ -1307,6 +1416,9 @@ impl Searcher {
                 };
             }
             self.search_history.pop();
+            if (ply as usize) < self.move_stack.len() {
+                self.move_stack[ply as usize] = None;
+            }
             if let Some(change) = change {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     qn.revert(change);
@@ -1336,12 +1448,81 @@ impl Searcher {
         self.tt_put(board, depth, best, best_move_local, bound, ply);
         if let Some(mv) = best_move_local {
             let mi = move_index(mv);
-            if self.use_history {
-                let v = (depth as i32) * (depth as i32);
+            let is_cap = self.is_capture(board, mv);
+            if self.use_history && bound != Bound::Upper && !is_cap {
+                let bonus = ((depth as i32).min(16) * (depth as i32).min(16) * 32).min(1200);
+                let malus = -bonus;
+
+                // 1. History table update with gravity
                 if let Some(h) = self.history_table.get_mut(mi) {
-                    *h += v;
+                    update_history_score(h, bonus);
+                }
+
+                // 2. Continuation history for cutoff move
+                let curr_p = board.piece_on(mv.from).unwrap();
+                let curr_psi = piece_sq_index(curr_p, mv.to);
+
+                if ply > 0 {
+                    if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
+                        let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
+                        update_history_score(
+                            &mut self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + curr_psi],
+                            bonus,
+                        );
+                    }
+                }
+                if ply > 1 {
+                    if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
+                        let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
+                        update_history_score(
+                            &mut self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + curr_psi],
+                            bonus,
+                        );
+                    }
+                }
+
+                // 3. Apply malus to all quiet moves tried before this cutoff move
+                for &qm in &quiets_tried[..num_quiets_tried] {
+                    if qm == mv {
+                        continue;
+                    }
+                    let qmi = move_index(qm);
+                    if let Some(qh) = self.history_table.get_mut(qmi) {
+                        update_history_score(qh, malus);
+                    }
+                    if let Some(qp) = board.piece_on(qm.from) {
+                        let q_psi = piece_sq_index(qp, qm.to);
+                        if ply > 0 {
+                            if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
+                                let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
+                                update_history_score(
+                                    &mut self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + q_psi],
+                                    malus,
+                                );
+                            }
+                        }
+                        if ply > 1 {
+                            if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
+                                let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
+                                update_history_score(
+                                    &mut self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + q_psi],
+                                    malus,
+                                );
+                            }
+                        }
+                    }
+                }
+            } else if self.use_history && bound == Bound::Upper {
+                // All quiets tried failed low
+                let malus = -((depth as i32).min(16) * (depth as i32).min(16) * 16).min(600);
+                for &qm in &quiets_tried[..num_quiets_tried] {
+                    let qmi = move_index(qm);
+                    if let Some(qh) = self.history_table.get_mut(qmi) {
+                        update_history_score(qh, malus);
+                    }
                 }
             }
+
             if self.use_killers && bound == Bound::Lower {
                 self.update_killers(ply, mv);
             }
@@ -1627,12 +1808,11 @@ impl Searcher {
         self.killers = vec![[None, None]; 256];
         self.deterministic = params.deterministic;
         if self.use_history {
-            for h in &mut self.history_table {
-                *h = 0;
-            }
-            for c in &mut self.counter_move {
-                *c = usize::MAX;
-            }
+            self.history_table.fill(0);
+            self.conthist_1ply.fill(0);
+            self.conthist_2ply.fill(0);
+            self.counter_move.fill(usize::MAX);
+            self.move_stack.fill(None);
         }
         self.deadline = params.movetime.map(|d| Instant::now() + d);
         self.prepare_root_state(board);
@@ -1787,10 +1967,17 @@ impl Searcher {
             }
             let gives_check = !(child.checkers()).is_empty();
             let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
+            let moving_piece = board.piece_on(m.from).unwrap();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = Some((moving_piece, m.to));
+            }
             self.search_history.push(child.clone());
             let child_score =
                 self.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m), true);
             self.search_history.pop();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = None;
+            }
             if let Some(ch) = change {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     qn.revert(ch);
@@ -1917,11 +2104,6 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
-                } else {
-                    0
-                };
                 let gives_check_bonus = {
                     let mut child = board.clone();
                     child.play_unchecked(m);
@@ -1939,6 +2121,11 @@ impl Searcher {
                 };
                 let kb = if self.use_killers {
                     self.killer_bonus(0, m)
+                } else {
+                    0
+                };
+                let see_b = if is_cap == 1 {
+                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
                 } else {
                     0
                 };
