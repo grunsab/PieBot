@@ -28,6 +28,15 @@ pub static LMR_TABLE: std::sync::LazyLock<[[i32; 64]; 64]> = std::sync::LazyLock
 });
 
 pub fn lmr_reduction(depth: u32, move_idx: usize, history_score: i32) -> u32 {
+    lmr_reduction_improving(depth, move_idx, history_score, true)
+}
+
+pub fn lmr_reduction_improving(
+    depth: u32,
+    move_idx: usize,
+    history_score: i32,
+    _improving: bool,
+) -> u32 {
     if depth < 3 || move_idx < 3 {
         return 0;
     }
@@ -37,7 +46,7 @@ pub fn lmr_reduction(depth: u32, move_idx: usize, history_score: i32) -> u32 {
 
     if history_score > 4000 {
         r = r.saturating_sub(1);
-    } else if history_score < -4000 {
+    } else if (history_score < -4000 || history_score < -200) && r >= 1 {
         r += 1;
     }
 
@@ -208,6 +217,7 @@ pub struct Searcher {
     move_stack: Vec<Option<(cozy_chess::Piece, Square)>>,
     counter_move: Vec<usize>,
     capture_history: Vec<i32>,
+    eval_stack: Vec<Option<i32>>,
     deterministic: bool,
     // Eval mode: material-only, PST, or NNUE
     eval_mode: EvalMode,
@@ -247,6 +257,7 @@ impl Default for Searcher {
             move_stack: vec![None; 128],
             counter_move: vec![usize::MAX; HIST_SIZE],
             capture_history: vec![0; CAPHIST_SIZE],
+            eval_stack: vec![None; 256],
             deterministic: false,
             eval_mode: EvalMode::Pst,
             last_depth: 0,
@@ -292,6 +303,7 @@ impl Searcher {
         self.counter_move.fill(usize::MAX);
         self.move_stack.fill(None);
         self.capture_history.fill(0);
+        self.eval_stack.fill(None);
         self.killers = vec![[None, None]; 256];
     }
 
@@ -300,6 +312,7 @@ impl Searcher {
         if self.search_history.last() != Some(board) {
             self.search_history.push(board.clone());
         }
+        self.eval_stack.fill(None);
         if self.use_nnue {
             if let Some(qn) = self.nnue_quant.as_mut() {
                 qn.refresh(board);
@@ -1367,20 +1380,43 @@ impl Searcher {
             }
         }
 
+        let is_in_check = !board.checkers().is_empty();
+        let mut static_eval: Option<i32> = None;
+
+        if !is_in_check {
+            let eval = self.eval_current(board);
+            static_eval = Some(eval);
+            if (ply as usize) < self.eval_stack.len() {
+                self.eval_stack[ply as usize] = Some(eval);
+            }
+        }
+
+        let improving = !is_in_check
+            && ply >= 2
+            && static_eval.map_or(false, |curr| {
+                self.eval_stack
+                    .get(ply as usize - 2)
+                    .and_then(|&x| x)
+                    .map_or(false, |prev| curr > prev)
+            });
+
         // Reverse futility: at shallow non-mate-window nodes not in check, a
         // static eval comfortably above beta almost never comes back below it
         // after a real search; return the eval as a fail-soft bound. The
         // margin grows with depth so deeper nodes need a bigger cushion.
-        let mut static_eval: Option<i32> = None;
+        // When not improving, the side to move is struggling, so we prune
+        // more aggressively with a tighter margin (70cp/depth vs 90cp/depth).
         if self.use_nullmove
             && depth <= 7
             && beta.abs() < MATE_TT_THRESHOLD
             && alpha.abs() < MATE_TT_THRESHOLD
-            && board.checkers().is_empty()
+            && !is_in_check
         {
-            let eval = *static_eval.get_or_insert_with(|| self.eval_current(board));
-            if eval - 90 * depth as i32 >= beta {
-                return Ok(eval);
+            if let Some(eval) = static_eval {
+                let rfp_margin = if improving { 75 * depth as i32 } else { 95 * depth as i32 };
+                if eval - rfp_margin >= beta {
+                    return Ok(eval);
+                }
             }
         }
         // Null-move pruning with additional guards for shallow depths and endgames
@@ -1579,17 +1615,18 @@ impl Searcher {
                 {
                     let mi = move_index(m);
                     let hist = self.history_table.get(mi).copied().unwrap_or(0);
-                    let mut red = lmr_reduction(depth, idx + 1, hist);
+                    let mut red = lmr_reduction_improving(depth, idx + 1, hist, improving);
                     if self.use_killers && self.killer_bonus(ply, m) > 0 {
                         red = red.saturating_sub(1);
                     }
-                    red
+                    red.min(depth.saturating_sub(2))
                 } else {
                     0
                 };
+                let search_depth = depth.saturating_sub(1 + r) + ext;
                 let mut scout = self.alphabeta(
                     &child,
-                    depth - 1 - r + ext,
+                    search_depth,
                     -alpha - 1,
                     -alpha,
                     ply + 1,
