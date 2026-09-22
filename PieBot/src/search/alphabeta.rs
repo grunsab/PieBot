@@ -1438,6 +1438,70 @@ impl Searcher {
             }
         }
 
+        // ProbCut: at depth >= 6 in non-PV nodes where static eval is already >= beta,
+        // if a shallow search (>= 2 plies) of winning captures with a raised beta
+        // threshold (beta + 200cp) causes a cutoff, return beta immediately.
+        if self.use_nullmove
+            && depth >= 6
+            && beta.abs() < MATE_TT_THRESHOLD
+            && alpha.abs() < MATE_TT_THRESHOLD
+            && !is_in_check
+            && (beta - alpha) <= 1
+            && static_eval.map_or(false, |ev| ev >= beta)
+        {
+            let probcut_beta = (beta + 200).min(MATE_TT_THRESHOLD - 1);
+            let probcut_depth = depth.saturating_sub(4);
+            if probcut_depth >= 2 {
+                let mut tactical_moves = Vec::with_capacity(16);
+                board.generate_moves(|ml| {
+                    for m in ml {
+                        if self.is_capture(board, m) || m.promotion.is_some() {
+                            tactical_moves.push(m);
+                        }
+                    }
+                    false
+                });
+
+                tactical_moves.sort_unstable_by_key(|&m| {
+                    let see = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    -see
+                });
+
+                for m in tactical_moves {
+                    if crate::search::see::see_gain_cp(board, m).unwrap_or(0) < 0 {
+                        continue;
+                    }
+                    let mut child = board.clone();
+                    child.play_unchecked(m);
+                    let mut change = None;
+                    if self.use_nnue {
+                        if let Some(qn) = self.nnue_quant.as_mut() {
+                            change = Some(qn.apply_move(board, m, &child));
+                        }
+                    }
+                    self.search_history.push(child.clone());
+                    let gives_check = !child.checkers().is_empty();
+                    let child_depth = probcut_depth + if gives_check { 1 } else { 0 };
+                    let score_res = self.alphabeta(
+                        &child,
+                        child_depth,
+                        -probcut_beta,
+                        -probcut_beta + 1,
+                        ply + 1,
+                        move_index(m),
+                        true,
+                    );
+                    self.search_history.pop();
+                    self.nnue_revert_change(change);
+                    if let Ok(score) = score_res {
+                        if -score >= probcut_beta {
+                            return Ok(beta);
+                        }
+                    }
+                }
+            }
+        }
+
         // Build movelist and order
         let mut moves: Vec<Move> = Vec::with_capacity(64);
         board.generate_moves(|ml| {

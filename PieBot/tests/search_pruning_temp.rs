@@ -28,3 +28,17 @@ fn test_experimental_improving_asymmetric_pruning() {
     assert!(res.nodes > 0, "Search visited nodes");
 }
 
+#[test]
+fn test_probcut_search_depth() {
+    let mut searcher = Searcher::default();
+    searcher.set_use_lmr(true);
+    searcher.set_use_nullmove(true);
+    searcher.set_use_history(true);
+
+    let board: Board = "r1bqk2r/pppp1ppp/2n5/1B2p3/4n3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 5".parse().unwrap();
+    let res = searcher.search_depth(&board, 7);
+    assert!(res.bestmove.is_some(), "ProbCut search finds a valid move");
+    assert!(res.nodes > 0, "Nodes searched");
+}
+
+
