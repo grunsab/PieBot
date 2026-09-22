@@ -1182,6 +1182,118 @@ impl Searcher {
         })
     }
 
+    fn order_moves_slice(
+        &self,
+        board: &Board,
+        moves: &mut [Move],
+        ply: i32,
+        parent_move_idx: usize,
+    ) {
+        if moves.len() <= 1 {
+            return;
+        }
+        let opp = if board.side_to_move() == cozy_chess::Color::White {
+            cozy_chess::Color::Black
+        } else {
+            cozy_chess::Color::White
+        };
+        let opp_bb = board.colors(opp);
+        let mut occ_mask: u64 = 0;
+        for sq in opp_bb {
+            occ_mask |= 1u64 << (sq as usize);
+        }
+        let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
+        for &m in moves.iter() {
+            let to_sq: Square = m.to;
+            let bit = 1u64 << (to_sq as usize);
+            let is_cap = if self.order_captures {
+                if (occ_mask & bit) != 0 {
+                    1
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            let mvv = if is_cap == 1 {
+                mvv_lva_score(board, m)
+            } else {
+                0
+            };
+            let mi = move_index(m);
+            let hist = if self.use_history {
+                self.history_table.get(mi).copied().unwrap_or(0)
+            } else {
+                0
+            };
+            let conthist = if self.use_history && is_cap == 0 {
+                let mut ch = 0;
+                if let Some(piece) = board.piece_on(m.from) {
+                    let curr_psi = piece_sq_index(piece, m.to);
+                    if ply > 0 {
+                        if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
+                            let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
+                            ch += 2 * self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + curr_psi];
+                        }
+                    }
+                    if ply > 1 {
+                        if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
+                            let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
+                            ch += self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + curr_psi];
+                        }
+                    }
+                }
+                (ch / 3).clamp(-300, 300)
+            } else {
+                0
+            };
+            let cm = if self.use_history && parent_move_idx != usize::MAX {
+                if self
+                    .counter_move
+                    .get(parent_move_idx)
+                    .copied()
+                    .unwrap_or(usize::MAX)
+                    == mi
+                {
+                    40
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            let kb = if self.use_killers {
+                self.killer_bonus(ply, m)
+            } else {
+                0
+            };
+            let sort_score = if is_cap == 1 {
+                let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                let cap_hist = if self.use_history {
+                    let p = board.piece_on(m.from).unwrap();
+                    let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                    self.capture_history[capture_history_index(p, m.to, victim)] / 16
+                } else {
+                    0
+                };
+                if see_gain >= 0 {
+                    1_000_000 + mvv * 10 + cap_hist + see_gain
+                } else {
+                    -1_000_000 + cap_hist + see_gain
+                }
+            } else {
+                let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                let cm_weight = if cm > 0 { 20_000 } else { 0 };
+                (killer_weight + cm_weight + hist + conthist).clamp(-500_000, 500_000)
+            };
+            scored.push((m, -sort_score));
+        }
+        scored.sort_by_key(|&(_, score)| score);
+        for (i, (m, _)) in scored.into_iter().enumerate() {
+            moves[i] = m;
+        }
+    }
+
     fn alphabeta(
         &mut self,
         board: &Board,
@@ -1290,108 +1402,13 @@ impl Searcher {
                 }
             }
         }
-        // Captures-first, killers, and history ordering
-        if self.order_captures || self.use_history || self.use_killers {
-            let opp = if board.side_to_move() == cozy_chess::Color::White {
-                cozy_chess::Color::Black
-            } else {
-                cozy_chess::Color::White
-            };
-            let opp_bb = board.colors(opp);
-            let mut occ_mask: u64 = 0;
-            for sq in opp_bb {
-                occ_mask |= 1u64 << (sq as usize);
-            }
-            let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
-            for &m in &moves {
-                let to_sq: Square = m.to;
-                let bit = 1u64 << (to_sq as usize);
-                let is_cap = if self.order_captures {
-                    if (occ_mask & bit) != 0 {
-                        1
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                let mvv = if is_cap == 1 {
-                    mvv_lva_score(board, m)
-                } else {
-                    0
-                };
-                let mi = move_index(m);
-                let hist = if self.use_history {
-                    self.history_table.get(mi).copied().unwrap_or(0)
-                } else {
-                    0
-                };
-                let conthist = if self.use_history && is_cap == 0 {
-                    let mut ch = 0;
-                    if let Some(piece) = board.piece_on(m.from) {
-                        let curr_psi = piece_sq_index(piece, m.to);
-                        if ply > 0 {
-                            if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
-                                let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
-                                ch += 2 * self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + curr_psi];
-                            }
-                        }
-                        if ply > 1 {
-                            if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
-                                let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
-                                ch += self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + curr_psi];
-                            }
-                        }
-                    }
-                    (ch / 3).clamp(-300, 300)
-                } else {
-                    0
-                };
-                let cm = if self.use_history && parent_move_idx != usize::MAX {
-                    if self
-                        .counter_move
-                        .get(parent_move_idx)
-                        .copied()
-                        .unwrap_or(usize::MAX)
-                        == mi
-                    {
-                        40
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                let kb = if self.use_killers {
-                    self.killer_bonus(ply, m)
-                } else {
-                    0
-                };
-                let sort_score = if tt_best == Some(m) {
-                    10_000_000
-                } else if is_cap == 1 {
-                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    let cap_hist = if self.use_history {
-                        let p = board.piece_on(m.from).unwrap();
-                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
-                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
-                    } else {
-                        0
-                    };
-                    if see_gain >= 0 {
-                        1_000_000 + mvv * 10 + cap_hist + see_gain
-                    } else {
-                        -1_000_000 + cap_hist + see_gain
-                    }
-                } else {
-                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
-                    let cm_weight = if cm > 0 { 20_000 } else { 0 };
-                    (killer_weight + cm_weight + hist + conthist).clamp(-500_000, 500_000)
-                };
-                scored.push((m, -sort_score));
-            }
-            scored.sort_by_key(|&(_, score)| score);
-            moves = scored.into_iter().map(|(m, _)| m).collect();
+        // Lazy move ordering: if a TT move exists, defer ordering the remaining moves
+        // until after the TT move is searched. If the TT move produces a beta-cutoff,
+        // we avoid all move scoring, SEE calculations, and allocations entirely.
+        let mut remaining_ordered = false;
+        if tt_best.is_none() && (self.order_captures || self.use_history || self.use_killers) {
+            self.order_moves_slice(board, &mut moves, ply, parent_move_idx);
+            remaining_ordered = true;
         }
 
         let mut best = -MATE_SCORE;
@@ -1410,7 +1427,13 @@ impl Searcher {
             promotion: None,
         }; 32];
         let mut num_captures_tried: usize = 0;
-        for (idx, m) in moves.into_iter().enumerate() {
+        let num_moves = moves.len();
+        for idx in 0..num_moves {
+            if idx == 1 && !remaining_ordered && (self.order_captures || self.use_history || self.use_killers) {
+                self.order_moves_slice(board, &mut moves[1..], ply, parent_move_idx);
+                remaining_ordered = true;
+            }
+            let m = moves[idx];
             let is_capture_move = self.is_capture(board, m);
             if !is_capture_move && num_quiets_tried < 64 {
                 quiets_tried[num_quiets_tried] = m;

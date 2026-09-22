@@ -105,6 +105,16 @@ Per the change management policy in `AGENTS.md`, any search modifications must f
    - Changes are promoted only if the paired-bootstrap 95% confidence lower bound (LCB) is positive (> 0 Elo).
    - Once approved, copy `alphabeta_temp.rs` to `alphabeta.rs` and reset `alphabeta_temp.rs` back to the re-export stub.
 
+### Model-Only A/B Evaluation
+
+To benchmark candidate neural networks holding search implementation constant:
+```bash
+cargo run --locked --release --manifest-path PieBot/Cargo.toml --bin compare_play -- \
+  --same-search --games 40 --movetime 200 --threads 1 \
+  --base-eval nnue --base-nnue-quant-file /path/base.nnue \
+  --exp-eval nnue --exp-nnue-quant-file /path/candidate.nnue
+```
+
 ---
 
 ## Ranked Engine Monitoring
