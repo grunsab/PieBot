@@ -1,0 +1,3308 @@
+{
+  "base_threads": 1,
+  "baseline": {
+    "avg_depth": 9.248706896551724,
+    "avg_nps": 2092387.2634644273,
+    "moves": 4640,
+    "nodes": 970686892,
+    "time_s": 463.91359235900006
+  },
+  "engines": {
+    "baseline": "piebot::search::alphabeta::Searcher",
+    "experimental": "piebot::search::alphabeta_temp::Searcher"
+  },
+  "exp_threads": 1,
+  "experimental": {
+    "avg_depth": 9.229045464339581,
+    "avg_nps": 2104523.2652740926,
+    "moves": 4641,
+    "nodes": 976774581,
+    "time_s": 464.13104436400005
+  },
+  "fixed_depth": null,
+  "game_results": [
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 0,
+      "opening_id": "306072c78ed8415a",
+      "pair_index": 0,
+      "plies": 117,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 1,
+      "opening_id": "306072c78ed8415a",
+      "pair_index": 0,
+      "plies": 101,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 2,
+      "opening_id": "d37e9582ca25838c",
+      "pair_index": 1,
+      "plies": 98,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 3,
+      "opening_id": "d37e9582ca25838c",
+      "pair_index": 1,
+      "plies": 72,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 4,
+      "opening_id": "e90601e0b2e5ad36",
+      "pair_index": 2,
+      "plies": 138,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 5,
+      "opening_id": "e90601e0b2e5ad36",
+      "pair_index": 2,
+      "plies": 87,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 6,
+      "opening_id": "1af3942cec1d94db",
+      "pair_index": 3,
+      "plies": 77,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 7,
+      "opening_id": "1af3942cec1d94db",
+      "pair_index": 3,
+      "plies": 115,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 8,
+      "opening_id": "35e34adb84be3d31",
+      "pair_index": 4,
+      "plies": 111,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 9,
+      "opening_id": "35e34adb84be3d31",
+      "pair_index": 4,
+      "plies": 81,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 10,
+      "opening_id": "a2cca70b17630625",
+      "pair_index": 5,
+      "plies": 44,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 11,
+      "opening_id": "a2cca70b17630625",
+      "pair_index": 5,
+      "plies": 89,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 12,
+      "opening_id": "37659eb4dbd54981",
+      "pair_index": 6,
+      "plies": 46,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 13,
+      "opening_id": "37659eb4dbd54981",
+      "pair_index": 6,
+      "plies": 185,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 14,
+      "opening_id": "a180581547f4fc51",
+      "pair_index": 7,
+      "plies": 75,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 15,
+      "opening_id": "a180581547f4fc51",
+      "pair_index": 7,
+      "plies": 95,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 16,
+      "opening_id": "227d374c66809e09",
+      "pair_index": 8,
+      "plies": 147,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 17,
+      "opening_id": "227d374c66809e09",
+      "pair_index": 8,
+      "plies": 76,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 18,
+      "opening_id": "668558110570ec48",
+      "pair_index": 9,
+      "plies": 66,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 19,
+      "opening_id": "668558110570ec48",
+      "pair_index": 9,
+      "plies": 149,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 20,
+      "opening_id": "9ab00cefffd790d7",
+      "pair_index": 10,
+      "plies": 67,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 21,
+      "opening_id": "9ab00cefffd790d7",
+      "pair_index": 10,
+      "plies": 81,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 22,
+      "opening_id": "78e0d4f40ad54541",
+      "pair_index": 11,
+      "plies": 143,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 23,
+      "opening_id": "78e0d4f40ad54541",
+      "pair_index": 11,
+      "plies": 61,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 24,
+      "opening_id": "a89beef34d2b4baa",
+      "pair_index": 12,
+      "plies": 66,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 25,
+      "opening_id": "a89beef34d2b4baa",
+      "pair_index": 12,
+      "plies": 56,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 26,
+      "opening_id": "4d46a59e0c371661",
+      "pair_index": 13,
+      "plies": 142,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 27,
+      "opening_id": "4d46a59e0c371661",
+      "pair_index": 13,
+      "plies": 150,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 28,
+      "opening_id": "78ec4924b66a4ba2",
+      "pair_index": 14,
+      "plies": 83,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 29,
+      "opening_id": "78ec4924b66a4ba2",
+      "pair_index": 14,
+      "plies": 85,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 30,
+      "opening_id": "758606fae14a5540",
+      "pair_index": 15,
+      "plies": 167,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 31,
+      "opening_id": "758606fae14a5540",
+      "pair_index": 15,
+      "plies": 174,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 32,
+      "opening_id": "7ec230591c3103fa",
+      "pair_index": 16,
+      "plies": 85,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 33,
+      "opening_id": "7ec230591c3103fa",
+      "pair_index": 16,
+      "plies": 86,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 34,
+      "opening_id": "1d7053313d09a490",
+      "pair_index": 17,
+      "plies": 49,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 35,
+      "opening_id": "1d7053313d09a490",
+      "pair_index": 17,
+      "plies": 110,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 36,
+      "opening_id": "7cc92e8867db0b7f",
+      "pair_index": 18,
+      "plies": 99,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 37,
+      "opening_id": "7cc92e8867db0b7f",
+      "pair_index": 18,
+      "plies": 69,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 38,
+      "opening_id": "fcdaacdd474e189c",
+      "pair_index": 19,
+      "plies": 97,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 39,
+      "opening_id": "fcdaacdd474e189c",
+      "pair_index": 19,
+      "plies": 166,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 40,
+      "opening_id": "96d7c02af792a4fd",
+      "pair_index": 20,
+      "plies": 40,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 41,
+      "opening_id": "96d7c02af792a4fd",
+      "pair_index": 20,
+      "plies": 122,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 42,
+      "opening_id": "03090d3be5deac44",
+      "pair_index": 21,
+      "plies": 166,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 43,
+      "opening_id": "03090d3be5deac44",
+      "pair_index": 21,
+      "plies": 73,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 44,
+      "opening_id": "0b343ce03912c81f",
+      "pair_index": 22,
+      "plies": 91,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 45,
+      "opening_id": "0b343ce03912c81f",
+      "pair_index": 22,
+      "plies": 92,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 46,
+      "opening_id": "288df6b4e899dbff",
+      "pair_index": 23,
+      "plies": 153,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 47,
+      "opening_id": "288df6b4e899dbff",
+      "pair_index": 23,
+      "plies": 103,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 48,
+      "opening_id": "b6311f593628bba4",
+      "pair_index": 24,
+      "plies": 96,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 49,
+      "opening_id": "b6311f593628bba4",
+      "pair_index": 24,
+      "plies": 107,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 50,
+      "opening_id": "93f1101b1ae3a117",
+      "pair_index": 25,
+      "plies": 109,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 51,
+      "opening_id": "93f1101b1ae3a117",
+      "pair_index": 25,
+      "plies": 137,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 52,
+      "opening_id": "2327ae20377171ef",
+      "pair_index": 26,
+      "plies": 86,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 53,
+      "opening_id": "2327ae20377171ef",
+      "pair_index": 26,
+      "plies": 141,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 54,
+      "opening_id": "aa76a5e6cd1a1c8f",
+      "pair_index": 27,
+      "plies": 119,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 55,
+      "opening_id": "aa76a5e6cd1a1c8f",
+      "pair_index": 27,
+      "plies": 59,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 56,
+      "opening_id": "892940f1d594031f",
+      "pair_index": 28,
+      "plies": 131,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 57,
+      "opening_id": "892940f1d594031f",
+      "pair_index": 28,
+      "plies": 64,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 58,
+      "opening_id": "dcbdc678bd1b5017",
+      "pair_index": 29,
+      "plies": 189,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 59,
+      "opening_id": "dcbdc678bd1b5017",
+      "pair_index": 29,
+      "plies": 99,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 60,
+      "opening_id": "4fc64fd559f1faf8",
+      "pair_index": 30,
+      "plies": 132,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 61,
+      "opening_id": "4fc64fd559f1faf8",
+      "pair_index": 30,
+      "plies": 106,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 62,
+      "opening_id": "ea22f29323411027",
+      "pair_index": 31,
+      "plies": 98,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 63,
+      "opening_id": "ea22f29323411027",
+      "pair_index": 31,
+      "plies": 117,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 64,
+      "opening_id": "d51867b69ee30a3c",
+      "pair_index": 32,
+      "plies": 121,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 65,
+      "opening_id": "d51867b69ee30a3c",
+      "pair_index": 32,
+      "plies": 99,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 66,
+      "opening_id": "11839718a066b166",
+      "pair_index": 33,
+      "plies": 62,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 67,
+      "opening_id": "11839718a066b166",
+      "pair_index": 33,
+      "plies": 73,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 68,
+      "opening_id": "14d24946797c5299",
+      "pair_index": 34,
+      "plies": 49,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 69,
+      "opening_id": "14d24946797c5299",
+      "pair_index": 34,
+      "plies": 125,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 70,
+      "opening_id": "4a3310d18d56d008",
+      "pair_index": 35,
+      "plies": 89,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 71,
+      "opening_id": "4a3310d18d56d008",
+      "pair_index": 35,
+      "plies": 62,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 72,
+      "opening_id": "87c68dedc19d513a",
+      "pair_index": 36,
+      "plies": 156,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 73,
+      "opening_id": "87c68dedc19d513a",
+      "pair_index": 36,
+      "plies": 154,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 74,
+      "opening_id": "360b712c5c6d22e5",
+      "pair_index": 37,
+      "plies": 76,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 75,
+      "opening_id": "360b712c5c6d22e5",
+      "pair_index": 37,
+      "plies": 60,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 76,
+      "opening_id": "4fb2841f873dfb11",
+      "pair_index": 38,
+      "plies": 174,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 77,
+      "opening_id": "4fb2841f873dfb11",
+      "pair_index": 38,
+      "plies": 43,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 78,
+      "opening_id": "883a808d8f3a4580",
+      "pair_index": 39,
+      "plies": 56,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 79,
+      "opening_id": "883a808d8f3a4580",
+      "pair_index": 39,
+      "plies": 164,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 80,
+      "opening_id": "bca4bd43eacf2536",
+      "pair_index": 40,
+      "plies": 49,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 81,
+      "opening_id": "bca4bd43eacf2536",
+      "pair_index": 40,
+      "plies": 74,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 82,
+      "opening_id": "faf3ff7c6101f3f1",
+      "pair_index": 41,
+      "plies": 146,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 83,
+      "opening_id": "faf3ff7c6101f3f1",
+      "pair_index": 41,
+      "plies": 104,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 84,
+      "opening_id": "44ca10c43743ef01",
+      "pair_index": 42,
+      "plies": 95,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 85,
+      "opening_id": "44ca10c43743ef01",
+      "pair_index": 42,
+      "plies": 120,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 86,
+      "opening_id": "dc118cdc9cc4b5ad",
+      "pair_index": 43,
+      "plies": 156,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 87,
+      "opening_id": "dc118cdc9cc4b5ad",
+      "pair_index": 43,
+      "plies": 93,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 88,
+      "opening_id": "98e8dec1849081ed",
+      "pair_index": 44,
+      "plies": 187,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 89,
+      "opening_id": "98e8dec1849081ed",
+      "pair_index": 44,
+      "plies": 154,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 90,
+      "opening_id": "82959604e34915dd",
+      "pair_index": 45,
+      "plies": 109,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 91,
+      "opening_id": "82959604e34915dd",
+      "pair_index": 45,
+      "plies": 96,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 92,
+      "opening_id": "33a81d9b991a42f9",
+      "pair_index": 46,
+      "plies": 166,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 93,
+      "opening_id": "33a81d9b991a42f9",
+      "pair_index": 46,
+      "plies": 169,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 94,
+      "opening_id": "b6695519c70411cf",
+      "pair_index": 47,
+      "plies": 82,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 95,
+      "opening_id": "b6695519c70411cf",
+      "pair_index": 47,
+      "plies": 94,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 96,
+      "opening_id": "fc9f014d595ffd7c",
+      "pair_index": 48,
+      "plies": 88,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 97,
+      "opening_id": "fc9f014d595ffd7c",
+      "pair_index": 48,
+      "plies": 94,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 98,
+      "opening_id": "306ab51746532d41",
+      "pair_index": 49,
+      "plies": 64,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 99,
+      "opening_id": "306ab51746532d41",
+      "pair_index": 49,
+      "plies": 143,
+      "result_baseline_pov": -1.0
+    }
+  ],
+  "games": 100,
+  "match_wall_time_s": 130.613718042,
+  "movetime_ms": 100,
+  "noise_plies": 12,
+  "noise_topk": 5,
+  "pair_results": [
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        0,
+        1
+      ],
+      "opening_id": "306072c78ed8415a",
+      "pair_index": 0
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        2,
+        3
+      ],
+      "opening_id": "d37e9582ca25838c",
+      "pair_index": 1
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        4,
+        5
+      ],
+      "opening_id": "e90601e0b2e5ad36",
+      "pair_index": 2
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        6,
+        7
+      ],
+      "opening_id": "1af3942cec1d94db",
+      "pair_index": 3
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        8,
+        9
+      ],
+      "opening_id": "35e34adb84be3d31",
+      "pair_index": 4
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        10,
+        11
+      ],
+      "opening_id": "a2cca70b17630625",
+      "pair_index": 5
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        12,
+        13
+      ],
+      "opening_id": "37659eb4dbd54981",
+      "pair_index": 6
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        14,
+        15
+      ],
+      "opening_id": "a180581547f4fc51",
+      "pair_index": 7
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        16,
+        17
+      ],
+      "opening_id": "227d374c66809e09",
+      "pair_index": 8
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        18,
+        19
+      ],
+      "opening_id": "668558110570ec48",
+      "pair_index": 9
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        20,
+        21
+      ],
+      "opening_id": "9ab00cefffd790d7",
+      "pair_index": 10
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        22,
+        23
+      ],
+      "opening_id": "78e0d4f40ad54541",
+      "pair_index": 11
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        24,
+        25
+      ],
+      "opening_id": "a89beef34d2b4baa",
+      "pair_index": 12
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        26,
+        27
+      ],
+      "opening_id": "4d46a59e0c371661",
+      "pair_index": 13
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        28,
+        29
+      ],
+      "opening_id": "78ec4924b66a4ba2",
+      "pair_index": 14
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        30,
+        31
+      ],
+      "opening_id": "758606fae14a5540",
+      "pair_index": 15
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        32,
+        33
+      ],
+      "opening_id": "7ec230591c3103fa",
+      "pair_index": 16
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        34,
+        35
+      ],
+      "opening_id": "1d7053313d09a490",
+      "pair_index": 17
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        36,
+        37
+      ],
+      "opening_id": "7cc92e8867db0b7f",
+      "pair_index": 18
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        38,
+        39
+      ],
+      "opening_id": "fcdaacdd474e189c",
+      "pair_index": 19
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        40,
+        41
+      ],
+      "opening_id": "96d7c02af792a4fd",
+      "pair_index": 20
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        42,
+        43
+      ],
+      "opening_id": "03090d3be5deac44",
+      "pair_index": 21
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        44,
+        45
+      ],
+      "opening_id": "0b343ce03912c81f",
+      "pair_index": 22
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        46,
+        47
+      ],
+      "opening_id": "288df6b4e899dbff",
+      "pair_index": 23
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        48,
+        49
+      ],
+      "opening_id": "b6311f593628bba4",
+      "pair_index": 24
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        50,
+        51
+      ],
+      "opening_id": "93f1101b1ae3a117",
+      "pair_index": 25
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        52,
+        53
+      ],
+      "opening_id": "2327ae20377171ef",
+      "pair_index": 26
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        54,
+        55
+      ],
+      "opening_id": "aa76a5e6cd1a1c8f",
+      "pair_index": 27
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        56,
+        57
+      ],
+      "opening_id": "892940f1d594031f",
+      "pair_index": 28
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        58,
+        59
+      ],
+      "opening_id": "dcbdc678bd1b5017",
+      "pair_index": 29
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        60,
+        61
+      ],
+      "opening_id": "4fc64fd559f1faf8",
+      "pair_index": 30
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        62,
+        63
+      ],
+      "opening_id": "ea22f29323411027",
+      "pair_index": 31
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        64,
+        65
+      ],
+      "opening_id": "d51867b69ee30a3c",
+      "pair_index": 32
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        66,
+        67
+      ],
+      "opening_id": "11839718a066b166",
+      "pair_index": 33
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        68,
+        69
+      ],
+      "opening_id": "14d24946797c5299",
+      "pair_index": 34
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        70,
+        71
+      ],
+      "opening_id": "4a3310d18d56d008",
+      "pair_index": 35
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        72,
+        73
+      ],
+      "opening_id": "87c68dedc19d513a",
+      "pair_index": 36
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        74,
+        75
+      ],
+      "opening_id": "360b712c5c6d22e5",
+      "pair_index": 37
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        76,
+        77
+      ],
+      "opening_id": "4fb2841f873dfb11",
+      "pair_index": 38
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        78,
+        79
+      ],
+      "opening_id": "883a808d8f3a4580",
+      "pair_index": 39
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        80,
+        81
+      ],
+      "opening_id": "bca4bd43eacf2536",
+      "pair_index": 40
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        82,
+        83
+      ],
+      "opening_id": "faf3ff7c6101f3f1",
+      "pair_index": 41
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        84,
+        85
+      ],
+      "opening_id": "44ca10c43743ef01",
+      "pair_index": 42
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        86,
+        87
+      ],
+      "opening_id": "dc118cdc9cc4b5ad",
+      "pair_index": 43
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        88,
+        89
+      ],
+      "opening_id": "98e8dec1849081ed",
+      "pair_index": 44
+    },
+    {
+      "baseline_points": 1.5,
+      "delta_points": -1.0,
+      "experimental_points": 0.5,
+      "game_indices": [
+        90,
+        91
+      ],
+      "opening_id": "82959604e34915dd",
+      "pair_index": 45
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        92,
+        93
+      ],
+      "opening_id": "33a81d9b991a42f9",
+      "pair_index": 46
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        94,
+        95
+      ],
+      "opening_id": "b6695519c70411cf",
+      "pair_index": 47
+    },
+    {
+      "baseline_points": 1.0,
+      "delta_points": 0.0,
+      "experimental_points": 1.0,
+      "game_indices": [
+        96,
+        97
+      ],
+      "opening_id": "fc9f014d595ffd7c",
+      "pair_index": 48
+    },
+    {
+      "baseline_points": 0.5,
+      "delta_points": 1.0,
+      "experimental_points": 1.5,
+      "game_indices": [
+        98,
+        99
+      ],
+      "opening_id": "306ab51746532d41",
+      "pair_index": 49
+    }
+  ],
+  "paired_openings": true,
+  "pairing": {
+    "base_seed": 42,
+    "canonical_game_order": true,
+    "colors_reversed": true,
+    "enabled": true,
+    "engine_reset_per_game": true,
+    "games_per_pair": 2,
+    "opening_policy": "neutral-pst-topk-v2",
+    "openings": [
+      {
+        "moves": [
+          "g1f3",
+          "e7e5",
+          "e2e3",
+          "d7d5",
+          "e3e4",
+          "g8f6",
+          "d2d4",
+          "f6e4",
+          "b1c3",
+          "e4f2",
+          "e1f2",
+          "b8d7"
+        ],
+        "opening_id": "306072c78ed8415a",
+        "pair_index": 0,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/5N2/PPPPPPPP/RNBQKB1R w KQkq e6 0 2",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/4PN2/PPPP1PPP/RNBQKB1R b KQkq - 0 2",
+          "rnbqkbnr/ppp2ppp/8/3pp3/8/4PN2/PPPP1PPP/RNBQKB1R w KQkq d6 0 3",
+          "rnbqkbnr/ppp2ppp/8/3pp3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 0 3",
+          "rnbqkb1r/ppp2ppp/5n2/3pp3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 4",
+          "rnbqkb1r/ppp2ppp/5n2/3pp3/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq d3 0 4",
+          "rnbqkb1r/ppp2ppp/8/3pp3/3Pn3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 5",
+          "rnbqkb1r/ppp2ppp/8/3pp3/3Pn3/2N2N2/PPP2PPP/R1BQKB1R b KQkq - 1 5",
+          "rnbqkb1r/ppp2ppp/8/3pp3/3P4/2N2N2/PPP2nPP/R1BQKB1R w KQkq - 0 6",
+          "rnbqkb1r/ppp2ppp/8/3pp3/3P4/2N2N2/PPP2KPP/R1BQ1B1R b kq - 0 6",
+          "r1bqkb1r/pppn1ppp/8/3pp3/3P4/2N2N2/PPP2KPP/R1BQ1B1R w kq - 1 7"
+        ],
+        "seed": 13679457532755275413
+      },
+      {
+        "moves": [
+          "e2e4",
+          "d7d6",
+          "d2d3",
+          "g8f6",
+          "c1f4",
+          "b8c6",
+          "b1d2",
+          "f6e4",
+          "d2e4",
+          "e7e5",
+          "f4e5",
+          "d6e5"
+        ],
+        "opening_id": "d37e9582ca25838c",
+        "pair_index": 1,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "rnbqkbnr/ppp1pppp/3p4/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+          "rnbqkbnr/ppp1pppp/3p4/8/4P3/3P4/PPP2PPP/RNBQKBNR b KQkq - 0 2",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/4P3/3P4/PPP2PPP/RNBQKBNR w KQkq - 1 3",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/4PB2/3P4/PPP2PPP/RN1QKBNR b KQkq - 2 3",
+          "r1bqkb1r/ppp1pppp/2np1n2/8/4PB2/3P4/PPP2PPP/RN1QKBNR w KQkq - 3 4",
+          "r1bqkb1r/ppp1pppp/2np1n2/8/4PB2/3P4/PPPN1PPP/R2QKBNR b KQkq - 4 4",
+          "r1bqkb1r/ppp1pppp/2np4/8/4nB2/3P4/PPPN1PPP/R2QKBNR w KQkq - 0 5",
+          "r1bqkb1r/ppp1pppp/2np4/8/4NB2/3P4/PPP2PPP/R2QKBNR b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/2np4/4p3/4NB2/3P4/PPP2PPP/R2QKBNR w KQkq e6 0 6",
+          "r1bqkb1r/ppp2ppp/2np4/4B3/4N3/3P4/PPP2PPP/R2QKBNR b KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/2n5/4p3/4N3/3P4/PPP2PPP/R2QKBNR w KQkq - 0 7"
+        ],
+        "seed": 14473931205035997723
+      },
+      {
+        "moves": [
+          "d2d3",
+          "e7e5",
+          "b1d2",
+          "g8f6",
+          "e2e4",
+          "d7d5",
+          "g1e2",
+          "b8d7",
+          "e4d5",
+          "d7c5",
+          "d2e4",
+          "d8d5"
+        ],
+        "opening_id": "e90601e0b2e5ad36",
+        "pair_index": 2,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/3P4/PPP1PPPP/RNBQKBNR w KQkq e6 0 2",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/3P4/PPPNPPPP/R1BQKBNR b KQkq - 1 2",
+          "rnbqkb1r/pppp1ppp/5n2/4p3/8/3P4/PPPNPPPP/R1BQKBNR w KQkq - 2 3",
+          "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/3P4/PPPN1PPP/R1BQKBNR b KQkq e3 0 3",
+          "rnbqkb1r/ppp2ppp/5n2/3pp3/4P3/3P4/PPPN1PPP/R1BQKBNR w KQkq d6 0 4",
+          "rnbqkb1r/ppp2ppp/5n2/3pp3/4P3/3P4/PPPNNPPP/R1BQKB1R b KQkq - 1 4",
+          "r1bqkb1r/pppn1ppp/5n2/3pp3/4P3/3P4/PPPNNPPP/R1BQKB1R w KQkq - 2 5",
+          "r1bqkb1r/pppn1ppp/5n2/3Pp3/8/3P4/PPPNNPPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/5n2/2nPp3/8/3P4/PPPNNPPP/R1BQKB1R w KQkq - 1 6",
+          "r1bqkb1r/ppp2ppp/5n2/2nPp3/4N3/3P4/PPP1NPPP/R1BQKB1R b KQkq - 2 6",
+          "r1b1kb1r/ppp2ppp/5n2/2nqp3/4N3/3P4/PPP1NPPP/R1BQKB1R w KQkq - 0 7"
+        ],
+        "seed": 18048596636615606144
+      },
+      {
+        "moves": [
+          "e2e4",
+          "e7e5",
+          "d2d4",
+          "b8c6",
+          "b1d2",
+          "g8f6",
+          "g1e2",
+          "d7d5",
+          "e2f4",
+          "e5f4",
+          "d2c4",
+          "f8c5"
+        ],
+        "opening_id": "1af3942cec1d94db",
+        "pair_index": 3,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
+          "rnbqkbnr/pppp1ppp/8/4p3/3PP3/8/PPP2PPP/RNBQKBNR b KQkq d3 0 2",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 1 3",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/8/PPPN1PPP/R1BQKBNR b KQkq - 2 3",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/3PP3/8/PPPN1PPP/R1BQKBNR w KQkq - 3 4",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/3PP3/8/PPPNNPPP/R1BQKB1R b KQkq - 4 4",
+          "r1bqkb1r/ppp2ppp/2n2n2/3pp3/3PP3/8/PPPNNPPP/R1BQKB1R w KQkq d6 0 5",
+          "r1bqkb1r/ppp2ppp/2n2n2/3pp3/3PPN2/8/PPPN1PPP/R1BQKB1R b KQkq - 1 5",
+          "r1bqkb1r/ppp2ppp/2n2n2/3p4/3PPp2/8/PPPN1PPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/2n2n2/3p4/2NPPp2/8/PPP2PPP/R1BQKB1R b KQkq - 1 6",
+          "r1bqk2r/ppp2ppp/2n2n2/2bp4/2NPPp2/8/PPP2PPP/R1BQKB1R w KQkq - 2 7"
+        ],
+        "seed": 5632914758302621589
+      },
+      {
+        "moves": [
+          "g1f3",
+          "d7d5",
+          "b1c3",
+          "b8c6",
+          "d2d4",
+          "g8f6",
+          "c1f4",
+          "e7e6",
+          "c3d5",
+          "d8d5",
+          "d1d3",
+          "d5a2"
+        ],
+        "opening_id": "35e34adb84be3d31",
+        "pair_index": 4,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/5N2/PPPPPPPP/RNBQKB1R w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2N2N2/PPPPPPPP/R1BQKB1R b KQkq - 1 2",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq - 2 3",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/3P4/2N2N2/PPP1PPPP/R1BQKB1R b KQkq d3 0 3",
+          "r1bqkb1r/ppp1pppp/2n2n2/3p4/3P4/2N2N2/PPP1PPPP/R1BQKB1R w KQkq - 1 4",
+          "r1bqkb1r/ppp1pppp/2n2n2/3p4/3P1B2/2N2N2/PPP1PPPP/R2QKB1R b KQkq - 2 4",
+          "r1bqkb1r/ppp2ppp/2n1pn2/3p4/3P1B2/2N2N2/PPP1PPPP/R2QKB1R w KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/2n1pn2/3N4/3P1B2/5N2/PPP1PPPP/R2QKB1R b KQkq - 0 5",
+          "r1b1kb1r/ppp2ppp/2n1pn2/3q4/3P1B2/5N2/PPP1PPPP/R2QKB1R w KQkq - 0 6",
+          "r1b1kb1r/ppp2ppp/2n1pn2/3q4/3P1B2/3Q1N2/PPP1PPPP/R3KB1R b KQkq - 1 6",
+          "r1b1kb1r/ppp2ppp/2n1pn2/8/3P1B2/3Q1N2/qPP1PPPP/R3KB1R w KQkq - 0 7"
+        ],
+        "seed": 17480351382546754244
+      },
+      {
+        "moves": [
+          "e2e4",
+          "e7e5",
+          "b1c3",
+          "b8c6",
+          "d2d4",
+          "e5d4",
+          "g1e2",
+          "g8f6",
+          "c1e3",
+          "f6e4",
+          "c3e4",
+          "f8d6"
+        ],
+        "opening_id": "a2cca70b17630625",
+        "pair_index": 5,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
+          "rnbqkbnr/pppp1ppp/8/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq - 1 2",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 2 3",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq d3 0 3",
+          "r1bqkbnr/pppp1ppp/2n5/8/3pP3/2N5/PPP2PPP/R1BQKBNR w KQkq - 0 4",
+          "r1bqkbnr/pppp1ppp/2n5/8/3pP3/2N5/PPP1NPPP/R1BQKB1R b KQkq - 1 4",
+          "r1bqkb1r/pppp1ppp/2n2n2/8/3pP3/2N5/PPP1NPPP/R1BQKB1R w KQkq - 2 5",
+          "r1bqkb1r/pppp1ppp/2n2n2/8/3pP3/2N1B3/PPP1NPPP/R2QKB1R b KQkq - 3 5",
+          "r1bqkb1r/pppp1ppp/2n5/8/3pn3/2N1B3/PPP1NPPP/R2QKB1R w KQkq - 0 6",
+          "r1bqkb1r/pppp1ppp/2n5/8/3pN3/4B3/PPP1NPPP/R2QKB1R b KQkq - 0 6",
+          "r1bqk2r/pppp1ppp/2nb4/8/3pN3/4B3/PPP1NPPP/R2QKB1R w KQkq - 1 7"
+        ],
+        "seed": 12222696750090118014
+      },
+      {
+        "moves": [
+          "d2d4",
+          "b8c6",
+          "g1f3",
+          "e7e5",
+          "b1d2",
+          "d7d5",
+          "e2e4",
+          "e5d4",
+          "f3d4",
+          "g8e7",
+          "f1c4",
+          "c8e6"
+        ],
+        "opening_id": "37659eb4dbd54981",
+        "pair_index": 6,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq - 2 2",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq e6 0 3",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3P4/5N2/PPPNPPPP/R1BQKB1R b KQkq - 1 3",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/3P4/5N2/PPPNPPPP/R1BQKB1R w KQkq d6 0 4",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/5N2/PPPN1PPP/R1BQKB1R b KQkq e3 0 4",
+          "r1bqkbnr/ppp2ppp/2n5/3p4/3pP3/5N2/PPPN1PPP/R1BQKB1R w KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/2n5/3p4/3NP3/8/PPPN1PPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/ppp1nppp/2n5/3p4/3NP3/8/PPPN1PPP/R1BQKB1R w KQkq - 1 6",
+          "r1bqkb1r/ppp1nppp/2n5/3p4/2BNP3/8/PPPN1PPP/R1BQK2R b KQkq - 2 6",
+          "r2qkb1r/ppp1nppp/2n1b3/3p4/2BNP3/8/PPPN1PPP/R1BQK2R w KQkq - 3 7"
+        ],
+        "seed": 14467605813416554932
+      },
+      {
+        "moves": [
+          "b1c3",
+          "d7d5",
+          "d2d4",
+          "c8f5",
+          "e2e3",
+          "f5c2",
+          "d1c2",
+          "e7e6",
+          "g1e2",
+          "f8c5",
+          "e2f4",
+          "g8f6"
+        ],
+        "opening_id": "a180581547f4fc51",
+        "pair_index": 7,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2N5/PPPPPPPP/R1BQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/3P4/2N5/PPP1PPPP/R1BQKBNR b KQkq d3 0 2",
+          "rn1qkbnr/ppp1pppp/8/3p1b2/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 1 3",
+          "rn1qkbnr/ppp1pppp/8/3p1b2/3P4/2N1P3/PPP2PPP/R1BQKBNR b KQkq - 0 3",
+          "rn1qkbnr/ppp1pppp/8/3p4/3P4/2N1P3/PPb2PPP/R1BQKBNR w KQkq - 0 4",
+          "rn1qkbnr/ppp1pppp/8/3p4/3P4/2N1P3/PPQ2PPP/R1B1KBNR b KQkq - 0 4",
+          "rn1qkbnr/ppp2ppp/4p3/3p4/3P4/2N1P3/PPQ2PPP/R1B1KBNR w KQkq - 0 5",
+          "rn1qkbnr/ppp2ppp/4p3/3p4/3P4/2N1P3/PPQ1NPPP/R1B1KB1R b KQkq - 1 5",
+          "rn1qk1nr/ppp2ppp/4p3/2bp4/3P4/2N1P3/PPQ1NPPP/R1B1KB1R w KQkq - 2 6",
+          "rn1qk1nr/ppp2ppp/4p3/2bp4/3P1N2/2N1P3/PPQ2PPP/R1B1KB1R b KQkq - 3 6",
+          "rn1qk2r/ppp2ppp/4pn2/2bp4/3P1N2/2N1P3/PPQ2PPP/R1B1KB1R w KQkq - 4 7"
+        ],
+        "seed": 17332858517210727362
+      },
+      {
+        "moves": [
+          "b1c3",
+          "g8f6",
+          "d2d3",
+          "d7d6",
+          "g1f3",
+          "e7e6",
+          "e2e4",
+          "f6e4",
+          "d3e4",
+          "e6e5",
+          "f3e5",
+          "d6e5"
+        ],
+        "opening_id": "227d374c66809e09",
+        "pair_index": 8,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkb1r/pppppppp/5n2/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 2 2",
+          "rnbqkb1r/pppppppp/5n2/8/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 0 2",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/8/2NP4/PPP1PPPP/R1BQKBNR w KQkq - 0 3",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/8/2NP1N2/PPP1PPPP/R1BQKB1R b KQkq - 1 3",
+          "rnbqkb1r/ppp2ppp/3ppn2/8/8/2NP1N2/PPP1PPPP/R1BQKB1R w KQkq - 0 4",
+          "rnbqkb1r/ppp2ppp/3ppn2/8/4P3/2NP1N2/PPP2PPP/R1BQKB1R b KQkq e3 0 4",
+          "rnbqkb1r/ppp2ppp/3pp3/8/4n3/2NP1N2/PPP2PPP/R1BQKB1R w KQkq - 0 5",
+          "rnbqkb1r/ppp2ppp/3pp3/8/4P3/2N2N2/PPP2PPP/R1BQKB1R b KQkq - 0 5",
+          "rnbqkb1r/ppp2ppp/3p4/4p3/4P3/2N2N2/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "rnbqkb1r/ppp2ppp/3p4/4N3/4P3/2N5/PPP2PPP/R1BQKB1R b KQkq - 0 6",
+          "rnbqkb1r/ppp2ppp/8/4p3/4P3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 7"
+        ],
+        "seed": 6995198051171746762
+      },
+      {
+        "moves": [
+          "b1c3",
+          "g8f6",
+          "e2e4",
+          "e7e5",
+          "f1c4",
+          "b8c6",
+          "g1e2",
+          "d7d5",
+          "c3d5",
+          "f6d5",
+          "d2d3",
+          "c8f5"
+        ],
+        "opening_id": "668558110570ec48",
+        "pair_index": 9,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkb1r/pppppppp/5n2/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 2 2",
+          "rnbqkb1r/pppppppp/5n2/8/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq e3 0 2",
+          "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq e6 0 3",
+          "rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/2N5/PPPP1PPP/R1BQK1NR b KQkq - 1 3",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/2N5/PPPP1PPP/R1BQK1NR w KQkq - 2 4",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/2N5/PPPPNPPP/R1BQK2R b KQkq - 3 4",
+          "r1bqkb1r/ppp2ppp/2n2n2/3pp3/2B1P3/2N5/PPPPNPPP/R1BQK2R w KQkq d6 0 5",
+          "r1bqkb1r/ppp2ppp/2n2n2/3Np3/2B1P3/8/PPPPNPPP/R1BQK2R b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/2n5/3np3/2B1P3/8/PPPPNPPP/R1BQK2R w KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/2n5/3np3/2B1P3/3P4/PPP1NPPP/R1BQK2R b KQkq - 0 6",
+          "r2qkb1r/ppp2ppp/2n5/3npb2/2B1P3/3P4/PPP1NPPP/R1BQK2R w KQkq - 1 7"
+        ],
+        "seed": 9015203646609850044
+      },
+      {
+        "moves": [
+          "b1c3",
+          "b8c6",
+          "d2d3",
+          "g8f6",
+          "c1f4",
+          "d7d5",
+          "c3d5",
+          "c8e6",
+          "d5c7",
+          "e8d7",
+          "c7e6",
+          "c6e5"
+        ],
+        "opening_id": "9ab00cefffd790d7",
+        "pair_index": 10,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "r1bqkbnr/pppppppp/2n5/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 2 2",
+          "r1bqkbnr/pppppppp/2n5/8/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 0 2",
+          "r1bqkb1r/pppppppp/2n2n2/8/8/2NP4/PPP1PPPP/R1BQKBNR w KQkq - 1 3",
+          "r1bqkb1r/pppppppp/2n2n2/8/5B2/2NP4/PPP1PPPP/R2QKBNR b KQkq - 2 3",
+          "r1bqkb1r/ppp1pppp/2n2n2/3p4/5B2/2NP4/PPP1PPPP/R2QKBNR w KQkq d6 0 4",
+          "r1bqkb1r/ppp1pppp/2n2n2/3N4/5B2/3P4/PPP1PPPP/R2QKBNR b KQkq - 0 4",
+          "r2qkb1r/ppp1pppp/2n1bn2/3N4/5B2/3P4/PPP1PPPP/R2QKBNR w KQkq - 1 5",
+          "r2qkb1r/ppN1pppp/2n1bn2/8/5B2/3P4/PPP1PPPP/R2QKBNR b KQkq - 0 5",
+          "r2q1b1r/ppNkpppp/2n1bn2/8/5B2/3P4/PPP1PPPP/R2QKBNR w KQ - 1 6",
+          "r2q1b1r/pp1kpppp/2n1Nn2/8/5B2/3P4/PPP1PPPP/R2QKBNR b KQ - 0 6",
+          "r2q1b1r/pp1kpppp/4Nn2/4n3/5B2/3P4/PPP1PPPP/R2QKBNR w KQ - 1 7"
+        ],
+        "seed": 7078868833601995075
+      },
+      {
+        "moves": [
+          "e2e4",
+          "b8c6",
+          "b1c3",
+          "d7d6",
+          "f1c4",
+          "d6d5",
+          "g1f3",
+          "d5e4",
+          "d2d4",
+          "d8d4",
+          "c4f7",
+          "e8f7"
+        ],
+        "opening_id": "78e0d4f40ad54541",
+        "pair_index": 11,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq - 2 2",
+          "r1bqkbnr/ppp1pppp/2np4/8/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 3",
+          "r1bqkbnr/ppp1pppp/2np4/8/2B1P3/2N5/PPPP1PPP/R1BQK1NR b KQkq - 1 3",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/2B1P3/2N5/PPPP1PPP/R1BQK1NR w KQkq - 0 4",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 1 4",
+          "r1bqkbnr/ppp1pppp/2n5/8/2B1p3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 5",
+          "r1bqkbnr/ppp1pppp/2n5/8/2BPp3/2N2N2/PPP2PPP/R1BQK2R b KQkq d3 0 5",
+          "r1b1kbnr/ppp1pppp/2n5/8/2Bqp3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 6",
+          "r1b1kbnr/ppp1pBpp/2n5/8/3qp3/2N2N2/PPP2PPP/R1BQK2R b KQkq - 0 6",
+          "r1b2bnr/ppp1pkpp/2n5/8/3qp3/2N2N2/PPP2PPP/R1BQK2R w KQ - 0 7"
+        ],
+        "seed": 199535843372943339
+      },
+      {
+        "moves": [
+          "g1f3",
+          "b8c6",
+          "d2d4",
+          "c6d4",
+          "f3d4",
+          "e7e5",
+          "e2e4",
+          "e5d4",
+          "d1d4",
+          "d7d5",
+          "e4d5",
+          "c8f5"
+        ],
+        "opening_id": "a89beef34d2b4baa",
+        "pair_index": 12,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "r1bqkbnr/pppppppp/2n5/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 2 2",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq d3 0 2",
+          "r1bqkbnr/pppppppp/8/8/3n4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 0 3",
+          "r1bqkbnr/pppppppp/8/8/3N4/8/PPP1PPPP/RNBQKB1R b KQkq - 0 3",
+          "r1bqkbnr/pppp1ppp/8/4p3/3N4/8/PPP1PPPP/RNBQKB1R w KQkq e6 0 4",
+          "r1bqkbnr/pppp1ppp/8/4p3/3NP3/8/PPP2PPP/RNBQKB1R b KQkq e3 0 4",
+          "r1bqkbnr/pppp1ppp/8/8/3pP3/8/PPP2PPP/RNBQKB1R w KQkq - 0 5",
+          "r1bqkbnr/pppp1ppp/8/8/3QP3/8/PPP2PPP/RNB1KB1R b KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/8/3p4/3QP3/8/PPP2PPP/RNB1KB1R w KQkq d6 0 6",
+          "r1bqkbnr/ppp2ppp/8/3P4/3Q4/8/PPP2PPP/RNB1KB1R b KQkq - 0 6",
+          "r2qkbnr/ppp2ppp/8/3P1b2/3Q4/8/PPP2PPP/RNB1KB1R w KQkq - 1 7"
+        ],
+        "seed": 12442883843350453052
+      },
+      {
+        "moves": [
+          "d2d4",
+          "e7e6",
+          "e2e4",
+          "d7d6",
+          "g1f3",
+          "b8c6",
+          "b1d2",
+          "e6e5",
+          "f1c4",
+          "g8e7",
+          "f3e5",
+          "c6e5"
+        ],
+        "opening_id": "4d46a59e0c371661",
+        "pair_index": 13,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
+          "rnbqkbnr/pppp1ppp/4p3/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq e3 0 2",
+          "rnbqkbnr/ppp2ppp/3pp3/8/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3",
+          "rnbqkbnr/ppp2ppp/3pp3/8/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq - 1 3",
+          "r1bqkbnr/ppp2ppp/2npp3/8/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 4",
+          "r1bqkbnr/ppp2ppp/2npp3/8/3PP3/5N2/PPPN1PPP/R1BQKB1R b KQkq - 3 4",
+          "r1bqkbnr/ppp2ppp/2np4/4p3/3PP3/5N2/PPPN1PPP/R1BQKB1R w KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/2np4/4p3/2BPP3/5N2/PPPN1PPP/R1BQK2R b KQkq - 1 5",
+          "r1bqkb1r/ppp1nppp/2np4/4p3/2BPP3/5N2/PPPN1PPP/R1BQK2R w KQkq - 2 6",
+          "r1bqkb1r/ppp1nppp/2np4/4N3/2BPP3/8/PPPN1PPP/R1BQK2R b KQkq - 0 6",
+          "r1bqkb1r/ppp1nppp/3p4/4n3/2BPP3/8/PPPN1PPP/R1BQK2R w KQkq - 0 7"
+        ],
+        "seed": 9354672491973596396
+      },
+      {
+        "moves": [
+          "d2d4",
+          "b8c6",
+          "e2e4",
+          "d7d6",
+          "f1d3",
+          "e7e6",
+          "g1f3",
+          "c6d4",
+          "e1h1",
+          "e6e5",
+          "b1c3",
+          "g8e7"
+        ],
+        "opening_id": "78ec4924b66a4ba2",
+        "pair_index": 14,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq e3 0 2",
+          "r1bqkbnr/ppp1pppp/2np4/8/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3",
+          "r1bqkbnr/ppp1pppp/2np4/8/3PP3/3B4/PPP2PPP/RNBQK1NR b KQkq - 1 3",
+          "r1bqkbnr/ppp2ppp/2npp3/8/3PP3/3B4/PPP2PPP/RNBQK1NR w KQkq - 0 4",
+          "r1bqkbnr/ppp2ppp/2npp3/8/3PP3/3B1N2/PPP2PPP/RNBQK2R b KQkq - 1 4",
+          "r1bqkbnr/ppp2ppp/3pp3/8/3nP3/3B1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/3pp3/8/3nP3/3B1N2/PPP2PPP/RNBQ1RK1 b kq - 1 5",
+          "r1bqkbnr/ppp2ppp/3p4/4p3/3nP3/3B1N2/PPP2PPP/RNBQ1RK1 w kq - 0 6",
+          "r1bqkbnr/ppp2ppp/3p4/4p3/3nP3/2NB1N2/PPP2PPP/R1BQ1RK1 b kq - 1 6",
+          "r1bqkb1r/ppp1nppp/3p4/4p3/3nP3/2NB1N2/PPP2PPP/R1BQ1RK1 w kq - 2 7"
+        ],
+        "seed": 2024463953996144251
+      },
+      {
+        "moves": [
+          "d2d4",
+          "b8c6",
+          "b1c3",
+          "e7e5",
+          "c1e3",
+          "c6d4",
+          "e3d4",
+          "g8f6",
+          "e2e3",
+          "d7d6",
+          "g1f3",
+          "c8g4"
+        ],
+        "opening_id": "758606fae14a5540",
+        "pair_index": 15,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/2N5/PPP1PPPP/R1BQKBNR b KQkq - 2 2",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq e6 0 3",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3P4/2N1B3/PPP1PPPP/R2QKBNR b KQkq - 1 3",
+          "r1bqkbnr/pppp1ppp/8/4p3/3n4/2N1B3/PPP1PPPP/R2QKBNR w KQkq - 0 4",
+          "r1bqkbnr/pppp1ppp/8/4p3/3B4/2N5/PPP1PPPP/R2QKBNR b KQkq - 0 4",
+          "r1bqkb1r/pppp1ppp/5n2/4p3/3B4/2N5/PPP1PPPP/R2QKBNR w KQkq - 1 5",
+          "r1bqkb1r/pppp1ppp/5n2/4p3/3B4/2N1P3/PPP2PPP/R2QKBNR b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/3p1n2/4p3/3B4/2N1P3/PPP2PPP/R2QKBNR w KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/3p1n2/4p3/3B4/2N1PN2/PPP2PPP/R2QKB1R b KQkq - 1 6",
+          "r2qkb1r/ppp2ppp/3p1n2/4p3/3B2b1/2N1PN2/PPP2PPP/R2QKB1R w KQkq - 2 7"
+        ],
+        "seed": 15754640330841862635
+      },
+      {
+        "moves": [
+          "g1f3",
+          "d7d5",
+          "d2d4",
+          "c8e6",
+          "b1d2",
+          "b8c6",
+          "d2c4",
+          "d5c4",
+          "c1e3",
+          "c4c3",
+          "b2c3",
+          "g8f6"
+        ],
+        "opening_id": "7ec230591c3103fa",
+        "pair_index": 16,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/5N2/PPPPPPPP/RNBQKB1R w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq d3 0 2",
+          "rn1qkbnr/ppp1pppp/4b3/3p4/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 1 3",
+          "rn1qkbnr/ppp1pppp/4b3/3p4/3P4/5N2/PPPNPPPP/R1BQKB1R b KQkq - 2 3",
+          "r2qkbnr/ppp1pppp/2n1b3/3p4/3P4/5N2/PPPNPPPP/R1BQKB1R w KQkq - 3 4",
+          "r2qkbnr/ppp1pppp/2n1b3/3p4/2NP4/5N2/PPP1PPPP/R1BQKB1R b KQkq - 4 4",
+          "r2qkbnr/ppp1pppp/2n1b3/8/2pP4/5N2/PPP1PPPP/R1BQKB1R w KQkq - 0 5",
+          "r2qkbnr/ppp1pppp/2n1b3/8/2pP4/4BN2/PPP1PPPP/R2QKB1R b KQkq - 1 5",
+          "r2qkbnr/ppp1pppp/2n1b3/8/3P4/2p1BN2/PPP1PPPP/R2QKB1R w KQkq - 0 6",
+          "r2qkbnr/ppp1pppp/2n1b3/8/3P4/2P1BN2/P1P1PPPP/R2QKB1R b KQkq - 0 6",
+          "r2qkb1r/ppp1pppp/2n1bn2/8/3P4/2P1BN2/P1P1PPPP/R2QKB1R w KQkq - 1 7"
+        ],
+        "seed": 8384442412484960459
+      },
+      {
+        "moves": [
+          "d2d4",
+          "d7d5",
+          "b1c3",
+          "b8c6",
+          "c1f4",
+          "c8f5",
+          "g1f3",
+          "e7e5",
+          "c3d5",
+          "e5f4",
+          "d5c7",
+          "d8c7"
+        ],
+        "opening_id": "1d7053313d09a490",
+        "pair_index": 17,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/3P4/2N5/PPP1PPPP/R1BQKBNR b KQkq - 1 2",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/3P1B2/2N5/PPP1PPPP/R2QKBNR b KQkq - 3 3",
+          "r2qkbnr/ppp1pppp/2n5/3p1b2/3P1B2/2N5/PPP1PPPP/R2QKBNR w KQkq - 4 4",
+          "r2qkbnr/ppp1pppp/2n5/3p1b2/3P1B2/2N2N2/PPP1PPPP/R2QKB1R b KQkq - 5 4",
+          "r2qkbnr/ppp2ppp/2n5/3ppb2/3P1B2/2N2N2/PPP1PPPP/R2QKB1R w KQkq e6 0 5",
+          "r2qkbnr/ppp2ppp/2n5/3Npb2/3P1B2/5N2/PPP1PPPP/R2QKB1R b KQkq - 0 5",
+          "r2qkbnr/ppp2ppp/2n5/3N1b2/3P1p2/5N2/PPP1PPPP/R2QKB1R w KQkq - 0 6",
+          "r2qkbnr/ppN2ppp/2n5/5b2/3P1p2/5N2/PPP1PPPP/R2QKB1R b KQkq - 0 6",
+          "r3kbnr/ppq2ppp/2n5/5b2/3P1p2/5N2/PPP1PPPP/R2QKB1R w KQkq - 0 7"
+        ],
+        "seed": 13819213686616732181
+      },
+      {
+        "moves": [
+          "b1c3",
+          "d7d5",
+          "e2e4",
+          "b8d7",
+          "d2d4",
+          "d5e4",
+          "c3e4",
+          "d7e5",
+          "g1f3",
+          "c8e6",
+          "c1e3",
+          "e6a2"
+        ],
+        "opening_id": "7cc92e8867db0b7f",
+        "pair_index": 18,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2N5/PPPPPPPP/R1BQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq e3 0 2",
+          "r1bqkbnr/pppnpppp/8/3p4/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 1 3",
+          "r1bqkbnr/pppnpppp/8/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq d3 0 3",
+          "r1bqkbnr/pppnpppp/8/8/3Pp3/2N5/PPP2PPP/R1BQKBNR w KQkq - 0 4",
+          "r1bqkbnr/pppnpppp/8/8/3PN3/8/PPP2PPP/R1BQKBNR b KQkq - 0 4",
+          "r1bqkbnr/ppp1pppp/8/4n3/3PN3/8/PPP2PPP/R1BQKBNR w KQkq - 1 5",
+          "r1bqkbnr/ppp1pppp/8/4n3/3PN3/5N2/PPP2PPP/R1BQKB1R b KQkq - 2 5",
+          "r2qkbnr/ppp1pppp/4b3/4n3/3PN3/5N2/PPP2PPP/R1BQKB1R w KQkq - 3 6",
+          "r2qkbnr/ppp1pppp/4b3/4n3/3PN3/4BN2/PPP2PPP/R2QKB1R b KQkq - 4 6",
+          "r2qkbnr/ppp1pppp/8/4n3/3PN3/4BN2/bPP2PPP/R2QKB1R w KQkq - 0 7"
+        ],
+        "seed": 3181263521197015825
+      },
+      {
+        "moves": [
+          "g1f3",
+          "b8c6",
+          "b1c3",
+          "d7d5",
+          "e2e4",
+          "e7e5",
+          "d2d4",
+          "c6d4",
+          "f3d4",
+          "g8f6",
+          "c3d5",
+          "f6e4"
+        ],
+        "opening_id": "fcdaacdd474e189c",
+        "pair_index": 19,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "r1bqkbnr/pppppppp/2n5/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 2 2",
+          "r1bqkbnr/pppppppp/2n5/8/8/2N2N2/PPPPPPPP/R1BQKB1R b KQkq - 3 2",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/8/2N2N2/PPPPPPPP/R1BQKB1R w KQkq d6 0 3",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/4P3/2N2N2/PPPP1PPP/R1BQKB1R b KQkq e3 0 3",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq e6 0 4",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/2N2N2/PPP2PPP/R1BQKB1R b KQkq d3 0 4",
+          "r1bqkbnr/ppp2ppp/8/3pp3/3nP3/2N2N2/PPP2PPP/R1BQKB1R w KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/8/3pp3/3NP3/2N5/PPP2PPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/5n2/3pp3/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 1 6",
+          "r1bqkb1r/ppp2ppp/5n2/3Np3/3NP3/8/PPP2PPP/R1BQKB1R b KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/8/3Np3/3Nn3/8/PPP2PPP/R1BQKB1R w KQkq - 0 7"
+        ],
+        "seed": 730961685654462644
+      },
+      {
+        "moves": [
+          "e2e3",
+          "d7d6",
+          "f1c4",
+          "c8f5",
+          "g1f3",
+          "e7e5",
+          "b1c3",
+          "g8e7",
+          "e3e4",
+          "f5e4",
+          "e1h1",
+          "b8d7"
+        ],
+        "opening_id": "96d7c02af792a4fd",
+        "pair_index": 20,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+          "rnbqkbnr/ppp1pppp/3p4/8/8/4P3/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+          "rnbqkbnr/ppp1pppp/3p4/8/2B5/4P3/PPPP1PPP/RNBQK1NR b KQkq - 1 2",
+          "rn1qkbnr/ppp1pppp/3p4/5b2/2B5/4P3/PPPP1PPP/RNBQK1NR w KQkq - 2 3",
+          "rn1qkbnr/ppp1pppp/3p4/5b2/2B5/4PN2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+          "rn1qkbnr/ppp2ppp/3p4/4pb2/2B5/4PN2/PPPP1PPP/RNBQK2R w KQkq e6 0 4",
+          "rn1qkbnr/ppp2ppp/3p4/4pb2/2B5/2N1PN2/PPPP1PPP/R1BQK2R b KQkq - 1 4",
+          "rn1qkb1r/ppp1nppp/3p4/4pb2/2B5/2N1PN2/PPPP1PPP/R1BQK2R w KQkq - 2 5",
+          "rn1qkb1r/ppp1nppp/3p4/4pb2/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 0 5",
+          "rn1qkb1r/ppp1nppp/3p4/4p3/2B1b3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 6",
+          "rn1qkb1r/ppp1nppp/3p4/4p3/2B1b3/2N2N2/PPPP1PPP/R1BQ1RK1 b kq - 1 6",
+          "r2qkb1r/pppnnppp/3p4/4p3/2B1b3/2N2N2/PPPP1PPP/R1BQ1RK1 w kq - 2 7"
+        ],
+        "seed": 10842176915658652377
+      },
+      {
+        "moves": [
+          "b1c3",
+          "e7e5",
+          "e2e3",
+          "b8c6",
+          "f1c4",
+          "f8c5",
+          "e3e4",
+          "g8e7",
+          "d2d4",
+          "d7d5",
+          "c4d5",
+          "e5d4"
+        ],
+        "opening_id": "03090d3be5deac44",
+        "pair_index": 21,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/2N5/PPPPPPPP/R1BQKBNR w KQkq e6 0 2",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/2N1P3/PPPP1PPP/R1BQKBNR b KQkq - 0 2",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/8/2N1P3/PPPP1PPP/R1BQKBNR w KQkq - 1 3",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/2B5/2N1P3/PPPP1PPP/R1BQK1NR b KQkq - 2 3",
+          "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B5/2N1P3/PPPP1PPP/R1BQK1NR w KQkq - 3 4",
+          "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2N5/PPPP1PPP/R1BQK1NR b KQkq - 0 4",
+          "r1bqk2r/ppppnppp/2n5/2b1p3/2B1P3/2N5/PPPP1PPP/R1BQK1NR w KQkq - 1 5",
+          "r1bqk2r/ppppnppp/2n5/2b1p3/2BPP3/2N5/PPP2PPP/R1BQK1NR b KQkq d3 0 5",
+          "r1bqk2r/ppp1nppp/2n5/2bpp3/2BPP3/2N5/PPP2PPP/R1BQK1NR w KQkq d6 0 6",
+          "r1bqk2r/ppp1nppp/2n5/2bBp3/3PP3/2N5/PPP2PPP/R1BQK1NR b KQkq - 0 6",
+          "r1bqk2r/ppp1nppp/2n5/2bB4/3pP3/2N5/PPP2PPP/R1BQK1NR w KQkq - 0 7"
+        ],
+        "seed": 9983395884153484662
+      },
+      {
+        "moves": [
+          "g1f3",
+          "d7d5",
+          "e2e3",
+          "b8d7",
+          "d2d4",
+          "g8f6",
+          "b1d2",
+          "e7e5",
+          "f1d3",
+          "e5d4",
+          "d2e4",
+          "d5e4"
+        ],
+        "opening_id": "0b343ce03912c81f",
+        "pair_index": 22,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/5N2/PPPPPPPP/RNBQKB1R w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/4PN2/PPPP1PPP/RNBQKB1R b KQkq - 0 2",
+          "r1bqkbnr/pppnpppp/8/3p4/8/4PN2/PPPP1PPP/RNBQKB1R w KQkq - 1 3",
+          "r1bqkbnr/pppnpppp/8/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R b KQkq d3 0 3",
+          "r1bqkb1r/pppnpppp/5n2/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R w KQkq - 1 4",
+          "r1bqkb1r/pppnpppp/5n2/3p4/3P4/4PN2/PPPN1PPP/R1BQKB1R b KQkq - 2 4",
+          "r1bqkb1r/pppn1ppp/5n2/3pp3/3P4/4PN2/PPPN1PPP/R1BQKB1R w KQkq e6 0 5",
+          "r1bqkb1r/pppn1ppp/5n2/3pp3/3P4/3BPN2/PPPN1PPP/R1BQK2R b KQkq - 1 5",
+          "r1bqkb1r/pppn1ppp/5n2/3p4/3p4/3BPN2/PPPN1PPP/R1BQK2R w KQkq - 0 6",
+          "r1bqkb1r/pppn1ppp/5n2/3p4/3pN3/3BPN2/PPP2PPP/R1BQK2R b KQkq - 1 6",
+          "r1bqkb1r/pppn1ppp/5n2/8/3pp3/3BPN2/PPP2PPP/R1BQK2R w KQkq - 0 7"
+        ],
+        "seed": 12074863169734244220
+      },
+      {
+        "moves": [
+          "e2e4",
+          "d7d5",
+          "d2d4",
+          "g8f6",
+          "b1c3",
+          "f6e4",
+          "g1e2",
+          "b8d7",
+          "e2f4",
+          "d7e5",
+          "c3e4",
+          "c8g4"
+        ],
+        "opening_id": "288df6b4e899dbff",
+        "pair_index": 23,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/3PP3/8/PPP2PPP/RNBQKBNR b KQkq d3 0 2",
+          "rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 1 3",
+          "rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 2 3",
+          "rnbqkb1r/ppp1pppp/8/3p4/3Pn3/2N5/PPP2PPP/R1BQKBNR w KQkq - 0 4",
+          "rnbqkb1r/ppp1pppp/8/3p4/3Pn3/2N5/PPP1NPPP/R1BQKB1R b KQkq - 1 4",
+          "r1bqkb1r/pppnpppp/8/3p4/3Pn3/2N5/PPP1NPPP/R1BQKB1R w KQkq - 2 5",
+          "r1bqkb1r/pppnpppp/8/3p4/3PnN2/2N5/PPP2PPP/R1BQKB1R b KQkq - 3 5",
+          "r1bqkb1r/ppp1pppp/8/3pn3/3PnN2/2N5/PPP2PPP/R1BQKB1R w KQkq - 4 6",
+          "r1bqkb1r/ppp1pppp/8/3pn3/3PNN2/8/PPP2PPP/R1BQKB1R b KQkq - 0 6",
+          "r2qkb1r/ppp1pppp/8/3pn3/3PNNb1/8/PPP2PPP/R1BQKB1R w KQkq - 1 7"
+        ],
+        "seed": 15975646564393372945
+      },
+      {
+        "moves": [
+          "d2d4",
+          "d7d6",
+          "e2e4",
+          "e7e6",
+          "g1f3",
+          "e6e5",
+          "f3e5",
+          "g8f6",
+          "b1c3",
+          "d6e5",
+          "c1e3",
+          "b8c6"
+        ],
+        "opening_id": "b6311f593628bba4",
+        "pair_index": 24,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "rnbqkbnr/ppp1pppp/3p4/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
+          "rnbqkbnr/ppp1pppp/3p4/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq e3 0 2",
+          "rnbqkbnr/ppp2ppp/3pp3/8/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3",
+          "rnbqkbnr/ppp2ppp/3pp3/8/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq - 1 3",
+          "rnbqkbnr/ppp2ppp/3p4/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+          "rnbqkbnr/ppp2ppp/3p4/4N3/3PP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4",
+          "rnbqkb1r/ppp2ppp/3p1n2/4N3/3PP3/8/PPP2PPP/RNBQKB1R w KQkq - 1 5",
+          "rnbqkb1r/ppp2ppp/3p1n2/4N3/3PP3/2N5/PPP2PPP/R1BQKB1R b KQkq - 2 5",
+          "rnbqkb1r/ppp2ppp/5n2/4p3/3PP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "rnbqkb1r/ppp2ppp/5n2/4p3/3PP3/2N1B3/PPP2PPP/R2QKB1R b KQkq - 1 6",
+          "r1bqkb1r/ppp2ppp/2n2n2/4p3/3PP3/2N1B3/PPP2PPP/R2QKB1R w KQkq - 2 7"
+        ],
+        "seed": 12631054022437258866
+      },
+      {
+        "moves": [
+          "b1c3",
+          "d7d6",
+          "e2e4",
+          "e7e5",
+          "g1f3",
+          "g8e7",
+          "f1d3",
+          "c8e6",
+          "e1f1",
+          "b8d7",
+          "f1g1",
+          "e7f5"
+        ],
+        "opening_id": "93f1101b1ae3a117",
+        "pair_index": 25,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/3p4/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 2",
+          "rnbqkbnr/ppp1pppp/3p4/8/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq e3 0 2",
+          "rnbqkbnr/ppp2ppp/3p4/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq e6 0 3",
+          "rnbqkbnr/ppp2ppp/3p4/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R b KQkq - 1 3",
+          "rnbqkb1r/ppp1nppp/3p4/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 2 4",
+          "rnbqkb1r/ppp1nppp/3p4/4p3/4P3/2NB1N2/PPPP1PPP/R1BQK2R b KQkq - 3 4",
+          "rn1qkb1r/ppp1nppp/3pb3/4p3/4P3/2NB1N2/PPPP1PPP/R1BQK2R w KQkq - 4 5",
+          "rn1qkb1r/ppp1nppp/3pb3/4p3/4P3/2NB1N2/PPPP1PPP/R1BQ1K1R b kq - 5 5",
+          "r2qkb1r/pppnnppp/3pb3/4p3/4P3/2NB1N2/PPPP1PPP/R1BQ1K1R w kq - 6 6",
+          "r2qkb1r/pppnnppp/3pb3/4p3/4P3/2NB1N2/PPPP1PPP/R1BQ2KR b kq - 7 6",
+          "r2qkb1r/pppn1ppp/3pb3/4pn2/4P3/2NB1N2/PPPP1PPP/R1BQ2KR w kq - 8 7"
+        ],
+        "seed": 10043866606815140059
+      },
+      {
+        "moves": [
+          "d2d3",
+          "d7d5",
+          "b1c3",
+          "g8f6",
+          "e2e4",
+          "d5e4",
+          "c3e4",
+          "b8d7",
+          "g1f3",
+          "d7c5",
+          "e4c5",
+          "c8f5"
+        ],
+        "opening_id": "2327ae20377171ef",
+        "pair_index": 26,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/3P4/PPP1PPPP/RNBQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 1 2",
+          "rnbqkb1r/ppp1pppp/5n2/3p4/8/2NP4/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+          "rnbqkb1r/ppp1pppp/5n2/3p4/4P3/2NP4/PPP2PPP/R1BQKBNR b KQkq e3 0 3",
+          "rnbqkb1r/ppp1pppp/5n2/8/4p3/2NP4/PPP2PPP/R1BQKBNR w KQkq - 0 4",
+          "rnbqkb1r/ppp1pppp/5n2/8/4N3/3P4/PPP2PPP/R1BQKBNR b KQkq - 0 4",
+          "r1bqkb1r/pppnpppp/5n2/8/4N3/3P4/PPP2PPP/R1BQKBNR w KQkq - 1 5",
+          "r1bqkb1r/pppnpppp/5n2/8/4N3/3P1N2/PPP2PPP/R1BQKB1R b KQkq - 2 5",
+          "r1bqkb1r/ppp1pppp/5n2/2n5/4N3/3P1N2/PPP2PPP/R1BQKB1R w KQkq - 3 6",
+          "r1bqkb1r/ppp1pppp/5n2/2N5/8/3P1N2/PPP2PPP/R1BQKB1R b KQkq - 0 6",
+          "r2qkb1r/ppp1pppp/5n2/2N2b2/8/3P1N2/PPP2PPP/R1BQKB1R w KQkq - 1 7"
+        ],
+        "seed": 7707807332906974676
+      },
+      {
+        "moves": [
+          "d2d4",
+          "b8c6",
+          "e2e4",
+          "d7d5",
+          "g1e2",
+          "c8f5",
+          "e4d5",
+          "f5c2",
+          "c1e3",
+          "d8d5",
+          "d1c2",
+          "c6d4"
+        ],
+        "opening_id": "aa76a5e6cd1a1c8f",
+        "pair_index": 27,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq e3 0 2",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq d6 0 3",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/3PP3/8/PPP1NPPP/RNBQKB1R b KQkq - 1 3",
+          "r2qkbnr/ppp1pppp/2n5/3p1b2/3PP3/8/PPP1NPPP/RNBQKB1R w KQkq - 2 4",
+          "r2qkbnr/ppp1pppp/2n5/3P1b2/3P4/8/PPP1NPPP/RNBQKB1R b KQkq - 0 4",
+          "r2qkbnr/ppp1pppp/2n5/3P4/3P4/8/PPb1NPPP/RNBQKB1R w KQkq - 0 5",
+          "r2qkbnr/ppp1pppp/2n5/3P4/3P4/4B3/PPb1NPPP/RN1QKB1R b KQkq - 1 5",
+          "r3kbnr/ppp1pppp/2n5/3q4/3P4/4B3/PPb1NPPP/RN1QKB1R w KQkq - 0 6",
+          "r3kbnr/ppp1pppp/2n5/3q4/3P4/4B3/PPQ1NPPP/RN2KB1R b KQkq - 0 6",
+          "r3kbnr/ppp1pppp/8/3q4/3n4/4B3/PPQ1NPPP/RN2KB1R w KQkq - 0 7"
+        ],
+        "seed": 7874900911914174222
+      },
+      {
+        "moves": [
+          "g1f3",
+          "b8c6",
+          "e2e3",
+          "d7d5",
+          "d2d4",
+          "g8f6",
+          "b1d2",
+          "e7e6",
+          "f1b5",
+          "f8b4",
+          "e3e4",
+          "f6e4"
+        ],
+        "opening_id": "892940f1d594031f",
+        "pair_index": 28,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "r1bqkbnr/pppppppp/2n5/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 2 2",
+          "r1bqkbnr/pppppppp/2n5/8/8/4PN2/PPPP1PPP/RNBQKB1R b KQkq - 0 2",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/8/4PN2/PPPP1PPP/RNBQKB1R w KQkq d6 0 3",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R b KQkq d3 0 3",
+          "r1bqkb1r/ppp1pppp/2n2n2/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R w KQkq - 1 4",
+          "r1bqkb1r/ppp1pppp/2n2n2/3p4/3P4/4PN2/PPPN1PPP/R1BQKB1R b KQkq - 2 4",
+          "r1bqkb1r/ppp2ppp/2n1pn2/3p4/3P4/4PN2/PPPN1PPP/R1BQKB1R w KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/2n1pn2/1B1p4/3P4/4PN2/PPPN1PPP/R1BQK2R b KQkq - 1 5",
+          "r1bqk2r/ppp2ppp/2n1pn2/1B1p4/1b1P4/4PN2/PPPN1PPP/R1BQK2R w KQkq - 2 6",
+          "r1bqk2r/ppp2ppp/2n1pn2/1B1p4/1b1PP3/5N2/PPPN1PPP/R1BQK2R b KQkq - 0 6",
+          "r1bqk2r/ppp2ppp/2n1p3/1B1p4/1b1Pn3/5N2/PPPN1PPP/R1BQK2R w KQkq - 0 7"
+        ],
+        "seed": 4201079436439759300
+      },
+      {
+        "moves": [
+          "d2d4",
+          "g8f6",
+          "b1c3",
+          "b8c6",
+          "c1e3",
+          "e7e5",
+          "c3e4",
+          "d7d6",
+          "e4f6",
+          "e8e7",
+          "d4e5",
+          "d6e5"
+        ],
+        "opening_id": "dcbdc678bd1b5017",
+        "pair_index": 29,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "rnbqkb1r/pppppppp/5n2/8/3P4/2N5/PPP1PPPP/R1BQKBNR b KQkq - 2 2",
+          "r1bqkb1r/pppppppp/2n2n2/8/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 3 3",
+          "r1bqkb1r/pppppppp/2n2n2/8/3P4/2N1B3/PPP1PPPP/R2QKBNR b KQkq - 4 3",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/3P4/2N1B3/PPP1PPPP/R2QKBNR w KQkq e6 0 4",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/3PN3/4B3/PPP1PPPP/R2QKBNR b KQkq - 1 4",
+          "r1bqkb1r/ppp2ppp/2np1n2/4p3/3PN3/4B3/PPP1PPPP/R2QKBNR w KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/2np1N2/4p3/3P4/4B3/PPP1PPPP/R2QKBNR b KQkq - 0 5",
+          "r1bq1b1r/ppp1kppp/2np1N2/4p3/3P4/4B3/PPP1PPPP/R2QKBNR w KQ - 1 6",
+          "r1bq1b1r/ppp1kppp/2np1N2/4P3/8/4B3/PPP1PPPP/R2QKBNR b KQ - 0 6",
+          "r1bq1b1r/ppp1kppp/2n2N2/4p3/8/4B3/PPP1PPPP/R2QKBNR w KQ - 0 7"
+        ],
+        "seed": 15092264070644042142
+      },
+      {
+        "moves": [
+          "e2e4",
+          "e7e6",
+          "b1c3",
+          "e6e5",
+          "d2d3",
+          "g8e7",
+          "c1f4",
+          "e7d5",
+          "g1e2",
+          "b8c6",
+          "e2d4",
+          "d5c3"
+        ],
+        "opening_id": "4fc64fd559f1faf8",
+        "pair_index": 30,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+          "rnbqkbnr/pppp1ppp/4p3/8/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq - 1 2",
+          "rnbqkbnr/pppp1ppp/8/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 3",
+          "rnbqkbnr/pppp1ppp/8/4p3/4P3/2NP4/PPP2PPP/R1BQKBNR b KQkq - 0 3",
+          "rnbqkb1r/ppppnppp/8/4p3/4P3/2NP4/PPP2PPP/R1BQKBNR w KQkq - 1 4",
+          "rnbqkb1r/ppppnppp/8/4p3/4PB2/2NP4/PPP2PPP/R2QKBNR b KQkq - 2 4",
+          "rnbqkb1r/pppp1ppp/8/3np3/4PB2/2NP4/PPP2PPP/R2QKBNR w KQkq - 3 5",
+          "rnbqkb1r/pppp1ppp/8/3np3/4PB2/2NP4/PPP1NPPP/R2QKB1R b KQkq - 4 5",
+          "r1bqkb1r/pppp1ppp/2n5/3np3/4PB2/2NP4/PPP1NPPP/R2QKB1R w KQkq - 5 6",
+          "r1bqkb1r/pppp1ppp/2n5/3np3/3NPB2/2NP4/PPP2PPP/R2QKB1R b KQkq - 6 6",
+          "r1bqkb1r/pppp1ppp/2n5/4p3/3NPB2/2nP4/PPP2PPP/R2QKB1R w KQkq - 0 7"
+        ],
+        "seed": 4073780399407384522
+      },
+      {
+        "moves": [
+          "e2e4",
+          "b8c6",
+          "g1f3",
+          "d7d6",
+          "b1c3",
+          "c8f5",
+          "d2d3",
+          "f5e4",
+          "c1f4",
+          "g8f6",
+          "d3d4",
+          "d6d5"
+        ],
+        "opening_id": "ea22f29323411027",
+        "pair_index": 31,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 2 2",
+          "r1bqkbnr/ppp1pppp/2np4/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3",
+          "r1bqkbnr/ppp1pppp/2np4/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R b KQkq - 1 3",
+          "r2qkbnr/ppp1pppp/2np4/5b2/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 2 4",
+          "r2qkbnr/ppp1pppp/2np4/5b2/4P3/2NP1N2/PPP2PPP/R1BQKB1R b KQkq - 0 4",
+          "r2qkbnr/ppp1pppp/2np4/8/4b3/2NP1N2/PPP2PPP/R1BQKB1R w KQkq - 0 5",
+          "r2qkbnr/ppp1pppp/2np4/8/4bB2/2NP1N2/PPP2PPP/R2QKB1R b KQkq - 1 5",
+          "r2qkb1r/ppp1pppp/2np1n2/8/4bB2/2NP1N2/PPP2PPP/R2QKB1R w KQkq - 2 6",
+          "r2qkb1r/ppp1pppp/2np1n2/8/3PbB2/2N2N2/PPP2PPP/R2QKB1R b KQkq - 0 6",
+          "r2qkb1r/ppp1pppp/2n2n2/3p4/3PbB2/2N2N2/PPP2PPP/R2QKB1R w KQkq - 0 7"
+        ],
+        "seed": 16637769248627478441
+      },
+      {
+        "moves": [
+          "d2d4",
+          "d7d6",
+          "g1f3",
+          "b8d7",
+          "b1d2",
+          "g8f6",
+          "d2c4",
+          "e7e6",
+          "e2e3",
+          "d6d5",
+          "e3e4",
+          "d5e4"
+        ],
+        "opening_id": "d51867b69ee30a3c",
+        "pair_index": 32,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "rnbqkbnr/ppp1pppp/3p4/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
+          "rnbqkbnr/ppp1pppp/3p4/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq - 1 2",
+          "r1bqkbnr/pppnpppp/3p4/8/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 3",
+          "r1bqkbnr/pppnpppp/3p4/8/3P4/5N2/PPPNPPPP/R1BQKB1R b KQkq - 3 3",
+          "r1bqkb1r/pppnpppp/3p1n2/8/3P4/5N2/PPPNPPPP/R1BQKB1R w KQkq - 4 4",
+          "r1bqkb1r/pppnpppp/3p1n2/8/2NP4/5N2/PPP1PPPP/R1BQKB1R b KQkq - 5 4",
+          "r1bqkb1r/pppn1ppp/3ppn2/8/2NP4/5N2/PPP1PPPP/R1BQKB1R w KQkq - 0 5",
+          "r1bqkb1r/pppn1ppp/3ppn2/8/2NP4/4PN2/PPP2PPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/pppn1ppp/4pn2/3p4/2NP4/4PN2/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/pppn1ppp/4pn2/3p4/2NPP3/5N2/PPP2PPP/R1BQKB1R b KQkq - 0 6",
+          "r1bqkb1r/pppn1ppp/4pn2/8/2NPp3/5N2/PPP2PPP/R1BQKB1R w KQkq - 0 7"
+        ],
+        "seed": 17772920130144644870
+      },
+      {
+        "moves": [
+          "g1f3",
+          "d7d6",
+          "e2e4",
+          "b8c6",
+          "b1c3",
+          "e7e5",
+          "f3e5",
+          "g8e7",
+          "d2d3",
+          "d6d5",
+          "e5f7",
+          "d5e4"
+        ],
+        "opening_id": "11839718a066b166",
+        "pair_index": 33,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/3p4/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2",
+          "rnbqkbnr/ppp1pppp/3p4/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq e3 0 2",
+          "r1bqkbnr/ppp1pppp/2np4/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 3",
+          "r1bqkbnr/ppp1pppp/2np4/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R b KQkq - 2 3",
+          "r1bqkbnr/ppp2ppp/2np4/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq e6 0 4",
+          "r1bqkbnr/ppp2ppp/2np4/4N3/4P3/2N5/PPPP1PPP/R1BQKB1R b KQkq - 0 4",
+          "r1bqkb1r/ppp1nppp/2np4/4N3/4P3/2N5/PPPP1PPP/R1BQKB1R w KQkq - 1 5",
+          "r1bqkb1r/ppp1nppp/2np4/4N3/4P3/2NP4/PPP2PPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/ppp1nppp/2n5/3pN3/4P3/2NP4/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/ppp1nNpp/2n5/3p4/4P3/2NP4/PPP2PPP/R1BQKB1R b KQkq - 0 6",
+          "r1bqkb1r/ppp1nNpp/2n5/8/4p3/2NP4/PPP2PPP/R1BQKB1R w KQkq - 0 7"
+        ],
+        "seed": 15434964165405046391
+      },
+      {
+        "moves": [
+          "b1c3",
+          "d7d5",
+          "e2e4",
+          "d5e4",
+          "d2d4",
+          "g8f6",
+          "c3e4",
+          "d8d4",
+          "e4f6",
+          "d4f6",
+          "g1e2",
+          "f6b2"
+        ],
+        "opening_id": "14d24946797c5299",
+        "pair_index": 34,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2N5/PPPPPPPP/R1BQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq e3 0 2",
+          "rnbqkbnr/ppp1pppp/8/8/4p3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 3",
+          "rnbqkbnr/ppp1pppp/8/8/3Pp3/2N5/PPP2PPP/R1BQKBNR b KQkq d3 0 3",
+          "rnbqkb1r/ppp1pppp/5n2/8/3Pp3/2N5/PPP2PPP/R1BQKBNR w KQkq - 1 4",
+          "rnbqkb1r/ppp1pppp/5n2/8/3PN3/8/PPP2PPP/R1BQKBNR b KQkq - 0 4",
+          "rnb1kb1r/ppp1pppp/5n2/8/3qN3/8/PPP2PPP/R1BQKBNR w KQkq - 0 5",
+          "rnb1kb1r/ppp1pppp/5N2/8/3q4/8/PPP2PPP/R1BQKBNR b KQkq - 0 5",
+          "rnb1kb1r/ppp1pppp/5q2/8/8/8/PPP2PPP/R1BQKBNR w KQkq - 0 6",
+          "rnb1kb1r/ppp1pppp/5q2/8/8/8/PPP1NPPP/R1BQKB1R b KQkq - 1 6",
+          "rnb1kb1r/ppp1pppp/8/8/8/8/PqP1NPPP/R1BQKB1R w KQkq - 0 7"
+        ],
+        "seed": 2414961992385865002
+      },
+      {
+        "moves": [
+          "g1f3",
+          "g8f6",
+          "d2d4",
+          "b8c6",
+          "b1c3",
+          "c6d4",
+          "f3d4",
+          "d7d5",
+          "c3d5",
+          "e7e6",
+          "d5c7",
+          "e8e7"
+        ],
+        "opening_id": "4a3310d18d56d008",
+        "pair_index": 35,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 2 2",
+          "rnbqkb1r/pppppppp/5n2/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq d3 0 2",
+          "r1bqkb1r/pppppppp/2n2n2/8/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 1 3",
+          "r1bqkb1r/pppppppp/2n2n2/8/3P4/2N2N2/PPP1PPPP/R1BQKB1R b KQkq - 2 3",
+          "r1bqkb1r/pppppppp/5n2/8/3n4/2N2N2/PPP1PPPP/R1BQKB1R w KQkq - 0 4",
+          "r1bqkb1r/pppppppp/5n2/8/3N4/2N5/PPP1PPPP/R1BQKB1R b KQkq - 0 4",
+          "r1bqkb1r/ppp1pppp/5n2/3p4/3N4/2N5/PPP1PPPP/R1BQKB1R w KQkq d6 0 5",
+          "r1bqkb1r/ppp1pppp/5n2/3N4/3N4/8/PPP1PPPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/4pn2/3N4/3N4/8/PPP1PPPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/ppN2ppp/4pn2/8/3N4/8/PPP1PPPP/R1BQKB1R b KQkq - 0 6",
+          "r1bq1b1r/ppN1kppp/4pn2/8/3N4/8/PPP1PPPP/R1BQKB1R w KQ - 1 7"
+        ],
+        "seed": 16442958016916859333
+      },
+      {
+        "moves": [
+          "d2d4",
+          "b8c6",
+          "b1d2",
+          "e7e5",
+          "g1f3",
+          "d7d5",
+          "d2e4",
+          "g8f6",
+          "d4e5",
+          "f6e4",
+          "c1f4",
+          "f8c5"
+        ],
+        "opening_id": "87c68dedc19d513a",
+        "pair_index": 36,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/8/PPPNPPPP/R1BQKBNR b KQkq - 2 2",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3P4/8/PPPNPPPP/R1BQKBNR w KQkq e6 0 3",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/3P4/5N2/PPPNPPPP/R1BQKB1R b KQkq - 1 3",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/3P4/5N2/PPPNPPPP/R1BQKB1R w KQkq d6 0 4",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/3PN3/5N2/PPP1PPPP/R1BQKB1R b KQkq - 1 4",
+          "r1bqkb1r/ppp2ppp/2n2n2/3pp3/3PN3/5N2/PPP1PPPP/R1BQKB1R w KQkq - 2 5",
+          "r1bqkb1r/ppp2ppp/2n2n2/3pP3/4N3/5N2/PPP1PPPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/2n5/3pP3/4n3/5N2/PPP1PPPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/2n5/3pP3/4nB2/5N2/PPP1PPPP/R2QKB1R b KQkq - 1 6",
+          "r1bqk2r/ppp2ppp/2n5/2bpP3/4nB2/5N2/PPP1PPPP/R2QKB1R w KQkq - 2 7"
+        ],
+        "seed": 12041043113236659829
+      },
+      {
+        "moves": [
+          "d2d3",
+          "d7d5",
+          "b1c3",
+          "b8d7",
+          "c1f4",
+          "d7c5",
+          "e2e4",
+          "d5e4",
+          "c3e4",
+          "c5d3",
+          "e1d2",
+          "g8f6"
+        ],
+        "opening_id": "360b712c5c6d22e5",
+        "pair_index": 37,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/3P4/PPP1PPPP/RNBQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 1 2",
+          "r1bqkbnr/pppnpppp/8/3p4/8/2NP4/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+          "r1bqkbnr/pppnpppp/8/3p4/5B2/2NP4/PPP1PPPP/R2QKBNR b KQkq - 3 3",
+          "r1bqkbnr/ppp1pppp/8/2np4/5B2/2NP4/PPP1PPPP/R2QKBNR w KQkq - 4 4",
+          "r1bqkbnr/ppp1pppp/8/2np4/4PB2/2NP4/PPP2PPP/R2QKBNR b KQkq e3 0 4",
+          "r1bqkbnr/ppp1pppp/8/2n5/4pB2/2NP4/PPP2PPP/R2QKBNR w KQkq - 0 5",
+          "r1bqkbnr/ppp1pppp/8/2n5/4NB2/3P4/PPP2PPP/R2QKBNR b KQkq - 0 5",
+          "r1bqkbnr/ppp1pppp/8/8/4NB2/3n4/PPP2PPP/R2QKBNR w KQkq - 0 6",
+          "r1bqkbnr/ppp1pppp/8/8/4NB2/3n4/PPPK1PPP/R2Q1BNR b kq - 1 6",
+          "r1bqkb1r/ppp1pppp/5n2/8/4NB2/3n4/PPPK1PPP/R2Q1BNR w kq - 2 7"
+        ],
+        "seed": 532935166796543241
+      },
+      {
+        "moves": [
+          "b1c3",
+          "d7d5",
+          "e2e3",
+          "b8d7",
+          "f1c4",
+          "e7e6",
+          "g1f3",
+          "d5c4",
+          "d2d4",
+          "f8c5",
+          "d1d3",
+          "g8e7"
+        ],
+        "opening_id": "4fb2841f873dfb11",
+        "pair_index": 38,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2N5/PPPPPPPP/R1BQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/8/2N1P3/PPPP1PPP/R1BQKBNR b KQkq - 0 2",
+          "r1bqkbnr/pppnpppp/8/3p4/8/2N1P3/PPPP1PPP/R1BQKBNR w KQkq - 1 3",
+          "r1bqkbnr/pppnpppp/8/3p4/2B5/2N1P3/PPPP1PPP/R1BQK1NR b KQkq - 2 3",
+          "r1bqkbnr/pppn1ppp/4p3/3p4/2B5/2N1P3/PPPP1PPP/R1BQK1NR w KQkq - 0 4",
+          "r1bqkbnr/pppn1ppp/4p3/3p4/2B5/2N1PN2/PPPP1PPP/R1BQK2R b KQkq - 1 4",
+          "r1bqkbnr/pppn1ppp/4p3/8/2p5/2N1PN2/PPPP1PPP/R1BQK2R w KQkq - 0 5",
+          "r1bqkbnr/pppn1ppp/4p3/8/2pP4/2N1PN2/PPP2PPP/R1BQK2R b KQkq d3 0 5",
+          "r1bqk1nr/pppn1ppp/4p3/2b5/2pP4/2N1PN2/PPP2PPP/R1BQK2R w KQkq - 1 6",
+          "r1bqk1nr/pppn1ppp/4p3/2b5/2pP4/2NQPN2/PPP2PPP/R1B1K2R b KQkq - 2 6",
+          "r1bqk2r/pppnnppp/4p3/2b5/2pP4/2NQPN2/PPP2PPP/R1B1K2R w KQkq - 3 7"
+        ],
+        "seed": 11043421012408870754
+      },
+      {
+        "moves": [
+          "d2d3",
+          "b8c6",
+          "e2e3",
+          "d7d5",
+          "b1c3",
+          "c8f5",
+          "g1f3",
+          "g8f6",
+          "e3e4",
+          "e7e6",
+          "e4d5",
+          "e6d5"
+        ],
+        "opening_id": "883a808d8f3a4580",
+        "pair_index": 39,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/8/3P4/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/8/3PP3/PPP2PPP/RNBQKBNR b KQkq - 0 2",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/8/3PP3/PPP2PPP/RNBQKBNR w KQkq d6 0 3",
+          "r1bqkbnr/ppp1pppp/2n5/3p4/8/2NPP3/PPP2PPP/R1BQKBNR b KQkq - 1 3",
+          "r2qkbnr/ppp1pppp/2n5/3p1b2/8/2NPP3/PPP2PPP/R1BQKBNR w KQkq - 2 4",
+          "r2qkbnr/ppp1pppp/2n5/3p1b2/8/2NPPN2/PPP2PPP/R1BQKB1R b KQkq - 3 4",
+          "r2qkb1r/ppp1pppp/2n2n2/3p1b2/8/2NPPN2/PPP2PPP/R1BQKB1R w KQkq - 4 5",
+          "r2qkb1r/ppp1pppp/2n2n2/3p1b2/4P3/2NP1N2/PPP2PPP/R1BQKB1R b KQkq - 0 5",
+          "r2qkb1r/ppp2ppp/2n1pn2/3p1b2/4P3/2NP1N2/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "r2qkb1r/ppp2ppp/2n1pn2/3P1b2/8/2NP1N2/PPP2PPP/R1BQKB1R b KQkq - 0 6",
+          "r2qkb1r/ppp2ppp/2n2n2/3p1b2/8/2NP1N2/PPP2PPP/R1BQKB1R w KQkq - 0 7"
+        ],
+        "seed": 9253624332580054500
+      },
+      {
+        "moves": [
+          "d2d4",
+          "g8f6",
+          "e2e4",
+          "d7d6",
+          "b1c3",
+          "b8d7",
+          "c1f4",
+          "f6e4",
+          "g1e2",
+          "e4f2",
+          "f4d6",
+          "e7d6"
+        ],
+        "opening_id": "bca4bd43eacf2536",
+        "pair_index": 40,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "rnbqkb1r/pppppppp/5n2/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq e3 0 2",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 1 3",
+          "r1bqkb1r/pppnpppp/3p1n2/8/3PP3/2N5/PPP2PPP/R1BQKBNR w KQkq - 2 4",
+          "r1bqkb1r/pppnpppp/3p1n2/8/3PPB2/2N5/PPP2PPP/R2QKBNR b KQkq - 3 4",
+          "r1bqkb1r/pppnpppp/3p4/8/3PnB2/2N5/PPP2PPP/R2QKBNR w KQkq - 0 5",
+          "r1bqkb1r/pppnpppp/3p4/8/3PnB2/2N5/PPP1NPPP/R2QKB1R b KQkq - 1 5",
+          "r1bqkb1r/pppnpppp/3p4/8/3P1B2/2N5/PPP1NnPP/R2QKB1R w KQkq - 0 6",
+          "r1bqkb1r/pppnpppp/3B4/8/3P4/2N5/PPP1NnPP/R2QKB1R b KQkq - 0 6",
+          "r1bqkb1r/pppn1ppp/3p4/8/3P4/2N5/PPP1NnPP/R2QKB1R w KQkq - 0 7"
+        ],
+        "seed": 5953685753326125550
+      },
+      {
+        "moves": [
+          "g1f3",
+          "d7d6",
+          "d2d4",
+          "g8f6",
+          "e2e3",
+          "b8c6",
+          "b1d2",
+          "d6d5",
+          "f1c4",
+          "d5c4",
+          "e1h1",
+          "e7e6"
+        ],
+        "opening_id": "faf3ff7c6101f3f1",
+        "pair_index": 41,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkbnr/ppp1pppp/3p4/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2",
+          "rnbqkbnr/ppp1pppp/3p4/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq d3 0 2",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 1 3",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/3P4/4PN2/PPP2PPP/RNBQKB1R b KQkq - 0 3",
+          "r1bqkb1r/ppp1pppp/2np1n2/8/3P4/4PN2/PPP2PPP/RNBQKB1R w KQkq - 1 4",
+          "r1bqkb1r/ppp1pppp/2np1n2/8/3P4/4PN2/PPPN1PPP/R1BQKB1R b KQkq - 2 4",
+          "r1bqkb1r/ppp1pppp/2n2n2/3p4/3P4/4PN2/PPPN1PPP/R1BQKB1R w KQkq - 0 5",
+          "r1bqkb1r/ppp1pppp/2n2n2/3p4/2BP4/4PN2/PPPN1PPP/R1BQK2R b KQkq - 1 5",
+          "r1bqkb1r/ppp1pppp/2n2n2/8/2pP4/4PN2/PPPN1PPP/R1BQK2R w KQkq - 0 6",
+          "r1bqkb1r/ppp1pppp/2n2n2/8/2pP4/4PN2/PPPN1PPP/R1BQ1RK1 b kq - 1 6",
+          "r1bqkb1r/ppp2ppp/2n1pn2/8/2pP4/4PN2/PPPN1PPP/R1BQ1RK1 w kq - 0 7"
+        ],
+        "seed": 3785438632435549584
+      },
+      {
+        "moves": [
+          "d2d4",
+          "d7d5",
+          "b1c3",
+          "e7e5",
+          "g1f3",
+          "b8c6",
+          "e2e4",
+          "g8f6",
+          "f3e5",
+          "c6e5",
+          "f1d3",
+          "e5d3"
+        ],
+        "opening_id": "44ca10c43743ef01",
+        "pair_index": 42,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/3P4/2N5/PPP1PPPP/R1BQKBNR b KQkq - 1 2",
+          "rnbqkbnr/ppp2ppp/8/3pp3/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq e6 0 3",
+          "rnbqkbnr/ppp2ppp/8/3pp3/3P4/2N2N2/PPP1PPPP/R1BQKB1R b KQkq - 1 3",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/3P4/2N2N2/PPP1PPPP/R1BQKB1R w KQkq - 2 4",
+          "r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/2N2N2/PPP2PPP/R1BQKB1R b KQkq e3 0 4",
+          "r1bqkb1r/ppp2ppp/2n2n2/3pp3/3PP3/2N2N2/PPP2PPP/R1BQKB1R w KQkq - 1 5",
+          "r1bqkb1r/ppp2ppp/2n2n2/3pN3/3PP3/2N5/PPP2PPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/ppp2ppp/5n2/3pn3/3PP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/5n2/3pn3/3PP3/2NB4/PPP2PPP/R1BQK2R b KQkq - 1 6",
+          "r1bqkb1r/ppp2ppp/5n2/3p4/3PP3/2Nn4/PPP2PPP/R1BQK2R w KQkq - 0 7"
+        ],
+        "seed": 10534903910229710368
+      },
+      {
+        "moves": [
+          "d2d3",
+          "e7e5",
+          "b1c3",
+          "b8c6",
+          "e2e3",
+          "d7d6",
+          "d3d4",
+          "e5d4",
+          "g1f3",
+          "d4e3",
+          "f2e3",
+          "g8f6"
+        ],
+        "opening_id": "dc118cdc9cc4b5ad",
+        "pair_index": 43,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/3P4/PPP1PPPP/RNBQKBNR w KQkq e6 0 2",
+          "rnbqkbnr/pppp1ppp/8/4p3/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 1 2",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/8/2NP4/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+          "r1bqkbnr/pppp1ppp/2n5/4p3/8/2NPP3/PPP2PPP/R1BQKBNR b KQkq - 0 3",
+          "r1bqkbnr/ppp2ppp/2np4/4p3/8/2NPP3/PPP2PPP/R1BQKBNR w KQkq - 0 4",
+          "r1bqkbnr/ppp2ppp/2np4/4p3/3P4/2N1P3/PPP2PPP/R1BQKBNR b KQkq - 0 4",
+          "r1bqkbnr/ppp2ppp/2np4/8/3p4/2N1P3/PPP2PPP/R1BQKBNR w KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/2np4/8/3p4/2N1PN2/PPP2PPP/R1BQKB1R b KQkq - 1 5",
+          "r1bqkbnr/ppp2ppp/2np4/8/8/2N1pN2/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkbnr/ppp2ppp/2np4/8/8/2N1PN2/PPP3PP/R1BQKB1R b KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/2np1n2/8/8/2N1PN2/PPP3PP/R1BQKB1R w KQkq - 1 7"
+        ],
+        "seed": 6182262113138603731
+      },
+      {
+        "moves": [
+          "e2e4",
+          "e7e6",
+          "g1f3",
+          "g8f6",
+          "b1c3",
+          "f6e4",
+          "d2d3",
+          "b8c6",
+          "d3d4",
+          "e4f2",
+          "f1c4",
+          "c6d4"
+        ],
+        "opening_id": "98e8dec1849081ed",
+        "pair_index": 44,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+          "rnbqkbnr/pppp1ppp/4p3/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+          "rnbqkb1r/pppp1ppp/4pn2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+          "rnbqkb1r/pppp1ppp/4pn2/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R b KQkq - 3 3",
+          "rnbqkb1r/pppp1ppp/4p3/8/4n3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 0 4",
+          "rnbqkb1r/pppp1ppp/4p3/8/4n3/2NP1N2/PPP2PPP/R1BQKB1R b KQkq - 0 4",
+          "r1bqkb1r/pppp1ppp/2n1p3/8/4n3/2NP1N2/PPP2PPP/R1BQKB1R w KQkq - 1 5",
+          "r1bqkb1r/pppp1ppp/2n1p3/8/3Pn3/2N2N2/PPP2PPP/R1BQKB1R b KQkq - 0 5",
+          "r1bqkb1r/pppp1ppp/2n1p3/8/3P4/2N2N2/PPP2nPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/pppp1ppp/2n1p3/8/2BP4/2N2N2/PPP2nPP/R1BQK2R b KQkq - 1 6",
+          "r1bqkb1r/pppp1ppp/4p3/8/2Bn4/2N2N2/PPP2nPP/R1BQK2R w KQkq - 0 7"
+        ],
+        "seed": 16948286277668628503
+      },
+      {
+        "moves": [
+          "e2e4",
+          "d7d5",
+          "g1f3",
+          "e7e5",
+          "e4d5",
+          "b8c6",
+          "d2d4",
+          "e5d4",
+          "d1d4",
+          "c6d4",
+          "f3d4",
+          "f8d6"
+        ],
+        "opening_id": "82959604e34915dd",
+        "pair_index": 45,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+          "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2",
+          "rnbqkbnr/ppp1pppp/8/3p4/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+          "rnbqkbnr/ppp2ppp/8/3pp3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq e6 0 3",
+          "rnbqkbnr/ppp2ppp/8/3Pp3/8/5N2/PPPP1PPP/RNBQKB1R b KQkq - 0 3",
+          "r1bqkbnr/ppp2ppp/2n5/3Pp3/8/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 4",
+          "r1bqkbnr/ppp2ppp/2n5/3Pp3/3P4/5N2/PPP2PPP/RNBQKB1R b KQkq d3 0 4",
+          "r1bqkbnr/ppp2ppp/2n5/3P4/3p4/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/2n5/3P4/3Q4/5N2/PPP2PPP/RNB1KB1R b KQkq - 0 5",
+          "r1bqkbnr/ppp2ppp/8/3P4/3n4/5N2/PPP2PPP/RNB1KB1R w KQkq - 0 6",
+          "r1bqkbnr/ppp2ppp/8/3P4/3N4/8/PPP2PPP/RNB1KB1R b KQkq - 0 6",
+          "r1bqk1nr/ppp2ppp/3b4/3P4/3N4/8/PPP2PPP/RNB1KB1R w KQkq - 1 7"
+        ],
+        "seed": 1924657818767569869
+      },
+      {
+        "moves": [
+          "g1f3",
+          "b8c6",
+          "d2d4",
+          "g8f6",
+          "e2e4",
+          "e7e5",
+          "f1c4",
+          "e5d4",
+          "c4f7",
+          "e8f7",
+          "f3d4",
+          "d7d5"
+        ],
+        "opening_id": "33a81d9b991a42f9",
+        "pair_index": 46,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "r1bqkbnr/pppppppp/2n5/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 2 2",
+          "r1bqkbnr/pppppppp/2n5/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq d3 0 2",
+          "r1bqkb1r/pppppppp/2n2n2/8/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 1 3",
+          "r1bqkb1r/pppppppp/2n2n2/8/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq e3 0 3",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq e6 0 4",
+          "r1bqkb1r/pppp1ppp/2n2n2/4p3/2BPP3/5N2/PPP2PPP/RNBQK2R b KQkq - 1 4",
+          "r1bqkb1r/pppp1ppp/2n2n2/8/2BpP3/5N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+          "r1bqkb1r/pppp1Bpp/2n2n2/8/3pP3/5N2/PPP2PPP/RNBQK2R b KQkq - 0 5",
+          "r1bq1b1r/pppp1kpp/2n2n2/8/3pP3/5N2/PPP2PPP/RNBQK2R w KQ - 0 6",
+          "r1bq1b1r/pppp1kpp/2n2n2/8/3NP3/8/PPP2PPP/RNBQK2R b KQ - 0 6",
+          "r1bq1b1r/ppp2kpp/2n2n2/3p4/3NP3/8/PPP2PPP/RNBQK2R w KQ d6 0 7"
+        ],
+        "seed": 18094378841394884731
+      },
+      {
+        "moves": [
+          "d2d3",
+          "b8c6",
+          "c1e3",
+          "g8f6",
+          "g1f3",
+          "e7e6",
+          "b1d2",
+          "f8d6",
+          "f3d4",
+          "d6h2",
+          "d2e4",
+          "c6d4"
+        ],
+        "opening_id": "b6695519c70411cf",
+        "pair_index": 47,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+          "r1bqkbnr/pppppppp/2n5/8/8/3P4/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+          "r1bqkbnr/pppppppp/2n5/8/8/3PB3/PPP1PPPP/RN1QKBNR b KQkq - 2 2",
+          "r1bqkb1r/pppppppp/2n2n2/8/8/3PB3/PPP1PPPP/RN1QKBNR w KQkq - 3 3",
+          "r1bqkb1r/pppppppp/2n2n2/8/8/3PBN2/PPP1PPPP/RN1QKB1R b KQkq - 4 3",
+          "r1bqkb1r/pppp1ppp/2n1pn2/8/8/3PBN2/PPP1PPPP/RN1QKB1R w KQkq - 0 4",
+          "r1bqkb1r/pppp1ppp/2n1pn2/8/8/3PBN2/PPPNPPPP/R2QKB1R b KQkq - 1 4",
+          "r1bqk2r/pppp1ppp/2nbpn2/8/8/3PBN2/PPPNPPPP/R2QKB1R w KQkq - 2 5",
+          "r1bqk2r/pppp1ppp/2nbpn2/8/3N4/3PB3/PPPNPPPP/R2QKB1R b KQkq - 3 5",
+          "r1bqk2r/pppp1ppp/2n1pn2/8/3N4/3PB3/PPPNPPPb/R2QKB1R w KQkq - 0 6",
+          "r1bqk2r/pppp1ppp/2n1pn2/8/3NN3/3PB3/PPP1PPPb/R2QKB1R b KQkq - 1 6",
+          "r1bqk2r/pppp1ppp/4pn2/8/3nN3/3PB3/PPP1PPPb/R2QKB1R w KQkq - 0 7"
+        ],
+        "seed": 5879910499152597342
+      },
+      {
+        "moves": [
+          "g1f3",
+          "e7e6",
+          "d2d3",
+          "b8c6",
+          "b1c3",
+          "d7d5",
+          "c3d5",
+          "g8f6",
+          "e2e4",
+          "f6d5",
+          "c1f4",
+          "d5f4"
+        ],
+        "opening_id": "fc9f014d595ffd7c",
+        "pair_index": 48,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1",
+          "rnbqkbnr/pppp1ppp/4p3/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 2",
+          "rnbqkbnr/pppp1ppp/4p3/8/8/3P1N2/PPP1PPPP/RNBQKB1R b KQkq - 0 2",
+          "r1bqkbnr/pppp1ppp/2n1p3/8/8/3P1N2/PPP1PPPP/RNBQKB1R w KQkq - 1 3",
+          "r1bqkbnr/pppp1ppp/2n1p3/8/8/2NP1N2/PPP1PPPP/R1BQKB1R b KQkq - 2 3",
+          "r1bqkbnr/ppp2ppp/2n1p3/3p4/8/2NP1N2/PPP1PPPP/R1BQKB1R w KQkq d6 0 4",
+          "r1bqkbnr/ppp2ppp/2n1p3/3N4/8/3P1N2/PPP1PPPP/R1BQKB1R b KQkq - 0 4",
+          "r1bqkb1r/ppp2ppp/2n1pn2/3N4/8/3P1N2/PPP1PPPP/R1BQKB1R w KQkq - 1 5",
+          "r1bqkb1r/ppp2ppp/2n1pn2/3N4/4P3/3P1N2/PPP2PPP/R1BQKB1R b KQkq e3 0 5",
+          "r1bqkb1r/ppp2ppp/2n1p3/3n4/4P3/3P1N2/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+          "r1bqkb1r/ppp2ppp/2n1p3/3n4/4PB2/3P1N2/PPP2PPP/R2QKB1R b KQkq - 1 6",
+          "r1bqkb1r/ppp2ppp/2n1p3/8/4Pn2/3P1N2/PPP2PPP/R2QKB1R w KQkq - 0 7"
+        ],
+        "seed": 15521838805034744159
+      },
+      {
+        "moves": [
+          "e2e3",
+          "g8f6",
+          "d2d3",
+          "d7d6",
+          "g1f3",
+          "c8f5",
+          "e3e4",
+          "f5e4",
+          "d3e4",
+          "d6d5",
+          "b1c3",
+          "b8c6"
+        ],
+        "opening_id": "306ab51746532d41",
+        "pair_index": 49,
+        "positions": [
+          "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          "rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+          "rnbqkb1r/pppppppp/5n2/8/8/4P3/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+          "rnbqkb1r/pppppppp/5n2/8/8/3PP3/PPP2PPP/RNBQKBNR b KQkq - 0 2",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/8/3PP3/PPP2PPP/RNBQKBNR w KQkq - 0 3",
+          "rnbqkb1r/ppp1pppp/3p1n2/8/8/3PPN2/PPP2PPP/RNBQKB1R b KQkq - 1 3",
+          "rn1qkb1r/ppp1pppp/3p1n2/5b2/8/3PPN2/PPP2PPP/RNBQKB1R w KQkq - 2 4",
+          "rn1qkb1r/ppp1pppp/3p1n2/5b2/4P3/3P1N2/PPP2PPP/RNBQKB1R b KQkq - 0 4",
+          "rn1qkb1r/ppp1pppp/3p1n2/8/4b3/3P1N2/PPP2PPP/RNBQKB1R w KQkq - 0 5",
+          "rn1qkb1r/ppp1pppp/3p1n2/8/4P3/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 5",
+          "rn1qkb1r/ppp1pppp/5n2/3p4/4P3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 6",
+          "rn1qkb1r/ppp1pppp/5n2/3p4/4P3/2N2N2/PPP2PPP/R1BQKB1R b KQkq - 1 6",
+          "r2qkb1r/ppp1pppp/2n2n2/3p4/4P3/2N2N2/PPP2PPP/R1BQKB1R w KQkq - 2 7"
+        ],
+        "seed": 1692059541645957947
+      }
+    ],
+    "pair_count": 50,
+    "parallel_work_unit": "opening-pair",
+    "seed_scheme": "splitmix64-v1"
+  },
+  "parallel_games": 8,
+  "parallel_games_requested": 8,
+  "parallelism_schema": "bounded-pair-workers-v1",
+  "points": {
+    "baseline": 29.0,
+    "draws": 46,
+    "experimental": 25.0
+  },
+  "seed": 42,
+  "self_compare": false,
+  "threads": 1
+}
