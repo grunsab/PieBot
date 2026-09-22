@@ -56,6 +56,13 @@ fn piece_to_idx(piece: cozy_chess::Piece) -> usize {
     }
 }
 
+const CAPHIST_SIZE: usize = 6 * 64 * 6;
+
+#[inline]
+fn capture_history_index(piece: cozy_chess::Piece, to: Square, victim: cozy_chess::Piece) -> usize {
+    (piece_to_idx(piece) * 64 + (to as usize)) * 6 + piece_to_idx(victim)
+}
+
 #[inline]
 fn piece_sq_index(piece: cozy_chess::Piece, sq: Square) -> usize {
     piece_to_idx(piece) * 64 + (sq as usize)
@@ -200,6 +207,7 @@ pub struct Searcher {
     conthist_2ply: Vec<i32>,
     move_stack: Vec<Option<(cozy_chess::Piece, Square)>>,
     counter_move: Vec<usize>,
+    capture_history: Vec<i32>,
     deterministic: bool,
     // Eval mode: material-only, PST, or NNUE
     eval_mode: EvalMode,
@@ -238,6 +246,7 @@ impl Default for Searcher {
             conthist_2ply: vec![0; CONTHIST_SIZE],
             move_stack: vec![None; 128],
             counter_move: vec![usize::MAX; HIST_SIZE],
+            capture_history: vec![0; CAPHIST_SIZE],
             deterministic: false,
             eval_mode: EvalMode::Pst,
             last_depth: 0,
@@ -433,6 +442,7 @@ impl Searcher {
             self.conthist_2ply.fill(0);
             self.counter_move.fill(usize::MAX);
             self.move_stack.fill(None);
+            self.capture_history.fill(0);
         }
         let max_depth = if depth == 0 { 99 } else { depth };
         let mut committed = self.fallback_result(board);
@@ -737,10 +747,17 @@ impl Searcher {
                     10_000_000
                 } else if is_cap == 1 {
                     let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    if see_gain >= 0 {
-                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
                     } else {
-                        -1_000_000 + see_gain + gives_check_bonus
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
                     }
                 } else {
                     let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
@@ -912,10 +929,17 @@ impl Searcher {
                     10_000_000
                 } else if is_cap == 1 {
                     let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    if see_gain >= 0 {
-                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
                     } else {
-                        -1_000_000 + see_gain + gives_check_bonus
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
                     }
                 } else {
                     let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
@@ -1347,10 +1371,17 @@ impl Searcher {
                     10_000_000
                 } else if is_cap == 1 {
                     let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    if see_gain >= 0 {
-                        1_000_000 + mvv * 10 + see_gain
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
                     } else {
-                        -1_000_000 + see_gain
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain
+                    } else {
+                        -1_000_000 + cap_hist + see_gain
                     }
                 } else {
                     let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
@@ -1373,11 +1404,20 @@ impl Searcher {
             promotion: None,
         }; 64];
         let mut num_quiets_tried: usize = 0;
+        let mut captures_tried = [Move {
+            from: Square::A1,
+            to: Square::A1,
+            promotion: None,
+        }; 32];
+        let mut num_captures_tried: usize = 0;
         for (idx, m) in moves.into_iter().enumerate() {
             let is_capture_move = self.is_capture(board, m);
             if !is_capture_move && num_quiets_tried < 64 {
                 quiets_tried[num_quiets_tried] = m;
                 num_quiets_tried += 1;
+            } else if is_capture_move && num_captures_tried < 32 {
+                captures_tried[num_captures_tried] = m;
+                num_captures_tried += 1;
             }
             let mut child = board.clone();
             child.play_unchecked(m);
@@ -1633,6 +1673,27 @@ impl Searcher {
                                     malus,
                                 );
                             }
+                        }
+                    }
+                }
+            } else if self.use_history && bound != Bound::Upper && is_cap {
+                let bonus = ((depth as i32).min(16) * (depth as i32).min(16) * 32).min(1200);
+                let malus = -bonus;
+                let curr_p = board.piece_on(mv.from).unwrap();
+                let curr_v = board.piece_on(mv.to).unwrap_or(cozy_chess::Piece::Pawn);
+                let chi = capture_history_index(curr_p, mv.to, curr_v);
+                if let Some(h) = self.capture_history.get_mut(chi) {
+                    update_history_score(h, bonus);
+                }
+                for &cm in &captures_tried[..num_captures_tried] {
+                    if cm == mv {
+                        continue;
+                    }
+                    if let Some(cp) = board.piece_on(cm.from) {
+                        let cv = board.piece_on(cm.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        let cchi = capture_history_index(cp, cm.to, cv);
+                        if let Some(ch) = self.capture_history.get_mut(cchi) {
+                            update_history_score(ch, malus);
                         }
                     }
                 }
@@ -1937,6 +1998,7 @@ impl Searcher {
             self.conthist_2ply.fill(0);
             self.counter_move.fill(usize::MAX);
             self.move_stack.fill(None);
+            self.capture_history.fill(0);
         }
         let start_time = Instant::now();
         self.deadline = params.movetime.map(|d| start_time + d);
@@ -2115,10 +2177,17 @@ impl Searcher {
                     10_000_000
                 } else if is_cap == 1 {
                     let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    if see_gain >= 0 {
-                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
                     } else {
-                        -1_000_000 + see_gain + gives_check_bonus
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
                     }
                 } else {
                     let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
@@ -2306,10 +2375,17 @@ impl Searcher {
                     10_000_000
                 } else if is_cap == 1 {
                     let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
-                    if see_gain >= 0 {
-                        1_000_000 + mvv * 10 + see_gain + gives_check_bonus
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
                     } else {
-                        -1_000_000 + see_gain + gives_check_bonus
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
                     }
                 } else {
                     let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
