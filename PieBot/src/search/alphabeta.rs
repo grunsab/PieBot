@@ -35,7 +35,7 @@ pub fn lmr_reduction_improving(
     depth: u32,
     move_idx: usize,
     history_score: i32,
-    _improving: bool,
+    improving: bool,
 ) -> u32 {
     if depth < 3 || move_idx < 3 {
         return 0;
@@ -44,9 +44,13 @@ pub fn lmr_reduction_improving(
     let m = move_idx.min(63);
     let mut r = LMR_TABLE[d][m];
 
-    if history_score > 4000 {
+    if !improving {
+        r += 1;
+    }
+
+    if history_score > 150 {
         r = r.saturating_sub(1);
-    } else if (history_score < -4000 || history_score < -200) && r >= 1 {
+    } else if history_score < -150 && r >= 1 {
         r += 1;
     }
 
