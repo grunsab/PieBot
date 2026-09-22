@@ -1,7 +1,6 @@
 pub mod alphabeta;
 #[cfg(feature = "board-pleco")]
 pub mod alphabeta_pleco;
-pub mod alphabeta_simple;
 pub mod alphabeta_temp;
 pub mod draw;
 pub mod eval;

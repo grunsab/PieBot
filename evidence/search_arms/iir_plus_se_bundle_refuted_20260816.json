@@ -1,0 +1,38 @@
+{
+  "arm": "IIR + singular extensions, run as a declared bundle",
+  "date_utc": "2026-08-16",
+  "verdict": "REFUTED. Screened 0.0 Elo, 95% CI [-14.8, +15.6]. The two do not compose -- they cancel.",
+
+  "the_hypothesis_being_tested": "IIR and singular extensions each screened at exactly +4.3 Elo against the same baseline, with intervals spanning zero. They act on disjoint node sets -- IIR reduces nodes with NO trustworthy first guess, SE extends nodes whose answer hinges on ONE move -- so the prediction was that they would not compete and the effects would add to ~+9 Elo, which resolves at 400-1200 games instead of the ~4,000 a 4 Elo effect needs.",
+
+  "result": {
+    "games": 400,
+    "w_d_l_experimental": [115, 170, 115],
+    "score": 0.5000,
+    "elo": 0.0,
+    "paired_bootstrap_95_ci": [-14.8, 15.6],
+    "note": "Perfectly symmetric: 115 wins each side."
+  },
+
+  "why_it_failed_the_mechanism": {
+    "finding": "The prediction was right that the effects are ADDITIVE. It was wrong about WHAT adds. The additive quantity is the depth delta, and the two signs are opposite.",
+    "arithmetic": {
+      "iir_alone_ply": 0.34,
+      "se_alone_ply": -0.28,
+      "predicted_sum_ply": 0.06,
+      "bundle_observed_ply": 0.05
+    },
+    "reading": "IIR BUYS depth by declining to search uninformative subtrees at full width. SE SPENDS depth by extending critical lines. Bundled, one hands back exactly what the other takes, net +0.05 ply, and with no net depth change there is no net Elo. The reasoning error was arguing they would not compete because they act on different NODES -- true but irrelevant. They compete for the same DEPTH BUDGET, in opposite directions.",
+    "the_alternative_reading": "The parsimonious explanation is simpler and should not be dismissed: all three measurements (IIR +4.3, SE +4.3, bundle 0.0) have intervals spanning zero, and the bundle -- which should have been the LARGEST effect -- came out exactly zero. That is consistent with both individual +4.3 figures being noise and both true effects being ~0. The depth arithmetic is suggestive but 400 games cannot separate 'they cancel' from 'neither does anything'."
+  },
+
+  "what_this_closes": "The bundle avenue, which CLAUDE.md had recorded as 'the cheapest search Elo left on the board' and 'the first thing to try when compute is next available'. It has now been tried. Do not re-run it. Any future attempt to combine depth-buying and depth-spending heuristics needs to reckon with the budget interaction first, not just node disjointness.",
+
+  "what_remains_untried_in_phase_9": ["probcut", "razoring", "Syzygy tablebases", "SEE-based pruning in the main search"],
+
+  "caveats": [
+    "400-game screen. The CI half-width is ~15 Elo, so this rules out a large bundle gain, not a small one.",
+    "Both components were implemented by the same author on the same day against the same baseline; a shared implementation error would not be caught by combining them.",
+    "The depth-cancellation account rests on three point estimates of avg_depth from three separate 400-game runs. The match (+0.06 predicted vs +0.05 observed) is closer than the underlying noise justifies, so treat the precision as coincidence and the direction as the finding."
+  ]
+}

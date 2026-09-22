@@ -1,0 +1,58 @@
+{
+  "arm": "Singular extensions (NEW -- the largest unclaimed Phase 9 item)",
+  "date_utc": "2026-08-16",
+  "verdict": "SHELVED as POSITIVE BUT UNRESOLVED: +4.3 Elo, 95% CI [-11.3, +20.0].",
+
+  "idea": "If the TT move is much better than every alternative, the position hinges on it and searching it a ply deeper is worth more than spreading the same effort over siblings. Establish singularity by searching everything EXCEPT the TT move at reduced depth against a window just below the TT score; if they all fail low, extend.",
+
+  "implementation": {
+    "gate": "depth >= SE_MIN_DEPTH (8), not in check, beta inside the mate window, TT entry present with depth + 3 >= depth, bound Lower or Exact, |score| inside the mate window.",
+    "probe": "alphabeta(board, (depth-1)/2, target-1, target) with target = tt_score - 2*depth, the TT move excluded.",
+    "exclusion_mechanism": "An `excluded_move` field CONSUMED by `take()` as the first statement of alphabeta -- before even the depth==0 early return -- so it applies to exactly one node and cannot leak into a child."
+  },
+
+  "correctness_properties_verified_before_spending_games": {
+    "no_leak": "Instrumented probe reported leaked_exclusion=false after every test search. This was the failure mode of most concern: an exclusion escaping into child nodes would silently corrupt whole subtrees, exactly like the root-split defect found the same morning.",
+    "no_tt_poisoning": "An excluded search describes a position with a move removed, so both the TT cutoff on entry and the TT store on exit are suppressed. Using the entry would also be circular -- it was written with the excluded move available.",
+    "single_legal_move": "If the excluded move is the only legal move, nothing is searched and `best` would still hold the -MATE_SCORE sentinel, claiming a forced mate that does not exist. Now returns a fail-low, which is also semantically correct: no alternative beat the window because there were none, which is precisely what makes the move singular.",
+    "mechanism_fires": [
+      {"position": "midgame", "depth": 10, "probes": 32, "extensions": 10, "rate_pct": 31.2},
+      {"position": "midgame", "depth": 12, "probes": 235, "extensions": 61, "rate_pct": 26.0},
+      {"position": "midgame b", "depth": 12, "probes": 349, "extensions": 38, "rate_pct": 10.9}
+    ],
+    "rate_is_normal": "10-31% of probes yielding an extension is the usual range for this heuristic."
+  },
+
+  "matein3_is_STRUCTURALLY_blind_here": {
+    "evidence": "Both a depth-7 and a depth-9 run were BYTE-IDENTICAL to the stub (10011374 and 61832779).",
+    "reason": "Every position in the suite is a mate window, and the gate deliberately disables singular extensions when |score| is near MATE_SCORE -- extending inside a forced mate is pointless. The identical node counts confirm the GATE works; they say nothing about the feature.",
+    "note": "This is the same category as the Lazy SMP change, and unlike H2 continuation history: an effect the suite cannot express, rather than a small effect it can."
+  },
+
+  "measurement": {
+    "harness": "compare_play, 400 games, 1000 ms/move, paired openings, seed 20260820, 11 workers",
+    "w_d_l_experimental": [135, 135, 130],
+    "score": 0.5062,
+    "elo": 4.3,
+    "paired_bootstrap_95_ci": [-11.3, 20.0],
+    "depth": {"baseline": 12.76, "experimental": 12.48, "delta_ply": -0.28},
+    "nps": {"baseline": 2836913.8, "experimental": 2815097.6},
+    "reading": "The -0.28 ply is EXPECTED and not a defect: extensions buy selective depth on critical lines by spending nominal depth everywhere else. The trade happened as designed and netted positive; it simply does not resolve at 400 games."
+  },
+
+  "the_bundle_opportunity": {
+    "observation": "IIR and singular extensions BOTH screened at exactly +4.3 Elo with intervals spanning zero, on the same day against the same baseline.",
+    "why_they_compose": "They are opposite halves of the same idea -- spend depth where it matters. IIR REDUCES nodes with no trustworthy first guess; SE EXTENDS nodes whose answer hinges on one move. Neither competes with the other for the same nodes.",
+    "the_arithmetic": "If the effects are additive, a bundle is ~+9 Elo, which is far more resolvable than +4.3. Resolving a 4 Elo effect needs roughly 4,000 games (~10 h at this cadence); a 9 Elo effect needs roughly 800-1,200.",
+    "the_caveat": "Additivity is an assumption, not a measurement, and bundling breaks per-arm attribution. It should be run as a DECLARED bundle -- screen the pair, then confirm at 1000 games -- not as a way of rescuing two arms that individually failed.",
+    "recommendation": "This is the cheapest remaining search Elo and it is a well-defined ~2 h experiment. It is the first thing to try when compute is next available."
+  },
+
+  "caveats": [
+    "400-game screen only; no confirmation, since the lower bound did not clear zero.",
+    "SE_MIN_DEPTH (8) and the 2*depth margin are standard choices, not tuned. Both are untested headroom.",
+    "The probe depth (depth-1)/2 is a common formula but was not swept.",
+    "Modern engines apply double/negative extensions based on how far the probe fails low; this implementation extends by exactly one ply or not at all.",
+    "Measured against a baseline carrying both Lazy SMP and log-log LMR promoted the same day."
+  ]
+}

@@ -29,7 +29,20 @@ fn recognizes_only_dead_minor_piece_endings() {
 
 #[test]
 fn requires_three_occurrences_of_the_same_rule_position() {
-    let current = Board::default();
+    // The halfmove clock must be consistent with a position that has actually
+    // recurred. `is_threefold` only scans back to the last irreversible move --
+    // nothing before a capture or pawn push can match the current position --
+    // and it reads that bound off `halfmove_clock`.
+    //
+    // This test previously used `Board::default()`, whose clock is 0, and
+    // asserted that three copies constitute a threefold. That input is
+    // unreachable in a real game: repeating a position requires reversible
+    // moves, and every reversible move increments the clock. A clock of 0 says
+    // "an irreversible move was just played", which by definition means no
+    // earlier position can be equal. The clock below (8) is what a genuine
+    // repetition looks like.
+    let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 8 5";
+    let current = Board::from_fen(fen, false).unwrap();
     let one = vec![current.clone()];
     let two = vec![current.clone(), current.clone()];
     let three = vec![current.clone(), current.clone(), current.clone()];
@@ -37,4 +50,14 @@ fn requires_three_occurrences_of_the_same_rule_position() {
     assert!(!is_threefold(&current, &one));
     assert!(!is_threefold(&current, &two));
     assert!(is_threefold(&current, &three));
+}
+
+#[test]
+fn a_zero_halfmove_clock_cannot_be_a_repetition() {
+    // Guards the bound itself: immediately after a capture or pawn push the
+    // position is necessarily new, so no history can make it a threefold.
+    let current = Board::default();
+    let many = vec![current.clone(); 8];
+    assert_eq!(0, current.halfmove_clock());
+    assert!(!is_threefold(&current, &many));
 }

@@ -24,8 +24,8 @@ Test‑Driven Development (TDD) Policy
 
 Workflow
 1) Fork the search implementation in a temporary file
-   - Copy the baseline file `piebot/src/search/alphabeta.rs` to:
-     - `piebot/src/search/alphabeta_temp.rs`
+   - Copy the baseline file `PieBot/src/search/alphabeta.rs` to:
+     - `PieBot/src/search/alphabeta_temp.rs`
    - Implement and iterate on your changes in `alphabeta_temp.rs` only.
    - The project builds by default because a stub `alphabeta_temp.rs` re‑exports the baseline; replace it with your modified copy when testing.
 
@@ -64,192 +64,308 @@ Notes
 - Threads: for reproducibility start with `--threads 1`. You may also probe SMP scaling with higher threads after passing single‑thread comparisons.
 - Noise: The compare runner samples among the top‑K ordered moves (uniform over K) for the first N plies to avoid repeated openings.
 
-Super-GM Campaign Handoff (2026-08-08) — CURRENT
+Super-GM Campaign Handoff (2026-08-16) — CURRENT
 ================================================
 
-Written for any agent/LLM taking over. Re-verify every live fact before
-acting on it. (Older handoffs were pruned 2026-08-08; their still-binding
-rules are folded into the durable-rules subsection below.)
+Written for any agent/LLM taking over. Re-verify every live fact before acting
+on it; the previous handoff was five days stale and several of its numbers were
+wrong in ways that cost real time (see "Corrections" below).
 
 ### Mission and standing
-- Goal (user-set): super-grandmaster strength, ~2700 Elo on the pinned
-  Stockfish anchor scale. Budget: 1-2 months of Vast.ai time from ~2026-08-05;
-  the user will add hours if asked.
-- Measured strength 2026-08-08 (era-2 canonical ladder, 100 games/rung,
-  60+0.5s, 1T): S1-era engine + cycle-98 net at blend 25 scored 84.5% vs
-  SF16-1500 and 69% vs SF16-1800 → pooled **1892 Elo, 95% CI [1833, 1961]**
-  (`evidence/ladder_era2_s1_cycle98_20260808.json`). Gap to goal: ~800 Elo.
-- Two tracks bank Elo independently: search arms (promoted S1+S2 are worth
-  roughly +100-200 anchor Elo over era-1) and NNUE training (plateaued in
-  v1-v4; v6 arch-v2 rebuild minted, deployment pending — see below).
+- Goal (user-set 2026-08-16): **~3650 CCRL 40/15**, i.e. a top-ten engine.
+  This supersedes the earlier "~2700 on the pinned Stockfish anchor scale".
+- Best estimate 2026-08-16 (end of day): **~2430-2580 CCRL 40/15. Gap
+  ~1070-1220 Elo.** This is a DOWNWARD revision from the long-standing
+  ~2650/2705 and it is evidence-driven, not pessimism: all 60 ladder draws
+  were replayed and evaluated at depth 18 by full-strength Stockfish, and
+  **76.7% were positions PieBot had already lost -- 19 of them with a forced
+  mate available to the opponent, which repeated instead.** The draws are
+  unconverted wins, not holds. Reassigning them at 60-100% conversion gives
+  2584 / 2429. See `evidence/ladder_draws_are_unconverted_wins_20260816.json`.
+  Search-arm A/B numbers are UNAFFECTED -- those are engine-vs-engine and
+  never went through the ladder.
+- **CORRECTION to a standing claim: the ladder is biased HIGH, not low.**
+  CLAUDE.md previously said both instruments are biased low and used that to
+  argue the truth sits at the upper end of the interval. Drop that argument.
+  PieBot's opponent-insensitive draw floor (point 1 below) inflates every
+  ladder rating, and inflates it more at higher rungs. The 150 ms A/B harness
+  is separately and genuinely biased low (point 2); that finding is unrelated
+  and still stands. The two biases are in opposite directions and must not be
+  netted against each other -- they apply to different measurements.
+- **Audit verdict (55 agents, 45 of 48 claimed Elo sources refuted): 3650 needs
+  12-24 months plus a datagen and architecture rewrite.** The whole verified
+  search queue was +39 to +100 Elo, i.e. 4-10% of the gap. A realistic target
+  is **2900-3100 over 6-12 months**. Do not pad estimates to reach 3650.
+- The remaining ~1000 Elo is two multi-month programs, not a list of patches:
+  search selectivity as a co-tuned system (~400-500) and eval/datagen
+  (~400-500, the harder half).
+
+### MEASUREMENT: the two instruments are biased in OPPOSITE directions — read this first
+(The ladder reads HIGH; the 150 ms A/B harness reads LOW. They measure
+different things and must never be netted against each other.)
+1. **The rung ladder disagrees with itself because PieBot has a draw floor.**
+   A full 100-game-per-rung ladder at 3000/3190 returned 2705 [2636, 2760]
+   and 2882 [2809, 2938] -- disjoint, from one binary.
+   **The cause is PieBot, not the anchor.** A 200-game control played the two
+   rungs DIRECTLY against each other (`scripts/experiments/anchor_rung_saturation_probe.py`):
+   the high rung scored 76.0%, a **measured gap of 200.2 Elo, CI [166, 238]**,
+   so the nominal 190 is correct and the limiter is properly calibrated here.
+   What is broken is PieBot's score: at 2705 it should score 5.8% against
+   rung 3190 and it scored 14.5%, overperforming by ~177 Elo. Its draw rate
+   is **31% vs rung 3000 and 29% vs rung 3190 -- flat across a 190 Elo
+   increase in opponent strength**, almost all threefold repetitions, on top
+   of 0 wins in 200 games. That fixed block of draws is a score FLOOR, and
+   because it does not fall as the opponent strengthens, the derived rating
+   RISES with the rung.
+   **Therefore every ladder rating is inflated, and more so the higher the
+   rung. 2705 is an UPPER bound, not a central estimate.** Do not re-derive
+   from a higher rung to get a nicer number. See
+   `evidence/ladder_draw_floor_20260816.json`.
+   (An earlier claim today that the `UCI_Elo` limiter was SATURATED above
+   3000 was committed and is now RETRACTED -- it was inferred through PieBot
+   alone, which cannot separate "equally strong opponents" from "a score rate
+   insensitive to opponent strength". Run the direct control first.)
+2. **The 150 ms A/B harness UNDERSTATES search changes.** Measured 2026-08-16:
+   H1+H4 is +38.3 Elo at 150 ms but **+88.7 Elo, CI [+65.0, +113.3] at 1000 ms**
+   (200 games), depth edge 0.67 -> 1.29 ply. Ordering quality compounds with
+   search length. **Use >= 1000 ms for anything depth-dependent.** Every arm
+   rejected at 150 ms may have been rejected by an instrument that could not
+   see it.
+3. **The ladder runs `60+0.5` = a whole-game clock, ~1.1-1.5 s/move.**
+   CCRL 40/15 is 22.5 s/move — roughly 18x longer. Nothing has ever been
+   validated at the target time control.
+4. **No PieBot game has ever been played against a CCRL-listed engine.**
+   +-250 Elo of instrument error exceeds every Elo banked to date. This is the
+   single highest-value unaddressed item. `scripts/uci_elo_arena.py` now takes
+   `--stockfish-full-strength` (added 2026-08-16) for when the gap narrows
+   enough to make it measurable; today PieBot would score ~0-4% at equal time,
+   and a ~1000 Elo gap cannot be bridged by time odds.
 
 ### Working branch and repo state
-- Work lives on branch `campaign-v2`, pushed to `origin` (GitHub
-  `grunsab/PieBot`); `main` is stale at `7a1e791`. At writing, tip is
-  `a45c120`. Do not rebase published history.
-- Committed assets: `models/cycle_000098_quant.nnue` (active/incumbent, sha
-  `3fa9bae3...`) and `cycle_000094_quant.nnue` with `models/MANIFEST.json`;
-  `books/openings_v1.fen` (1,279 openings, sha `d35b81a1...`);
-  `evidence/` (promotions, probes, ladders, benchmarks);
-  `scripts/experiments/` (h128 twin builder, NPS bench, depth-9 cost probe);
-  `documents/CampaignPlan_SuperGM_v1.md` (authoritative plan) and
-  `documents/PostDeadlineBattery.md`.
+- **`main` is now CURRENT** — fast-forwarded 2026-08-16 from the long-stale
+  `7a1e791` to `5e28a98` (74 commits). `campaign-v2` points at the same commit.
+  Do not rebase published history.
+- Committed assets:
+  - **`models/v8_cycle_000013_quant.nnue` — CURRENT BEST.** campaign_v8 cycle
+    13, gate-accepted at blend 75, arch-v2 `PIENNQ02`, 80 MB, sha `2ef89594...`.
+  - **`models/cycle_000098_quant.nnue` — RETAINED DELIBERATELY, DO NOT DELETE.**
+    It is a dependency, not an archive: `scripts/cpu_benchmark.sh:22` reads it
+    BY PATH to qualify successor boxes, and its sha is pinned in
+    `run_vast_campaign_v2.sh:67` and `test_cpu_benchmark.py:35`.
+  - `books/openings_v1.fen` (1,279 openings, sha `d35b81a1...`); `evidence/`;
+    `scripts/experiments/`; `documents/CampaignPlan_SuperGM_v1.md`.
+- **Deleting files from git does NOT reclaim GitHub space** — blobs persist in
+  history, and reclaiming needs a rewrite this repo forbids. `.git` is 1.3 GB,
+  dominated by a 92.8 MB `AlphaZeroNet_20x256_rust.pt` blob. Use a Release
+  asset or LFS for large artifacts (the 108 MB dense bootstrap already follows
+  that precedent).
 
 ### Infrastructure (live at writing — RE-VERIFY)
 - Production box: Threadripper PRO 7995WX + RTX 4090, 150 GB disk:
-  `ssh -p 14790 root@81.166.173.12` (65.6 c/hr). Read
-  `/etc/vast-agents-guide.md` after login.
-- **The TR box's rental expires ~2026-08-21. Re-migrate the campaign to a new
-  box by ~2026-08-19** (task #14). Qualify successors with
-  `scripts/cpu_benchmark.sh`; the cutover sequence is rehearsed in this
-  session's history: stop supervisor → bundle/fetch code → stage bootstrap by
-  SHA → install conf → verify node signatures → start.
-- The previous box (192.220.55.116, in the historical handoff) is DEAD; the
-  EPYC candidate was released. Do not use those endpoints.
-- Supervisor program `piebot_campaign_v2`, conf at
+  `ssh -p 14790 root@81.166.173.12`. Read `/etc/vast-agents-guide.md`.
+- **Rental `end_date` is 2026-08-26 00:00 UTC**, verified from
+  `vastai show instance 47024265 --raw` (the `vastai` CLI on the box IS
+  authenticated). The previous handoff said "~2026-08-21, migrate by ~08-19" —
+  **wrong by 5 days**, and acting on it would have abandoned a productive run a
+  week early. Verify with the CLI, never from a handoff.
+- **192 cores is a lie**: `nproc` reports SMT threads on **96 physical cores**,
+  and `/sys/fs/cgroup/cpu.max` caps the container at **184 CPU-equivalents**.
+  All lane math uses 184; `GATE_PARALLEL_GAMES=192` would fail the launcher
+  preflight and crash-loop the supervisor.
+- Supervisor program `piebot_campaign_v2` (name is historical), conf at
   `/etc/supervisor/conf.d/piebot_campaign_v2.conf` (source:
-  `deploy/vast/piebot_campaign_v2.conf`), logs at
-  `/workspace/piebot_campaign_v2_supervisor.{log,err}`. `stopasgroup=true`.
-- Box git quirk: `/workspace/piebot_rust`'s `origin` is a stale LOCAL BUNDLE
-  (`/workspace/piebot_campaign_v2.bundle`), and the box has NO GitHub
-  credentials yet. A read-only keypair was generated on the box
-  (`~/.ssh/id_ed25519.pub`, comment `piebot-tr-box-readonly`) awaiting
-  registration as a GitHub deploy key (see deployment block below).
-- Standing user directive: only ~150 GB disk; proactively delete old
-  self-play game shards (never state files, checkpoints, gate JSON, or
-  accepted quants) to keep the run alive. At writing: 126 GB free, v4 root
-  only 7 GB — no action needed yet. Autopilot retention keeps 8 full cycles.
-- Leave ~24 threads free for SSH/arena lanes (training lanes use 160).
-
-### Strength measurement protocol (era-2)
-- Anchor: official SF16 avx2 release, sha256
-  `8f60a016dc767e0d648a8665b8ede3e6e4d28c086ad90517ad26f55b9960bd84`, at
-  `/workspace/stockfish16` on the TR box (`evidence/anchor_repin_20260807.json`).
-  Era-1's pinned binary died with the old box; era-1 numbers (~1650-1800
-  pooled for the pre-S1 engine + cycle-98) are comparable within a few Elo.
-- Ladders: `scripts/uci_elo_ladder.py` (parallel rungs, pooled performance
-  rating + bootstrap CI). 100+ games/rung; place rungs within ±400 of
-  expected strength; SF16 UCI_Elo clamps silently outside 1320-3190.
-- NEVER mix scales: local-Mac SF18 numbers (~2000 for the same engine) are a
-  different scale used only for fast iteration signals.
-- Queued: ladder the S2-era engine (baseline now includes S1+S2) at the next
-  checkpoint.
+  `deploy/vast/piebot_campaign_v2.conf`). `stopasgroup`/`killasgroup` mandatory.
+- The box reaches GitHub **anonymously over HTTPS**, so no deploy key is needed
+  despite `origin` still being the stale local bundle.
+- Lane split: `SELFPLAY_PARALLEL_GAMES=112`, `RELABEL_THREADS=112`. **112 is
+  deliberate**, reserving ~48 for the search-arm A/B farm. A 2026-08-15
+  excursion to 160 was reverted: it bought only -11.6% relabel wall (the
+  workload is memory-bandwidth-bound, and past 96 physical cores the marginal
+  thread yields 0.16-0.32 cores) while starving the farm that produced S6.
 
 ### Search-arms track (biggest proven Elo source)
-- Workflow: exactly the A/B process at the top of this file (fork
-  `alphabeta_temp.rs`, matein3 acceptance both engines, 400-game Mac screen
-  at 150 ms noise 12/top-5 paired, 1000-game confirmation, promote only if
-  paired-bootstrap 95% LCB > 0).
-- Banked: S1 interior PVS + TT-move-first ordering (+0.206 mean pair delta,
-  1000g), S2 reverse futility pruning (+0.12, CI [+0.058, +0.184], 1000g),
-  and S3 futility pruning (2026-08-08: +0.058, bootstrap CI [+0.012, +0.104],
-  52.9%, ~+20 Elo, 1000g on the box). S5 log-log LMR shelved (flat).
-  Evidence in `evidence/`. S3 is IN THE REPO BUT NOT ON THE BOX: v6 is
-  pinned mid-lineage, so it ships at the next lineage boundary or the
-  ~2026-08-19 migration.
-- Build-verification practice: the matein3 acceptance run is deterministic.
-  Post-S3 baseline `accept` signature is 20110404 nodes (post-S2 was
-  20117448); `accept_temp` is 20213662. accept and accept_temp use
-  different option sets, so compare each against its own history. Use node
-  signatures to prove a remote box actually rebuilt your code.
-- Queue (in order): hand-written SIMD eval kernels (AVX2 box / NEON Mac) —
-  top priority, since arch-v2 h1024 runs at 0.231x v1 NPS; then S8
-  continuation history. `PieBot/src/search/alphabeta_temp.rs` is currently
-  the re-export stub — clean start.
+- Workflow: the A/B process at the top of this file (fork `alphabeta_temp.rs`,
+  matein3 acceptance on BOTH engines, 400-game screen, 1000-game confirmation,
+  promote only if paired-bootstrap 95% LCB > 0). Screens overstate: H1 screened
+  +27.0 and confirmed +18.1.
+- Banked: S1 PVS+TT-first, S2 reverse futility, S3 futility, **S6** (delete
+  null-move verification at depth<=12, qsearch SEE + delta pruning; +56 Elo
+  [+44,+68] — the largest single arm, and missing from the previous handoff),
+  and 2026-08-16: **H1** history rewrite (+18.1) and **H4** winning-capture
+  priority (+20.2). H1+H4 together are **+88.7 Elo at 1000 ms**.
+- **S5b log-log LMR (2026-08-16): PROMOTED, +22.3 Elo, paired-bootstrap 95%
+  CI [+12.2, +32.4] over 1000 games at 1000 ms**, +0.85 ply at equal NPS.
+  Replaces a FLAT reduction of 1 with `clamp(ln(d)*ln(i)/2.25, 1, d-2)`. This
+  is the arm shelved 2026-08-07 whose note said to revisit once ordering
+  improved -- H1+H4 did exactly that, and the original judgement had also been
+  made on the 150 ms harness that understates depth-dependent arms ~2.3x.
+  Screen +22.6 and confirmation +22.3, so this one did NOT overstate. The
+  2.25 divisor is inherited from the S5 v2 retune and is untested headroom.
+  See `evidence/search_arms/s5b_loglog_lmr_promoted_20260816.json`.
+- **SMP (2026-08-16): root splitting was DELETED and replaced with Lazy SMP.**
+  The old `search_depth_parallel` was unsound, not merely unscalable: it
+  scouted each tail root move against a racing `alpha_shared`, so a fail-low
+  scout returned a fail-soft UPPER BOUND, and the aggregation then compared
+  those bounds -- taken against *different* alphas, with cancelled workers'
+  results silently dropped -- using `score > best_score` to pick the root
+  move. It could return a move it never verified. Measured **-161 Elo at 4
+  threads vs 1 thread**. Lazy SMP (independent ID loops over the shared TT,
+  helper scores never read) measures **+94.9 Elo vs 1T** and **+129 Elo
+  [+91, +170] head-to-head against root splitting at 4T over 200 games**;
+  NPS scaling 2.47x -> 3.81x. Single-threaded play is bit-identical
+  (`accept` still 11742536). Applied to BOTH iterative-deepening loops --
+  `search_movetime` *and* `search_with_params`, the latter being what the
+  real UCI `go` handler uses (`uci.rs:651`). See
+  `evidence/smp_lazy_smp_replaces_root_split_20260816.json`.
+  **Open question that decides whether to invest further: it is unconfirmed
+  whether CCRL 40/15's main list gives an engine one core or four.** If one,
+  this buys nothing on that list specifically. Verification failed --
+  computerchess.org.uk 403s automated fetches, ccrl.chessdom.com did not
+  resolve -- so a human should check.
+- **For ANY timing anomaly on the Mac, compare ELAPSED to CPU TIME before
+  theorising about the code.** `ps -Ao pid,etime,time,pcpu` answers in one
+  command. On 2026-08-16 a screen ran 2h05m against the usual 1h and two
+  hypotheses were formed about the ARM causing it; both were wrong. The
+  laptop had been closed -- 2h05m elapsed against 194 CPU-minutes, a ~14%
+  duty cycle. Wall time alone cannot separate "the work changed" from "the
+  machine was not running". Wrap long local runs in `caffeinate -dimsu`, and
+  note that a lid close still sleeps a MacBook regardless.
+- **The matein3 pre-screen IS trustworthy for move-ordering arms.** It is
+  blind only to effects it cannot express -- thread count, NPS, time
+  management -- because it is single-threaded and fixed-depth. Ordering
+  changes ARE what it measures: ordering changes the tree and the tree is the
+  node count. On 2026-08-16 the <5% rule was overridden for H2 continuation
+  history on the argument that the suite was blind to it; the override was
+  wrong, the 400-game screen confirmed the pre-screen's null, and it cost an
+  hour. Reserve the override for arms whose effect the suite structurally
+  cannot express (the Lazy SMP fix was one; ordering arms are not).
+- **The history table is BIMODAL; never scale a constant as a fraction of
+  `HIST_MAX`.** Measured 2026-08-16 on real searches: `HIST_MAX` is 16384, but
+  the 90th percentile of non-zero entries is **4-9**, with a thin tail reaching
+  ~11,000 (midgame d11: 764 non-zero, p50 -5, p90 4, p99 3740, max 11126;
+  matein3 d7: 619 non-zero, p90 9, p99 272). Anything expressed as
+  `HIST_MAX / k` is therefore a no-op for all but a handful of moves. This had
+  never been measured and cost three failed attempts at one arm.
+- **Move ordering is a FLAT SUM, so terms must be scaled against each other.**
+  Measured ceilings before H4: capture ~10,112 vs quiet 16,474, so a saturated
+  history quiet outranked the best capture on the board at 54.1% of depth-10
+  nodes. See `evidence/` and the `piebot-search-ordering` memory.
+- **Rejected at 150 ms — RE-TEST AT >= 1000 ms BEFORE TRUSTING**: H2
+  continuation history (+2.6), log-log LMR (+6.9), history-modulated LMR
+  (+3.5), LMP (~1% nodes, loses a mate if pushed). All are depth-dependent and
+  all were judged on the understating harness.
+- Node signatures (deterministic; use them to prove a remote rebuild):
+  `accept` **9983611**; `accept_temp` **10011374** when the fork is the stub.
+  (Both changed 2026-08-16 when log-log LMR was promoted; the pre-LMR values
+  were 11742536 and 11763048.)
+  History for `accept`: 14298048 (pre-H1) -> 13184884 (H1) -> 11742536 (H4)
+  -> 9983611 (S5b log-log LMR).
+  **The two binaries are NOT comparable to each other** and never were: they
+  use different option sets (`opts=alphabeta` vs `opts=(default)`), so they
+  legitimately differ by ~20k nodes on an identical tree. Compare each only
+  against its own history. (A previous handoff claimed `accept_temp` was
+  11742536 on the stub; that was wrong and cost a false alarm.)
+- **matein3 CANNOT measure NPS changes** — it loads from FEN with a ~1-entry
+  game history. It only proves whether the tree changed. Its node count plus
+  mates-solved is however an excellent ~4 s pre-screen: if a change moves nodes
+  <5% or loses a mate, do not spend games on it.
+- Corrected: the "arch-v2 runs at 0.231x v1 NPS" claim is **wrong** (measured on
+  a random-weight net). Real ratio ~0.489x, and live gate logs show ~1.0M NPS at
+  depth 7.9 — the handicap is not visible at the gate. SIMD eval kernels are
+  NOT the top lever; the accumulator is memory-bandwidth-bound on an 84 MB table.
 
-### NNUE training: lineage history and diagnosis
-- v1 (original 72h run, old box): promoted cycles 94 and 98, then 66 cycles
-  of nothing. Cycle-98 at blend 25 is STILL the active/incumbent model.
-- RETRO-DIAGNOSIS (2026-08-08): v4 ran with min_teacher_depth == actor
-  depth 5, so every non-relabeled row's actor self-label counted as a
-  teacher label at 0.8 mix - the actor was substantially its own teacher,
-  a plausible hidden contributor to the v4 regression below.
-- campaign_v2 (data fixes: opening book, adjudication, actor budget):
-  25 cycles, 0 promotions. campaign_v3 (C8: diverged learner as teacher):
-  26 cycles, 0 promotions — the fixed point re-formed one level up (epoch-0
-  no-ops). campaign_v4 (250cp outcome target, depth-5 actor): 29+ cycles,
-  0 promotions, still running at writing.
-- Decisive 2026-08-07 evidence — pure-network blunder protocol (300 games
-  each, depth 3, blend 100, book openings, seed 20260821, PST depth-5 judge):
-  cycle-98 ACPL 34.0 / 1.77 blunders/game / 81 zero-blunder games vs v4
-  cycle-22 learner 36.6 / 2.15 / 64. **The v4 learner is weaker than its own
-  teacher's source net.** There is no gate-masked progress; the h64
-  self-distillation loop cannot outrun its teacher.
-- Supporting measurements (all in `evidence/`, scripts in
-  `scripts/experiments/`):
-  - h128 speed probe: a function-identical hidden-128 twin of cycle-98
-    (duplicate hidden units, halve w2_scale — `make_h128_twin.py`) searches
-    bit-identical trees at 0.809× NPS → width doubling costs 19.1%, ~15-20
-    Elo at fixed time. Eval is only ~24% of node cost. The Rust loader reads
-    hidden_dim from the file header — h128 needs zero engine changes.
-  - h128 pre-screen: +0.51% val loss vs h64 on frozen identical data.
-  - Depth-9 teacher cost (150 book positions, blend 25, cycle-98): median
-    4.10M nodes, mean 4.58M, p95 8.75M (`depth9_cost_probe.py`).
+### NNUE training: v7 stalled, v8 is the objective fix
+- **v7 (retired 2026-08-16 at cycle 155, 12 accepted; state preserved at
+  `/workspace/piebot_campaign_v7`, restartable).** It stalled for 28 cycles at
+  **+4.91 Elo, CI [+1.66, +8.14] over 12,800 gate games, slope -0.04/cycle** —
+  flat, and half the gate's +10 indifference point, so the gate was RIGHT.
+- **Root cause: objective saturation, not signal exhaustion.** A depth-7 search
+  still disagreed with its own net by 617 cp on average and on 57.5% of best
+  moves — but BCE through `sigmoid(cp/400)` keeps only 28% of its gradient at
+  1000 cp and 18% at 1200, while 28% of labels sit above |600|. Getting stronger
+  made the net invisible to its own loss. See
+  `evidence/objective_saturation_20260816.json`.
+- How the ceiling got installed: `TEACHER_MIX` 0.8->1.0 and
+  `TEACHER_SAMPLE_FRACTION` 0.15->1.0 were each justified alone, but together
+  they removed the game outcome from 100% of rows — the only signal not derived
+  from the net's own search. The launcher still documents the old assumption
+  ("rows WITHOUT a teacher label ... target the outcome alone"); at 100%
+  coverage there are no such rows.
+- **REFUTED, do not re-run**: unfreezing the teacher (swapping c118 for c146 as
+  teacher offers KL 0.00074 nats, 3% of the headroom the learner already cannot
+  close); Adam/optimizer pathology (mean_sqrt_vhat flat 7.35e-8 -> 7.33e-8);
+  the blend ramp (blend 100 is tried first every cycle and loses by ~46 Elo,
+  0/51 lifetime).
+- **campaign_v8 (live, `OUT_ROOT=/workspace/piebot_campaign_v8`, commit
+  de34ac7)**: same architecture and weights, different TARGET. `CP_LOSS_WEIGHT=1.0`
+  adds Huber on the wdl_scale-normalised cp error; `TEACHER_MIX=0.9` restores
+  the outcome signal; `EPOCHS=1` (held-out loss rose after epoch 1 in 8/8
+  measured cycles and epoch 3 was selected 0/8). Weights-only bootstrap from
+  v7 cycle 147 with fresh Adam.
+- **v8 is working**: reference cp RMSE **326 -> 218 over 11 cycles**,
+  `best_epoch = 1` EVERY cycle, and **2 acceptances in 13 cycles** against v7's
+  1 in 28. `cp_loss_weight=1.0` is a principled default, NOT measured — if the
+  cp term dominates, the symptom is val WDL loss regressing while cp RMSE
+  improves; try 0.3.
+- **DO NOT implement "select checkpoints by the primary split"** (a 2026-08-15
+  audit recommendation). `train_stub.is_better_checkpoint` deliberately accepts
+  an epoch when EITHER split improves, and its docstring records why: requiring
+  the primary split is what stalled campaign_v6. The real defect is narrower —
+  the reference shard is labelled by the cycle-98 net at depth 6 while targets
+  come from a depth-7 teacher — so the fix is RE-LABELLING that shard.
 
-### campaign_v6 (arch-v2, minted 2026-08-08 — deployment pending)
-- Supersedes the v5 h128-old-arch spec BEFORE it ever ran: the user directed a
-  standard-design NNUE rebuild (chessprogramming.org/NNUE) with accumulator
-  >= 1024. v6 = dual-perspective SCReLU learner from fresh random weights.
-- Architecture (PIENNQ02, engine + trainer + exporter all landed and tested):
-  perspective-relative shared HalfKP transformer (40,960 inputs/perspective),
-  two color-anchored accumulators, side-to-move-first concatenation, SCReLU
-  clamp(0,QA)^2 integer head, QA=255 QB=64 SCALE=400, i16 first-layer quant.
-  Engine dispatches by file magic; v1 (PIENNQ01) and v2 coexist, so the
-  cycle-98 v1 incumbent remains actor/teacher/gate opponent. Cross-language
-  parity is enforced by committed fixtures (PieBot/tests/nnue_arch_v2.rs:
-  index fixture, incremental==full, SCReLU==reference, and a Python-exported
-  gold model asserted integer-exact from Rust).
-- Trainer: train_torch --arch v2 (stm-ordered dual bags, white-POV labels
-  flipped to stm-relative, w2 clamped to the int8@QB envelope, checkpoint
-  format piebot-halfkp-dp-screlu-v1-torch); quantization via
-  run_pipeline._export_v2_checkpoint; autopilot --train-arch derives lineage
-  identity (input_dim 40960, feature_set halfkp-dp-screlu-v1) and accepts
-  both quant magics; launcher TRAIN_ARCH env wired and contract-tested.
-- Conf env (deploy/vast/piebot_campaign_v2.conf): OUT_ROOT=
-  /workspace/piebot_campaign_v6, TRAIN_ARCH=v2, HIDDEN_DIM=1024,
-  FRESH_INIT=1, RELABEL_DEPTH=9, RELABEL_EVERY=6, RELABEL_MAX_NODES=2500000,
-  SELFPLAY_DEPTH=5, MIN_TEACHER_DEPTH=6, TEACHER_SAMPLE_FRACTION=0.15,
-  TARGET_CP=250, bootstrap active model = cycle-98 v1. The teacher-depth
-  floor MUST exceed the actor depth (launcher-enforced): self-play stamps
-  teacher_depth = actor depth on every row, so equality lets actor
-  self-labels masquerade as teacher labels.
-- MEASURED COST (evidence/arch_v2_screlu_head_vectorization_20260808.json,
-  trained v6 cycle-20 net, Mac/NEON): the SCReLU head was rewritten from
-  per-lane i64 to chunked i32 arithmetic (integer-identical, all parity
-  tests unchanged), doubling v2 throughput: 577k -> 1.148M NPS, i.e.
-  0.247x -> 0.489x of v1 h64, about half a ply behind at equal time. The
-  earlier 0.231x figure was measured on a RANDOM-weight net whose
-  degenerate eval makes an unrepresentative tree - prefer the trained-net
-  numbers. Residual gate handicap is now roughly 30-60 Elo. Explicit
-  NEON/AVX2 intrinsics for the accumulator delta remain available if
-  needed; measure on the AVX2 box first.
-- v4 (old arch) was STOPPED on the box 2026-08-08 00:47Z by user order; its
-  state is preserved on disk. Nothing is running on the box.
+### Corpus scale (the eval half of the gap)
+- Measured: **374.5 bytes/row raw, 10.35x gzip => ~36 bytes/row.** So 1e9 rows
+  is **~36 GB compressed**, not the ~319 GB the audit assumed. Scale is not
+  disk-impossible in principle.
+- `training/nnue/dataloader.py` now reads `*.jsonl.gz` transparently (it only
+  globbed `*.jsonl`, so compressed shards were unreadable and accumulation was
+  impossible regardless of policy).
+- **Still blocked on this box.** Accumulating instead of pruning costs ~155 MB
+  per cycle compressed, ~7 GB/day at ~45 cycles/day, against ~74 GB free and a
+  rental ending 2026-08-26. It fills the disk and kills the run. **This needs
+  bigger storage or an object store, not a code change.**
+- The field trains on 1e9-1e10 rows; PieBot uses 4.3M per generation. A ~2650
+  teacher cannot mint a 3650 student.
 
 ### Operational pitfalls (each cost real time — do not repeat)
 - Detached/nohup scripts on Vast boxes start WITHOUT cargo/python on PATH:
-  export `PATH="/root/.cargo/bin:/venv/main/bin:$PATH"` first. Verify remote
-  rebuilds via the matein3 node signature, not by trusting exit codes.
-- `pkill -f` can kill its own wrapper shell — use bracket patterns
-  (`pgrep -f '[t]raining.nnue.autopilot'`) or `pkill -x`.
-- Bash `${VAR:-default}` swallows EMPTY strings — that is why FRESH_INIT is
-  a flag, not an empty INITIAL_CHECKPOINT_SOURCE.
-- The box supervisor stop previously orphaned the python autopilot;
-  `stopasgroup=true`/`killasgroup=true` are mandatory in the conf.
-- Never write the source pin before all preflights pass (a poisoned root
-  refuses relaunch); the launcher now orders this correctly — keep it so.
-- supervisorctl restarts can race the state-file flock: deploy scripts retry
-  (6 × 15 s) rather than failing.
-- Vast key-rotation can wipe appended `authorized_keys` entries; transfers
-  from the Mac use the user's Vast-managed key (`ssh-add ~/.ssh/id_ed25519`).
-- Long `cargo`/game runs exceed the 10-minute foreground tool timeout — run
-  in background and poll.
-- This session's permission classifier blocks outbound file transfer and
-  credential-granting commands (scp/ssh-cat/gh deploy-key). Do not try to
-  smuggle payloads (e.g., embedding tokens in URLs); surface the exact
-  command for the user to run instead.
+  export `PATH="/root/.cargo/bin:/venv/main/bin:$PATH"` first.
+- `pkill -f` can kill its own wrapper shell — use bracket patterns or `pkill -x`.
+- Bash `${VAR:-default}` swallows EMPTY strings — hence `FRESH_INIT` is a flag.
+- **A supervisor restart re-runs the ENTIRE in-flight cycle from self-play**,
+  even with `.piebot_stage_complete.json` markers present (changing a
+  parallelism knob appears to invalidate the stage fingerprint). Cost ~23 min.
+  Time config changes at a true cycle boundary.
+- **Never enforce a throughput heuristic with `die()`** in the launcher:
+  host-tunable knobs plus supervisor `autorestart` turn it into a crash-loop.
+  Warn instead. The real safety check is `EFFECTIVE_CPUS >= REQUIRED_CPUS`.
+- Long `cargo`/game runs exceed the 10-minute foreground tool timeout — run in
+  background and poll. Long-lived SSH sessions on this box get dropped; prefer
+  short reconnecting polls over one long connection.
+- `du --count-links` misreads `jsonl_train` (shards are hardlinked across the
+  replay window, nlink 3-4): 32 G reported vs 17 G true. Use plain `du -sh`.
+- Do not delete `/workspace/campaign_v3_bootstrap` (conf-pinned bootstrap
+  source) or `/workspace/piebot_campaign_v2.bundle` (it is `origin` for the box
+  repo).
 
 ### Durable operational rules (carried forward)
+- **HARD CONSTRAINT (measured 2026-08-17): with `CP_LOSS_WEIGHT=1.0`,
+  `TEACHER_SAMPLE_FRACTION` MUST stay at 1.0.** v8's objective adds a Huber
+  term on the centipawn error, and that term needs a teacher cp target on
+  every row. Setting the fraction to 0.667 left 34% of rows with no cp target
+  and **broke training outright**: the train/val gap jumped 0.038 -> 0.125
+  (3.3x) and `best_epoch` was **0 for five consecutive cycles** -- the trainer
+  rejected every epoch, the checkpoint never moved, and the gate reported
+  `unchanged-training-checkpoint` throughout. Five cycles of compute produced
+  no weight update at all.
+  **The trap**: v7's history records this parameter at 0.15 and working, so it
+  looks safe to lower. It was safe for v7's OBJECTIVE. It is not safe for
+  v8's. A parameter's history is only valid under the objective it was
+  measured with -- re-check it against the current `objective_metadata`.
+  **Consequence for throughput**: more self-play games now cost proportionally
+  more teacher relabeling, because coverage cannot be traded away. There is no
+  way to raise game count at constant teacher cost under this objective.
 - Relabeling is PieBot self-teacher ONLY. Never use Stockfish, another
   engine, or downloaded evaluations as training labels; Stockfish is a fixed
   external evaluation anchor only.
@@ -304,17 +420,180 @@ jq '{status, next_cycle, completed: ((.completed_cycles // []) | length),
 - Do not deploy depth-6 self-play (tested 2026-08-07: noise-level data-shape
   gains at 2.2x cost). Depth 5 is the deployed actor.
 
+
 ### Immediate queue for the next agent
-1. Get the v6 deploy unblocked (one user command above), deploy, verify.
-   S3 futility screening result may also be ready to act on.
-2. While v6 trains: hand-written SIMD eval kernels (AVX2 box / NEON Mac)
-   — now the top search arm; the 4.3x v2 slowdown is the campaign's
-   biggest lever. Then S8 continuation history.
-3. Ladder the S2-era engine (era-2 anchor) — baseline Elo credit for S2.
-4. Prepare the ~2026-08-19 box migration (task #14): qualify a successor
-   box, rehearse cutover, budget ~2h downtime at a cycle boundary.
-5. Every few days: v6 external instruments (blunder protocol + ladder),
-   disk check, off-box backup of state/quants/checkpoints.
+1. **DONE -- the re-test queue is CLOSED.** All four arms rejected at 150 ms
+   were re-examined at 1000 ms and **one of four paid**: log-log LMR PROMOTED
+   (+22.3 Elo), history-modulated LMR shelved (structural no-op), H2
+   continuation history shelved (screened -8.7 Elo, NPS -4.1% and depth flat),
+   LMP shelved (<1% tree change at every budget; note that tightening it
+   removed FEWER nodes, so the obvious retune direction is wrong). Do not
+   re-open these without a new mechanism.
+   **But the search track is NOT exhausted** -- that queue only covered arms
+   already judged once. Phase 9 lists four heuristics that are still entirely
+   ABSENT from `alphabeta.rs` (verified by grep 2026-08-16): **singular
+   extensions, probcut, razoring, and IIR**. IIR was implemented and screened
+   the same day at **+4.3 Elo, CI [-9.6, +18.3]** -- shelved as positive but
+   unresolved, and notably it DID buy what it promises (+0.34 ply at equal
+   NPS), unlike H2 which bought nothing. Singular extensions and probcut
+   **Singular extensions were also implemented and screened 2026-08-16:
+   +4.3 Elo, CI [-11.3, +20.0]** -- shelved, same shape as IIR. Probcut and
+   razoring remain untried.
+   **THE IIR + SE BUNDLE WAS TRIED 2026-08-16 AND IS REFUTED -- do not
+   re-run it.** Predicted ~+9 Elo if additive; screened **0.0 Elo, CI
+   [-14.8, +15.6]** over 400 games (115-170-115, perfectly symmetric).
+   The effects ARE additive, but in the wrong quantity: IIR BUYS +0.34 ply,
+   SE SPENDS -0.28 ply, predicted sum +0.06 and observed +0.05. They cancel.
+   The reasoning error was arguing they would not compete because they act on
+   different NODES -- true but irrelevant, since they compete for the same
+   DEPTH BUDGET in opposite directions. Note the simpler reading also fits:
+   all three measurements span zero and the bundle that should have been
+   largest was exactly nil, so both +4.3s may simply have been noise.
+   **Probcut was implemented and screened 2026-08-16: +1.7 Elo, CI
+   [-13.0, +16.5] -- shelved.** It is worth reading WHY, because it is the
+   most informative null of the day: probcut is very ACTIVE (~25% cut rate,
+   5,688 tries in one depth-12 search) and still returns nothing, with depth
+   moving only +0.10 ply. The likely cause is REDUNDANCY -- reverse futility,
+   futility, null-move and LMR already remove most of what probcut catches.
+   **Treat that as the working hypothesis for this whole class: PieBot's
+   pruning is already dense, so additional pruning heuristics overlap with it
+   and pay little.** Eight arms were tested 2026-08-16 and only ONE promoted.
+   Still untried: **razoring, Syzygy, SEE pruning in the main search** -- and
+   razoring is more pruning, so expect the same.
+   See `evidence/search_arms/probcut_shelved_20260816.json`.
+   See `evidence/search_arms/iir_shelved_20260816.json` and
+   `evidence/search_arms/singular_extensions_shelved_20260816.json`. **H2 continuation history was re-tested 2026-08-16 and SCREENED
+   NEGATIVE**: -8.7 Elo, CI [-25.2, +7.8] over 400 games, with NPS down 4.1%
+   and depth FLAT (12.92 -> 12.89). The signal was real (6x more non-zero
+   entries than plain history at depth 11) but a 5.2 MB table that is 0.3%
+   dense costs more in cache pressure than its clamped contribution can
+   recover. See
+   `evidence/search_arms/h2_continuation_history_shelved_20260816.json`. (log-log LMR was re-tested this way on 2026-08-16 and
+   PROMOTED at +22.3 Elo -- the premise is validated, not just plausible.
+   **History-modulated LMR was also re-tested and is SHELVED as a structural
+   no-op**: ordering already sorts by history, so high-history moves sit at
+   idx < 3 and never enter the LMR region, leaving nothing to modulate. Four
+   divisors spanning 512x moved matein3 nodes by at most 0.017%, so no games
+   were played. Its original +3.5 Elo was almost certainly noise. See
+   `evidence/search_arms/h5_history_modulated_lmr_shelved_20260816.json`. Any
+   replacement must use a signal ORTHOGONAL to the one ordering consumes --
+   which is exactly what makes H2 continuation history the interesting one.) All are depth-dependent and all
+   were judged on a harness now proven to understate this class of change by
+   ~2.3x. Cheapest real Elo available.
+2. **v8 IS PLATEAUING, AND THE CEILING IS DATA — do not answer it with a new
+   objective.** `cp_loss_weight=1.0` is fine: the failure signature (val WDL
+   regressing while cp RMSE improves) is ABSENT, so do NOT try 0.3.
+   As of cycle 61: **4 acceptances (3, 13, 26, 41), gaps widening 10 -> 13 ->
+   15 -> 20+**, val WDL slope turned positive, ref cp RMSE deceleration 4x,
+   no-op cycles 2/8 -> 3/8, ref cp RMSE lifetime 326 -> 218 -> 201 -> 180 -> 178.
+   **Diagnosis: DATA-limited.** train 0.5937 vs val 0.6300, a **0.036 nat gap
+   that is WIDENING (+0.00014/cycle)** and about as large as train loss's whole
+   distance from the label-entropy floor; and `best_epoch = 0` in **38%** of
+   recent cycles, i.e. even ONE epoch on 4.4M rows makes held-out loss worse.
+   Capacity is not the constraint -- that would show train and val stuck and
+   CLOSE; these are stuck and FAR APART.
+   **The tempting wrong move is another loss-function change**, because that is
+   what fixed v7. It will not fix overfitting on a static corpus. EPOCHS and
+   width are ruled out by the same measurement. Raising SELFPLAY_GAMES alone is
+   measured to buy only ~23% more games/day for a 62% longer cycle, because
+   relabel scales with it.
+   **Trigger to act: 25 cycles without an acceptance, or val WDL still rising
+   at cycle 70.** See `evidence/v8_data_ceiling_20260816.json`.
+   **DEPLOYED 2026-08-17T03:37Z (user-authorised): `REPLAY_WINDOW_CYCLES`
+   6 -> 16, `RETAIN_FULL_CYCLES` 8 -> 18.** Targets the data ceiling by
+   raising rows-per-training-pass 4.17M -> 11.1M. Conf backup:
+   `/workspace/piebot_campaign_v2.conf.bak.replay16.20260817T033724Z`.
+   Preflight clean, commit still `de34ac7`, lane split intact.
+   - **The benefit RAMPS IN over ~8-16 cycles.** Only 8 cycles were retained
+     at deploy time and `_collect_replay_jsonl_dirs` takes up to the window
+     from dirs that still EXIST, so `train_samples` climbs gradually. Do not
+     read the first cycles as a null result.
+   - Cost: throughput ~65.5 -> ~44 cycles/day. Fresh rows/day UNCHANGED.
+   - **CORRECTION 2026-08-17: the replay window ALONE cannot deliver 11.1M
+     rows, because `MAX_SAMPLES="5000000"` in the supervisor conf caps the
+     training set.** Cycle 64 hit it exactly: 4,504,012 train + 495,988 val =
+     5,000,000. Widening the window makes more rows AVAILABLE (fresher, more
+     diverse pool) but the sampler still draws only 5M. **To actually raise
+     rows-per-pass, `MAX_SAMPLES` must be raised too** -- ~12.3M for 11.1M
+     train rows, since train is ~90% of the total.
+   - **The lesson: `MAX_SAMPLES` defaults to 700,000 in the launcher but the
+     conf OVERRIDES it to 5,000,000.** Reading the launcher default instead of
+     the live conf value is what caused the wrong projection. Always read the
+     value in force, not the default -- the same failure mode as trusting a
+     stale handoff.
+   - **DEPLOYED 2026-08-17T05:10Z (user-authorised): `MAX_SAMPLES`
+     5,000,000 -> 12,300,000**, which is what actually raises rows-per-pass to
+     the intended ~11.1M train (train is ~90% of the total). Conf backup:
+     `/workspace/piebot_campaign_v2.conf.bak.maxsamples123.20260817T051008Z`.
+     Preflight clean, commit still `de34ac7`.
+     **Combined cost of both changes: ~65.5 -> ~33 cycles/day, roughly half.**
+     That is the deliberate bet: fewer, better-trained cycles against more,
+     shallower ones.
+     **Still ramps**: at deploy time only ~9 retained cycles held shard data,
+     so expect ~6M rows next cycle and a climb toward 11.1M as retention
+     fills to 16. `MAX_SAMPLES` is now the slack constraint, not the binding
+     one -- the window is.
+     **To revert BOTH changes**: restore the 6/8 conf backup and set
+     `MAX_SAMPLES="5000000"`.
+   - **FALSIFIER FIRED 2026-08-17: the data-VOLUME hypothesis is REFUTED.**
+     Over 11 cycles at the full window (72-82, ~11.9M rows vs the 5.0M
+     baseline) the train/val gap **WIDENED 0.03622 -> 0.03727** and the
+     `best_epoch=0` rate **ROSE 38% -> 45%**. Cycles 83-90 widened further to
+     0.03779. Both pre-agreed conditions failed, across three consecutive
+     windows. More rows of the SAME distribution made generalisation slightly
+     worse -- which is what a repetitive corpus looks like, not a small one.
+     Reverting to 6/8/5M is RECOMMENDED and awaiting a decision; the cost being
+     paid is ~65.5 -> ~33 cycles/day.
+   - **DEPLOYED 2026-08-17T18:38Z (user-authorised): `SELFPLAY_GAMES` 8000 ->
+     12000 (+50%), `TEACHER_SAMPLE_FRACTION` 1.0 -> 0.667.** Tests DIVERSITY,
+     the remaining explanation after volume was refuted. Backup:
+     `piebot_campaign_v2.conf.bak.selfplay12k.20260817T183734Z`.
+     - **Clean design**: `MAX_SAMPLES` caps training at 12.3M and we already
+       sit at 11.93M, so this does NOT grow the training set -- it draws the
+       same ~12M rows from a **16.7M pool instead of 11.2M**. Diversity at
+       constant volume.
+     - **Teacher work held constant** (~697k labelled positions/cycle), so
+       relabel -- 47% of the cycle -- does not grow. Only self-play does.
+     - **Side effect that is arguably a second benefit**: at fraction 0.667,
+       33% of rows carry NO teacher label and target the game OUTCOME alone.
+       This file records that this same parameter going 0.15 -> 1.0 was one of
+       the two changes that jointly installed v7's ceiling, by removing the
+       outcome -- the only signal not derived from PieBot's own search -- from
+       100% of rows. This partially restores it.
+     - Not a lineage change: `objective_metadata` takes `teacher_mix` but not
+       `teacher_sample_fraction`.
+     - **SUCCESS CRITERION, fixed in advance**: the gap should NARROW from
+       ~0.0378 and/or acceptances resume within ~10 cycles. If the gap is
+       unchanged-or-wider AND no acceptance lands within 15 cycles, diversity
+       is not it either, and the remaining candidates are teacher STRENGTH (a
+       depth-7 self teacher cannot exceed itself) and architecture.
+   - **FALSIFIER, agreed in advance: if the train/val gap does not narrow from
+     ~0.036 nats and the `best_epoch=0` rate does not fall from 38% within
+     ~10 cycles of the window filling, the data hypothesis is WRONG. Revert to
+     6/8 from the backup rather than rationalising the null.**
+2b. **AN OFF-BOX BACKUP NOW EXISTS (2026-08-16), verified by sha256.**
+   `~/piebot_backups/v8_20260816/` on the user's Mac, 1.3 GB, all six hashes
+   matched against the box at copy time:
+   `autopilot_state.json` (lineage record, 119,251,713 B, sha `4e4bf1c6...`),
+   `cycle_000043_checkpoint.json` (resumable weights + optimizer, sha
+   `43ce3629...`), and the accepted-model quants for cycles 3, 13, 26 and
+   **41** (the active model, sha `e9c8c198...`). `SOURCE_SHA256.txt` in that
+   directory is the manifest.
+   **This is insurance, not a migration.** It does NOT contain the 18 GB of
+   self-play shards or the replay window; reproducing those means re-running
+   cycles. It is also a single copy on one laptop, which is a stopgap rather
+   than a policy -- `rclone` is installed on the box but unconfigured, and a
+   real destination is still an open decision.
+3. **Box migration before 2026-08-26** (verified end_date, not the ~08-21 the
+   old handoff claimed). Qualify successors with `scripts/cpu_benchmark.sh`
+   (which is why `models/cycle_000098_quant.nnue` must not be deleted).
+4. **Get a real anchor.** No PieBot game has ever faced a CCRL-listed engine;
+   +-250 Elo of instrument error exceeds everything banked. Needs a decision on
+   downloading a CCRL-rated opponent of comparable strength.
+5. **Storage decision for the corpus program** (1e9 rows = ~36 GB compressed;
+   this box cannot hold it at ~7 GB/day). Blocks the eval half of the gap.
+6. Every few days: v8 external instruments, disk check, off-box backup of
+   state/quants/checkpoints.
 
 Related Documentation
 - documents/CampaignPlan_SuperGM_v1.md - authoritative Super-GM campaign plan
@@ -352,8 +631,15 @@ training pipeline) are complete and in production. Remaining:
 Phase 9: Heuristics v2 + Endgame
 
 - Goals: SEE pruning; singular extensions; probcut/razoring; Syzygy.
-- In progress via the search-arms track (S1 PVS and S2 RFP promoted; S3
-  futility, AVX2 eval kernels, S8 continuation history queued).
+- In progress via the search-arms track. Promoted: S1 PVS, S2 RFP, S3
+  futility, S6 (+56 Elo, largest single arm), H1 history rewrite (+18.1)
+  and H4 winning-capture priority (+20.2); H1+H4 measure +88.7 Elo at
+  1000 ms. AVX2 eval kernels are NOT the lever (the accumulator is
+  memory-bandwidth-bound). Continuation history measured +2.6 and was
+  rejected at 150 ms — re-test at >= 1000 ms. Parallel search was rewritten
+  from root splitting to Lazy SMP on 2026-08-16: +129 Elo head-to-head at 4
+  threads, and it fixed a defect that made multi-threaded play *lose* 161
+  Elo to single-threaded.
 - Acceptance: tactical boosts; endgame correctness; fewer zugzwang/fortress traps.
 
 Phase 10: Tuning, Tooling, Release
@@ -366,5 +652,14 @@ Performance Targets
 - Eval: incr NNUE <200 ns scalar, <80 ns NEON (measured 2026-08: ~44 ns
   quiet apply/revert at h64 after the feature-major cache).
 - Search: ≥1–3 Mnps early; ≥5–10 Mnps post‑LMR/ordering.
-- Parallel: 4T ≥3.5x; 8T ≥6x.
+- Parallel: 4T ≥3.5x; 8T ≥6x. **4T met 2026-08-16 at 3.81x** once root
+  splitting was replaced by Lazy SMP (it had been stuck at 2.47x *and*
+  negative Elo). 8T measured 2026-08-16 at 7.27x NPS vs 1T (target met)
+  but only **+34.9 Elo over 4T, 95% CI [-16.7, +88.0] over 100 games -- not
+  significant**. Scaling is sharply diminishing: 4T over 1T was +0.86 ply,
+  8T over 4T is +0.25. Resolving a ~35 Elo effect needs ~800-1000 games.
+  NOTE the measurement box has 12 physical cores and NO SMT, so those 8
+  threads were 8 real cores; an i7-4770k's 8 threads are 4 cores plus
+  hyperthreading and will scale worse. Further gains past ~8 threads need
+  diversification (varied aspiration windows, per-thread ordering noise).
 

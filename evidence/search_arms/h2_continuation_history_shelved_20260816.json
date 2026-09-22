@@ -1,0 +1,56 @@
+{
+  "arm": "H2 continuation history (retest of the arm rejected at 150 ms)",
+  "date_utc": "2026-08-16",
+  "verdict": "SHELVED. Screened NEGATIVE at 1000 ms: -8.7 Elo, 95% CI [-25.2, +7.8].",
+
+  "hypothesis": "Plain history is already consumed by move ordering, so a term that restates it adds nothing (this is exactly why history-modulated LMR failed the same day). Continuation history is keyed by the PARENT move, so it can disagree with plain history and carry independent information. Previously measured +2.6 Elo at 150 ms and rejected on the harness later shown to understate depth-dependent arms ~2.3x.",
+
+  "implementation": {
+    "table": "cont_history: Vec<i32> of 64 * HIST_SIZE = 1,310,720 entries (5.2 MB per searcher, ~42 MB across Lazy SMP helpers)",
+    "key": "parent move's destination square x move_index. A full (parent_move, move) table would be HIST_SIZE^2 and is unaffordable.",
+    "update": "Mirrors the plain-history update -- gravity-bounded bonus on Bound::Lower for quiets, malus over tried_quiets.",
+    "ordering": "Added to the flat sum, clamped to +/- CONT_HIST_CAP (4000).",
+    "why_a_cap_not_a_divisor": "Ordering is a flat sum and a second history-magnitude term would let a saturated quiet outrank a winning capture -- the defect H4 fixed. A divisor was tried first and rejected on measurement: continuation values are small (p99 414, p50 -1), so dividing discards resolution exactly where the values live while only a rare tail approaches the bound. HIST_MAX + CONT_HIST_CAP = 20384 < GOOD_CAPTURE_PRIORITY + 1000 = 21000, asserted by a test."
+  },
+
+  "the_signal_was_real": {
+    "note": "Unlike history-modulated LMR, this arm was NOT a structural no-op. The table genuinely fills and carries information plain history does not.",
+    "density": [
+      {"position": "midgame", "depth": 8, "cont_nonzero": 1387, "pct_dense": 0.1058, "p50": -1, "p90": 13, "p99": 179, "max": 1547, "plain_history_nonzero": 323},
+      {"position": "midgame", "depth": 11, "cont_nonzero": 4442, "pct_dense": 0.3389, "p50": -1, "p90": 11, "p99": 414, "max": 8496, "plain_history_nonzero": 718},
+      {"position": "matein3 puzzle", "depth": 7, "cont_nonzero": 2445, "pct_dense": 0.1865, "p50": -1, "p90": 8, "p99": 129, "max": 1313, "plain_history_nonzero": 631}
+    ],
+    "read": "6x more non-zero entries than plain history at depth 11, and densifying with depth. The information exists."
+  },
+
+  "why_it_still_lost": {
+    "measurement": {
+      "harness": "compare_play, 400 games, 1000 ms/move, paired openings, seed 20260818, 11 workers",
+      "w_d_l_experimental": [113, 164, 123],
+      "score": 0.4875,
+      "elo": -8.7,
+      "paired_bootstrap_95_ci": [-25.2, 7.8],
+      "nps": {"baseline": 2898354.4, "experimental": 2780917.0, "delta_pct": -4.1},
+      "depth": {"baseline": 12.92, "experimental": 12.89}
+    },
+    "diagnosis": "DEPTH DID NOT MOVE (12.92 -> 12.89) while NPS fell 4.1%. If the ordering term were helping, depth would rise at equal NPS. Instead the arm paid 4% throughput for a 5.2 MB sparse table -- cache pressure on a structure whose useful entries are 0.3% of its slots -- and recovered nothing in tree quality. Having information available is not the same as that information changing which move gets searched first, and the clamped contribution (p99 = 414 against a capture floor of 21000) is too small to reorder much."
+  },
+
+  "process_correction": {
+    "what_happened": "The matein3 pre-screen said do not spend games: the node change was -0.127%, far below the 5% bar. That bar was OVERRIDDEN deliberately, on the argument that the suite is blind to this arm (the table is only 0.19% dense at depth 7 versus 0.34% at depth 11, and the same rule would have vetoed the Lazy SMP fix that proved worth +129 Elo).",
+    "outcome": "The override was WRONG and the rule was RIGHT. The pre-screen predicted a null result from the node count and the 400-game screen confirmed it, at a cost of ~1 hour.",
+    "the_refined_rule": "The Lazy SMP precedent does not generalise the way it was used here. matein3 is blind to changes it CANNOT express -- thread count, NPS, time management -- because it is single-threaded and fixed-depth. It is NOT blind to move-ordering changes, which are exactly what it measures: ordering changes the tree, and the tree is the node count. A <5% node change from an ORDERING arm is real evidence of a null result. Reserve the override for arms whose effect the suite structurally cannot express."
+  },
+
+  "what_would_be_needed": [
+    "Cheaper access. Most of the 4.1% NPS cost is cache pressure on a 1.3M-entry table that is 0.3% dense. A smaller key -- dropping HIST_PROMO_KINDS from the continuation index, or bucketing the parent square -- would shrink it ~5x. That is a real avenue but it only recovers the cost, and the arm also produced no depth gain to recover.",
+    "A stronger contribution. The clamped term is worth at most 4000 against a 21000 capture floor and a 1000-point capture bonus, so it can only reorder quiets among themselves. Raising it requires leaving the FLAT-SUM ordering for a tiered scheme (captures by SEE, then quiets by combined history), which is an architectural change and should be evaluated as one -- not smuggled in as a scaling constant.",
+    "Do not simply retry with a different cap. The null is corroborated by flat depth, which is independent of the cap."
+  ],
+
+  "caveats": [
+    "400-game screen only; no confirmation run, since the screen's lower bound did not clear zero and the point estimate was negative.",
+    "The CI spans zero, so this is 'not good enough to promote', not 'proven harmful'.",
+    "Measured against a baseline that already carries log-log LMR promoted earlier the same day. Continuation history might interact differently with the flat reduction it replaced, though there is no specific reason to expect so."
+  ]
+}

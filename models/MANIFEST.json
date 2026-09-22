@@ -1,15 +1,16 @@
 {
-  "cycle_000094_quant.nnue": {
-    "sha256": "7a922154c40e276197caf4ffd933e5bc6172bf84c6511b4afc4db3574feb9b0f",
-    "bytes": 5243106
-  },
   "cycle_000098_quant.nnue": {
     "sha256": "3fa9bae3127319930ec16ebb1ee3117656abe7001984f6c8655108a08d278c3a",
     "bytes": 5243106
   },
+  "v8_cycle_000013_quant.nnue": {
+    "sha256": "2ef89594cf41ac48c579af9bfaa9af7361462d4da06300cac60dcc9799621b39",
+    "bytes": 83890216
+  },
   "_provenance": {
-    "cycle_000098_quant.nnue": "last promotion-accepted model of run main_72h_self_teacher_repair_v1 (confirmed +0.25, CI [+0.042,+0.458]); campaign_v2 incumbent at blend 25",
-    "cycle_000094_quant.nnue": "prior accepted model (confirmed +0.3125, CI [+0.125,+0.5])",
-    "dense_bootstrap": "cycle_000086_checkpoint.json (108MB, exceeds git limits): sha256 0ce48cc1299d5750bd43512793e843d8363e1e09a5c4a72c3b22e024951f367c, kept on box at /workspace/piebot_campaign_v2/bootstrap/ and backed up to the operator Mac"
+    "cycle_000098_quant.nnue": "last promotion-accepted model of run main_72h_self_teacher_repair_v1 (confirmed +0.25, CI [+0.042,+0.458]); campaign_v2 incumbent at blend 25 RETAINED DELIBERATELY: scripts/cpu_benchmark.sh:22 reads this file by path to qualify successor boxes, and its sha is pinned in run_vast_campaign_v2.sh and test_cpu_benchmark.py. Do not delete.",
+    "dense_bootstrap": "cycle_000086_checkpoint.json (108MB, exceeds git limits): sha256 0ce48cc1299d5750bd43512793e843d8363e1e09a5c4a72c3b22e024951f367c, kept on box at /workspace/piebot_campaign_v2/bootstrap/ and backed up to the operator Mac",
+    "v8_cycle_000013_quant.nnue": "CURRENT BEST. campaign_v8 cycle 13, gameplay-gate accepted at blend 75; arch-v2 dual-perspective SCReLU hidden-1024 (magic PIENNQ02). v8 is the objective-fixed lineage: BCE through sigmoid(cp/400) had gone blind above ~600cp where 28% of labels sit, so a normalised-cp Huber term was added and TEACHER_MIX dropped to 0.9 to restore the game-outcome signal. Reference cp RMSE fell 326 -> 218 over 11 cycles with best_epoch=1 every cycle. Bootstrapped weights-only from v7 cycle 147. See evidence/objective_saturation_20260816.json.",
+    "cycle_000094_quant.nnue": "REMOVED from the tree 2026-08-16 (superseded, no code references). Still recoverable from git history; sha256 7a922154c40e276197caf4ffd933e5bc6172bf84c6511b4afc4db3574feb9b0f, 5243106 bytes."
   }
 }

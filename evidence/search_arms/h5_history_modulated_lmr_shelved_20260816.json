@@ -1,0 +1,51 @@
+{
+  "arm": "H5 history-modulated LMR (retest of the arm rejected at 150 ms)",
+  "date_utc": "2026-08-16",
+  "verdict": "SHELVED without playing games. Structural no-op, not a tuning failure.",
+
+  "hypothesis": "The log-log LMR schedule asks only 'how late is this move'. History answers 'is this move actually good' directly, so shifting the reduction by history should recover Elo. Previously measured +3.5 Elo at 150 ms and rejected on the harness later shown to understate depth-dependent arms ~2.3x, so it was queued for retest at >= 1000 ms.",
+
+  "why_it_was_never_played": {
+    "rule": "CLAUDE.md: matein3 node count plus mates-solved is a ~4 s pre-screen; if a change moves nodes <5% or loses a mate, do not spend games on it.",
+    "measured": "Three scale settings produced a byte-identical node count (10011374), and the finest produced 10009642 -- a change of 1,732 nodes out of 10 million, or 0.017%.",
+    "conclusion": "Far below the threshold. Playing 400 games would have measured noise."
+  },
+
+  "the_structural_reason": {
+    "finding": "Move ordering ALREADY sorts by history, so the moves with meaningful history land at the front of the list. LMR only fires at idx >= 3. The late-move region LMR can reduce therefore contains almost exclusively moves whose history is near zero -- there is nothing left for history to modulate.",
+    "consequence": "History-modulated LMR is close to a tautological no-op in an engine whose ordering is already history-driven. The only usable signal is the negative tail (moves history actively dislikes), and that tail is thin.",
+    "this_explains": "The original +3.5 Elo at 150 ms. That was almost certainly noise rather than a real-but-small effect, which changes how the arm should be read in the historical record."
+  },
+
+  "measured_history_distribution": {
+    "method": "Instrumented probe: run a real search, then report percentiles of non-zero history_table entries.",
+    "why_it_matters": "This is the number needed to set any history-scaled constant, and it had never been measured. The distribution is far more skewed than a HIST_MAX-relative scale assumes.",
+    "samples": [
+      {"position": "midgame", "depth": 8, "nonzero": 292, "min": -37, "p50": -2, "p90": 5, "p99": 1377, "max": 2644, "ge_2048": 2, "ge_512": 6, "ge_128": 9},
+      {"position": "midgame", "depth": 11, "nonzero": 764, "min": -141, "p50": -5, "p90": 4, "p99": 3740, "max": 11126, "ge_2048": 10, "ge_512": 18, "ge_128": 23},
+      {"position": "matein3 puzzle", "depth": 7, "nonzero": 619, "min": -37, "p50": -2, "p90": 9, "p99": 272, "max": 5184, "ge_2048": 2, "ge_512": 3, "ge_128": 14}
+    ],
+    "read": "HIST_MAX is 16384, but the 90th percentile of touched entries is 4-9. The table is bimodal: a thin tail of strongly-reinforced moves and a large mass at ~0. Any constant expressed as a fraction of HIST_MAX will therefore be a no-op. Scale from this table instead."
+  },
+
+  "attempts": [
+    {"per_ply_divisor": 8192, "basis": "HIST_MAX / 2", "matein3_nodes": 10011374, "delta_pct": 0.0},
+    {"per_ply_divisor": 2048, "basis": "guess", "matein3_nodes": 10011374, "delta_pct": 0.0},
+    {"per_ply_divisor": 64, "basis": "set from the measured distribution", "matein3_nodes": 10011374, "delta_pct": 0.0},
+    {"per_ply_divisor": 16, "basis": "reach the negative tail", "matein3_nodes": 10009642, "delta_pct": -0.017}
+  ],
+
+  "what_would_actually_be_needed": [
+    "A signal ORTHOGONAL to the one already used for ordering. Continuation history (H2) is the obvious candidate: it is indexed by the previous move, so it can disagree with plain history and therefore carries information about moves that ordering has already pushed late. That arm remains untested at >= 1000 ms.",
+    "Alternatively, modulate on something the ordering does not consume -- static exchange evaluation of the quiet move, or whether it is a killer/counter -- so the modulator is not measuring the same quantity that placed the move where it is.",
+    "Do NOT simply retune the divisor. Four settings spanning 512x produced no tree change; the constant is not the problem."
+  ],
+
+  "cost": "No games played. The pre-screen and an instrumented probe cost a few minutes and prevented a ~2 hour 400-game screen that would have returned noise.",
+
+  "caveats": [
+    "The distribution probe is three position/depth samples, not a corpus. The 90th-percentile figure is stable across all three, but the tail values are not well characterised.",
+    "The structural argument depends on ordering being history-driven, which is true after H1. It would not hold for an engine that orders quiets some other way.",
+    "The arm was shelved on tree-change evidence, not on Elo. It remains formally possible that a change too small to move matein3 nodes by 0.02% is worth Elo in real games -- but that is not a bet the protocol supports funding."
+  ]
+}

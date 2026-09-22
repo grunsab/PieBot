@@ -13,3 +13,6 @@ __pycache__/
 
 # Generated outputs
 out/
+
+# Match/self-play output
+*.pgn

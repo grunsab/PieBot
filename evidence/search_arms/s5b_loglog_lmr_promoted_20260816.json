@@ -1,0 +1,80 @@
+{
+  "arm": "S5b log-log LMR (retest of the arm shelved 2026-08-07)",
+  "date_utc": "2026-08-16",
+  "verdict": "PROMOTED",
+
+  "why_it_was_retested": {
+    "shelved_note": "S5 was shelved after two retunes with the read: 'with TT-first ordering fixed (S1), late-move index is a weak pruning signal at depth ~7/150ms; revisit after S8 continuation history / staged movegen improve ordering'. See evidence/search_arms/s5_lmr_shelved.json.",
+    "two_things_changed": [
+      "H1 (history rewrite) and H4 (winning-capture priority) fixed move ordering on 2026-08-16. That is the precondition the shelving note named: late-move index only carries information if the move list is ordered well enough for lateness to mean anything.",
+      "The 150 ms A/B harness was shown to UNDERSTATE depth-dependent changes by ~2.3x (H1+H4: +38.3 at 150 ms vs +88.7 at 1000 ms). S5 was judged at 150 ms on a schedule whose whole effect is extra depth, so it was measured by an instrument that could not see it."
+    ]
+  },
+
+  "change": {
+    "before": "Flat reduction of 1 whenever depth >= 3, idx >= 3, not a check, not a capture. The 4th move and the 40th were reduced identically.",
+    "after": "r = clamp(ln(depth) * ln(idx) / 2.25, 1, depth - 2), same gating.",
+    "divisor": "2.25, carried over from the S5 v2 retune rather than re-tuned. Retuning it is untested headroom.",
+    "site": "PieBot/src/search/alphabeta.rs, extracted as Searcher::lmr_reduction so it is unit-testable",
+    "unchanged": "The existing full-depth verification re-search on a reduced fail-high is retained."
+  },
+
+  "tests": [
+    "never_reduces_below_one_where_the_caller_intends_to_reduce",
+    "always_leaves_the_child_at_least_one_ply (r <= depth - 2, so a reduced search cannot collapse into qsearch)",
+    "reduces_later_moves_at_least_as_hard_as_earlier_ones (monotonicity in idx)",
+    "actually_exceeds_the_flat_reduction_it_replaces (guards against the change being a silent no-op)",
+    "stays_gentle_at_the_front_of_the_move_list"
+  ],
+
+  "prescreen_matein3": {
+    "note": "matein3 cannot measure NPS -- it loads from FEN with a ~1-entry history -- but node count plus mates-solved is a ~4 s test of whether the tree changed at all.",
+    "baseline_nodes": 11742536,
+    "experimental_nodes": 10011374,
+    "node_delta_pct": -14.9,
+    "cases_solved": "91/91 both engines",
+    "fallback_hits": 0
+  },
+
+  "measurements": {
+    "harness": "compare_play, 1000 ms/move, --paired-openings, --noise-plies 12 --noise-topk 5, 11 workers, one search thread per engine",
+    "time_control_rationale": "1000 ms, not 150 ms, per the corrected protocol for depth-dependent arms.",
+    "screen_400_games": {
+      "w_d_l_experimental": [139, 148, 113],
+      "score": 0.5325,
+      "elo": 22.6,
+      "paired_bootstrap_95_ci": [6.9, 38.4],
+      "unpaired_95_ci": [-4.4, 49.9],
+      "depth": {"baseline": 11.96, "experimental": 12.80}
+    },
+    "confirmation_1000_games": {
+      "seed": 20260817,
+      "w_d_l_experimental": [340, 384, 276],
+      "score": 0.5320,
+      "elo": 22.3,
+      "paired_bootstrap_95_ci": [12.2, 32.4],
+      "depth": {"baseline": 12.01, "experimental": 12.86},
+      "nps": {"baseline": 2917197.6, "experimental": 2882843.0},
+      "wall_time_s": 8820.6
+    },
+    "screen_did_not_overstate": "Screen +22.6, confirmation +22.3. Unlike H1 (+27.0 screened, +18.1 confirmed). Worth noting because the standing expectation is that screens overstate; this one did not, so the rule is a tendency rather than a correction to apply.",
+    "bootstrap_method": "20,000 resamples over the 500 opening PAIRS, not over games. Pairing is what moves the lower bound from +6.9 to +12.2 at n=1000."
+  },
+
+  "mechanism": "The gain is depth, bought at equal NPS: +0.85 ply for a 15% node reduction on the mate suite. A flat reduction spends the same effort on the 40th move as on the 4th; a log-log schedule reduces late moves harder while staying gentle where ordering is most likely to be right. This only pays once ordering is trustworthy, which is exactly what the 2026-08-07 shelving note predicted.",
+
+  "node_signatures": {
+    "accept_before": 11742536,
+    "accept_after": 9983611,
+    "accept_temp_after_stub_reset": 10011374,
+    "reminder": "accept and accept_temp use different option sets (opts=alphabeta vs opts=(default)) and are NOT comparable to each other. Compare each against its own history."
+  },
+
+  "caveats": [
+    "Measured at 1000 ms on a 12-core Apple Silicon Mac, single search thread per engine. CCRL 40/15 is 22.5 s/move; the arm should gain more there if the depth-dependence holds, but that is an extrapolation.",
+    "The 2.25 divisor is inherited, not tuned. A sweep is untested headroom.",
+    "Interaction with the Lazy SMP change promoted earlier the same day is untested: both were measured against a single-threaded baseline, and reductions that pay at one search width may behave differently when helpers are filling the TT."
+  ],
+
+  "queue_implication": "Two of the four arms rejected at 150 ms have now been re-tested at 1000 ms and one promoted. Still outstanding on the same reasoning: H2 continuation history (+2.6 at 150 ms), history-modulated LMR (+3.5), and LMP (~1% nodes, lost a mate when pushed)."
+}
