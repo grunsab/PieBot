@@ -65,12 +65,28 @@ const PST_QUEEN: [i16; 64] = [
     -5, 0, 5, 5, 5, 5, 0, -5, 0, 0, 5, 5, 5, 5, 0, -5, -10, 5, 5, 5, 5, 5, 0, -10, -10, 0, 5, 0, 0,
     0, 0, -10, -20, -10, -10, -5, -5, -10, -10, -20,
 ];
-const PST_KING: [i16; 64] = [
+const PST_KING_MG: [i16; 64] = [
     20, 30, 10, 0, 0, 10, 30, 20, 20, 20, 0, 0, 0, 0, 20, 20, -10, -20, -20, -20, -20, -20, -20,
     -10, -20, -30, -30, -40, -40, -30, -30, -20, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40,
     -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50,
     -40, -40, -30,
 ];
+
+const PST_KING_EG: [i16; 64] = [
+    -50, -40, -30, -20, -20, -30, -40, -50, -30, -20, -10, 0, 0, -10, -20, -30, -30, -10, 20, 30,
+    30, 20, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30,
+    -30, -10, 20, 30, 30, 20, -10, -30, -30, -30, 0, 0, 0, 0, -30, -30, -50, -30, -30, -30, -30,
+    -30, -30, -50,
+];
+
+#[inline]
+fn game_phase(board: &Board) -> i32 {
+    let knights = (board.pieces(Piece::Knight)).into_iter().count() as i32;
+    let bishops = (board.pieces(Piece::Bishop)).into_iter().count() as i32;
+    let rooks = (board.pieces(Piece::Rook)).into_iter().count() as i32;
+    let queens = (board.pieces(Piece::Queen)).into_iter().count() as i32;
+    (knights + bishops + rooks * 2 + queens * 4).clamp(0, 24)
+}
 
 #[inline]
 fn square_index_fast(sq: Square) -> usize {
@@ -91,13 +107,18 @@ fn pst_value_for(board: &Board, color: Color, piece: Piece) -> i32 {
             idx = (7 - r) * 8 + f;
         }
         let v = match piece {
-            Piece::Pawn => PST_PAWN[idx],
-            Piece::Knight => PST_KNIGHT[idx],
-            Piece::Bishop => PST_BISHOP[idx],
-            Piece::Rook => PST_ROOK[idx],
-            Piece::Queen => PST_QUEEN[idx],
-            Piece::King => PST_KING[idx],
-        } as i32;
+            Piece::Pawn => PST_PAWN[idx] as i32,
+            Piece::Knight => PST_KNIGHT[idx] as i32,
+            Piece::Bishop => PST_BISHOP[idx] as i32,
+            Piece::Rook => PST_ROOK[idx] as i32,
+            Piece::Queen => PST_QUEEN[idx] as i32,
+            Piece::King => {
+                let phase = game_phase(board);
+                let mg = PST_KING_MG[idx] as i32;
+                let eg = PST_KING_EG[idx] as i32;
+                (mg * phase + eg * (24 - phase)) / 24
+            }
+        };
         sum += v;
     }
     sum

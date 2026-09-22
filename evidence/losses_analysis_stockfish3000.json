@@ -1,0 +1,863 @@
+[
+  {
+    "game_number": 2,
+    "piebot_color": "black",
+    "plies": 195,
+    "termination": "chess_checkmate",
+    "opening_fen": "r1bqk2r/ppp2ppp/2nppn2/8/1bPP4/2N2N2/PPQ1PPPP/R1B1KB1R w KQkq - 0 6",
+    "blunders_count": 8,
+    "mistakes_count": 4,
+    "turning_point": {
+      "ply": 100,
+      "move_number": 55,
+      "fen_before": "8/8/2b5/R5p1/p1k2p1p/P1p2PnP/6P1/1B2K3",
+      "piebot_move": "Kc4",
+      "piebot_uci": "d4c4",
+      "best_move": "g4",
+      "best_uci": "g5g4",
+      "eval_before_cp": -126,
+      "eval_after_cp": -224,
+      "cp_drop": 98
+    },
+    "top_blunders": [
+      {
+        "ply": 190,
+        "move_number": 100,
+        "fen_before": "6Q1/8/8/2Q5/5p2/3k1n1P/8/4K3",
+        "piebot_move": "Nxf3+",
+        "piebot_uci": "d4f3",
+        "best_move": "Nc2+",
+        "best_uci": "d4c2",
+        "eval_before_cp": -1124,
+        "eval_after_cp": -29700,
+        "cp_drop": 28576
+      },
+      {
+        "ply": 180,
+        "move_number": 95,
+        "fen_before": "8/8/8/4Q1P1/2k2p2/5P1P/8/4K2n",
+        "piebot_move": "Kc4",
+        "piebot_uci": "b4c4",
+        "best_move": "Ka3",
+        "best_uci": "b4a3",
+        "eval_before_cp": -814,
+        "eval_after_cp": -29200,
+        "cp_drop": 28386
+      },
+      {
+        "ply": 188,
+        "move_number": 99,
+        "fen_before": "8/6P1/8/2Q5/3n1p2/3k1P1P/8/4K3",
+        "piebot_move": "Nd4",
+        "piebot_uci": "e2d4",
+        "best_move": "Nd4",
+        "best_uci": "e2d4",
+        "eval_before_cp": -1012,
+        "eval_after_cp": -29200,
+        "cp_drop": 28188
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 90,
+        "move_number": 50,
+        "fen_before": "7R/r3k3/2b5/p5p1/2B2p1p/P1p2PnP/6P1/4K3",
+        "piebot_move": "bxc3",
+        "piebot_uci": "b4c3",
+        "best_move": "Rb7",
+        "best_uci": "a7b7",
+        "eval_before_cp": -14,
+        "eval_after_cp": -140,
+        "cp_drop": 126
+      },
+      {
+        "ply": 184,
+        "move_number": 97,
+        "fen_before": "8/6P1/8/4Q3/5p2/3k1PnP/8/4K3",
+        "piebot_move": "Kd3",
+        "piebot_uci": "c4d3",
+        "best_move": "Ne2",
+        "best_uci": "g3e2",
+        "eval_before_cp": -29600,
+        "eval_after_cp": -29700,
+        "cp_drop": 100
+      },
+      {
+        "ply": 100,
+        "move_number": 55,
+        "fen_before": "8/8/2b5/R5p1/p1k2p1p/P1p2PnP/6P1/1B2K3",
+        "piebot_move": "Kc4",
+        "piebot_uci": "d4c4",
+        "best_move": "g4",
+        "best_uci": "g5g4",
+        "eval_before_cp": -126,
+        "eval_after_cp": -224,
+        "cp_drop": 98
+      }
+    ]
+  },
+  {
+    "game_number": 4,
+    "piebot_color": "black",
+    "plies": 175,
+    "termination": "chess_checkmate",
+    "opening_fen": "rnbqk2r/pp1p1ppp/4pn2/2b5/2P5/2N5/PPQ1PPPP/R1B1KBNR w KQkq - 0 6",
+    "blunders_count": 3,
+    "mistakes_count": 4,
+    "turning_point": {
+      "ply": 28,
+      "move_number": 19,
+      "fen_before": "2r1k2r/1p1n1p1p/pq1p2p1/n1b1p3/2P1N1bB/P1NBP3/1PQ2PPP/2KR3R",
+      "piebot_move": "g6",
+      "piebot_uci": "g7g6",
+      "best_move": "f5",
+      "best_uci": "f7f5",
+      "eval_before_cp": -143,
+      "eval_after_cp": -271,
+      "cp_drop": 128
+    },
+    "top_blunders": [
+      {
+        "ply": 138,
+        "move_number": 74,
+        "fen_before": "r7/kpP5/3KRN2/p6p/P6P/8/8/8",
+        "piebot_move": "Ka7",
+        "piebot_uci": "b6a7",
+        "best_move": "Rc8",
+        "best_uci": "a8c8",
+        "eval_before_cp": -1102,
+        "eval_after_cp": -29100,
+        "cp_drop": 27998
+      },
+      {
+        "ply": 136,
+        "move_number": 73,
+        "fen_before": "r7/1pP5/1k1KRN2/p6p/7P/P7/8/8",
+        "piebot_move": "Ra8",
+        "piebot_uci": "h8a8",
+        "best_move": "Ra8",
+        "best_uci": "h8a8",
+        "eval_before_cp": -835,
+        "eval_after_cp": -1046,
+        "cp_drop": 211
+      },
+      {
+        "ply": 134,
+        "move_number": 72,
+        "fen_before": "7r/1p6/1kPKRN2/p6p/7P/P7/8/8",
+        "piebot_move": "Rh8",
+        "piebot_uci": "h6h8",
+        "best_move": "bxc6",
+        "best_uci": "b7c6",
+        "eval_before_cp": -735,
+        "eval_after_cp": -888,
+        "cp_drop": 153
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 28,
+        "move_number": 19,
+        "fen_before": "2r1k2r/1p1n1p1p/pq1p2p1/n1b1p3/2P1N1bB/P1NBP3/1PQ2PPP/2KR3R",
+        "piebot_move": "g6",
+        "piebot_uci": "g7g6",
+        "best_move": "f5",
+        "best_uci": "f7f5",
+        "eval_before_cp": -143,
+        "eval_after_cp": -271,
+        "cp_drop": 128
+      },
+      {
+        "ply": 128,
+        "move_number": 69,
+        "fen_before": "4R1N1/1p5r/knPK4/p6p/3B3P/P7/8/8",
+        "piebot_move": "Ka6",
+        "piebot_uci": "a7a6",
+        "best_move": "Ka6",
+        "best_uci": "a7a6",
+        "eval_before_cp": -529,
+        "eval_after_cp": -653,
+        "cp_drop": 124
+      },
+      {
+        "ply": 140,
+        "move_number": 75,
+        "fen_before": "4r3/kpP5/3K1N2/p6p/P6P/8/8/8",
+        "piebot_move": "Rxe8",
+        "piebot_uci": "a8e8",
+        "best_move": "Rc8",
+        "best_uci": "a8c8",
+        "eval_before_cp": -29400,
+        "eval_after_cp": -29500,
+        "cp_drop": 100
+      }
+    ]
+  },
+  {
+    "game_number": 6,
+    "piebot_color": "black",
+    "plies": 129,
+    "termination": "chess_checkmate",
+    "opening_fen": "rnbqk2r/pppp1ppp/4pn2/8/2PP4/P1b5/1P2PPPP/R1BQKBNR w KQkq - 0 5",
+    "blunders_count": 2,
+    "mistakes_count": 1,
+    "turning_point": {
+      "ply": 122,
+      "move_number": 65,
+      "fen_before": "6k1/8/3p3Q/2pP1pP1/2P1pP1K/2q1P3/8/8",
+      "piebot_move": "Qc3",
+      "piebot_uci": "g7c3",
+      "best_move": "Qf7",
+      "best_uci": "g7f7",
+      "eval_before_cp": -654,
+      "eval_after_cp": -810,
+      "cp_drop": 156
+    },
+    "top_blunders": [
+      {
+        "ply": 124,
+        "move_number": 66,
+        "fen_before": "6k1/8/3p3Q/2pP1pPK/2P1pP2/4P3/2q5/8",
+        "piebot_move": "Qc2",
+        "piebot_uci": "c3c2",
+        "best_move": "Qb4",
+        "best_uci": "c3b4",
+        "eval_before_cp": -802,
+        "eval_after_cp": -29700,
+        "cp_drop": 28898
+      },
+      {
+        "ply": 122,
+        "move_number": 65,
+        "fen_before": "6k1/8/3p3Q/2pP1pP1/2P1pP1K/2q1P3/8/8",
+        "piebot_move": "Qc3",
+        "piebot_uci": "g7c3",
+        "best_move": "Qf7",
+        "best_uci": "g7f7",
+        "eval_before_cp": -654,
+        "eval_after_cp": -810,
+        "cp_drop": 156
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 56,
+        "move_number": 32,
+        "fen_before": "4r1k1/p1q4r/1p1p2p1/2pP1pPn/P1P1pP2/1R2P3/5Q2/1R1N2K1",
+        "piebot_move": "Re8",
+        "piebot_uci": "b8e8",
+        "best_move": "Qd7",
+        "best_uci": "c7d7",
+        "eval_before_cp": -41,
+        "eval_after_cp": -131,
+        "cp_drop": 90
+      }
+    ]
+  },
+  {
+    "game_number": 16,
+    "piebot_color": "black",
+    "plies": 160,
+    "termination": "chess_checkmate",
+    "opening_fen": "rnbqk2r/pp1p1ppp/4pn2/2P5/1bP5/2N5/PPQ1PPPP/R1B1KBNR b KQkq - 0 5",
+    "blunders_count": 5,
+    "mistakes_count": 7,
+    "turning_point": {
+      "ply": 107,
+      "move_number": 58,
+      "fen_before": "8/5kp1/5p2/3Pr3/2K5/8/8/4R1B1",
+      "piebot_move": "Re5",
+      "piebot_uci": "h5e5",
+      "best_move": "Rh8",
+      "best_uci": "h5h8",
+      "eval_before_cp": -406,
+      "eval_after_cp": -607,
+      "cp_drop": 201
+    },
+    "top_blunders": [
+      {
+        "ply": 107,
+        "move_number": 58,
+        "fen_before": "8/5kp1/5p2/3Pr3/2K5/8/8/4R1B1",
+        "piebot_move": "Re5",
+        "piebot_uci": "h5e5",
+        "best_move": "Rh8",
+        "best_uci": "h5h8",
+        "eval_before_cp": -406,
+        "eval_after_cp": -607,
+        "cp_drop": 201
+      },
+      {
+        "ply": 135,
+        "move_number": 72,
+        "fen_before": "8/8/3P4/4K3/2k5/8/3B4/8",
+        "piebot_move": "Kc4",
+        "piebot_uci": "b5c4",
+        "best_move": "Kc6",
+        "best_uci": "b5c6",
+        "eval_before_cp": -28900,
+        "eval_after_cp": -29100,
+        "cp_drop": 200
+      },
+      {
+        "ply": 147,
+        "move_number": 78,
+        "fen_before": "8/3P4/8/8/3K1B2/8/8/3k4",
+        "piebot_move": "Kd1",
+        "piebot_uci": "c2d1",
+        "best_move": "Kb1",
+        "best_uci": "c2b1",
+        "eval_before_cp": -29100,
+        "eval_after_cp": -29300,
+        "cp_drop": 200
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 27,
+        "move_number": 18,
+        "fen_before": "1r2r1k1/p2q1ppp/6b1/2pp2B1/4n1P1/P4N2/4PP1P/R1Q1KBR1",
+        "piebot_move": "Rab8",
+        "piebot_uci": "a8b8",
+        "best_move": "d4",
+        "best_uci": "d5d4",
+        "eval_before_cp": 65,
+        "eval_after_cp": -61,
+        "cp_drop": 126
+      },
+      {
+        "ply": 31,
+        "move_number": 20,
+        "fen_before": "1r2r1k1/p2q1pp1/6bp/3p4/2p1n1PP/P3BN2/4PP2/R1Q1KBR1",
+        "piebot_move": "h6",
+        "piebot_uci": "h7h6",
+        "best_move": "Qc7",
+        "best_uci": "d7c7",
+        "eval_before_cp": 0,
+        "eval_after_cp": -107,
+        "cp_drop": 107
+      },
+      {
+        "ply": 125,
+        "move_number": 67,
+        "fen_before": "8/3k4/1B1P4/3K4/8/8/8/6r1",
+        "piebot_move": "g1=R",
+        "piebot_uci": "g2g1r",
+        "best_move": "g1=Q",
+        "best_uci": "g2g1q",
+        "eval_before_cp": -928,
+        "eval_after_cp": -1031,
+        "cp_drop": 103
+      }
+    ]
+  },
+  {
+    "game_number": 20,
+    "piebot_color": "black",
+    "plies": 105,
+    "termination": "chess_checkmate",
+    "opening_fen": "r2qkb1r/ppp1pppp/2n2n2/8/2pPP1b1/2N2N2/PP3PPP/R1BQKB1R w KQkq - 1 6",
+    "blunders_count": 6,
+    "mistakes_count": 2,
+    "turning_point": {
+      "ply": 14,
+      "move_number": 12,
+      "fen_before": "2kr1b1r/1pp1p1pp/p3pn2/Q7/4P3/2NqBP2/PP3P1P/R3K2R",
+      "piebot_move": "Qd3",
+      "piebot_uci": "d4d3",
+      "best_move": "Qc4",
+      "best_uci": "d4c4",
+      "eval_before_cp": -185,
+      "eval_after_cp": -288,
+      "cp_drop": 103
+    },
+    "top_blunders": [
+      {
+        "ply": 90,
+        "move_number": 50,
+        "fen_before": "4k3/8/2r1PK2/1pp3B1/p1P5/P4p2/5P2/3R4",
+        "piebot_move": "Rc6",
+        "piebot_uci": "a6c6",
+        "best_move": "b4",
+        "best_uci": "b5b4",
+        "eval_before_cp": -636,
+        "eval_after_cp": -1241,
+        "cp_drop": 605
+      },
+      {
+        "ply": 96,
+        "move_number": 53,
+        "fen_before": "5k2/8/4K3/2p3B1/ppP5/P4p2/5P2/3R4",
+        "piebot_move": "b4",
+        "piebot_uci": "b5b4",
+        "best_move": "Kg7",
+        "best_uci": "f8g7",
+        "eval_before_cp": -29300,
+        "eval_after_cp": -29700,
+        "cp_drop": 400
+      },
+      {
+        "ply": 92,
+        "move_number": 51,
+        "fen_before": "5k2/8/2r1P3/1pp1K1B1/p1P5/P4p2/5P2/3R4",
+        "piebot_move": "Kf8",
+        "piebot_uci": "e8f8",
+        "best_move": "Kf8",
+        "best_uci": "e8f8",
+        "eval_before_cp": -1046,
+        "eval_after_cp": -1396,
+        "cp_drop": 350
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 18,
+        "move_number": 14,
+        "fen_before": "2kr1b1r/1pp1p1pp/p2np3/2Q5/4P3/2NqBP2/PP3P1P/2R1K2R",
+        "piebot_move": "Nd6",
+        "piebot_uci": "e8d6",
+        "best_move": "Qd6",
+        "best_uci": "d3d6",
+        "eval_before_cp": -327,
+        "eval_after_cp": -440,
+        "cp_drop": 113
+      },
+      {
+        "ply": 14,
+        "move_number": 12,
+        "fen_before": "2kr1b1r/1pp1p1pp/p3pn2/Q7/4P3/2NqBP2/PP3P1P/R3K2R",
+        "piebot_move": "Qd3",
+        "piebot_uci": "d4d3",
+        "best_move": "Qc4",
+        "best_uci": "d4c4",
+        "eval_before_cp": -185,
+        "eval_after_cp": -288,
+        "cp_drop": 103
+      }
+    ]
+  },
+  {
+    "game_number": 21,
+    "piebot_color": "white",
+    "plies": 122,
+    "termination": "chess_checkmate",
+    "opening_fen": "rnbqkb1r/ppp2ppp/4pn2/3p4/2P5/5NP1/PP1PPP1P/RNBQKB1R w KQkq - 1 4",
+    "blunders_count": 4,
+    "mistakes_count": 6,
+    "turning_point": {
+      "ply": 69,
+      "move_number": 38,
+      "fen_before": "4b1k1/4r3/2pQ4/1pPp2P1/1P4p1/P5P1/5K1P/4rB2",
+      "piebot_move": "Qd6",
+      "piebot_uci": "c7d6",
+      "best_move": "Qc8",
+      "best_uci": "c7c8",
+      "eval_before_cp": 0,
+      "eval_after_cp": -210,
+      "cp_drop": 210
+    },
+    "top_blunders": [
+      {
+        "ply": 97,
+        "move_number": 52,
+        "fen_before": "8/2P4k/4b3/1p6/PP1p2p1/6P1/4r2P/6K1",
+        "piebot_move": "a4",
+        "piebot_uci": "a3a4",
+        "best_move": "h4",
+        "best_uci": "h2h4",
+        "eval_before_cp": -816,
+        "eval_after_cp": -29300,
+        "cp_drop": 28484
+      },
+      {
+        "ply": 113,
+        "move_number": 60,
+        "fen_before": "8/7k/b7/1p6/1P4p1/3p2PP/4r3/5K2",
+        "piebot_move": "Kf1",
+        "piebot_uci": "g1f1",
+        "best_move": "Kf1",
+        "best_uci": "g1f1",
+        "eval_before_cp": -29300,
+        "eval_after_cp": -29700,
+        "cp_drop": 400
+      },
+      {
+        "ply": 93,
+        "move_number": 50,
+        "fen_before": "8/5b1k/2P5/1p1p4/1P4p1/P5P1/4r2P/6K1",
+        "piebot_move": "c6",
+        "piebot_uci": "c5c6",
+        "best_move": "Kh1",
+        "best_uci": "g1h1",
+        "eval_before_cp": -833,
+        "eval_after_cp": -1059,
+        "cp_drop": 226
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 99,
+        "move_number": 53,
+        "fen_before": "2R5/7k/4b3/1p6/PP4p1/3p2P1/4r2P/6K1",
+        "piebot_move": "c8=R",
+        "piebot_uci": "c7c8r",
+        "best_move": "Kf1",
+        "best_uci": "g1f1",
+        "eval_before_cp": -29400,
+        "eval_after_cp": -29500,
+        "cp_drop": 100
+      },
+      {
+        "ply": 101,
+        "move_number": 54,
+        "fen_before": "2R5/7k/4b3/1p6/PP4p1/3p2P1/5K1P/4r3",
+        "piebot_move": "Kf2",
+        "piebot_uci": "g1f2",
+        "best_move": "Kf2",
+        "best_uci": "g1f2",
+        "eval_before_cp": -29200,
+        "eval_after_cp": -29300,
+        "cp_drop": 100
+      },
+      {
+        "ply": 105,
+        "move_number": 56,
+        "fen_before": "2b5/7k/8/Pp6/1P4p1/3p2P1/4r2P/5K2",
+        "piebot_move": "a5",
+        "piebot_uci": "a4a5",
+        "best_move": "h3",
+        "best_uci": "h2h3",
+        "eval_before_cp": -29500,
+        "eval_after_cp": -29600,
+        "cp_drop": 100
+      }
+    ]
+  },
+  {
+    "game_number": 23,
+    "piebot_color": "white",
+    "plies": 97,
+    "termination": "chess_checkmate",
+    "opening_fen": "rnbqkb1r/pp1ppppp/8/3nP3/3p4/2P2N2/PP3PPP/RNBQKB1R b KQkq - 1 5",
+    "blunders_count": 3,
+    "mistakes_count": 0,
+    "turning_point": {
+      "ply": 76,
+      "move_number": 43,
+      "fen_before": "5r2/4q2k/p2Np2p/2p1Pp1Q/Rn3P2/1P4rp/1P4PK/6R1",
+      "piebot_move": "Kh2",
+      "piebot_uci": "h1h2",
+      "best_move": "Rd1",
+      "best_uci": "g1d1",
+      "eval_before_cp": -312,
+      "eval_after_cp": -464,
+      "cp_drop": 152
+    },
+    "top_blunders": [
+      {
+        "ply": 84,
+        "move_number": 47,
+        "fen_before": "6r1/5Q1k/p2Np2p/2p1Pp2/1n3Pq1/1P4r1/1P4pK/R5R1",
+        "piebot_move": "Qf7+",
+        "piebot_uci": "h5f7",
+        "best_move": "Qxg4",
+        "best_uci": "h5g4",
+        "eval_before_cp": -877,
+        "eval_after_cp": -29500,
+        "cp_drop": 28623
+      },
+      {
+        "ply": 76,
+        "move_number": 43,
+        "fen_before": "5r2/4q2k/p2Np2p/2p1Pp1Q/Rn3P2/1P4rp/1P4PK/6R1",
+        "piebot_move": "Kh2",
+        "piebot_uci": "h1h2",
+        "best_move": "Rd1",
+        "best_uci": "g1d1",
+        "eval_before_cp": -312,
+        "eval_after_cp": -464,
+        "cp_drop": 152
+      },
+      {
+        "ply": 80,
+        "move_number": 45,
+        "fen_before": "6r1/6qk/p2Np2p/2p1Pp2/1n3P2/1P4rp/1P2Q1PK/R5R1",
+        "piebot_move": "Raa1",
+        "piebot_uci": "a4a1",
+        "best_move": "Ne4",
+        "best_uci": "d6e4",
+        "eval_before_cp": -569,
+        "eval_after_cp": -720,
+        "cp_drop": 151
+      }
+    ],
+    "top_mistakes": []
+  },
+  {
+    "game_number": 25,
+    "piebot_color": "white",
+    "plies": 210,
+    "termination": "chess_checkmate",
+    "opening_fen": "r1bqk2r/pppnppbp/5np1/3p2B1/3P4/2N1PN2/PPP2PPP/R2QKB1R w KQkq - 1 6",
+    "blunders_count": 11,
+    "mistakes_count": 6,
+    "turning_point": {
+      "ply": 57,
+      "move_number": 34,
+      "fen_before": "3r3k/1Rpn2np/P1b1p3/8/3q2p1/1B4N1/1PP2PPP/4Q1K1",
+      "piebot_move": "Rxb7",
+      "piebot_uci": "a7b7",
+      "best_move": "Qe3",
+      "best_uci": "e1e3",
+      "eval_before_cp": -282,
+      "eval_after_cp": -373,
+      "cp_drop": 91
+    },
+    "top_blunders": [
+      {
+        "ply": 171,
+        "move_number": 91,
+        "fen_before": "1r6/2p5/2P5/8/3k4/8/4K3/8",
+        "piebot_move": "Ke2",
+        "piebot_uci": "d1e2",
+        "best_move": "Ke2",
+        "best_uci": "d1e2",
+        "eval_before_cp": -615,
+        "eval_after_cp": -28900,
+        "cp_drop": 28285
+      },
+      {
+        "ply": 187,
+        "move_number": 99,
+        "fen_before": "8/8/1r6/2p5/3k4/8/4K3/8",
+        "piebot_move": "Ke2",
+        "piebot_uci": "f3e2",
+        "best_move": "Ke2",
+        "best_uci": "f3e2",
+        "eval_before_cp": -1093,
+        "eval_after_cp": -29100,
+        "cp_drop": 28007
+      },
+      {
+        "ply": 163,
+        "move_number": 87,
+        "fen_before": "3r4/2p5/2P5/8/8/2k5/8/2K5",
+        "piebot_move": "Kc1",
+        "piebot_uci": "b1c1",
+        "best_move": "Ka2",
+        "best_uci": "b1a2",
+        "eval_before_cp": -28800,
+        "eval_after_cp": -29800,
+        "cp_drop": 1000
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 119,
+        "move_number": 65,
+        "fen_before": "8/2p4p/2P5/4k1PP/4P3/r7/5K2/8",
+        "piebot_move": "g5",
+        "piebot_uci": "g4g5",
+        "best_move": "g5",
+        "best_uci": "g4g5",
+        "eval_before_cp": -524,
+        "eval_after_cp": -637,
+        "cp_drop": 113
+      },
+      {
+        "ply": 161,
+        "move_number": 86,
+        "fen_before": "8/2p5/2Pr4/8/8/2k5/8/1K6",
+        "piebot_move": "Kb1",
+        "piebot_uci": "a2b1",
+        "best_move": "Kb1",
+        "best_uci": "a2b1",
+        "eval_before_cp": -29300,
+        "eval_after_cp": -29400,
+        "cp_drop": 100
+      },
+      {
+        "ply": 181,
+        "move_number": 96,
+        "fen_before": "8/8/7r/2p3K1/3k4/8/8/8",
+        "piebot_move": "Kg5",
+        "piebot_uci": "g4g5",
+        "best_move": "Kf3",
+        "best_uci": "g4f3",
+        "eval_before_cp": -28600,
+        "eval_after_cp": -28700,
+        "cp_drop": 100
+      }
+    ]
+  },
+  {
+    "game_number": 27,
+    "piebot_color": "white",
+    "plies": 108,
+    "termination": "chess_checkmate",
+    "opening_fen": "rnbqkb1r/pp1p1ppp/4pn2/8/3NP3/8/PPP2PPP/RNBQKB1R w KQkq - 1 5",
+    "blunders_count": 5,
+    "mistakes_count": 3,
+    "turning_point": {
+      "ply": 45,
+      "move_number": 27,
+      "fen_before": "1q3rk1/6p1/3Rpn1p/p3p3/4P2P/2NQ4/1rP2PP1/K2R4",
+      "piebot_move": "Ka1",
+      "piebot_uci": "b1a1",
+      "best_move": "Kc1",
+      "best_uci": "b1c1",
+      "eval_before_cp": -128,
+      "eval_after_cp": -268,
+      "cp_drop": 140
+    },
+    "top_blunders": [
+      {
+        "ply": 85,
+        "move_number": 47,
+        "fen_before": "8/8/4p2p/2P4P/4k3/8/p3K3/8",
+        "piebot_move": "c5",
+        "piebot_uci": "c4c5",
+        "best_move": "Kf2",
+        "best_uci": "e2f2",
+        "eval_before_cp": -28800,
+        "eval_after_cp": -29300,
+        "cp_drop": 500
+      },
+      {
+        "ply": 97,
+        "move_number": 53,
+        "fen_before": "8/2P5/4p2p/7P/4k3/5q2/8/6K1",
+        "piebot_move": "Kg1",
+        "piebot_uci": "f2g1",
+        "best_move": "Ke1",
+        "best_uci": "f2e1",
+        "eval_before_cp": -29200,
+        "eval_after_cp": -29700,
+        "cp_drop": 500
+      },
+      {
+        "ply": 83,
+        "move_number": 46,
+        "fen_before": "8/8/4p2p/7P/2Pk4/8/p3K3/8",
+        "piebot_move": "c4",
+        "piebot_uci": "c2c4",
+        "best_move": "c3+",
+        "best_uci": "c2c3",
+        "eval_before_cp": -28600,
+        "eval_after_cp": -29000,
+        "cp_drop": 400
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 45,
+        "move_number": 27,
+        "fen_before": "1q3rk1/6p1/3Rpn1p/p3p3/4P2P/2NQ4/1rP2PP1/K2R4",
+        "piebot_move": "Ka1",
+        "piebot_uci": "b1a1",
+        "best_move": "Kc1",
+        "best_uci": "b1c1",
+        "eval_before_cp": -128,
+        "eval_after_cp": -268,
+        "cp_drop": 140
+      },
+      {
+        "ply": 39,
+        "move_number": 24,
+        "fen_before": "3q1rk1/6p1/3Rpn1p/p3p3/Nr2P2P/3Q4/1PP2PP1/1K5R",
+        "piebot_move": "Rxd6",
+        "piebot_uci": "c6d6",
+        "best_move": "Nc3",
+        "best_uci": "a4c3",
+        "eval_before_cp": -59,
+        "eval_after_cp": -164,
+        "cp_drop": 105
+      },
+      {
+        "ply": 17,
+        "move_number": 13,
+        "fen_before": "r2q1rk1/3bbppp/p2ppn2/1p6/3RP2P/1BN1BQ2/PPP2PP1/1K5R",
+        "piebot_move": "h4",
+        "piebot_uci": "h2h4",
+        "best_move": "Rhd1",
+        "best_uci": "h1d1",
+        "eval_before_cp": -32,
+        "eval_after_cp": -124,
+        "cp_drop": 92
+      }
+    ]
+  },
+  {
+    "game_number": 28,
+    "piebot_color": "black",
+    "plies": 133,
+    "termination": "chess_checkmate",
+    "opening_fen": "rnbqkb1r/pp1p1ppp/4pn2/8/3NP3/8/PPP2PPP/RNBQKB1R w KQkq - 1 5",
+    "blunders_count": 1,
+    "mistakes_count": 3,
+    "turning_point": {
+      "ply": 46,
+      "move_number": 27,
+      "fen_before": "2r5/p4kpp/b3p3/1P3p2/2Pb1P2/P1N4P/2KB1nB1/5R2",
+      "piebot_move": "Rc8",
+      "piebot_uci": "h8c8",
+      "best_move": "Bc8",
+      "best_uci": "a6c8",
+      "eval_before_cp": -306,
+      "eval_after_cp": -396,
+      "cp_drop": 90
+    },
+    "top_blunders": [
+      {
+        "ply": 124,
+        "move_number": 66,
+        "fen_before": "8/P5kp/5n2/8/5Q2/4p2P/8/4K3",
+        "piebot_move": "e3",
+        "piebot_uci": "e4e3",
+        "best_move": "e3",
+        "best_uci": "e4e3",
+        "eval_before_cp": -1137,
+        "eval_after_cp": -29300,
+        "cp_drop": 28163
+      }
+    ],
+    "top_mistakes": [
+      {
+        "ply": 52,
+        "move_number": 30,
+        "fen_before": "2r3k1/pR4pp/P3p3/5p2/3b1P2/P1N4P/2KB1nB1/8",
+        "piebot_move": "Kg8",
+        "piebot_uci": "f7g8",
+        "best_move": "Ke8",
+        "best_uci": "f7e8",
+        "eval_before_cp": -350,
+        "eval_after_cp": -483,
+        "cp_drop": 133
+      },
+      {
+        "ply": 126,
+        "move_number": 67,
+        "fen_before": "Q7/6k1/5n1p/8/5Q2/4p2P/8/4K3",
+        "piebot_move": "h6",
+        "piebot_uci": "h7h6",
+        "best_move": "h6",
+        "best_uci": "h7h6",
+        "eval_before_cp": -29400,
+        "eval_after_cp": -29500,
+        "cp_drop": 100
+      },
+      {
+        "ply": 46,
+        "move_number": 27,
+        "fen_before": "2r5/p4kpp/b3p3/1P3p2/2Pb1P2/P1N4P/2KB1nB1/5R2",
+        "piebot_move": "Rc8",
+        "piebot_uci": "h8c8",
+        "best_move": "Bc8",
+        "best_uci": "a6c8",
+        "eval_before_cp": -306,
+        "eval_after_cp": -396,
+        "cp_drop": 90
+      }
+    ]
+  }
+]

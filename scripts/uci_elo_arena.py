@@ -153,12 +153,14 @@ def canonical_sha256(value: Any) -> str:
 
 
 def piebot_uci_options(
-    model_path: Path, *, blend: int, hash_mb: int
+    model_path: Path, *, blend: int, hash_mb: int, threads: int = 1
 ) -> tuple[dict[str, Any], str]:
     if not 0 <= blend <= 100:
         raise ValueError("PieBot blend must be between 0 and 100")
     if hash_mb <= 0:
         raise ValueError("PieBot hash size must be positive")
+    if threads <= 0:
+        raise ValueError("PieBot threads must be positive")
     resolved = model_path.expanduser().resolve(strict=True)
     if not resolved.is_file() or resolved.stat().st_size == 0:
         raise ValueError(f"PieBot NNUE model is not a non-empty file: {resolved}")
@@ -166,7 +168,7 @@ def piebot_uci_options(
     # Dict insertion order matters: load the model before enabling NNUE.
     return (
         {
-            "Threads": 1,
+            "Threads": threads,
             "Hash": hash_mb,
             "NNUEQuantFile": str(resolved),
             "UseNNUE": True,
@@ -177,7 +179,7 @@ def piebot_uci_options(
 
 
 def stockfish_uci_options(
-    *, elo: int, hash_mb: int, full_strength: bool = False
+    *, elo: int, hash_mb: int, threads: int = 1, full_strength: bool = False
 ) -> dict[str, Any]:
     """UCI options for the anchor.
 
@@ -190,8 +192,10 @@ def stockfish_uci_options(
     """
     if hash_mb <= 0:
         raise ValueError("Stockfish hash size must be positive")
+    if threads <= 0:
+        raise ValueError("Stockfish threads must be positive")
     options: dict[str, Any] = {
-        "Threads": 1,
+        "Threads": threads,
         "Hash": hash_mb,
         "Ponder": False,
         "MultiPV": 1,
@@ -1013,6 +1017,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--stockfish-hash", type=int, default=64, help="Stockfish hash MiB")
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help="search threads per engine (applies to both PieBot and Stockfish)",
+    )
+    parser.add_argument(
+        "--piebot-threads",
+        type=int,
+        default=None,
+        help="PieBot search threads (overrides --threads)",
+    )
+    parser.add_argument(
+        "--stockfish-threads",
+        type=int,
+        default=None,
+        help="Stockfish search threads (overrides --threads)",
+    )
     parser.add_argument("--games", type=int, default=100, help="even game count")
     parser.add_argument(
         "--time-control", default=DEFAULT_TIME_CONTROL, help="Fischer INITIAL+INCREMENT seconds"
@@ -1059,14 +1081,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.startup_timeout <= 0:
             raise ValueError("startup timeout must be positive")
 
+        piebot_threads = args.piebot_threads if args.piebot_threads is not None else args.threads
+        stockfish_threads = (
+            args.stockfish_threads if args.stockfish_threads is not None else args.threads
+        )
         piebot_command = parse_command(args.piebot_command)
         stockfish_command = parse_command(args.stockfish_command)
         piebot_options, model_sha = piebot_uci_options(
-            args.piebot_nnue, blend=args.piebot_blend, hash_mb=args.piebot_hash
+            args.piebot_nnue,
+            blend=args.piebot_blend,
+            hash_mb=args.piebot_hash,
+            threads=piebot_threads,
         )
         stockfish_options = stockfish_uci_options(
             elo=args.stockfish_elo,
             hash_mb=args.stockfish_hash,
+            threads=stockfish_threads,
             full_strength=args.stockfish_full_strength,
         )
 

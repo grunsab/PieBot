@@ -491,6 +491,7 @@ impl UciEngine {
     fn cmd_ucinewgame(&mut self) {
         self.pos = Position::startpos();
         self.searcher.set_tt_capacity_mb(self.hash_mb);
+        self.searcher.clear_history();
     }
 
     pub(crate) fn apply_setoption(&mut self, name: &str, value: &str) -> Option<String> {
@@ -505,6 +506,7 @@ impl UciEngine {
             "threads" => {
                 if let Ok(t) = value.parse::<usize>() {
                     self.threads = t.clamp(1, 512);
+                    self.searcher.set_threads(self.threads);
                 }
                 None
             }

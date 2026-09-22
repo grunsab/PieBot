@@ -172,8 +172,10 @@ class ArenaUciSafetyTests(unittest.TestCase):
             model = Path(tmp) / "candidate.nnue"
             model.write_bytes(b"known model bytes")
             options, digest = arena.piebot_uci_options(model, blend=75, hash_mb=64)
+            options_8t, _ = arena.piebot_uci_options(model, blend=75, hash_mb=64, threads=8)
 
         self.assertEqual(options["Threads"], 1)
+        self.assertEqual(options_8t["Threads"], 8)
         self.assertEqual(options["Hash"], 64)
         self.assertEqual(options["UseNNUE"], True)
         self.assertEqual(options["EvalBlend"], 75)
@@ -182,7 +184,9 @@ class ArenaUciSafetyTests(unittest.TestCase):
 
     def test_stockfish_options_disable_ponder_multipv_and_tablebases(self) -> None:
         options = arena.stockfish_uci_options(elo=2600, hash_mb=64)
+        options_8t = arena.stockfish_uci_options(elo=2600, hash_mb=64, threads=8)
         self.assertEqual(options["Threads"], 1)
+        self.assertEqual(options_8t["Threads"], 8)
         self.assertEqual(options["Hash"], 64)
         self.assertEqual(options["UCI_LimitStrength"], True)
         self.assertEqual(options["UCI_Elo"], 2600)

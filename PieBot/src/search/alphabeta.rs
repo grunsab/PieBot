@@ -285,6 +285,16 @@ impl Searcher {
         self.external_stop = None;
     }
 
+    pub fn clear_history(&mut self) {
+        self.history_table.fill(0);
+        self.conthist_1ply.fill(0);
+        self.conthist_2ply.fill(0);
+        self.counter_move.fill(usize::MAX);
+        self.move_stack.fill(None);
+        self.capture_history.fill(0);
+        self.killers = vec![[None, None]; 256];
+    }
+
     fn prepare_root_state(&mut self, board: &Board) {
         self.search_history.clone_from(&self.root_history);
         if self.search_history.last() != Some(board) {
@@ -437,12 +447,12 @@ impl Searcher {
         self.deadline = Some(start_time + allotted);
         self.prepare_root_state(board);
         if self.use_history {
-            self.history_table.fill(0);
-            self.conthist_1ply.fill(0);
-            self.conthist_2ply.fill(0);
+            self.history_table.iter_mut().for_each(|x| *x /= 2);
+            self.conthist_1ply.iter_mut().for_each(|x| *x /= 2);
+            self.conthist_2ply.iter_mut().for_each(|x| *x /= 2);
+            self.capture_history.iter_mut().for_each(|x| *x /= 2);
             self.counter_move.fill(usize::MAX);
             self.move_stack.fill(None);
-            self.capture_history.fill(0);
         }
         let max_depth = if depth == 0 { 99 } else { depth };
         let mut committed = self.fallback_result(board);
@@ -966,6 +976,11 @@ impl Searcher {
         let node_limit = self.node_limit;
         let external_stop = self.external_stop.clone();
         let search_history = self.search_history.clone();
+        let history_table = self.history_table.clone();
+        let capture_history = self.capture_history.clone();
+        let conthist_1ply = self.conthist_1ply.clone();
+        let conthist_2ply = self.conthist_2ply.clone();
+        let killers = self.killers.clone();
 
         let make_worker = || {
             let mut w = Searcher::default();
@@ -983,6 +998,11 @@ impl Searcher {
             w.threads = 1;
             w.external_stop = external_stop.clone();
             w.search_history = search_history.clone();
+            w.history_table = history_table.clone();
+            w.capture_history = capture_history.clone();
+            w.conthist_1ply = conthist_1ply.clone();
+            w.conthist_2ply = conthist_2ply.clone();
+            w.killers = killers.clone();
             if let Some(network) = &quant_network {
                 w.nnue_quant = Some(network.clone_for_search());
             }
@@ -1323,6 +1343,30 @@ impl Searcher {
                 self.eval_terminal(board, ply)
             });
         }
+        // TT probe: probe before heuristic pruning (RFP, Null-Move) to achieve
+        // immediate cutoffs without evaluating static eval or performing null-move search.
+        let tt_entry = self.tt_get(board);
+        if Self::tt_score_is_rule50_safe(board, depth) {
+            if let Some(ref en) = tt_entry {
+                if en.depth >= depth {
+                    let tt_score = score_from_tt(en.score, ply);
+                    match en.bound {
+                        Bound::Exact => return Ok(tt_score),
+                        Bound::Lower => {
+                            if tt_score >= beta {
+                                return Ok(tt_score);
+                            }
+                        }
+                        Bound::Upper => {
+                            if tt_score <= alpha {
+                                return Ok(tt_score);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Reverse futility: at shallow non-mate-window nodes not in check, a
         // static eval comfortably above beta almost never comes back below it
         // after a real search; return the eval as a fail-soft bound. The
@@ -1358,28 +1402,6 @@ impl Searcher {
             }
         }
 
-        // TT probe (exact-only)
-        if Self::tt_score_is_rule50_safe(board, depth) {
-            if let Some(en) = self.tt_get(board) {
-                if en.depth >= depth {
-                    let tt_score = score_from_tt(en.score, ply);
-                    match en.bound {
-                        Bound::Exact => return Ok(tt_score),
-                        Bound::Lower => {
-                            if tt_score >= beta {
-                                return Ok(tt_score);
-                            }
-                        }
-                        Bound::Upper => {
-                            if tt_score <= alpha {
-                                return Ok(tt_score);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // Build movelist and order
         let mut moves: Vec<Move> = Vec::with_capacity(64);
         board.generate_moves(|ml| {
@@ -1393,7 +1415,7 @@ impl Searcher {
         }
         // TT move first
         let mut tt_best: Option<Move> = None;
-        if let Some(en) = self.tt_get(board) {
+        if let Some(ref en) = tt_entry {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
@@ -1470,6 +1492,10 @@ impl Searcher {
 
             // Late Move Pruning: in non-PV nodes at shallow depth, skip quiet non-checking
             // moves with neutral or negative history after searching the most promising candidates.
+            // In simplified endgames (<= 6 non-pawn pieces), exempt king moves so critical
+            // king marches, opposition, and centralization are never pruned.
+            let is_endgame_king_move = board.piece_on(m.from) == Some(cozy_chess::Piece::King)
+                && (board.occupied() ^ board.pieces(cozy_chess::Piece::Pawn)).into_iter().count() <= 6;
             if self.use_nullmove
                 && non_pv
                 && depth <= 4
@@ -1479,6 +1505,7 @@ impl Searcher {
                 && board.checkers().is_empty()
                 && alpha.abs() < MATE_TT_THRESHOLD
                 && beta.abs() < MATE_TT_THRESHOLD
+                && !is_endgame_king_move
             {
                 let lmp_threshold = 3 + 3 * (depth as usize) * (depth as usize);
                 let mi = move_index(m);
@@ -2016,12 +2043,12 @@ impl Searcher {
         self.killers = vec![[None, None]; 256];
         self.deterministic = params.deterministic;
         if self.use_history {
-            self.history_table.fill(0);
-            self.conthist_1ply.fill(0);
-            self.conthist_2ply.fill(0);
+            self.history_table.iter_mut().for_each(|x| *x /= 2);
+            self.conthist_1ply.iter_mut().for_each(|x| *x /= 2);
+            self.conthist_2ply.iter_mut().for_each(|x| *x /= 2);
+            self.capture_history.iter_mut().for_each(|x| *x /= 2);
             self.counter_move.fill(usize::MAX);
             self.move_stack.fill(None);
-            self.capture_history.fill(0);
         }
         let start_time = Instant::now();
         self.deadline = params.movetime.map(|d| start_time + d);
