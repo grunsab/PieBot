@@ -1437,8 +1437,15 @@ impl Searcher {
                     && idx >= 3
                     && !gives_check
                     && !self.is_capture(board, m)
+                    && m.promotion.is_none()
                 {
-                    1
+                    let mi = move_index(m);
+                    let hist = self.history_table.get(mi).copied().unwrap_or(0);
+                    let mut red = lmr_reduction(depth, idx + 1, hist);
+                    if self.use_killers && self.killer_bonus(ply, m) > 0 {
+                        red = red.saturating_sub(1);
+                    }
+                    red
                 } else {
                     0
                 };

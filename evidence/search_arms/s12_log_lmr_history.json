@@ -1,0 +1,26 @@
+{
+  "arm": "Arm S12: Logarithmic LMR with History Modulation",
+  "hypothesis": "Now that TT-first, Continuation History (S8), Late Move Pruning (S9), and SEE capture segregation (S11) provide high-accuracy move ordering, logarithmic LMR with history modulation safely reduces late quiet non-checking moves by multiple plies, allowing the search to reach ~1 ply deeper at equal time control.",
+  "results_100g": {
+    "games": 100,
+    "experimental_pts": 43,
+    "baseline_pts": 20,
+    "draws": 37,
+    "score_rate": 0.615,
+    "elo_delta": 81.4,
+    "ci_95": [28.0, 138.9],
+    "avg_depth_baseline": 9.71,
+    "avg_depth_experimental": 10.70,
+    "depth_gain": 0.99
+  },
+  "acceptance_test": {
+    "suite": "matein3.txt",
+    "solved": "91/91",
+    "time_baseline": "5.219s",
+    "time_experimental": "3.283s",
+    "nodes_baseline": 13493656,
+    "nodes_experimental": 8770308,
+    "node_reduction_pct": 35.0
+  },
+  "decision": "PROMOTE to alphabeta.rs"
+}
