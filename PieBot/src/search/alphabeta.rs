@@ -1330,7 +1330,7 @@ impl Searcher {
     fn alphabeta(
         &mut self,
         board: &Board,
-        depth: u32,
+        mut depth: u32,
         mut alpha: i32,
         beta: i32,
         ply: i32,
@@ -1343,8 +1343,8 @@ impl Searcher {
         self.enter_node(ply)?;
         if check_draws && self.rule_draw(board) {
             // Checkmate ends the game before a fifty-move/repetition claim.
-            // We only pay for this legal-move probe at a position that would
-            // otherwise be returned as a rule draw.
+            // If the side to move has no legal moves, terminal eval reports
+            // checkmate or stalemate.
             let mut has_legal_move = false;
             board.generate_moves(|ml| {
                 has_legal_move = ml.into_iter().next().is_some();
@@ -1381,6 +1381,17 @@ impl Searcher {
         }
 
         let is_in_check = !board.checkers().is_empty();
+
+        // Internal Iterative Reduction (IIR): in non-PV nodes at depth >= 4 without
+        // a TT move, move ordering is sub-optimal. Reducing depth by 1 avoids
+        // searching un-ordered branches at full depth.
+        if depth >= 4
+            && !is_in_check
+            && (beta - alpha) <= 1
+            && tt_entry.as_ref().map_or(true, |en| en.best.is_none())
+        {
+            depth -= 1;
+        }
         let mut static_eval: Option<i32> = None;
 
         if !is_in_check {

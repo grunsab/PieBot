@@ -41,4 +41,19 @@ fn test_probcut_search_depth() {
     assert!(res.nodes > 0, "Nodes searched");
 }
 
+#[test]
+fn test_internal_iterative_reduction() {
+    let mut searcher = Searcher::default();
+    searcher.set_use_lmr(true);
+    searcher.set_use_nullmove(true);
+    searcher.set_use_history(true);
+
+    let board: Board = "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4".parse().unwrap();
+    let res = searcher.search_depth(&board, 6);
+    assert!(res.bestmove.is_some(), "Search with IIR finds a valid move");
+    assert!(res.nodes > 0, "Nodes searched");
+}
+
+
+
 
