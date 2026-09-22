@@ -1,0 +1,28 @@
+{
+  "arm": "S29",
+  "description": "Deferred Aspiration Window Activation from d > 1 to d >= 4",
+  "games": 100,
+  "movetime_ms": 150,
+  "noise_plies": 12,
+  "noise_topk": 5,
+  "threads": 1,
+  "matein3_acceptance": {
+    "solved": "91/91",
+    "baseline_nodes": 8810650,
+    "experimental_nodes": 8628093,
+    "nodes_delta": -182557,
+    "nodes_pct": -2.07,
+    "baseline_time_s": 3.395,
+    "experimental_time_s": 3.276,
+    "speedup_pct": 3.5
+  },
+  "match_results": {
+    "baseline_wins": 29,
+    "experimental_wins": 34,
+    "draws": 37,
+    "net_wins": 5,
+    "score_rate": 0.525,
+    "elo_delta": 17.4
+  },
+  "verdict": "ACCEPTED"
+}

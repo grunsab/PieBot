@@ -462,7 +462,7 @@ impl Searcher {
             }
             self.tt.bump_generation();
             self.prepare_root_state(board);
-            let iteration = if self.use_aspiration && d > 1 {
+            let iteration = if self.use_aspiration && d >= 4 {
                 let mut delta = 30;
                 let mut alpha = (committed.score_cp - delta).max(-MATE_SCORE);
                 let mut beta = (committed.score_cp + delta).min(MATE_SCORE);
@@ -2046,7 +2046,7 @@ impl Searcher {
             }
             self.tt.bump_generation();
             self.prepare_root_state(board);
-            let iteration = if self.use_aspiration && d > 1 {
+            let iteration = if self.use_aspiration && d >= 4 {
                 let mut delta = params.aspiration_window_cp.max(15);
                 let mut alpha = (committed.score_cp - delta).max(-MATE_SCORE);
                 let mut beta = (committed.score_cp + delta).min(MATE_SCORE);
