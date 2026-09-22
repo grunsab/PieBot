@@ -1333,6 +1333,51 @@ impl Searcher {
                 }
             }
 
+            // Late Move Pruning: in non-PV nodes at shallow depth, skip quiet non-checking
+            // moves with neutral or negative history after searching the most promising candidates.
+            if self.use_nullmove
+                && non_pv
+                && depth <= 4
+                && !is_capture_move
+                && m.promotion.is_none()
+                && !gives_check
+                && board.checkers().is_empty()
+                && alpha.abs() < MATE_TT_THRESHOLD
+                && beta.abs() < MATE_TT_THRESHOLD
+            {
+                let lmp_threshold = 3 + 3 * (depth as usize) * (depth as usize);
+                let mi = move_index(m);
+                let hist = self.history_table.get(mi).copied().unwrap_or(0);
+                if num_quiets_tried > lmp_threshold && hist <= 0 {
+                    continue;
+                }
+            }
+
+            // SEE Pruning: at shallow depths in non-PV nodes, prune moves that lose material
+            if self.use_nullmove
+                && non_pv
+                && idx > 0
+                && depth <= 3
+                && !gives_check
+                && alpha.abs() < MATE_TT_THRESHOLD
+                && beta.abs() < MATE_TT_THRESHOLD
+                && board.checkers().is_empty()
+            {
+                if is_capture_move {
+                    if let Some(gain) = crate::search::see::see_gain_cp(board, m) {
+                        if gain < -100 * (depth as i32) {
+                            continue;
+                        }
+                    }
+                } else if depth <= 2 && m.promotion.is_none() {
+                    if let Some(gain) = crate::search::see::see_gain_cp(board, m) {
+                        if gain < -50 * (depth as i32) {
+                            continue;
+                        }
+                    }
+                }
+            }
+
             let mut change = None;
             if self.use_nnue {
                 if let Some(qn) = self.nnue_quant.as_mut() {
