@@ -523,20 +523,278 @@ fn screlu_dot(acc: &[i16], w: &[i8], qa: i32) -> i64 {
     }
 }
 
-/// Fast path, shaped so the autovectorizer emits a widening multiply-accumulate
-/// (`vpmaddwd` on AVX2, `smlal`/`smlal2` on NEON).
-///
-/// The trick is keeping `v * w` in i16: the multiply then runs 16 lanes at a
-/// time instead of the 8 an i32 formulation allows, and the widening i16xi16
-/// -> i32 accumulate is a single instruction. Exactness rests on two bounds:
-///   * `|v * w| <= QA * 128 = 32_640 <= i16::MAX`, guaranteed by the
-///     `MAX_I16_MADD_QA` dispatch above;
-///   * `|v * (v * w)| <= 255 * 32_640 = 8_323_200`, so `SCRELU_CHUNK = 128`
-///     terms reach at most 1.065e9, well inside i32.
-/// Every intermediate is therefore exact, not merely non-panicking, and the
-/// result is bit-identical to `screlu_dot_wide`.
+#[cfg(target_arch = "aarch64")]
+#[inline]
+unsafe fn screlu_dot_neon(acc: &[i16], w: &[i8], qa: i16) -> i64 {
+    use std::arch::aarch64::*;
+    let zero = vdupq_n_s16(0);
+    let qa_vec = vdupq_n_s16(qa);
+    let mut total: i64 = 0;
+
+    for (acc_chunk, w_chunk) in acc.chunks(SCRELU_CHUNK).zip(w.chunks(SCRELU_CHUNK)) {
+        let mut acc_i32 = vdupq_n_s32(0);
+        let len = acc_chunk.len();
+        let chunks_8 = len / 8;
+        let acc_ptr = acc_chunk.as_ptr();
+        let w_ptr = w_chunk.as_ptr();
+
+        for i in 0..chunks_8 {
+            let offset = i * 8;
+            let a = vld1q_s16(acc_ptr.add(offset));
+            let v = vminq_s16(vmaxq_s16(a, zero), qa_vec);
+            let w_raw = vld1_s8(w_ptr.add(offset));
+            let w_i16 = vmovl_s8(w_raw);
+            let vw = vmulq_s16(v, w_i16);
+
+            acc_i32 = vmlal_s16(acc_i32, vget_low_s16(v), vget_low_s16(vw));
+            acc_i32 = vmlal_s16(acc_i32, vget_high_s16(v), vget_high_s16(vw));
+        }
+
+        let mut chunk_sum = vaddvq_s32(acc_i32) as i64;
+        for j in (chunks_8 * 8)..len {
+            let v = (*acc_ptr.add(j)).clamp(0, qa);
+            let vw = v * (*w_ptr.add(j) as i16);
+            chunk_sum += (v as i32 * vw as i32) as i64;
+        }
+        total += chunk_sum;
+    }
+    total
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline]
+#[target_feature(enable = "avx2")]
+unsafe fn screlu_dot_avx2(acc: &[i16], w: &[i8], qa: i16) -> i64 {
+    use std::arch::x86_64::*;
+    let zero = _mm256_setzero_si256();
+    let qa_vec = _mm256_set1_epi16(qa);
+    let mut total: i64 = 0;
+
+    for (acc_chunk, w_chunk) in acc.chunks(SCRELU_CHUNK).zip(w.chunks(SCRELU_CHUNK)) {
+        let mut acc_i32 = _mm256_setzero_si256();
+        let len = acc_chunk.len();
+        let chunks_16 = len / 16;
+        let acc_ptr = acc_chunk.as_ptr();
+        let w_ptr = w_chunk.as_ptr();
+
+        for i in 0..chunks_16 {
+            let offset = i * 16;
+            let a = _mm256_loadu_si256(acc_ptr.add(offset) as *const __m256i);
+            let v = _mm256_min_epi16(_mm256_max_epi16(a, zero), qa_vec);
+            let w_raw = _mm_loadu_si128(w_ptr.add(offset) as *const __m128i);
+            let w_i16 = _mm256_cvtepi8_epi16(w_raw);
+            let vw = _mm256_mullo_epi16(v, w_i16);
+            let madd = _mm256_madd_epi16(v, vw);
+            acc_i32 = _mm256_add_epi32(acc_i32, madd);
+        }
+
+        let hi_128 = _mm256_extracti128_si256(acc_i32, 1);
+        let lo_128 = _mm256_castsi256_si128(acc_i32);
+        let sum_128 = _mm_add_epi32(lo_128, hi_128);
+        let hi64 = _mm_unpackhi_epi64(sum_128, sum_128);
+        let sum64 = _mm_add_epi32(sum_128, hi64);
+        let hi32 = _mm_shuffle_epi32(sum64, 0b00000001);
+        let sum32 = _mm_add_epi32(sum64, hi32);
+        let mut chunk_sum = _mm_cvtsi128_si32(sum32) as i64;
+
+        for j in (chunks_16 * 16)..len {
+            let v = (*acc_ptr.add(j)).clamp(0, qa);
+            let vw = v * (*w_ptr.add(j) as i16);
+            chunk_sum += (v as i32 * vw as i32) as i64;
+        }
+        total += chunk_sum;
+    }
+    total
+}
+
+#[inline]
+pub fn vec_add_assign_i16(dst: &mut [i16], row: &[i16]) {
+    debug_assert_eq!(dst.len(), row.len());
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        use std::arch::aarch64::*;
+        let len = dst.len();
+        let chunks = len / 8;
+        let d_ptr = dst.as_mut_ptr();
+        let r_ptr = row.as_ptr();
+        for i in 0..chunks {
+            let offset = i * 8;
+            let d = vld1q_s16(d_ptr.add(offset));
+            let r = vld1q_s16(r_ptr.add(offset));
+            vst1q_s16(d_ptr.add(offset), vaddq_s16(d, r));
+        }
+        for i in (chunks * 8)..len {
+            *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_add(*r_ptr.add(i));
+        }
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            unsafe {
+                use std::arch::x86_64::*;
+                let len = dst.len();
+                let chunks = len / 16;
+                let d_ptr = dst.as_mut_ptr();
+                let r_ptr = row.as_ptr();
+                for i in 0..chunks {
+                    let offset = i * 16;
+                    let d = _mm256_loadu_si256(d_ptr.add(offset) as *const __m256i);
+                    let r = _mm256_loadu_si256(r_ptr.add(offset) as *const __m256i);
+                    _mm256_storeu_si256(d_ptr.add(offset) as *mut __m256i, _mm256_add_epi16(d, r));
+                }
+                for i in (chunks * 16)..len {
+                    *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_add(*r_ptr.add(i));
+                }
+            }
+        } else {
+            for (d, &r) in dst.iter_mut().zip(row) {
+                *d = d.wrapping_add(r);
+            }
+        }
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    for (d, &r) in dst.iter_mut().zip(row) {
+        *d = d.wrapping_add(r);
+    }
+}
+
+#[inline]
+pub fn vec_sub_assign_i16(dst: &mut [i16], row: &[i16]) {
+    debug_assert_eq!(dst.len(), row.len());
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        use std::arch::aarch64::*;
+        let len = dst.len();
+        let chunks = len / 8;
+        let d_ptr = dst.as_mut_ptr();
+        let r_ptr = row.as_ptr();
+        for i in 0..chunks {
+            let offset = i * 8;
+            let d = vld1q_s16(d_ptr.add(offset));
+            let r = vld1q_s16(r_ptr.add(offset));
+            vst1q_s16(d_ptr.add(offset), vsubq_s16(d, r));
+        }
+        for i in (chunks * 8)..len {
+            *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_sub(*r_ptr.add(i));
+        }
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            unsafe {
+                use std::arch::x86_64::*;
+                let len = dst.len();
+                let chunks = len / 16;
+                let d_ptr = dst.as_mut_ptr();
+                let r_ptr = row.as_ptr();
+                for i in 0..chunks {
+                    let offset = i * 16;
+                    let d = _mm256_loadu_si256(d_ptr.add(offset) as *const __m256i);
+                    let r = _mm256_loadu_si256(r_ptr.add(offset) as *const __m256i);
+                    _mm256_storeu_si256(d_ptr.add(offset) as *mut __m256i, _mm256_sub_epi16(d, r));
+                }
+                for i in (chunks * 16)..len {
+                    *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_sub(*r_ptr.add(i));
+                }
+            }
+        } else {
+            for (d, &r) in dst.iter_mut().zip(row) {
+                *d = d.wrapping_sub(r);
+            }
+        }
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    for (d, &r) in dst.iter_mut().zip(row) {
+        *d = d.wrapping_sub(r);
+    }
+}
+
+#[inline]
+pub fn push_delta_quiet_fused(dst: &mut [i16], src: &[i16], r: &[i16], a: &[i16]) {
+    debug_assert_eq!(dst.len(), src.len());
+    debug_assert_eq!(dst.len(), r.len());
+    debug_assert_eq!(dst.len(), a.len());
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        use std::arch::aarch64::*;
+        let len = dst.len();
+        let chunks = len / 8;
+        let d_ptr = dst.as_mut_ptr();
+        let s_ptr = src.as_ptr();
+        let r_ptr = r.as_ptr();
+        let a_ptr = a.as_ptr();
+        for i in 0..chunks {
+            let offset = i * 8;
+            let s_vec = vld1q_s16(s_ptr.add(offset));
+            let r_vec = vld1q_s16(r_ptr.add(offset));
+            let a_vec = vld1q_s16(a_ptr.add(offset));
+            let diff = vsubq_s16(s_vec, r_vec);
+            let res = vaddq_s16(diff, a_vec);
+            vst1q_s16(d_ptr.add(offset), res);
+        }
+        for i in (chunks * 8)..len {
+            *d_ptr.add(i) = (*s_ptr.add(i)).wrapping_sub(*r_ptr.add(i)).wrapping_add(*a_ptr.add(i));
+        }
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            unsafe {
+                use std::arch::x86_64::*;
+                let len = dst.len();
+                let chunks = len / 16;
+                let d_ptr = dst.as_mut_ptr();
+                let s_ptr = src.as_ptr();
+                let r_ptr = r.as_ptr();
+                let a_ptr = a.as_ptr();
+                for i in 0..chunks {
+                    let offset = i * 16;
+                    let s_vec = _mm256_loadu_si256(s_ptr.add(offset) as *const __m256i);
+                    let r_vec = _mm256_loadu_si256(r_ptr.add(offset) as *const __m256i);
+                    let a_vec = _mm256_loadu_si256(a_ptr.add(offset) as *const __m256i);
+                    let diff = _mm256_sub_epi16(s_vec, r_vec);
+                    let res = _mm256_add_epi16(diff, a_vec);
+                    _mm256_storeu_si256(d_ptr.add(offset) as *mut __m256i, res);
+                }
+                for i in (chunks * 16)..len {
+                    *d_ptr.add(i) = (*s_ptr.add(i)).wrapping_sub(*r_ptr.add(i)).wrapping_add(*a_ptr.add(i));
+                }
+            }
+        } else {
+            for (((value, &s), &rw), &aw) in dst.iter_mut().zip(src).zip(r).zip(a) {
+                *value = s.wrapping_sub(rw).wrapping_add(aw);
+            }
+        }
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    for (((value, &s), &rw), &aw) in dst.iter_mut().zip(src).zip(r).zip(a) {
+        *value = s.wrapping_sub(rw).wrapping_add(aw);
+    }
+}
+
+/// Fast path: dispatches to hand-written NEON (aarch64) or AVX2 (x86_64) SIMD kernels,
+/// with scalar fallback.
 #[inline]
 fn screlu_dot_madd(acc: &[i16], w: &[i8], qa: i16) -> i64 {
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        screlu_dot_neon(acc, w, qa)
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            unsafe { screlu_dot_avx2(acc, w, qa) }
+        } else {
+            screlu_dot_madd_scalar(acc, w, qa)
+        }
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    screlu_dot_madd_scalar(acc, w, qa)
+}
+
+#[allow(dead_code)]
+#[inline]
+fn screlu_dot_madd_scalar(acc: &[i16], w: &[i8], qa: i16) -> i64 {
     let mut total: i64 = 0;
     for (acc_chunk, w_chunk) in acc.chunks(SCRELU_CHUNK).zip(w.chunks(SCRELU_CHUNK)) {
         let mut partial: i32 = 0;
@@ -607,9 +865,7 @@ impl V2State {
             dst.copy_from_slice(&model.b1);
             for idx in dp_active_indices(board, perspective) {
                 let row = &model.w1[idx * h..(idx + 1) * h];
-                for (value, &weight) in dst.iter_mut().zip(row) {
-                    *value = value.wrapping_add(weight);
-                }
+                vec_add_assign_i16(dst, row);
             }
         }
     }
@@ -638,9 +894,7 @@ impl V2State {
         ] {
             for idx in dp_active_indices(board, perspective) {
                 let row = &self.model.w1[idx * h..(idx + 1) * h];
-                for (value, &weight) in acc.iter_mut().zip(row) {
-                    *value = value.wrapping_add(weight);
-                }
+                vec_add_assign_i16(acc, row);
             }
         }
         let stm = board.side_to_move();
@@ -716,23 +970,17 @@ impl V2State {
             if let ([r_idx], [a_idx]) = (rem, add) {
                 let r = &w1[r_idx * h..(r_idx + 1) * h];
                 let a = &w1[a_idx * h..(a_idx + 1) * h];
-                for (((value, &s), &rw), &aw) in dst.iter_mut().zip(src).zip(r).zip(a) {
-                    *value = s.wrapping_sub(rw).wrapping_add(aw);
-                }
+                push_delta_quiet_fused(dst, src, r, a);
                 continue;
             }
             dst.copy_from_slice(src);
             for &idx in rem {
                 let row = &w1[idx * h..(idx + 1) * h];
-                for (value, &weight) in dst.iter_mut().zip(row) {
-                    *value = value.wrapping_sub(weight);
-                }
+                vec_sub_assign_i16(dst, row);
             }
             for &idx in add {
                 let row = &w1[idx * h..(idx + 1) * h];
-                for (value, &weight) in dst.iter_mut().zip(row) {
-                    *value = value.wrapping_add(weight);
-                }
+                vec_add_assign_i16(dst, row);
             }
         }
         self.top = top + 1;
