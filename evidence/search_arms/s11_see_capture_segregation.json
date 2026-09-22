@@ -1,0 +1,24 @@
+{
+  "arm": "Arm S11: Winning/Losing Capture Segregation via SEE in Move Ordering",
+  "hypothesis": "Losing captures (SEE < 0) are counter-productive to search at cut-nodes; classifying captures into good (SEE >= 0) and bad (SEE < 0) and ordering bad captures below quiet moves/killers eliminates blunders from high-priority move exploration and deepens effective search depth.",
+  "results_100g": {
+    "games": 100,
+    "experimental_pts": 37,
+    "baseline_pts": 16,
+    "draws": 47,
+    "score_rate": 0.605,
+    "elo_delta": 74.1,
+    "ci_95": [25.3, 125.9],
+    "avg_depth_baseline": 9.24,
+    "avg_depth_experimental": 9.86,
+    "depth_gain": 0.62
+  },
+  "acceptance_test": {
+    "suite": "matein3.txt",
+    "solved": "91/91",
+    "nodes_baseline": 13557481,
+    "nodes_experimental": 13493656,
+    "node_reduction": 63825
+  },
+  "decision": "PROMOTE to alphabeta.rs"
+}

@@ -1,0 +1,19 @@
+{
+  "README.md": "6e42a971f6b722db365c6094d4a0a12cc509c3299d603024255261bc471878ad",
+  "features_v2_generated.json": "4b7de7a8be3e378796e1f79e981ab71c63d9ff65bc02ff07b367733454578c43",
+  "focused_green.json": "d0a7bbc67e003ab7399001a85ac77b2361c96ebad38e205bb90f59c4f049441c",
+  "focused_green.log": "adf4306f5abf4ea00a0d7f4a19b035b5babd2d67b581d8a6003a71f213c6fa18",
+  "focused_red.json": "0e392d35ca7b436737716d9125b42456970e6e4660a756f47cad12ec6c891b28",
+  "focused_red.log": "0a5c8939b0f0e52eefff2ab2761f8ae828472cbf272998c832fbd1d8e25b665b",
+  "nnue.log": "002ee61cabdae1317f531aa8abe9c70d015b06e11fba008586679d9c526e21cd",
+  "qualification.log": "6a76ccae868cf0c2bd295cb30443cbf6386322c98055e866e1ff716427d7f81b",
+  "qualify.py": "7bab0c4cdc3350bbeb12c732c7c02e07fe43d5a402860f30728b209d0652cdbb",
+  "rust_reuse.json": "c11ed4a0f86405ce46f3413e3df9740fcf16d6d77ff09172cebcdb3809c6fea0",
+  "scripts.log": "77b5ac28c3071c4da3d67b234ace1608ac6c3454833915a35ebb2ca0ecdbb90b",
+  "selected_sources.json": "5cd682af6d15c25dba65510adeca3b3285c0205e780eae0a8581300dc95a45f2",
+  "source_pins_after.json": "de2197e5f45a153d55a1b426490f017d883424764fcbff629768598cbd168385",
+  "source_pins_base.json": "a04c21ade19aa6b66444750b42fa007f910656c95b273e77fce96772a5360ca4",
+  "source_pins_before.json": "de2197e5f45a153d55a1b426490f017d883424764fcbff629768598cbd168385",
+  "validate_candidate.py": "d4c4b902b23a16e2444da9fd1b7593680fc66627dce1df25f0d53c73fb6775c5",
+  "validation.json": "471e858ef7659153fd5550302893779eec246229fe8f7bac3d417f2cfb983073"
+}

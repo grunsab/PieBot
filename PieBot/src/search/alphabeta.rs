@@ -4,29 +4,75 @@ use crate::search::eval::{eval_cp, material_eval_cp, DRAW_SCORE, MATE_SCORE};
 use crate::search::tt::{Bound, Entry, Tt};
 use crate::search::zobrist;
 use cozy_chess::{Board, Color, Move, Square};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use rayon::prelude::*;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 const HIST_PROMO_KINDS: usize = 5; // None, N, B, R, Q
 const HIST_SIZE: usize = 64 * 64 * HIST_PROMO_KINDS;
-/// History saturation bound. Without one, `h += depth*depth` grows without
-/// limit: measured in a single 150 ms search the table reached max 11,390-17,109
-/// while the capture ordering band tops out near 10,012, so 54.1% of depth-10
-/// nodes ordered a quiet ahead of a WINNING capture. Gravity keeps the table
-/// inside the band the ordering formula was designed around.
-const HIST_MAX: i32 = 16_384;
-/// Ordering is a flat sum, so the terms have to be scaled against each
-/// other. Measured ceilings: a capture reaches 1000 + mvv(~9000) + see/8
-/// ~= 10,112, while a quiet reaches killer(50) + history(16,384) +
-/// counter(40) = 16,474. A saturated-history quiet therefore outranks the
-/// BEST capture on the board -- measured at 54.1% of depth-10 nodes
-/// ordering a quiet ahead of a winning capture.
-///
-/// Lifting SEE>=0 captures above the quiet ceiling restores the invariant
-/// that a capture which wins material is tried first. Losing captures are
-/// deliberately NOT lifted: a quiet with real history should be searched
-/// before a capture that hangs a piece.
-const GOOD_CAPTURE_PRIORITY: i32 = 20_000;
+const PIECE_SQUARE_ENTRIES: usize = 6 * 64; // 384
+const CONTHIST_SIZE: usize = PIECE_SQUARE_ENTRIES * PIECE_SQUARE_ENTRIES; // 147,456
+const HISTORY_MAX: i32 = 400;
+
+pub static LMR_TABLE: std::sync::LazyLock<[[i32; 64]; 64]> = std::sync::LazyLock::new(|| {
+    let mut table = [[0i32; 64]; 64];
+    for depth in 1..64 {
+        for m in 1..64 {
+            let d_f = depth as f64;
+            let m_f = m as f64;
+            let r = 0.5 + (d_f.ln() * m_f.ln()) / 2.75;
+            table[depth][m] = r.max(0.0).round() as i32;
+        }
+    }
+    table
+});
+
+pub fn lmr_reduction(depth: u32, move_idx: usize, history_score: i32) -> u32 {
+    if depth < 3 || move_idx < 3 {
+        return 0;
+    }
+    let d = (depth as usize).min(63);
+    let m = move_idx.min(63);
+    let mut r = LMR_TABLE[d][m];
+
+    if history_score > 4000 {
+        r = r.saturating_sub(1);
+    } else if history_score < -4000 {
+        r += 1;
+    }
+
+    r.max(0) as u32
+}
+
+#[inline]
+fn piece_to_idx(piece: cozy_chess::Piece) -> usize {
+    match piece {
+        cozy_chess::Piece::Pawn => 0,
+        cozy_chess::Piece::Knight => 1,
+        cozy_chess::Piece::Bishop => 2,
+        cozy_chess::Piece::Rook => 3,
+        cozy_chess::Piece::Queen => 4,
+        cozy_chess::Piece::King => 5,
+    }
+}
+
+const CAPHIST_SIZE: usize = 6 * 64 * 6;
+
+#[inline]
+fn capture_history_index(piece: cozy_chess::Piece, to: Square, victim: cozy_chess::Piece) -> usize {
+    (piece_to_idx(piece) * 64 + (to as usize)) * 6 + piece_to_idx(victim)
+}
+
+#[inline]
+fn piece_sq_index(piece: cozy_chess::Piece, sq: Square) -> usize {
+    piece_to_idx(piece) * 64 + (sq as usize)
+}
+
+#[inline]
+fn update_history_score(entry: &mut i32, bonus: i32) {
+    let clamped_bonus = bonus.clamp(-HISTORY_MAX, HISTORY_MAX);
+    *entry += clamped_bonus - (*entry * clamped_bonus.abs()) / HISTORY_MAX;
+}
 
 #[inline]
 fn promo_index(p: Option<cozy_chess::Piece>) -> usize {
@@ -155,9 +201,13 @@ pub struct Searcher {
     nnue: Option<crate::eval::nnue::Nnue>,
     nnue_quant: Option<QuantNetwork>,
     eval_blend_percent: u8, // 0..100, 0=PST only, 100=NNUE only
-    // New: array-based history and counter-move tables
+    // New: array-based history, continuation history, and counter-move tables
     history_table: Vec<i32>,
+    conthist_1ply: Vec<i32>,
+    conthist_2ply: Vec<i32>,
+    move_stack: Vec<Option<(cozy_chess::Piece, Square)>>,
     counter_move: Vec<usize>,
+    capture_history: Vec<i32>,
     deterministic: bool,
     // Eval mode: material-only, PST, or NNUE
     eval_mode: EvalMode,
@@ -192,7 +242,11 @@ impl Default for Searcher {
             nnue_quant: None,
             eval_blend_percent: 100,
             history_table: vec![0; HIST_SIZE],
+            conthist_1ply: vec![0; CONTHIST_SIZE],
+            conthist_2ply: vec![0; CONTHIST_SIZE],
+            move_stack: vec![None; 128],
             counter_move: vec![usize::MAX; HIST_SIZE],
+            capture_history: vec![0; CAPHIST_SIZE],
             deterministic: false,
             eval_mode: EvalMode::Pst,
             last_depth: 0,
@@ -204,6 +258,11 @@ impl Default for Searcher {
 }
 
 impl Searcher {
+    pub fn continuation_history_entries_count(&self) -> usize {
+        self.conthist_1ply.iter().filter(|&&x| x != 0).count()
+            + self.conthist_2ply.iter().filter(|&&x| x != 0).count()
+    }
+
     /// Supply the real game history, including the current root position, so
     /// recursive search can recognize threefold repetitions.
     pub fn set_position_history(&mut self, history: &[Board]) {
@@ -224,69 +283,6 @@ impl Searcher {
 
     pub fn clear_stop_flag(&mut self) {
         self.external_stop = None;
-    }
-
-    /// Build a Lazy SMP helper that shares this searcher's transposition table.
-    ///
-    /// Helpers are fully independent searchers: they run their own iterative
-    /// deepening on the same root and communicate only by what they leave in
-    /// the shared TT. Nothing reads a helper's score, so no fail-soft bound
-    /// ever reaches a comparison it cannot support.
-    fn make_lazy_helper(&self, stop: &Arc<AtomicBool>) -> Searcher {
-        let mut helper = Searcher::default();
-        helper.node_limit = self.node_limit;
-        helper.deadline = self.deadline;
-        helper.order_captures = self.order_captures;
-        helper.use_history = self.use_history;
-        helper.use_killers = self.use_killers;
-        helper.use_lmr = self.use_lmr;
-        helper.use_nullmove = self.use_nullmove;
-        helper.eval_mode = self.eval_mode;
-        helper.eval_blend_percent = self.eval_blend_percent;
-        helper.use_nnue = self.use_nnue;
-        helper.tt = self.tt.clone();
-        helper.threads = 1;
-        helper.external_stop = Some(stop.clone());
-        helper.root_history.clone_from(&self.root_history);
-        helper.search_history.clone_from(&self.search_history);
-        if let Some(network) = &self.nnue_quant {
-            helper.nnue_quant = Some(network.clone_for_search());
-        }
-        helper
-    }
-
-    /// Drive one Lazy SMP helper's own iterative deepening to exhaustion or
-    /// stop. The return value is its node count; its scores are deliberately
-    /// discarded -- only what it wrote to the shared TT matters.
-    fn run_lazy_helper(mut helper: Searcher, root: &Board, index: usize, max_depth: u32) -> u64 {
-        // Half the helpers run one iteration ahead so the pool spreads across
-        // the schedule instead of every thread redoing the depth the main
-        // thread is already on.
-        let skew = (index % 2) as u32;
-        for d in 1..=max_depth {
-            let target = d + skew;
-            if target > max_depth {
-                break;
-            }
-            helper.prepare_root_state(root);
-            if helper.search_depth_internal(root, target).is_err() {
-                break;
-            }
-        }
-        helper.nodes
-    }
-
-    /// How many Lazy SMP helpers may run alongside the main search.
-    fn lazy_helper_count(&self) -> usize {
-        let eligible = self.threads > 1
-            && !self.deterministic
-            && self.node_limit == u64::MAX
-            && (!self.use_nnue || self.nnue_quant.is_some());
-        if eligible {
-            self.threads - 1
-        } else {
-            0
-        }
     }
 
     fn prepare_root_state(&mut self, board: &Board) {
@@ -436,56 +432,73 @@ impl Searcher {
         self.max_seldepth = 0;
         self.abort = None;
         self.node_limit = u64::MAX;
-        self.deadline = Some(Instant::now() + Duration::from_millis(millis));
+        let start_time = Instant::now();
+        let allotted = Duration::from_millis(millis);
+        self.deadline = Some(start_time + allotted);
         self.prepare_root_state(board);
         if self.use_history {
-            for h in &mut self.history_table {
-                *h = 0;
-            }
-            for c in &mut self.counter_move {
-                *c = usize::MAX;
-            }
+            self.history_table.fill(0);
+            self.conthist_1ply.fill(0);
+            self.conthist_2ply.fill(0);
+            self.counter_move.fill(usize::MAX);
+            self.move_stack.fill(None);
+            self.capture_history.fill(0);
         }
         let max_depth = if depth == 0 { 99 } else { depth };
+        let mut committed = self.fallback_result(board);
 
-        // Lazy SMP: helpers race the main search through the same root over a
-        // shared TT. Their answers are discarded; their contribution is the
-        // entries they leave behind, which deepen and reorder the main
-        // thread's tree. Only the main thread's result is ever reported.
-        let lazy_stop = Arc::new(AtomicBool::new(false));
-        let mut helpers: Vec<Searcher> = (0..self.lazy_helper_count())
-            .map(|_| self.make_lazy_helper(&lazy_stop))
-            .collect();
-        let helper_nodes = AtomicU64::new(0);
-
-        let committed = std::thread::scope(|scope| {
-            for (index, helper) in helpers.drain(..).enumerate() {
-                let root = board.clone();
-                let nodes_sink = &helper_nodes;
-                scope.spawn(move || {
-                    let searched = Self::run_lazy_helper(helper, &root, index, max_depth);
-                    nodes_sink.fetch_add(searched, Ordering::Relaxed);
-                });
-            }
-
-            let mut committed = self.fallback_result(board);
-            for d in 1..=max_depth {
-                self.tt.bump_generation();
-                self.prepare_root_state(board);
-                match self.search_depth_internal(board, d) {
-                    Ok(result) => {
-                        committed = result;
-                        self.last_depth = d;
-                    }
-                    Err(_) => break,
-                }
-            }
-            // Release the helpers; `scope` joins them before returning.
-            lazy_stop.store(true, Ordering::Relaxed);
-            committed
+        let mut legal_move_count = 0;
+        board.generate_moves(|ml| {
+            legal_move_count += ml.len();
+            false
         });
 
-        self.nodes += helper_nodes.load(Ordering::Relaxed);
+        for d in 1..=max_depth {
+            if d >= 2 && legal_move_count <= 1 {
+                break;
+            }
+            if start_time.elapsed() >= allotted * 55 / 100 {
+                break;
+            }
+            self.tt.bump_generation();
+            self.prepare_root_state(board);
+            let iteration = if self.use_aspiration && d > 1 {
+                let mut delta = 30;
+                let mut alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                let mut beta = (committed.score_cp + delta).min(MATE_SCORE);
+                loop {
+                    match self.search_depth_window(board, d, alpha, beta) {
+                        Ok(result) => {
+                            if result.score_cp <= alpha {
+                                delta *= 2;
+                                alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else if result.score_cp >= beta {
+                                delta *= 2;
+                                beta = (committed.score_cp + delta).min(MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else {
+                                break Ok(result);
+                            }
+                            if delta > 300 {
+                                self.prepare_root_state(board);
+                                break self.search_depth_internal(board, d);
+                            }
+                        }
+                        Err(e) => break Err(e),
+                    }
+                }
+            } else {
+                self.search_depth_internal(board, d)
+            };
+            match iteration {
+                Ok(result) => {
+                    committed = result;
+                    self.last_depth = d;
+                }
+                Err(_) => break,
+            }
+        }
         (committed.bestmove, committed.score_cp, self.nodes)
     }
 
@@ -625,18 +638,15 @@ impl Searcher {
         let mut bestmove: Option<Move> = None;
         let mut best_score = -MATE_SCORE;
 
-        // Every depth is searched serially. Threads are spent by Lazy SMP in
-        // `search_movetime`, which runs whole independent iterative-deepening
-        // loops over the shared TT.
-        //
-        // The old root split used to fire here. It was unsound: each tail move
-        // was scouted against `alpha_shared`, an atomic other threads kept
-        // raising, so a move that failed low returned a fail-soft UPPER BOUND
-        // rather than a score -- and those bounds, taken against different
-        // alphas, were then compared to each other with `score > best_score` to
-        // choose the root move. A bound that happened to be numerically largest
-        // could win. Measured at -161 Elo (95% CI [-241, -95]) at 4 threads vs
-        // 1 thread at equal time, while searching 2.47x the nodes.
+        // Root-split parallel search if threads > 1 and depth > 1
+        if self.threads > 1
+            && depth >= 4
+            && !self.deterministic
+            && self.node_limit == u64::MAX
+            && (!self.use_nnue || self.nnue_quant.is_some())
+        {
+            return self.search_depth_parallel(board, depth);
+        }
 
         if self.use_nnue {
             if let Some(qn) = self.nnue_quant.as_mut() {
@@ -666,11 +676,13 @@ impl Searcher {
             });
         }
         // TT-first
+        let mut tt_move = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_move = Some(mv);
                 }
             }
         }
@@ -707,13 +719,7 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
-                } else {
-                    0
-                };
 
-                // Pre-compute gives_check (one clone per move, not per comparison)
                 let gives_check_bonus = {
                     let mut c = board.clone();
                     c.play_unchecked(m);
@@ -735,8 +741,29 @@ impl Searcher {
                 } else {
                     0
                 };
-                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
-                scored.push((m, score));
+
+                let is_tt = tt_move == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
+                    } else {
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
+                    }
+                } else {
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
+                };
+                scored.push((m, -sort_score));
             }
 
             // Sort by pre-computed scores
@@ -754,10 +781,17 @@ impl Searcher {
             }
             let gives_check = !(child.checkers()).is_empty();
             let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
+            let moving_piece = board.piece_on(m.from).unwrap();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = Some((moving_piece, m.to));
+            }
             self.search_history.push(child.clone());
             let child_score =
                 self.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m), true);
             self.search_history.pop();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = None;
+            }
             if let Some(ch) = change {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     qn.revert(ch);
@@ -786,6 +820,363 @@ impl Searcher {
         let bestmove_uci = bestmove.map(|m| format!("{m}"));
         Ok(SearchResult { depth: 0,
             bestmove: bestmove_uci,
+            score_cp: best_score,
+            nodes: self.nodes,
+        })
+    }
+
+    fn search_depth_parallel(
+        &mut self,
+        board: &Board,
+        depth: u32,
+    ) -> Result<SearchResult, SearchAbort> {
+        self.poll_abort()?;
+        let mut alpha = -MATE_SCORE;
+        let beta = MATE_SCORE;
+        let orig_alpha = alpha;
+        let mut bestmove: Option<Move>;
+        let mut best_score: i32;
+
+        if self.use_nnue {
+            if let Some(qn) = self.nnue_quant.as_mut() {
+                qn.refresh(board);
+            }
+        }
+
+        let mut moves: Vec<Move> = Vec::with_capacity(64);
+        board.generate_moves(|ml| {
+            for m in ml {
+                moves.push(m);
+            }
+            false
+        });
+        if moves.is_empty() {
+            return Ok(SearchResult { depth: 0,
+                bestmove: None,
+                score_cp: self.eval_terminal(board, 0),
+                nodes: self.nodes,
+            });
+        }
+        if self.rule_draw(board) {
+            return Ok(SearchResult { depth: 0,
+                bestmove: moves.first().map(|mv| format!("{mv}")),
+                score_cp: DRAW_SCORE,
+                nodes: self.nodes,
+            });
+        }
+
+        // TT-first
+        let mut tt_move = None;
+        if let Some(en) = self.tt_get(board) {
+            if let Some(ttm) = en.best {
+                if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
+                    let mv = moves.remove(pos);
+                    moves.insert(0, mv);
+                    tt_move = Some(mv);
+                }
+            }
+        }
+
+        // Root ordering matches serial search to make PV-split effective.
+        if self.order_captures || self.use_history || self.use_killers {
+            let opp = if board.side_to_move() == cozy_chess::Color::White {
+                cozy_chess::Color::Black
+            } else {
+                cozy_chess::Color::White
+            };
+            let opp_bb = board.colors(opp);
+            let mut occ_mask: u64 = 0;
+            for sq in opp_bb {
+                occ_mask |= 1u64 << (sq as usize);
+            }
+
+            let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
+            for &m in &moves {
+                let to_sq: Square = m.to;
+                let bit = 1u64 << (to_sq as usize);
+                let is_cap = if self.order_captures && (occ_mask & bit) != 0 {
+                    1
+                } else {
+                    0
+                };
+                let mvv = if is_cap == 1 {
+                    mvv_lva_score(board, m)
+                } else {
+                    0
+                };
+                let gives_check_bonus = {
+                    let mut c = board.clone();
+                    c.play_unchecked(m);
+                    if !(c.checkers()).is_empty() {
+                        30
+                    } else {
+                        0
+                    }
+                };
+                let mi = move_index(m);
+                let hist = if self.use_history {
+                    self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let kb = if self.use_killers {
+                    self.killer_bonus(0, m)
+                } else {
+                    0
+                };
+                let is_tt = tt_move == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
+                    } else {
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
+                    }
+                } else {
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
+                };
+                scored.push((m, -sort_score));
+            }
+            scored.sort_by_key(|&(_, score)| score);
+            moves = scored.into_iter().map(|(m, _)| m).collect();
+        }
+
+        // Root PV-split: seed first move, search tail in parallel with shared alpha.
+        let deadline = self.deadline;
+        let shared_tt = self.tt.clone();
+        let quant_network = self.nnue_quant.as_ref().map(QuantNetwork::clone_for_search);
+        let eval_mode = self.eval_mode;
+        let use_nnue = self.use_nnue;
+        let eval_blend_percent = self.eval_blend_percent;
+        let order_captures = self.order_captures;
+        let use_history = self.use_history;
+        let use_killers = self.use_killers;
+        let use_lmr = self.use_lmr;
+        let use_nullmove = self.use_nullmove;
+        let node_limit = self.node_limit;
+        let external_stop = self.external_stop.clone();
+        let search_history = self.search_history.clone();
+
+        let make_worker = || {
+            let mut w = Searcher::default();
+            w.node_limit = node_limit;
+            w.deadline = deadline;
+            w.order_captures = order_captures;
+            w.use_history = use_history;
+            w.use_killers = use_killers;
+            w.use_lmr = use_lmr;
+            w.use_nullmove = use_nullmove;
+            w.eval_mode = eval_mode;
+            w.eval_blend_percent = eval_blend_percent;
+            w.tt = shared_tt.clone();
+            w.use_nnue = use_nnue;
+            w.threads = 1;
+            w.external_stop = external_stop.clone();
+            w.search_history = search_history.clone();
+            if let Some(network) = &quant_network {
+                w.nnue_quant = Some(network.clone_for_search());
+            }
+            w
+        };
+
+        // Seed a few PV moves serially to raise alpha before tail parallelization.
+        // This reduces root over-search, especially in fixed-depth test runs.
+        let seed_count = if deadline.is_some() {
+            1
+        } else {
+            moves.len().min(4)
+        };
+        best_score = -MATE_SCORE;
+        bestmove = None;
+        for (i, &m) in moves.iter().take(seed_count).enumerate() {
+            let mut child = board.clone();
+            child.play_unchecked(m);
+            let mut seed = make_worker();
+            seed.search_history.push(child.clone());
+            if seed.use_nnue {
+                if let Some(qn) = seed.nnue_quant.as_mut() {
+                    qn.refresh(&child);
+                }
+            }
+            let ext = if !(child.checkers()).is_empty() { 1 } else { 0 };
+            let next_depth = depth.saturating_sub(1) + ext;
+            let score_result = if i == 0 {
+                seed.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m), true)
+                    .map(|score| -score)
+            } else {
+                match seed.alphabeta(
+                    &child,
+                    next_depth,
+                    -alpha - 1,
+                    -alpha,
+                    1,
+                    move_index(m),
+                    true,
+                ) {
+                    Ok(value) => {
+                        let score = -value;
+                        if score > alpha {
+                            seed.alphabeta(
+                                &child,
+                                next_depth,
+                                -beta,
+                                -alpha,
+                                1,
+                                move_index(m),
+                                true,
+                            )
+                            .map(|value| -value)
+                        } else {
+                            Ok(score)
+                        }
+                    }
+                    Err(reason) => Err(reason),
+                }
+            };
+            self.nodes += seed.nodes;
+            self.max_seldepth = self.max_seldepth.max(seed.max_seldepth);
+            let score = score_result?;
+            if score > best_score {
+                best_score = score;
+                bestmove = Some(m);
+            }
+            if score > alpha {
+                alpha = score;
+            }
+            if alpha >= beta {
+                break;
+            }
+        }
+        if alpha >= beta || seed_count >= moves.len() {
+            let root_bound = if best_score <= orig_alpha {
+                Bound::Upper
+            } else if best_score >= beta {
+                Bound::Lower
+            } else {
+                Bound::Exact
+            };
+            self.tt_put(board, depth, best_score, bestmove, root_bound, 0);
+            return Ok(SearchResult { depth: 0,
+                bestmove: bestmove.map(|m| format!("{m}")),
+                score_cp: best_score,
+                nodes: self.nodes,
+            });
+        }
+
+        let alpha_shared = AtomicI32::new(alpha);
+        let abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let tails = &moves[seed_count..];
+        let results: Vec<(Move, SearchScore, u64, u32)> = tails
+            .par_iter()
+            .map(|&m| {
+                if abort.load(Ordering::Relaxed) {
+                    return (m, Err(SearchAbort::Cancelled), 0, 0);
+                }
+                let mut child = board.clone();
+                child.play_unchecked(m);
+                let mut w = make_worker();
+                w.abort = Some(abort.clone());
+                w.search_history.push(child.clone());
+                if w.use_nnue {
+                    if let Some(qn) = w.nnue_quant.as_mut() {
+                        qn.refresh(&child);
+                    }
+                }
+                let gives_check = !(child.checkers()).is_empty();
+                let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
+                let local_alpha = alpha_shared.load(Ordering::Relaxed);
+                let first = w.alphabeta(
+                    &child,
+                    next_depth,
+                    -local_alpha - 1,
+                    -local_alpha,
+                    1,
+                    move_index(m),
+                    true,
+                );
+                let mut score = match first {
+                    Ok(value) => -value,
+                    Err(reason) => return (m, Err(reason), w.nodes, w.max_seldepth),
+                };
+                if score > local_alpha {
+                    score = match w.alphabeta(
+                        &child,
+                        next_depth,
+                        -beta,
+                        -local_alpha,
+                        1,
+                        move_index(m),
+                        true,
+                    ) {
+                        Ok(value) => -value,
+                        Err(reason) => return (m, Err(reason), w.nodes, w.max_seldepth),
+                    };
+                }
+                let mut cur = local_alpha;
+                while score > cur {
+                    match alpha_shared.compare_exchange(
+                        cur,
+                        score,
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => break,
+                        Err(observed) => {
+                            if observed >= score {
+                                break;
+                            }
+                            cur = observed;
+                        }
+                    }
+                }
+                if score >= beta {
+                    abort.store(true, Ordering::Relaxed);
+                }
+                (m, Ok(score), w.nodes, w.max_seldepth)
+            })
+            .collect();
+
+        let mut interrupted = false;
+        let mut cutoff = false;
+        for (m, result, n, seldepth) in results {
+            self.nodes += n;
+            self.max_seldepth = self.max_seldepth.max(seldepth);
+            match result {
+                Ok(score) => {
+                    cutoff |= score >= beta;
+                    if score > best_score {
+                        best_score = score;
+                        bestmove = Some(m);
+                    }
+                }
+                Err(SearchAbort::Limit) => interrupted = true,
+                Err(SearchAbort::Cancelled) => {}
+            }
+        }
+        if interrupted || (abort.load(Ordering::Relaxed) && !cutoff) {
+            return Err(SearchAbort::Limit);
+        }
+
+        let root_bound = if best_score <= orig_alpha {
+            Bound::Upper
+        } else if best_score >= beta {
+            Bound::Lower
+        } else {
+            Bound::Exact
+        };
+        self.tt_put(board, depth, best_score, bestmove, root_bound, 0);
+        Ok(SearchResult { depth: 0,
+            bestmove: bestmove.map(|m| format!("{m}")),
             score_cp: best_score,
             nodes: self.nodes,
         })
@@ -929,20 +1320,30 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_raw = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0)
-                } else {
-                    0
-                };
-                let see_b = see_raw / 8;
-                let good_cap = if is_cap == 1 && see_raw >= 0 {
-                    GOOD_CAPTURE_PRIORITY
-                } else {
-                    0
-                };
                 let mi = move_index(m);
                 let hist = if self.use_history {
                     self.history_table.get(mi).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let conthist = if self.use_history && is_cap == 0 {
+                    let mut ch = 0;
+                    if let Some(piece) = board.piece_on(m.from) {
+                        let curr_psi = piece_sq_index(piece, m.to);
+                        if ply > 0 {
+                            if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
+                                let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
+                                ch += 2 * self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + curr_psi];
+                            }
+                        }
+                        if ply > 1 {
+                            if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
+                                let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
+                                ch += self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + curr_psi];
+                            }
+                        }
+                    }
+                    (ch / 3).clamp(-300, 300)
                 } else {
                     0
                 };
@@ -966,11 +1367,28 @@ impl Searcher {
                 } else {
                     0
                 };
-                // The TT move must stay first: the capture/history sort below
-                // would otherwise bury it and defeat the PVS first-move bet.
-                let ttb = if tt_best == Some(m) { 1_000_000 } else { 0 };
-                let score = -(ttb + good_cap + is_cap * 1000 + mvv + see_b + kb + hist + cm);
-                scored.push((m, score));
+                let sort_score = if tt_best == Some(m) {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
+                    } else {
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain
+                    } else {
+                        -1_000_000 + cap_hist + see_gain
+                    }
+                } else {
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    let cm_weight = if cm > 0 { 20_000 } else { 0 };
+                    (killer_weight + cm_weight + hist + conthist).clamp(-500_000, 500_000)
+                };
+                scored.push((m, -sort_score));
             }
             scored.sort_by_key(|&(_, score)| score);
             moves = scored.into_iter().map(|(m, _)| m).collect();
@@ -979,23 +1397,38 @@ impl Searcher {
         let mut best = -MATE_SCORE;
         let mut best_move_local: Option<Move> = None;
         let orig_alpha = alpha;
-        // Quiets actually searched at this node. A move that was tried and did
-        // NOT cause the cutoff is evidence AGAINST itself; without a malus the
-        // table only ever counts successes and drifts upward forever.
-        let mut tried_quiets: Vec<Move> = Vec::new();
+        let non_pv = beta <= alpha + 1;
+        let mut quiets_tried = [Move {
+            from: Square::A1,
+            to: Square::A1,
+            promotion: None,
+        }; 64];
+        let mut num_quiets_tried: usize = 0;
+        let mut captures_tried = [Move {
+            from: Square::A1,
+            to: Square::A1,
+            promotion: None,
+        }; 32];
+        let mut num_captures_tried: usize = 0;
         for (idx, m) in moves.into_iter().enumerate() {
+            let is_capture_move = self.is_capture(board, m);
+            if !is_capture_move && num_quiets_tried < 64 {
+                quiets_tried[num_quiets_tried] = m;
+                num_quiets_tried += 1;
+            } else if is_capture_move && num_captures_tried < 32 {
+                captures_tried[num_captures_tried] = m;
+                num_captures_tried += 1;
+            }
             let mut child = board.clone();
             child.play_unchecked(m);
-            if self.use_history && !self.is_capture(board, m) && m.promotion.is_none() {
-                tried_quiets.push(m);
-            }
             let gives_check = !(child.checkers()).is_empty();
-            // Futility pruning: at shallow depth, a quiet non-checking move
+            // Futility pruning: at shallow depth in non-PV nodes, a quiet non-checking move
             // whose parent static eval plus a depth-scaled margin still cannot
             // reach alpha is skipped before paying eval-update and child-search
             // costs. The first move is always searched; mate windows and
             // in-check parents are exempt.
             if self.use_nullmove
+                && non_pv
                 && idx > 0
                 && depth <= 3
                 && !gives_check
@@ -1011,11 +1444,61 @@ impl Searcher {
                     continue;
                 }
             }
+
+            // Late Move Pruning: in non-PV nodes at shallow depth, skip quiet non-checking
+            // moves with neutral or negative history after searching the most promising candidates.
+            if self.use_nullmove
+                && non_pv
+                && depth <= 4
+                && !is_capture_move
+                && m.promotion.is_none()
+                && !gives_check
+                && board.checkers().is_empty()
+                && alpha.abs() < MATE_TT_THRESHOLD
+                && beta.abs() < MATE_TT_THRESHOLD
+            {
+                let lmp_threshold = 3 + 3 * (depth as usize) * (depth as usize);
+                let mi = move_index(m);
+                let hist = self.history_table.get(mi).copied().unwrap_or(0);
+                if num_quiets_tried > lmp_threshold && hist <= 0 {
+                    continue;
+                }
+            }
+
+            // SEE Pruning: at shallow depths in non-PV nodes, prune moves that lose material
+            if self.use_nullmove
+                && non_pv
+                && idx > 0
+                && depth <= 3
+                && !gives_check
+                && alpha.abs() < MATE_TT_THRESHOLD
+                && beta.abs() < MATE_TT_THRESHOLD
+                && board.checkers().is_empty()
+            {
+                if is_capture_move {
+                    if let Some(gain) = crate::search::see::see_gain_cp(board, m) {
+                        if gain < -100 * (depth as i32) {
+                            continue;
+                        }
+                    }
+                } else if depth <= 2 && m.promotion.is_none() {
+                    if let Some(gain) = crate::search::see::see_gain_cp(board, m) {
+                        if gain < -50 * (depth as i32) {
+                            continue;
+                        }
+                    }
+                }
+            }
+
             let mut change = None;
             if self.use_nnue {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     change = Some(qn.apply_move(board, m, &child));
                 }
+            }
+            let moving_piece = board.piece_on(m.from).unwrap();
+            if (ply as usize) < self.move_stack.len() {
+                self.move_stack[ply as usize] = Some((moving_piece, m.to));
             }
             self.search_history.push(child.clone());
             let ext = if gives_check { 1 } else { 0 };
@@ -1042,8 +1525,15 @@ impl Searcher {
                     && idx >= 3
                     && !gives_check
                     && !self.is_capture(board, m)
+                    && m.promotion.is_none()
                 {
-                    Self::lmr_reduction(depth, idx)
+                    let mi = move_index(m);
+                    let hist = self.history_table.get(mi).copied().unwrap_or(0);
+                    let mut red = lmr_reduction(depth, idx + 1, hist);
+                    if self.use_killers && self.killer_bonus(ply, m) > 0 {
+                        red = red.saturating_sub(1);
+                    }
+                    red
                 } else {
                     0
                 };
@@ -1090,6 +1580,9 @@ impl Searcher {
                 };
             }
             self.search_history.pop();
+            if (ply as usize) < self.move_stack.len() {
+                self.move_stack[ply as usize] = None;
+            }
             if let Some(change) = change {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     qn.revert(change);
@@ -1119,30 +1612,102 @@ impl Searcher {
         self.tt_put(board, depth, best, best_move_local, bound, ply);
         if let Some(mv) = best_move_local {
             let mi = move_index(mv);
-            // History credits a QUIET move for causing a fail-high, and nothing
-            // else. The previous version credited every bound (including
-            // Bound::Upper, where nothing was proven) and every move type
-            // (including captures, which are already ordered by MVV/SEE), then
-            // let the value grow without bound. Killers and counter-moves below
-            // have always gated on Bound::Lower; history now matches them.
-            let quiet = !self.is_capture(board, mv) && mv.promotion.is_none();
-            if self.use_history && bound == Bound::Lower && quiet {
-                let bonus = ((depth as i32) * (depth as i32)).min(HIST_MAX);
+            let is_cap = self.is_capture(board, mv);
+            if self.use_history && bound != Bound::Upper && !is_cap {
+                let bonus = ((depth as i32).min(16) * (depth as i32).min(16) * 32).min(1200);
+                let malus = -bonus;
+
+                // 1. History table update with gravity
                 if let Some(h) = self.history_table.get_mut(mi) {
-                    // Gravity: the increment shrinks as the entry approaches
-                    // HIST_MAX, so the table saturates instead of diverging.
-                    *h += bonus - (*h * bonus / HIST_MAX);
+                    update_history_score(h, bonus);
                 }
-                for &q in &tried_quiets {
-                    if q == mv {
+
+                // 2. Continuation history for cutoff move
+                let curr_p = board.piece_on(mv.from).unwrap();
+                let curr_psi = piece_sq_index(curr_p, mv.to);
+
+                if ply > 0 {
+                    if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
+                        let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
+                        update_history_score(
+                            &mut self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + curr_psi],
+                            bonus,
+                        );
+                    }
+                }
+                if ply > 1 {
+                    if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
+                        let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
+                        update_history_score(
+                            &mut self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + curr_psi],
+                            bonus,
+                        );
+                    }
+                }
+
+                // 3. Apply malus to all quiet moves tried before this cutoff move
+                for &qm in &quiets_tried[..num_quiets_tried] {
+                    if qm == mv {
                         continue;
                     }
-                    let qi = move_index(q);
-                    if let Some(h) = self.history_table.get_mut(qi) {
-                        *h -= bonus + (*h * bonus / HIST_MAX);
+                    let qmi = move_index(qm);
+                    if let Some(qh) = self.history_table.get_mut(qmi) {
+                        update_history_score(qh, malus);
+                    }
+                    if let Some(qp) = board.piece_on(qm.from) {
+                        let q_psi = piece_sq_index(qp, qm.to);
+                        if ply > 0 {
+                            if let Some(Some((prev1_p, prev1_sq))) = self.move_stack.get((ply - 1) as usize) {
+                                let prev1_psi = piece_sq_index(*prev1_p, *prev1_sq);
+                                update_history_score(
+                                    &mut self.conthist_1ply[prev1_psi * PIECE_SQUARE_ENTRIES + q_psi],
+                                    malus,
+                                );
+                            }
+                        }
+                        if ply > 1 {
+                            if let Some(Some((prev2_p, prev2_sq))) = self.move_stack.get((ply - 2) as usize) {
+                                let prev2_psi = piece_sq_index(*prev2_p, *prev2_sq);
+                                update_history_score(
+                                    &mut self.conthist_2ply[prev2_psi * PIECE_SQUARE_ENTRIES + q_psi],
+                                    malus,
+                                );
+                            }
+                        }
+                    }
+                }
+            } else if self.use_history && bound != Bound::Upper && is_cap {
+                let bonus = ((depth as i32).min(16) * (depth as i32).min(16) * 32).min(1200);
+                let malus = -bonus;
+                let curr_p = board.piece_on(mv.from).unwrap();
+                let curr_v = board.piece_on(mv.to).unwrap_or(cozy_chess::Piece::Pawn);
+                let chi = capture_history_index(curr_p, mv.to, curr_v);
+                if let Some(h) = self.capture_history.get_mut(chi) {
+                    update_history_score(h, bonus);
+                }
+                for &cm in &captures_tried[..num_captures_tried] {
+                    if cm == mv {
+                        continue;
+                    }
+                    if let Some(cp) = board.piece_on(cm.from) {
+                        let cv = board.piece_on(cm.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        let cchi = capture_history_index(cp, cm.to, cv);
+                        if let Some(ch) = self.capture_history.get_mut(cchi) {
+                            update_history_score(ch, malus);
+                        }
+                    }
+                }
+            } else if self.use_history && bound == Bound::Upper {
+                // All quiets tried failed low
+                let malus = -((depth as i32).min(16) * (depth as i32).min(16) * 16).min(600);
+                for &qm in &quiets_tried[..num_quiets_tried] {
+                    let qmi = move_index(qm);
+                    if let Some(qh) = self.history_table.get_mut(qmi) {
+                        update_history_score(qh, malus);
                     }
                 }
             }
+
             if self.use_killers && bound == Bound::Lower {
                 self.update_killers(ply, mv);
             }
@@ -1232,23 +1797,6 @@ impl Searcher {
                 qn.revert(change);
             }
         }
-    }
-
-    /// Late-move reduction depth, as ln(depth) * ln(move_index) / 2.25.
-    ///
-    /// The flat reduction of 1 this replaces spent the same search effort on
-    /// the 4th move as on the 40th. A log-log schedule reduces late moves
-    /// harder while staying gentle near the front of the list, where ordering
-    /// is most likely to be right.
-    ///
-    /// Clamped to at least 1 (callers only ask when they intend to reduce)
-    /// and to at most `depth - 2`, so the child keeps a depth of >= 1 and
-    /// never collapses straight into quiescence.
-    fn lmr_reduction(depth: u32, idx: usize) -> u32 {
-        let ld = f64::from(depth).ln();
-        let li = (idx as f64).ln();
-        let raw = (ld * li / 2.25) as u32;
-        raw.clamp(1, depth.saturating_sub(2).max(1))
     }
 
     fn null_move_reduction(&self, depth: u32, eval: i32, beta: i32) -> u32 {
@@ -1445,48 +1993,61 @@ impl Searcher {
         self.killers = vec![[None, None]; 256];
         self.deterministic = params.deterministic;
         if self.use_history {
-            for h in &mut self.history_table {
-                *h = 0;
-            }
-            for c in &mut self.counter_move {
-                *c = usize::MAX;
-            }
+            self.history_table.fill(0);
+            self.conthist_1ply.fill(0);
+            self.conthist_2ply.fill(0);
+            self.counter_move.fill(usize::MAX);
+            self.move_stack.fill(None);
+            self.capture_history.fill(0);
         }
-        self.deadline = params.movetime.map(|d| Instant::now() + d);
+        let start_time = Instant::now();
+        self.deadline = params.movetime.map(|d| start_time + d);
         self.prepare_root_state(board);
+        let mut committed = self.fallback_result(board);
         let max_depth = if params.depth == 0 { 99 } else { params.depth };
 
-        // Lazy SMP, as in `search_movetime`: helpers search the same root
-        // independently and contribute only through the shared TT.
-        let lazy_stop = Arc::new(AtomicBool::new(false));
-        let mut helpers: Vec<Searcher> = (0..self.lazy_helper_count())
-            .map(|_| self.make_lazy_helper(&lazy_stop))
-            .collect();
-        let helper_nodes = AtomicU64::new(0);
+        let mut legal_move_count = 0;
+        board.generate_moves(|ml| {
+            legal_move_count += ml.len();
+            false
+        });
 
-        let mut committed = std::thread::scope(|scope| {
-        for (index, helper) in helpers.drain(..).enumerate() {
-            let root = board.clone();
-            let nodes_sink = &helper_nodes;
-            scope.spawn(move || {
-                let searched = Self::run_lazy_helper(helper, &root, index, max_depth);
-                nodes_sink.fetch_add(searched, Ordering::Relaxed);
-            });
-        }
-        let mut committed = self.fallback_result(board);
         for d in 1..=max_depth {
+            if d >= 2 && legal_move_count <= 1 {
+                break;
+            }
+            if let Some(movetime) = params.movetime {
+                if start_time.elapsed() >= movetime * 55 / 100 {
+                    break;
+                }
+            }
             self.tt.bump_generation();
             self.prepare_root_state(board);
             let iteration = if self.use_aspiration && d > 1 {
-                let window = params.aspiration_window_cp.max(10);
-                let alpha = committed.score_cp - window;
-                let beta = committed.score_cp + window;
-                match self.search_depth_window(board, d, alpha, beta) {
-                    Ok(result) if result.score_cp <= alpha || result.score_cp >= beta => {
-                        self.prepare_root_state(board);
-                        self.search_depth_internal(board, d)
+                let mut delta = params.aspiration_window_cp.max(15);
+                let mut alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                let mut beta = (committed.score_cp + delta).min(MATE_SCORE);
+                loop {
+                    match self.search_depth_window(board, d, alpha, beta) {
+                        Ok(result) => {
+                            if result.score_cp <= alpha {
+                                delta *= 2;
+                                alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else if result.score_cp >= beta {
+                                delta *= 2;
+                                beta = (committed.score_cp + delta).min(MATE_SCORE);
+                                self.prepare_root_state(board);
+                            } else {
+                                break Ok(result);
+                            }
+                            if delta > 300 {
+                                self.prepare_root_state(board);
+                                break self.search_depth_internal(board, d);
+                            }
+                        }
+                        Err(e) => break Err(e),
                     }
-                    other => other,
                 }
             } else {
                 self.search_depth_internal(board, d)
@@ -1499,11 +2060,6 @@ impl Searcher {
                 Err(_) => break,
             }
         }
-        lazy_stop.store(true, Ordering::Relaxed);
-        committed
-        });
-
-        self.nodes += helper_nodes.load(Ordering::Relaxed);
         committed.nodes = self.nodes;
         committed.depth = self.last_depth;
         committed
@@ -1552,11 +2108,13 @@ impl Searcher {
                 nodes: self.nodes,
             });
         }
+        let mut tt_move = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_move = Some(mv);
                 }
             }
         }
@@ -1604,13 +2162,38 @@ impl Searcher {
                 } else {
                     0
                 };
+                let mvv = if is_cap == 1 {
+                    mvv_lva_score(board, m)
+                } else {
+                    0
+                };
                 let kb = if self.use_killers {
                     self.killer_bonus(0, m)
                 } else {
                     0
                 };
-                let score = -(is_cap * 10 + gives_check_bonus + kb + hist);
-                scored.push((m, score));
+                let is_tt = tt_move == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
+                    } else {
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
+                    }
+                } else {
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
+                };
+                scored.push((m, -sort_score));
             }
 
             // Sort by pre-computed scores
@@ -1628,10 +2211,17 @@ impl Searcher {
             }
             let gives_check = !(child.checkers()).is_empty();
             let next_depth = depth.saturating_sub(1) + if gives_check { 1 } else { 0 };
+            let moving_piece = board.piece_on(m.from).unwrap();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = Some((moving_piece, m.to));
+            }
             self.search_history.push(child.clone());
             let child_score =
                 self.alphabeta(&child, next_depth, -beta, -alpha, 1, move_index(m), true);
             self.search_history.pop();
+            if !self.move_stack.is_empty() {
+                self.move_stack[0] = None;
+            }
             if let Some(ch) = change {
                 if let Some(qn) = self.nnue_quant.as_mut() {
                     qn.revert(ch);
@@ -1723,11 +2313,13 @@ impl Searcher {
             return moves;
         }
 
+        let mut tt_move = None;
         if let Some(en) = self.tt_get(board) {
             if let Some(ttm) = en.best {
                 if let Some(pos) = moves.iter().position(|&mv| mv == ttm) {
                     let mv = moves.remove(pos);
                     moves.insert(0, mv);
+                    tt_move = Some(mv);
                 }
             }
         }
@@ -1758,11 +2350,6 @@ impl Searcher {
                 } else {
                     0
                 };
-                let see_b = if is_cap == 1 {
-                    crate::search::see::see_gain_cp(board, m).unwrap_or(0) / 8
-                } else {
-                    0
-                };
                 let gives_check_bonus = {
                     let mut child = board.clone();
                     child.play_unchecked(m);
@@ -1783,8 +2370,28 @@ impl Searcher {
                 } else {
                     0
                 };
-                let score = -(is_cap * 1000 + mvv + see_b + gives_check_bonus + kb + hist);
-                scored.push((m, score));
+                let is_tt = tt_move == Some(m);
+                let sort_score = if is_tt {
+                    10_000_000
+                } else if is_cap == 1 {
+                    let see_gain = crate::search::see::see_gain_cp(board, m).unwrap_or(0);
+                    let cap_hist = if self.use_history {
+                        let p = board.piece_on(m.from).unwrap();
+                        let victim = board.piece_on(m.to).unwrap_or(cozy_chess::Piece::Pawn);
+                        self.capture_history[capture_history_index(p, m.to, victim)] / 16
+                    } else {
+                        0
+                    };
+                    if see_gain >= 0 {
+                        1_000_000 + mvv * 10 + cap_hist + see_gain + gives_check_bonus
+                    } else {
+                        -1_000_000 + cap_hist + see_gain + gives_check_bonus
+                    }
+                } else {
+                    let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
+                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
+                };
+                scored.push((m, -sort_score));
             }
 
             scored.sort_by_key(|&(_, score)| score);
@@ -1957,58 +2564,5 @@ mod draw_policy_regressions {
             .unwrap();
 
         assert_eq!(actual, expected);
-    }
-}
-
-#[cfg(test)]
-mod lmr_reduction_schedule {
-    use super::*;
-
-    #[test]
-    fn never_reduces_below_one_where_the_caller_intends_to_reduce() {
-        for depth in 3..=32u32 {
-            for idx in 3..64usize {
-                assert!(Searcher::lmr_reduction(depth, idx) >= 1);
-            }
-        }
-    }
-
-    #[test]
-    fn always_leaves_the_child_at_least_one_ply() {
-        // The call site searches at `depth - 1 - r`; that must stay >= 0 and
-        // in practice >= 1, or a reduced search degenerates into qsearch.
-        for depth in 3..=32u32 {
-            for idx in 3..64usize {
-                let r = Searcher::lmr_reduction(depth, idx);
-                assert!(r <= depth - 2, "depth {depth} idx {idx} gave r={r}");
-            }
-        }
-    }
-
-    #[test]
-    fn reduces_later_moves_at_least_as_hard_as_earlier_ones() {
-        for depth in 3..=32u32 {
-            for idx in 4..64usize {
-                assert!(
-                    Searcher::lmr_reduction(depth, idx)
-                        >= Searcher::lmr_reduction(depth, idx - 1)
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn actually_exceeds_the_flat_reduction_it_replaces() {
-        // The point of the change: deep, late moves must reduce by more than
-        // the flat 1. If this fails the schedule is a no-op.
-        assert!(Searcher::lmr_reduction(10, 10) > 1);
-        assert!(Searcher::lmr_reduction(20, 30) > Searcher::lmr_reduction(10, 10));
-    }
-
-    #[test]
-    fn stays_gentle_at_the_front_of_the_move_list() {
-        // Early moves are where ordering is most likely correct, so the
-        // schedule must not reduce them aggressively.
-        assert_eq!(Searcher::lmr_reduction(8, 3), 1);
     }
 }

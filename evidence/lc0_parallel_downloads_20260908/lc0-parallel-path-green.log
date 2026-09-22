@@ -1,0 +1,23 @@
+test_cli_rejects_output_collision_before_rewriting_manifest (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_cli_rejects_output_collision_before_rewriting_manifest) ... ok
+test_failure_drains_existing_jobs_and_resume_fetches_only_unfinished (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_failure_drains_existing_jobs_and_resume_fetches_only_unfinished) ... downloaded 1.tar
+downloaded 0.tar
+downloaded 2.tar
+ok
+test_inflight_sizes_are_reserved_together_and_low_space_waits_for_completion (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_inflight_sizes_are_reserved_together_and_low_space_waits_for_completion) ... downloaded 0.tar
+downloaded 1.tar
+downloaded 2.tar
+ok
+test_insufficient_space_stops_without_downloading (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_insufficient_space_stops_without_downloading) ... ok
+test_invalid_concurrency_and_destination_collisions_fail_before_writing (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_invalid_concurrency_and_destination_collisions_fail_before_writing) ... ok
+test_out_of_order_completion_is_persisted_before_slow_first_download (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_out_of_order_completion_is_persisted_before_slow_first_download) ... downloaded 1.tar
+downloaded 2.tar
+downloaded 0.tar
+downloaded 3.tar
+downloaded 4.tar
+ok
+test_snapshot_cli_forwards_existing_concurrency_option (training.nnue.tests.test_fetch_lc0_parallel.ParallelSnapshotTests.test_snapshot_cli_forwards_existing_concurrency_option) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.026s
+
+OK

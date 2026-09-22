@@ -894,6 +894,7 @@ def objective_metadata(
     huber_delta_cp: float,
     wdl_scale_cp: float,
     cp_loss_weight: float = 0.0,
+    target_mode: str = "selfplay",
 ) -> Dict[str, Any]:
     """Stable identity for target semantics carried by model/optimizer state.
 
@@ -905,7 +906,17 @@ def objective_metadata(
     (train_torch.py:235-237), and optimizer state can never cross
     (train_torch.py:436-437).
     """
-    return {
+    if target_mode not in {"selfplay", "lc0-q-outcome"}:
+        raise ValueError("target_mode must be selfplay or lc0-q-outcome")
+    if target_mode == "lc0-q-outcome":
+        if (loss_kind != "wdl" or float(wdl_scale_cp) != 400.0
+                or float(cp_loss_weight) != 0.0 or int(min_teacher_depth) != 0
+                or float(outcome_decay) != 1.0):
+            raise ValueError(
+                "lc0-q-outcome requires WDL BCE at scale 400, cp_loss_weight=0, "
+                "min_teacher_depth=0, and outcome_decay=1"
+            )
+    metadata = {
         "schema": OBJECTIVE_SCHEMA,
         "cp_loss_weight": float(cp_loss_weight),
         "target_schema": TARGET_SCHEMA,
@@ -918,6 +929,67 @@ def objective_metadata(
         "huber_delta_cp": float(huber_delta_cp),
         "wdl_scale_cp": float(wdl_scale_cp),
     }
+    # Preserve the identity of every existing self-play checkpoint exactly.
+    if target_mode != "selfplay":
+        metadata["target_mode"] = target_mode
+    return metadata
+
+
+def _lc0_probability_for_record(record: TrainingRecord, teacher_mix: float) -> float:
+    """Combine LCZero's white-relative search Q and final outcome directly."""
+    def checked_q(value: object, name: str) -> float:
+        if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                or not math.isfinite(float(value)) or not -1.0 <= float(value) <= 1.0):
+            raise ValueError(f"LCZero {name} must be finite and in [-1, 1]")
+        return float(value)
+
+    best_q = checked_q(record.best_q, "best_q")
+    search_probability = (1.0 + best_q) / 2.0
+    if not record.outcome_valid:
+        return search_probability
+    # The legacy parser deliberately coerces absent/malformed result fields.
+    # LCZero's explicit probability target must not inherit that fallback.
+    result_q = checked_q(record.raw.get("result_q", record.result_q), "result_q")
+    mix = float(teacher_mix)
+    if not math.isfinite(mix) or not 0.0 <= mix <= 1.0:
+        raise ValueError("LCZero teacher_mix must be finite and in [0, 1]")
+    return mix * search_probability + (1.0 - mix) * (1.0 + result_q) / 2.0
+
+
+def iterate_lc0_samples(
+    jsonl_dir: Path, max_samples: int, *, include_legacy_features: bool = True,
+) -> Iterator[Tuple[List[int], TrainingRecord]]:
+    """Read a complete bounded corpus chunk, without self-play stratification.
+
+    Corpus construction owns sampling and partitions. Silently resampling here
+    could omit games on every pass or discard max-length Q-only records.
+    """
+    count = 0
+    for path in _jsonl_files(Path(jsonl_dir)):
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(row, dict) or not isinstance(row.get("fen"), str):
+                    continue
+                record = next(jsonl_to_training_samples([row]))
+                _lc0_probability_for_record(record, 0.8)
+                count += 1
+                if max_samples > 0 and count > max_samples:
+                    raise ValueError("LCZero chunk exceeds max_samples; split the corpus chunk")
+                if include_legacy_features:
+                    feats = _active_halfkp_indices(record.fen)
+                else:
+                    # V2 constructs its own indices, but the legacy parser
+                    # also enforces rank widths. Keep that validation and
+                    # every row, including positions with empty feature bags.
+                    _parse_board_fen(record.fen)
+                    feats = []
+                yield feats, record
 
 
 def _target_wdl_probability_for_record(
@@ -976,8 +1048,14 @@ def _targets_for_record(
     outcome_decay: float,
     min_teacher_depth: int,
     wdl_scale_cp: float,
+    target_mode: str = "selfplay",
 ) -> Tuple[float, float]:
     """Build mutually consistent CP diagnostics and WDL objective targets."""
+    if target_mode == "lc0-q-outcome":
+        probability = _lc0_probability_for_record(record, teacher_mix)
+        return _wdl_probability_to_cp(probability, wdl_scale_cp), probability
+    if target_mode != "selfplay":
+        raise ValueError("unknown target_mode")
     probability = _target_wdl_probability_for_record(
         record,
         target_cp=target_cp,

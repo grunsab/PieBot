@@ -1,5 +1,13 @@
 NNUE training scaffold
 
+LCZero campaign (September 2026): `lc0_deploy` acquires the frozen July–September
+test91 corpus, `lc0_corpus` prepares bounded game-disjoint data, and
+`lc0_autopilot` repeatedly trains the existing v2 NNUE for 14 days with recoverable
+latest-weight/Adam checkpoints and independent gameplay promotion. Torch's
+`--target-mode lc0-q-outcome --checkpoint-selection latest` enables this objective;
+the default self-play behavior remains unchanged. See
+`../../documents/LCZeroTraining.md` for deployment and self-play restart details.
+
 File formats
 - Dense dev format (PIENNUE1): simple f32 layers for bootstrapping and tests.
   - Header: magic 'PIENNUE1', u32 version, u32 input_dim, u32 hidden_dim, u32 output_dim.

@@ -1,0 +1,156 @@
+test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin) ... usage: python -m unittest [-h] [--repo REPO] [--out-root OUT_ROOT]
+                          [--selfplay-root SELFPLAY_ROOT] [--hours HOURS]
+                          [--since SINCE] [--until UNTIL]
+                          [--min-free-gib MIN_FREE_GIB]
+                          [--evict-raw | --no-evict-raw]
+                          [--disk-capacity-gb DISK_CAPACITY_GB]
+                          [--preflight-only]
+python -m unittest: error: unrecognized arguments: --download-concurrency 0
+
+  test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin) (value='0') ... ERROR
+usage: python -m unittest [-h] [--repo REPO] [--out-root OUT_ROOT]
+                          [--selfplay-root SELFPLAY_ROOT] [--hours HOURS]
+                          [--since SINCE] [--until UNTIL]
+                          [--min-free-gib MIN_FREE_GIB]
+                          [--evict-raw | --no-evict-raw]
+                          [--disk-capacity-gb DISK_CAPACITY_GB]
+                          [--preflight-only]
+python -m unittest: error: unrecognized arguments: --download-concurrency -1
+  test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin) (value='-1') ... ERROR
+usage: python -m unittest [-h] [--repo REPO] [--out-root OUT_ROOT]
+                          [--selfplay-root SELFPLAY_ROOT] [--hours HOURS]
+                          [--since SINCE] [--until UNTIL]
+                          [--min-free-gib MIN_FREE_GIB]
+                          [--evict-raw | --no-evict-raw]
+                          [--disk-capacity-gb DISK_CAPACITY_GB]
+                          [--preflight-only]
+python -m unittest: error: unrecognized arguments: --download-concurrency 17
+  test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin) (value='17') ... ERROR
+test_pool_defaults_to_four_and_explicit_override_reaches_fetch (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_pool_defaults_to_four_and_explicit_override_reaches_fetch) ... 
+  test_pool_defaults_to_four_and_explicit_override_reaches_fetch (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_pool_defaults_to_four_and_explicit_override_reaches_fetch) (workers=4) ... ERROR
+usage: python -m unittest [-h] [--repo REPO] [--out-root OUT_ROOT]
+                          [--selfplay-root SELFPLAY_ROOT] [--hours HOURS]
+                          [--since SINCE] [--until UNTIL]
+                          [--min-free-gib MIN_FREE_GIB]
+                          [--evict-raw | --no-evict-raw]
+                          [--disk-capacity-gb DISK_CAPACITY_GB]
+                          [--preflight-only]
+python -m unittest: error: unrecognized arguments: --download-concurrency 3
+  test_pool_defaults_to_four_and_explicit_override_reaches_fetch (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_pool_defaults_to_four_and_explicit_override_reaches_fetch) (workers=3) ... ERROR
+test_shell_forwards_download_pool_and_explicit_cli_override (scripts.tests.test_lc0_parallel_deployment.ParallelLauncherTests.test_shell_forwards_download_pool_and_explicit_cli_override) ... FAIL
+
+======================================================================
+ERROR: test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin) (value='0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/scripts/tests/test_lc0_parallel_deployment.py", line 26, in test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin
+    lc0_deploy.main(self.args + ['--download-concurrency', value])
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/lc0_deploy.py", line 85, in main
+    args = parser.parse_args(argv)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2009, in parse_args
+    self.error(msg)
+    ~~~~~~~~~~^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2782, in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2769, in exit
+    _sys.exit(status)
+    ~~~~~~~~~^^^^^^^^
+SystemExit: 2
+
+======================================================================
+ERROR: test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin) (value='-1')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/scripts/tests/test_lc0_parallel_deployment.py", line 26, in test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin
+    lc0_deploy.main(self.args + ['--download-concurrency', value])
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/lc0_deploy.py", line 85, in main
+    args = parser.parse_args(argv)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2009, in parse_args
+    self.error(msg)
+    ~~~~~~~~~~^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2782, in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2769, in exit
+    _sys.exit(status)
+    ~~~~~~~~~^^^^^^^^
+SystemExit: 2
+
+======================================================================
+ERROR: test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin) (value='17')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/scripts/tests/test_lc0_parallel_deployment.py", line 26, in test_bad_pool_size_is_rejected_before_bootstrap_or_source_pin
+    lc0_deploy.main(self.args + ['--download-concurrency', value])
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/lc0_deploy.py", line 85, in main
+    args = parser.parse_args(argv)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2009, in parse_args
+    self.error(msg)
+    ~~~~~~~~~~^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2782, in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2769, in exit
+    _sys.exit(status)
+    ~~~~~~~~~^^^^^^^^
+SystemExit: 2
+
+======================================================================
+ERROR: test_pool_defaults_to_four_and_explicit_override_reaches_fetch (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_pool_defaults_to_four_and_explicit_override_reaches_fetch) (workers=4)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/scripts/tests/test_lc0_parallel_deployment.py", line 16, in test_pool_defaults_to_four_and_explicit_override_reaches_fetch
+    self.assertEqual(int(fetch[fetch.index('--concurrency') + 1]), workers)
+                               ~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+ValueError: list.index(x): x not in list
+
+======================================================================
+ERROR: test_pool_defaults_to_four_and_explicit_override_reaches_fetch (scripts.tests.test_lc0_parallel_deployment.ParallelDeploymentTests.test_pool_defaults_to_four_and_explicit_override_reaches_fetch) (workers=3)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/scripts/tests/test_lc0_parallel_deployment.py", line 15, in test_pool_defaults_to_four_and_explicit_override_reaches_fetch
+    _, fetch, _, train = self.deploy(*args)
+                         ~~~~~~~~~~~^^^^^^^
+  File "/private/tmp/piebot-lc0-parallel-downloads/scripts/tests/test_lc0_storage_deployment.py", line 45, in deploy
+    result = lc0_deploy.main(self.args + list(args))
+  File "/private/tmp/piebot-lc0-parallel-downloads/training/nnue/lc0_deploy.py", line 85, in main
+    args = parser.parse_args(argv)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2009, in parse_args
+    self.error(msg)
+    ~~~~~~~~~~^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2782, in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2769, in exit
+    _sys.exit(status)
+    ~~~~~~~~~^^^^^^^^
+SystemExit: 2
+
+======================================================================
+FAIL: test_shell_forwards_download_pool_and_explicit_cli_override (scripts.tests.test_lc0_parallel_deployment.ParallelLauncherTests.test_shell_forwards_download_pool_and_explicit_cli_override)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/piebot-lc0-parallel-downloads/scripts/tests/test_lc0_parallel_deployment.py", line 40, in test_shell_forwards_download_pool_and_explicit_cli_override
+    self.assertEqual(values, ['3', '2'])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: ['2'] != ['3', '2']
+
+First differing element 0:
+'2'
+'3'
+
+Second list contains 1 additional elements.
+First extra element 1:
+'2'
+
+- ['2']
++ ['3', '2']
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.168s
+
+FAILED (failures=1, errors=5)

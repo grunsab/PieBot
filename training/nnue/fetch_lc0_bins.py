@@ -5,9 +5,13 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as cf
 import datetime as _dt
+import hashlib
+import html
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -15,10 +19,16 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
 
+if __package__:
+    from .disk_budget import available_bytes, decimal_gb_bytes
+else:
+    from disk_budget import available_bytes, decimal_gb_bytes
+
 TRAINING_DATA_BASE = "https://storage.lczero.org/files/training_data/"
 DEFAULT_SUITES: tuple[str, ...] = ("test90/", "test80/")
 BIN_SUFFIXES: tuple[str, ...] = (".bin", ".bin.zst", ".bin.zstd")
 LINK_RE = re.compile(r'<a href="([^"]+)">')
+ARCHIVE_NAME_RE = re.compile(r'^training-[A-Za-z0-9_-]+-(\d{8})-(\d{4})\.tar$')
 
 
 def _require_requests():
@@ -75,6 +85,277 @@ def write_json_atomic(path: Path, payload: dict) -> None:
         os.replace(part, path)
     finally:
         part.unlink(missing_ok=True)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as fh:
+        for chunk in iter(lambda: fh.read(8 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def utc_bound(value: str, *, upper: bool = False) -> _dt.datetime:
+    """Dates include their named day; timestamp upper bounds are exclusive."""
+    parsed = _dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    if upper and len(value) == 10:
+        parsed += _dt.timedelta(days=1)
+    return parsed.astimezone(_dt.timezone.utc)
+
+
+def curl_listing(url: str) -> str:
+    return subprocess.run(
+        ['curl', '--fail', '--location', '--silent', '--show-error', '--retry', '4',
+         '--connect-timeout', '30', '--max-time', '180', url],
+        check=True, capture_output=True, text=True,
+    ).stdout
+
+
+def discover_snapshot(suites: Iterable[str], out_dir: Path, since: str, until: str,
+                      *, listing_func: Callable[[str], str] = curl_listing,
+                      now: Optional[_dt.datetime] = None) -> dict:
+    """Freeze the dated official tar inventory. Member mtimes filter actual games."""
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    lower, upper = utc_bound(since), min(utc_bound(until, upper=True), now)
+    if lower >= upper:
+        raise ValueError('since must precede the snapshot cutoff')
+    manifest = {'schema': 'piebot-lc0-raw-v1', 'base': TRAINING_DATA_BASE,
+                'generated_at': now.isoformat(), 'since': lower.isoformat(),
+                'until': upper.isoformat(), 'date_basis': 'tar_member_mtime',
+                'files': [], 'empty_archives': [], 'failures': [], 'total_bytes': 0}
+    seen = set()
+    for suite in suites:
+        suite = suite.strip('/')
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', suite):
+            raise ValueError(f'invalid suite: {suite}')
+        url = TRAINING_DATA_BASE + suite + '/'
+        listing = listing_func(url)
+        for line in listing.splitlines():
+            match = LINK_RE.search(line)
+            if not match:
+                continue
+            name = html.unescape(match.group(1))
+            date_match = ARCHIVE_NAME_RE.fullmatch(name)
+            if not date_match:
+                continue
+            date = _dt.datetime.strptime(''.join(date_match.groups()), '%Y%m%d%H%M').replace(tzinfo=_dt.timezone.utc)
+            if not lower <= date < upper or (suite, name) in seen:
+                continue
+            seen.add((suite, name))
+            # nginx's default autoindex emits an exact byte count after the link/date.
+            size_match = re.search(r'\s(\d+)\s*(?:<[^>]*>\s*)*$', line)
+            if not size_match:
+                raise ValueError(f'archive listing has no exact byte size: {name}')
+            size = int(size_match.group(1))
+            entry = {'name': name, 'suite': suite + '/', 'url': url + name,
+                     'archive_timestamp': date.isoformat(), 'size': size,
+                     'dest': str((out_dir / suite / name).resolve()), 'status': 'queued'}
+            if size <= 0:
+                raise ValueError(f'archive listing has a zero-byte object: {name}')
+            manifest['files'].append(entry)
+            manifest['total_bytes'] += size
+    manifest['files'].sort(key=lambda entry: (entry['archive_timestamp'], entry['url']))
+    if not manifest['files']:
+        raise ValueError('no LCZero archives in requested date window')
+    return manifest
+
+
+def download_curl(job: DownloadJob, *, expected_size: Optional[int] = None,
+                  expected_sha256: Optional[str] = None) -> dict:
+    """Use curl's HTTP verification/retry; publish only a complete hashed object."""
+    job.dest.parent.mkdir(parents=True, exist_ok=True)
+    part = _part_path(job.dest)
+    started = time.monotonic()
+    try:
+        subprocess.run(
+            ['curl', '--fail', '--location', '--silent', '--show-error', '--retry', '5',
+             '--retry-all-errors', '--connect-timeout', '30', '--speed-limit', '1024',
+             '--speed-time', '120', '--output', str(part), job.url], check=True,
+        )
+        size = part.stat().st_size
+        if size == 0 or (expected_size is not None and size != expected_size):
+            raise ValueError(f'download size mismatch for {job.url}: {size}, expected {expected_size}')
+        digest = sha256_file(part)
+        if expected_sha256 is not None and digest != expected_sha256:
+            raise ValueError(f'download checksum mismatch for {job.url}')
+        with part.open('rb') as fh:
+            os.fsync(fh.fileno())
+        os.replace(part, job.dest)
+        return {'url': job.url, 'path': str(job.dest), 'size': size,
+                'sha256': digest, 'elapsed': time.monotonic() - started}
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def _has_corpus_evidence(corpus: Path) -> bool:
+    return any(os.path.lexists(corpus / name) for name in
+               ('identity.json', 'progress.sqlite3', 'raw_evictions', 'corpus_manifest.json', 'prepare.lock'))
+
+
+def _canonical_regular_file(path: Path) -> bool:
+    try:
+        absolute = path.absolute()
+        return absolute.is_file() and absolute.resolve(strict=True) == absolute
+    except OSError:
+        return False
+
+
+def _resume_corpus_snapshot(manifest_path: Path, corpus: Path, raw_root: Path) -> int:
+    """Verify a frozen prepared inventory under its lock; never write or fetch."""
+    if __package__:
+        from .lc0_archive_receipts import ArchiveReceiptStore, ReceiptError
+    else:  # Preserve direct-script invocation as well as python -m usage.
+        from lc0_archive_receipts import ArchiveReceiptStore, ReceiptError
+    try:
+        with ArchiveReceiptStore(manifest_path, corpus, raw_root=raw_root) as store:
+            if not _canonical_regular_file(store.raw_manifest):
+                raise ValueError('frozen raw manifest is missing, nonregular, or aliased')
+            manifest = json.loads(manifest_path.read_text())
+            if (manifest.get('schema') != 'piebot-lc0-raw-v1' or manifest.get('complete') is not True
+                    or manifest.get('failures') or not isinstance(manifest.get('files'), list)
+                    or not manifest['files']):
+                raise ValueError('initialized corpus requires its complete frozen raw manifest')
+            if os.path.lexists(store.receipts) and (store.receipts.is_symlink() or not store.receipts.is_dir()):
+                raise ValueError('receipt directory must be a regular directory')
+            for entry in manifest['files']:
+                dest, digest = Path(entry['dest']), entry.get('sha256')
+                if (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+                        or entry.get('status') not in {'downloaded', 'verified'}):
+                    raise ValueError('prepared inventory contains an unverified archive')
+                if (not dest.is_absolute() or store.raw_root not in dest.parents
+                        or dest.suffix != '.tar' or dest == store.raw_manifest or '..' in dest.parts):
+                    raise ValueError('archive must be a complete .tar beneath the explicit raw root')
+                key = hashlib.sha256(json.dumps([entry['url'], digest],
+                                                separators=(',', ':')).encode()).hexdigest()
+                present = os.path.lexists(dest)
+                if not present or os.path.lexists(store.receipts / (key + '.json')):
+                    store.verify(key)
+                if not present:
+                    continue
+                if dest.resolve(strict=True) != dest or not is_complete_download(dest):
+                    raise ValueError('present raw archive is partial, nonregular, or uses a symlink')
+                before = dest.stat()
+                if before.st_size != entry['size'] or sha256_file(dest) != digest:
+                    raise ValueError(f'present raw archive checksum or size mismatch: {dest}')
+                after = dest.stat()
+                fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+                if any(getattr(before, key) != getattr(after, key) for key in fields):
+                    raise ValueError(f'present raw archive changed while verifying: {dest}')
+        return 0
+    except (ReceiptError, OSError, ValueError, TypeError, KeyError) as exc:
+        print(f'LCZero receipt resume refused: {exc}', file=sys.stderr)
+        return 1
+
+
+def validate_download_concurrency(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 16:
+        raise ValueError('download concurrency must be an integer from 1 to 16')
+    return value
+
+
+def _snapshot_paths(manifest_path: Path, entries: list[dict]) -> None:
+    # Workers must never share output/staging paths or overwrite their manifest.
+    occupied = {manifest_path.resolve(), _part_path(manifest_path).resolve()}
+    for entry in entries:
+        dest = Path(entry['dest'])
+        paths = {dest.resolve(), _part_path(dest).resolve()}
+        if len(paths) != 2 or occupied.intersection(paths):
+            raise ValueError(f'snapshot download paths overlap: {dest}')
+        occupied.update(paths)
+        size = entry['size']
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise ValueError('snapshot archive size must be a positive integer')
+
+
+def download_snapshot(manifest_path: Path, *, min_free_bytes: int = 50 * 1024**3,
+                      eviction_corpus: Path | None = None, raw_root: Path | None = None,
+                      capacity_bytes: int | None = None, concurrency: int = 1) -> int:
+    """Resume a frozen inventory, verifying every cached object's recorded SHA."""
+    validate_download_concurrency(concurrency)
+    if capacity_bytes is not None and (
+            isinstance(capacity_bytes, bool) or not isinstance(capacity_bytes, int)
+            or capacity_bytes <= 0):
+        raise ValueError('capacity_bytes must be a positive integer or None')
+    if eviction_corpus is not None:
+        if raw_root is None:
+            raise ValueError('eviction resume requires an explicit raw_root')
+        corpus = Path(eviction_corpus)
+        # Even damaged/partial corpus evidence makes this a strict resume.
+        # It must never fall back to redownloading and changing frozen provenance.
+        if _has_corpus_evidence(corpus):
+            return _resume_corpus_snapshot(manifest_path, corpus, Path(raw_root))
+    manifest = json.loads(manifest_path.read_text())
+    _snapshot_paths(manifest_path, manifest['files'])
+    manifest['failures'] = []
+    cursor = 0
+    pending = {}
+    failed = False
+
+    def failure(entry, exc):
+        nonlocal failed
+        failed = True
+        manifest['complete'] = False
+        entry['status'] = f'error: {exc}'
+        manifest['failures'].append({'stage': 'download', 'url': entry['url'], 'error': str(exc)})
+        write_json_atomic(manifest_path, manifest)
+
+    # Only this coordinator mutates the manifest. Workers atomically publish
+    # their individual files; completed results are saved without input-order waits.
+    with cf.ThreadPoolExecutor(max_workers=concurrency) as pool:
+        while cursor < len(manifest['files']) or pending:
+            while not failed and cursor < len(manifest['files']) and len(pending) < concurrency:
+                if any(future.done() for future in pending):
+                    break
+                entry = manifest['files'][cursor]
+                dest, digest = Path(entry['dest']), entry.get('sha256')
+                try:
+                    if (digest and is_complete_download(dest) and dest.stat().st_size == entry['size']
+                            and sha256_file(dest) == digest):
+                        if entry.get('status') not in {'downloaded', 'verified'}:
+                            entry['status'] = 'verified'
+                        cursor += 1
+                        continue
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    # Reserve whole expected sizes until results are collected.
+                    # Partially written bytes may also reduce filesystem free
+                    # space, deliberately making this accounting conservative.
+                    reserved = sum(item[1]['size'] for item in pending.values())
+                    free = available_bytes(dest.parent, capacity_bytes=capacity_bytes)
+                    if free - reserved - entry['size'] < min_free_bytes:
+                        if pending:
+                            break  # Recheck after a current download completes.
+                        raise OSError('download would consume the protected disk reserve')
+                    if manifest.get('complete') is not False:
+                        manifest['complete'] = False
+                        write_json_atomic(manifest_path, manifest)
+                    future = pool.submit(download_curl, DownloadJob(entry['url'], dest),
+                                         expected_size=entry['size'], expected_sha256=digest)
+                    pending[future] = (cursor, entry)
+                    cursor += 1
+                except Exception as exc:
+                    failure(entry, exc)
+            if not pending:
+                break
+            done, _ = cf.wait(pending, return_when=cf.FIRST_COMPLETED)
+            for future in sorted(done, key=lambda item: pending[item][0]):
+                _, entry = pending.pop(future)
+                try:
+                    info = future.result()
+                except Exception as exc:
+                    failure(entry, exc)
+                else:
+                    entry.update(sha256=info['sha256'], status='downloaded')
+                    write_json_atomic(manifest_path, manifest)
+                    print(f"downloaded {entry.get('name', Path(entry['dest']).name)}", flush=True)
+            # On failure admit no more work, but save all successful in-flight
+            # downloads before returning. Resume then retries unfinished files only.
+    if failed:
+        return 1
+    manifest['complete'] = True
+    write_json_atomic(manifest_path, manifest)
+    return 0
 
 
 def list_dir(url: str) -> List[str]:
@@ -314,11 +595,59 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decompress", action="store_true")
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument('--since', help='Opt-in frozen .tar snapshot; inclusive ISO date/time')
+    parser.add_argument('--until', help='Snapshot upper UTC date (inclusive) or timestamp (exclusive)')
+    parser.add_argument('--backend', choices=('requests', 'curl'), default='curl',
+                        help='Snapshot mode uses curl; legacy BIN mode remains requests')
+    parser.add_argument('--dry-run', action='store_true', help='Print snapshot inventory and sizes without writing files')
+    parser.add_argument('--min-free-gib', type=float, default=50.)
+    parser.add_argument('--disk-capacity-gb', type=float, default=0,
+                        help='Snapshot mode: decimal disk capacity ceiling; 0 uses filesystem free space')
+    parser.add_argument('--eviction-corpus', type=Path,
+                        help='Snapshot mode: verify corpus receipts for deliberately evicted raw archives')
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    capacity = decimal_gb_bytes(getattr(args, 'disk_capacity_gb', 0))
+    eviction_corpus = getattr(args, 'eviction_corpus', None)
+    if capacity is not None and not (getattr(args, 'since', None) and getattr(args, 'until', None)):
+        raise ValueError('--disk-capacity-gb requires frozen snapshot mode (--since and --until)')
+    if eviction_corpus is not None and not (getattr(args, 'since', None) and getattr(args, 'until', None)):
+        raise ValueError('--eviction-corpus requires frozen snapshot mode (--since and --until)')
+    if getattr(args, 'since', None) or getattr(args, 'until', None):
+        concurrency = validate_download_concurrency(getattr(args, 'concurrency', 4))
+        if not args.since or not args.until:
+            raise ValueError('snapshot mode requires both --since and --until')
+        manifest_path = args.manifest or (args.out / 'manifest.json')
+        existing_manifest = manifest_path.exists()
+        if (eviction_corpus is not None and _has_corpus_evidence(eviction_corpus)
+                and not _canonical_regular_file(manifest_path)):
+            print('LCZero receipt resume refused: frozen raw manifest is missing, nonregular, or aliased',
+                  file=sys.stderr)
+            return 1
+        if existing_manifest:
+            snapshot = json.loads(manifest_path.read_text())
+            if snapshot.get('schema') != 'piebot-lc0-raw-v1':
+                raise ValueError('existing manifest is not a frozen LCZero snapshot')
+            if (snapshot['since'] != utc_bound(args.since).isoformat()
+                    or utc_bound(snapshot['until']) > utc_bound(args.until, upper=True)):
+                raise ValueError('existing snapshot date identity differs')
+        else:
+            snapshot = discover_snapshot(args.suites, args.out, args.since, args.until)
+        if args.dry_run:
+            print(json.dumps(snapshot, indent=2))
+            return 0
+        _snapshot_paths(manifest_path, snapshot['files'])
+        if not existing_manifest or eviction_corpus is None:
+            write_json_atomic(manifest_path, snapshot)
+        options = {'min_free_bytes': int(args.min_free_gib * 1024**3), 'concurrency': concurrency}
+        if capacity is not None:
+            options['capacity_bytes'] = capacity
+        if eviction_corpus is not None:
+            options.update(eviction_corpus=eviction_corpus, raw_root=args.out)
+        return download_snapshot(manifest_path, **options)
     threshold = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=max(0, args.days))
     manifest, jobs = plan_suite_downloads(
         suites=args.suites,

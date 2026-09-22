@@ -1,0 +1,150 @@
+{
+  "schema": "piebot-lc0-throughput-parity-v1",
+  "created_at_utc": "2026-09-07T20:34:21.061511+00:00",
+  "worktree": "/private/tmp/piebot-lc0-throughput",
+  "baseline": {
+    "git_commit": "4b0c84a9f3a375d6b463f1e808309a64bce11f0d",
+    "source_sha256": "bef3fa12205373b49ef435bbddb60ca8f60f85af9257a27dd546f906ddbc2ffc",
+    "files": {
+      "training/nnue/train_stub.py": "d23209af798947f7d20b12dea2a3805f924e966aa5527914537a185aca8f96ce",
+      "training/nnue/train_torch.py": "dec1cd996675a15e3fbe94359ddaa681c2c6eb7f770756622709d346c89dc9d0"
+    }
+  },
+  "patch": {
+    "source_sha256": "1978c2d3044f62dcec99a31518f97a573a9df7a655bd6db3e45072a575703c4d",
+    "files": {
+      "training/nnue/train_stub.py": "cf72906c30dd8b7eaada31de94f17fefaaa40cab06e6e9ff8b118c076131f6fa",
+      "training/nnue/train_torch.py": "b33dbd61bf6ae9eeab12860ec66a8313337c291ce2bc9060f6158ff7f4456c90"
+    },
+    "source_diff_sha256": "b58899f811fefdc81d87233c4b068735b842a3c5d726b714b193228729958185",
+    "captured_before_commit": true
+  },
+  "fingerprint_definition": "SHA-256 of compact sorted-key JSON mapping implementation paths to their byte SHA-256. Source diff excludes tests and this evidence.",
+  "scope": {
+    "evaluation_reuse": "arch=v2, target_mode=lc0-q-outcome, checkpoint_selection=latest only",
+    "feature_skip": "v2 LC0 training and fixed holdout skip legacy index construction while retaining legacy FEN parsing/validation",
+    "unchanged": [
+      "architecture",
+      "objective",
+      "training row coverage and order",
+      "checkpoint format",
+      "optimizer state and binding",
+      "production code and source pin"
+    ]
+  },
+  "tdd": {
+    "red": "New tests first failed on missing include_legacy_features API, legacy index calls, and duplicate evaluations (4 vs 2, 6 vs 4, 8 vs 6).",
+    "targeted_command": "/private/tmp/piebot-lc0-venv/bin/python -m unittest training.nnue.tests.test_lc0_targets training.nnue.tests.test_train_torch training.nnue.tests.test_arch_v2",
+    "targeted_tests": 53,
+    "targeted_passed": 53,
+    "full_nnue_suite": {
+      "command": "/private/tmp/piebot-lc0-venv/bin/python -m unittest discover -v training/nnue/tests",
+      "tests": 313,
+      "passed": 313,
+      "failed": 0,
+      "log": "/private/tmp/piebot-lc0-throughput-nnue-tests.log",
+      "log_sha256": "6dada7e5de1f4c8b0497b587108eea2c3cff42e88b0167b229b5167a0ea8212e"
+    },
+    "broader_full_battery": {
+      "status": "passed",
+      "implementation_commit": "7c4535f82d1bf0fe26ea8a62446e89a0d65c2bba",
+      "completed_at_utc": "2026-09-07T20:57:55.677148+00:00",
+      "screen_exit_confirmed_at_utc": "2026-09-07T20:54:07Z",
+      "cargo_build_jobs": 2,
+      "rust_test_threads": 1,
+      "results": {
+        "scripts": {
+          "passed": 142,
+          "failed": 0,
+          "command": "/private/tmp/piebot-lc0-venv/bin/python -m unittest discover -v scripts/tests",
+          "log": "/private/tmp/piebot-lc0-throughput-scripts-tests.log",
+          "log_sha256": "d576ba30e9eafdd641e0bdd3e89f02f078b51f59edd25f879d3352aacb87db24",
+          "exit_code": 0
+        },
+        "rust_default": {
+          "passed": 218,
+          "failed": 0,
+          "ignored": 0,
+          "test_summary_blocks": 56,
+          "criterion_test_mode_successes": 25,
+          "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml",
+          "log": "/private/tmp/piebot-lc0-throughput-rust-default.log",
+          "log_sha256": "cd8a7797799243333949d04089986119e57b0ed0263910b8faea0258d5edf811",
+          "exit_code": 0
+        },
+        "rust_all_features": {
+          "passed": 209,
+          "failed": 0,
+          "ignored": 0,
+          "test_summary_blocks": 56,
+          "criterion_test_mode_successes": 25,
+          "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml",
+          "log": "/private/tmp/piebot-lc0-throughput-rust-all-features.log",
+          "log_sha256": "0b9fd3e8c19f0be88387b2f364bdece36e9031e68432f14215cdeaa3dbcc9c89",
+          "exit_code": 0
+        }
+      },
+      "nnue_result_reused": "The previously passing 313-test NNUE suite covers these unchanged implementation/test files; it was not rerun."
+    }
+  },
+  "parity": {
+    "method": "Deterministic single-thread CPU fixtures compare latest mode to unchanged best-mode explicit evaluation forced to select the same final epoch.",
+    "cases": [
+      "fresh single epoch",
+      "warm single epoch",
+      "warm multiple epochs",
+      "internal validation plus fixed holdout",
+      "no fixed holdout"
+    ],
+    "exact_checks": [
+      "selected primary and reference metrics",
+      "initial training and reference metrics",
+      "metric histories",
+      "all model weights and objective metadata",
+      "Adam parameter groups and every state tensor",
+      "model parameter SHA binding",
+      "exported PIENNQ02 bytes"
+    ],
+    "row_checks": [
+      "bare kings retained despite empty feature bags",
+      "max-length Q-only labels",
+      "white and black rows",
+      "nonempty pawn features",
+      "row order and provenance",
+      "strict sample cap",
+      "invalid rank width/overflow/count rejection",
+      "invalid Q/outcome rejection"
+    ],
+    "legacy_checks": [
+      "v1 LC0 still constructs legacy features and evaluates selected checkpoint explicitly",
+      "v2 selfplay still constructs legacy features and evaluates selected checkpoint explicitly",
+      "best mode retains its explicit selected-checkpoint evaluations"
+    ]
+  },
+  "full_chunk_operation_counts": {
+    "assumptions": {
+      "training_positions": 700000,
+      "fixed_holdout_positions": 100000,
+      "batch_size": 16384,
+      "epochs": 1,
+      "warm_start": true,
+      "val_split": 0.0
+    },
+    "update_batches_unchanged": 43,
+    "training_batches_per_evaluation": 43,
+    "holdout_batches_per_evaluation": 7,
+    "evaluation_batches_before": 150,
+    "evaluation_batches_after": 100,
+    "evaluation_batches_removed": 50,
+    "forward_scored_positions_before": 3100000,
+    "forward_scored_positions_after": 2300000,
+    "forward_scored_positions_removed": 800000,
+    "formula": "ceil(700000/16384)=43; ceil(100000/16384)=7; evaluation passes change from 3*(43+7) to 2*(43+7); gradient updates remain 43."
+  },
+  "limitations": [
+    "Operation counts are exact for the stated configuration; they do not predict wall-clock speedup.",
+    "No GPU or production throughput benchmark was run.",
+    "The tiny CPU fixtures prove deterministic parity, not full-width production performance.",
+    "No merge, remote deployment, or source-pin migration was performed; source fingerprints were captured before the branch commit."
+  ]
+}

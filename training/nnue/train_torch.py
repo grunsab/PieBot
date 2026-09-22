@@ -8,10 +8,13 @@ import copy
 import hashlib
 import json
 import math
+import multiprocessing as mp
+import os
 import random
+import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from itertools import chain
 
@@ -24,6 +27,22 @@ try:
     import numpy as _np  # type: ignore
 except Exception:  # pragma: no cover - torch ships numpy, but stay defensive
     _np = None  # type: ignore
+
+try:
+    import orjson  # type: ignore
+except Exception:  # pragma: no cover
+    orjson = None  # type: ignore
+
+_INITIAL_CHECKPOINT_CACHE: Dict[
+    Tuple[str, int, int],
+    Tuple[Dict[str, Any], Dict[str, "torch.Tensor"], str],
+] = {}
+
+
+def clear_checkpoint_cache() -> None:
+    """Clear the in-memory checkpoint cache."""
+    _INITIAL_CHECKPOINT_CACHE.clear()
+
 
 try:
     from . import train_stub
@@ -190,18 +209,106 @@ def _load_initial_checkpoint(
     path = Path(checkpoint_path)
     if not path.is_file():
         raise ValueError(f"initial checkpoint does not exist: {path}")
-    try:
-        checkpoint = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
-    if not isinstance(checkpoint, dict):
-        raise ValueError("initial checkpoint must be a JSON object")
-    checkpoint_format = checkpoint.get("format")
+
+    stat = path.stat()
+    cache_key = (path.resolve().as_posix(), stat.st_mtime_ns, stat.st_size)
     allowed_formats = (
         {"piebot-halfkp-dp-screlu-v1-torch"}
         if arch == "v2"
         else _DIRECT_CHECKPOINT_FORMATS
     )
+    expected_feature_set = (
+        features_v2.FEATURE_SET_V2 if arch == "v2" else train_stub.FEATURE_SET
+    )
+    out_width = 2 * hidden_dim if arch == "v2" else hidden_dim
+
+    if cache_key in _INITIAL_CHECKPOINT_CACHE:
+        checkpoint_meta, cpu_tensors, file_sha256 = _INITIAL_CHECKPOINT_CACHE[cache_key]
+        checkpoint_format = checkpoint_meta.get("format")
+        if checkpoint_format not in allowed_formats:
+            raise ValueError(f"unsupported initial checkpoint format: {checkpoint_format!r}")
+        if int(checkpoint_meta.get("input_dim", 0)) != int(input_dim):
+            raise ValueError(
+                f"initial checkpoint input_dim mismatch: expected {input_dim}, "
+                f"got {checkpoint_meta.get('input_dim')}"
+            )
+        if int(checkpoint_meta.get("hidden_dim", 0)) != int(hidden_dim):
+            raise ValueError(
+                f"initial checkpoint hidden_dim mismatch: expected {hidden_dim}, "
+                f"got {checkpoint_meta.get('hidden_dim')}"
+            )
+        checkpoint_feature_set = checkpoint_meta.get("feature_set")
+        if checkpoint_feature_set != expected_feature_set:
+            raise ValueError(
+                f"initial checkpoint feature_set mismatch: expected {expected_feature_set!r}, "
+                f"got {checkpoint_feature_set!r}"
+            )
+        checkpoint_target_schema = checkpoint_meta.get("target_schema")
+        if checkpoint_target_schema != train_stub.TARGET_SCHEMA:
+            raise ValueError(
+                f"initial checkpoint target_schema mismatch: expected "
+                f"{train_stub.TARGET_SCHEMA!r}, got {checkpoint_target_schema!r}"
+            )
+        checkpoint_objective = checkpoint_meta.get("objective")
+        if not isinstance(checkpoint_objective, dict):
+            raise ValueError("initial checkpoint objective metadata is missing or invalid")
+        objective_transition = checkpoint_objective != objective
+        if objective_transition and not weights_only:
+            raise ValueError("initial checkpoint objective does not match this training run")
+
+        with torch.no_grad():
+            model.embed.weight.copy_(
+                cpu_tensors["w1"].to(device=device, dtype=model.embed.weight.dtype)
+                .view(hidden_dim, input_dim).transpose(0, 1)
+            )
+            model.b1.copy_(cpu_tensors["b1"].to(device=device, dtype=model.b1.dtype))
+            model.out.weight.copy_(
+                cpu_tensors["w2"].to(device=device, dtype=model.out.weight.dtype)
+                .view(1, out_width)
+            )
+            model.out.bias.copy_(
+                cpu_tensors["b2"].to(device=device, dtype=model.out.bias.dtype)
+            )
+
+        optimizer_state = checkpoint_meta.get("optimizer_state")
+        optimizer_state_sha256 = (
+            optimizer_state.get("sha256") if isinstance(optimizer_state, dict) else None
+        )
+        return {
+            "path": path.resolve().as_posix(),
+            "sha256": file_sha256,
+            "format": str(checkpoint_format),
+            "input_dim": int(input_dim),
+            "hidden_dim": int(hidden_dim),
+            "feature_set": checkpoint_feature_set,
+            "target_schema": checkpoint_target_schema,
+            "objective": copy.deepcopy(objective),
+            "source_objective": copy.deepcopy(checkpoint_objective),
+            "requested_objective": copy.deepcopy(objective),
+            "mode": "weights-only" if weights_only else "strict",
+            "weights_only": bool(weights_only),
+            "objective_transition": bool(objective_transition),
+            "weights_only_objective_transition": bool(
+                weights_only and objective_transition
+            ),
+            "optimizer_state_sha256": optimizer_state_sha256,
+        }
+
+    # Cache miss: load from disk
+    if orjson is not None:
+        try:
+            checkpoint = orjson.loads(path.read_bytes())
+        except Exception as exc:
+            raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
+    else:
+        try:
+            checkpoint = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid initial checkpoint JSON: {path}") from exc
+
+    if not isinstance(checkpoint, dict):
+        raise ValueError("initial checkpoint must be a JSON object")
+    checkpoint_format = checkpoint.get("format")
     if checkpoint_format not in allowed_formats:
         raise ValueError(f"unsupported initial checkpoint format: {checkpoint_format!r}")
     if int(checkpoint.get("input_dim", 0)) != int(input_dim):
@@ -215,9 +322,6 @@ def _load_initial_checkpoint(
             f"got {checkpoint.get('hidden_dim')}"
         )
     checkpoint_feature_set = checkpoint.get("feature_set")
-    expected_feature_set = (
-        features_v2.FEATURE_SET_V2 if arch == "v2" else train_stub.FEATURE_SET
-    )
     if checkpoint_feature_set != expected_feature_set:
         raise ValueError(
             f"initial checkpoint feature_set mismatch: expected {expected_feature_set!r}, "
@@ -236,84 +340,87 @@ def _load_initial_checkpoint(
     if objective_transition and not weights_only:
         raise ValueError("initial checkpoint objective does not match this training run")
 
-    out_width = 2 * hidden_dim if arch == "v2" else hidden_dim
     expected_lengths = {
         "w1": input_dim * hidden_dim,
         "b1": hidden_dim,
         "w2": out_width,
     }
-    values: Dict[str, List[float]] = {}
+    cpu_tensors: Dict[str, torch.Tensor] = {}
     for key, expected_len in expected_lengths.items():
         raw = checkpoint.get(key)
-        if not isinstance(raw, list) or len(raw) != expected_len:
+        if (
+            not isinstance(raw, (list, _np.ndarray if _np is not None else list))
+            or len(raw) != expected_len
+        ):
             raise ValueError(
                 f"initial checkpoint {key} size mismatch: expected {expected_len}"
             )
         try:
-            converted = [float(value) for value in raw]
+            if _np is not None:
+                arr = _np.asarray(raw, dtype=_np.float32)
+                t = torch.from_numpy(arr)
+            else:
+                converted = [float(value) for value in raw]
+                t = torch.tensor(converted, dtype=torch.float32)
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(f"initial checkpoint {key} contains non-numeric values") from exc
-        if not all(math.isfinite(value) for value in converted):
-            raise ValueError(f"initial checkpoint {key} contains non-finite values")
-        values[key] = converted
+        if not bool(torch.isfinite(t).all().item()):
+            raise ValueError(
+                f"initial checkpoint {key} contains non-finite model tensor values"
+            )
+        cpu_tensors[key] = t
+
     try:
         b2 = float(checkpoint["b2"])
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError("initial checkpoint b2 is missing or non-numeric") from exc
     if not math.isfinite(b2):
         raise ValueError("initial checkpoint b2 contains a non-finite value")
-
-    try:
-        w1_tensor = torch.tensor(
-            values["w1"], dtype=model.embed.weight.dtype, device=device
-        )
-        b1_tensor = torch.tensor(values["b1"], dtype=model.b1.dtype, device=device)
-        w2_tensor = torch.tensor(
-            values["w2"], dtype=model.out.weight.dtype, device=device
-        )
-        b2_tensor = torch.tensor([b2], dtype=model.out.bias.dtype, device=device)
-    except (TypeError, ValueError, OverflowError, RuntimeError) as exc:
-        raise ValueError(
-            "initial checkpoint weights cannot be represented as finite model tensors"
-        ) from exc
-    tensors = {
-        "w1": w1_tensor,
-        "b1": b1_tensor,
-        "w2": w2_tensor,
-        "b2": b2_tensor,
-    }
-    for key, tensor in tensors.items():
-        if not bool(torch.isfinite(tensor).all().item()):
-            raise ValueError(
-                f"initial checkpoint {key} contains non-finite model tensor values"
-            )
+    cpu_tensors["b2"] = torch.tensor([b2], dtype=torch.float32)
 
     with torch.no_grad():
         # Serialized w1 is row-major [hidden][input], while EmbeddingBag stores
         # [input][hidden]. The transpose is required for an exact warm start.
         model.embed.weight.copy_(
-            w1_tensor.view(hidden_dim, input_dim).transpose(0, 1)
+            cpu_tensors["w1"].to(device=device, dtype=model.embed.weight.dtype)
+            .view(hidden_dim, input_dim).transpose(0, 1)
         )
-        model.b1.copy_(b1_tensor)
-        model.out.weight.copy_(w2_tensor.view(1, out_width))
-        model.out.bias.copy_(b2_tensor)
+        model.b1.copy_(cpu_tensors["b1"].to(device=device, dtype=model.b1.dtype))
+        model.out.weight.copy_(
+            cpu_tensors["w2"].to(device=device, dtype=model.out.weight.dtype)
+            .view(1, out_width)
+        )
+        model.out.bias.copy_(
+            cpu_tensors["b2"].to(device=device, dtype=model.out.bias.dtype)
+        )
 
     optimizer_state = checkpoint.get("optimizer_state")
     optimizer_state_sha256 = (
         optimizer_state.get("sha256") if isinstance(optimizer_state, dict) else None
     )
 
+    file_sha256 = _sha256_file(path)
+    meta = {
+        "format": checkpoint_format,
+        "input_dim": int(input_dim),
+        "hidden_dim": int(hidden_dim),
+        "feature_set": checkpoint_feature_set,
+        "target_schema": checkpoint_target_schema,
+        "objective": copy.deepcopy(checkpoint_objective),
+        "optimizer_state": copy.deepcopy(optimizer_state) if optimizer_state is not None else None,
+    }
+    _INITIAL_CHECKPOINT_CACHE[cache_key] = (meta, cpu_tensors, file_sha256)
+    while len(_INITIAL_CHECKPOINT_CACHE) > 2:
+        _INITIAL_CHECKPOINT_CACHE.pop(next(iter(_INITIAL_CHECKPOINT_CACHE)))
+
     return {
         "path": path.resolve().as_posix(),
-        "sha256": _sha256_file(path),
+        "sha256": file_sha256,
         "format": str(checkpoint_format),
         "input_dim": int(input_dim),
         "hidden_dim": int(hidden_dim),
         "feature_set": checkpoint_feature_set,
         "target_schema": checkpoint_target_schema,
-        # ``objective`` remains the requested objective as a compatibility
-        # alias. The explicit source/requested fields make transitions
-        # auditable without changing existing provenance consumers.
         "objective": copy.deepcopy(objective),
         "source_objective": copy.deepcopy(checkpoint_objective),
         "requested_objective": copy.deepcopy(objective),
@@ -704,6 +811,119 @@ def _eval_split(
     )
 
 
+def _find_byte_chunks(file_path: Path, n_chunks: int) -> List[Tuple[str, int, int]]:
+    size = file_path.stat().st_size
+    if size == 0 or n_chunks <= 1:
+        return [(str(file_path), 0, size)]
+    chunks: List[Tuple[str, int, int]] = []
+    with file_path.open("rb") as f:
+        prev_end = 0
+        for i in range(1, n_chunks):
+            target = (size * i) // n_chunks
+            f.seek(target)
+            f.readline()
+            end = f.tell()
+            if end > prev_end:
+                chunks.append((str(file_path), prev_end, end))
+                prev_end = end
+        if prev_end < size:
+            chunks.append((str(file_path), prev_end, size))
+    return chunks
+
+
+def _worker_parse_lc0_chunk(
+    args: Tuple[str, int, int, str, float, float, float, float, int, float]
+) -> Tuple[List[Tuple[List[int], List[int]]], List[float], List[float], List[str], List[bool], int, int, int]:
+    (
+        file_path,
+        start_byte,
+        end_byte,
+        loss_kind,
+        target_cp,
+        teacher_mix,
+        max_teacher_cp,
+        outcome_decay,
+        min_teacher_depth,
+        wdl_scale_cp,
+    ) = args
+
+    xs: List[Tuple[List[int], List[int]]] = []
+    ys_cp: List[float] = []
+    ys_wdl: List[float] = []
+    group_ids: List[str] = []
+    teacher_flags: List[bool] = []
+    best_move_count = 0
+    raw_teacher_count = 0
+    teacher_val_count = 0
+
+    with open(file_path, "r", encoding="utf-8") as handle:
+        handle.seek(start_byte)
+        while handle.tell() < end_byte:
+            line = handle.readline()
+            if not line:
+                break
+            if not line.strip():
+                continue
+            try:
+                row = train_stub.json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(row, dict) or not isinstance(row.get("fen"), str):
+                continue
+            record = next(train_stub.jsonl_to_training_samples([row]))
+            train_stub._lc0_probability_for_record(record, teacher_mix)
+            feats = features_v2.stm_ordered(record.fen)
+            cp, prob = train_stub._targets_for_record(
+                record,
+                loss_kind=loss_kind,
+                target_cp=target_cp,
+                teacher_mix=teacher_mix,
+                max_teacher_cp=max_teacher_cp,
+                outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+                wdl_scale_cp=wdl_scale_cp,
+                target_mode="lc0-q-outcome",
+            )
+            if not _fen_stm_is_white(record.fen):
+                cp = -cp
+                prob = 1.0 - prob
+            xs.append(feats)
+            ys_cp.append(cp)
+            ys_wdl.append(prob)
+            group_ids.append(train_stub._validation_group_identity(record))
+            has_teacher = record.best_q is not None
+            teacher_flags.append(has_teacher)
+            if record.best_move:
+                best_move_count += 1
+            if record.best_q is not None:
+                raw_teacher_count += 1
+            if has_teacher:
+                teacher_val_count += 1
+
+    return (
+        xs,
+        ys_cp,
+        ys_wdl,
+        group_ids,
+        teacher_flags,
+        best_move_count,
+        raw_teacher_count,
+        teacher_val_count,
+    )
+
+
+def _get_mp_context():
+    if hasattr(os, "fork") and sys.platform.startswith("linux"):
+        try:
+            return mp.get_context("forkserver")
+        except ValueError:
+            pass
+    return mp.get_context()
+
+
+_FIXED_VALIDATION_CACHE: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+
+
 def train_model(
     *,
     jsonl_dir: Path,
@@ -741,12 +961,22 @@ def train_model(
     arch: str = "v1",
     quant_qa: int = 255,
     quant_qb: int = 64,
+    target_mode: str = "selfplay",
+    checkpoint_selection: str = "best",
+    selected_checkpoint_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, object]:
     if torch is None:
         raise RuntimeError("torch backend requested but torch is not installed")
     arch = str(arch).lower()
     if arch not in {"v1", "v2"}:
         raise ValueError("arch must be v1 or v2")
+    if checkpoint_selection not in {"best", "latest"}:
+        raise ValueError("checkpoint_selection must be best or latest")
+    if selected_checkpoint_sink is not None:
+        if not callable(selected_checkpoint_sink):
+            raise ValueError("selected_checkpoint_sink must be callable")
+        if (arch, target_mode, checkpoint_selection) != ("v2", "lc0-q-outcome", "latest"):
+            raise ValueError("selected_checkpoint_sink requires v2 LC0 latest selection")
     quant_qa = max(1, int(quant_qa))
     quant_qb = max(1, int(quant_qb))
     initial_checkpoint_weights_only = bool(initial_checkpoint_weights_only)
@@ -801,6 +1031,7 @@ def train_model(
         huber_delta_cp=huber_delta_cp,
         wdl_scale_cp=wdl_scale_cp,
         cp_loss_weight=cp_loss_weight,
+        target_mode=target_mode,
     )
     rng = random.Random(seed)
     torch.manual_seed(seed)
@@ -818,52 +1049,122 @@ def train_model(
     best_move_available = 0
     teacher_value_available = 0
     raw_teacher_value_available = 0
-    for feats, record in train_stub.iterate_samples(
-        jsonl_dir,
-        max_samples,
-        seed=seed,
-        primary_sample_fraction=primary_sample_fraction,
-        teacher_sample_fraction=teacher_sample_fraction,
-        min_teacher_depth=min_teacher_depth,
-    ):
-        if arch == "v2":
-            xs.append(features_v2.stm_ordered(record.fen))
-        else:
-            xs.append(feats)
-        validation_group_identities.append(
-            train_stub._validation_group_identity(record)
+    parallel_loaded = False
+    if target_mode == "lc0-q-outcome" and arch == "v2":
+        jsonl_files = train_stub._jsonl_files(Path(jsonl_dir))
+        if len(jsonl_files) == 1:
+            target_file = jsonl_files[0]
+            try:
+                file_size = target_file.stat().st_size
+                n_workers = min(12, os.cpu_count() or 1)
+                if file_size > 1024 * 1024 and n_workers > 1:
+                    chunks = _find_byte_chunks(target_file, n_workers)
+                    worker_args = [
+                        (
+                            c[0],
+                            c[1],
+                            c[2],
+                            loss_kind,
+                            target_cp,
+                            teacher_mix,
+                            max_teacher_cp,
+                            outcome_decay,
+                            min_teacher_depth,
+                            wdl_scale_cp,
+                        )
+                        for c in chunks
+                    ]
+                    ctx = _get_mp_context()
+                    with ctx.Pool(len(chunks)) as pool:
+                        results = pool.map(_worker_parse_lc0_chunk, worker_args)
+
+                    total_count = sum(len(r[0]) for r in results)
+                    if max_samples <= 0 or total_count <= max_samples:
+                        for r in results:
+                            xs.extend(r[0])
+                            ys_cp.extend(r[1])
+                            ys_wdl.extend(r[2])
+                            validation_group_identities.extend(r[3])
+                            validation_teacher_flags.extend(r[4])
+                            best_move_available += r[5]
+                            raw_teacher_value_available += r[6]
+                            teacher_value_available += r[7]
+                        parallel_loaded = True
+                    elif max_samples > 0 and total_count > max_samples:
+                        raise ValueError(
+                            "LCZero chunk exceeds max_samples; split the corpus chunk"
+                        )
+            except ValueError:
+                raise
+            except Exception:
+                xs.clear()
+                ys_cp.clear()
+                ys_wdl.clear()
+                validation_group_identities.clear()
+                validation_teacher_flags.clear()
+                best_move_available = 0
+                raw_teacher_value_available = 0
+                teacher_value_available = 0
+                parallel_loaded = False
+
+    if not parallel_loaded:
+        training_samples = (
+            train_stub.iterate_lc0_samples(
+                jsonl_dir, max_samples, include_legacy_features=arch != "v2")
+            if target_mode == "lc0-q-outcome"
+            else train_stub.iterate_samples(
+                jsonl_dir, max_samples, seed=seed,
+                primary_sample_fraction=primary_sample_fraction,
+                teacher_sample_fraction=teacher_sample_fraction,
+                min_teacher_depth=min_teacher_depth,
+            )
         )
-        validation_teacher_flags.append(
-            train_stub._teacher_available(record, min_teacher_depth)
-        )
-        cp, probability = train_stub._targets_for_record(
-            record,
-            loss_kind=loss_kind,
-            target_cp=target_cp,
-            teacher_mix=teacher_mix,
-            max_teacher_cp=max_teacher_cp,
-            outcome_decay=outcome_decay,
-            min_teacher_depth=min_teacher_depth,
-            wdl_scale_cp=wdl_scale_cp,
-        )
-        if arch == "v2" and not _fen_stm_is_white(record.fen):
-            # Stored labels are white-POV; the v2 network is stm-relative.
-            cp = -cp
-            probability = 1.0 - probability
-        ys_cp.append(cp)
-        ys_wdl.append(probability)
-        if record.best_move:
-            best_move_available += 1
-        if record.value_cp is not None:
-            raw_teacher_value_available += 1
-        if train_stub._teacher_available(record, min_teacher_depth):
-            teacher_value_available += 1
+        for feats, record in training_samples:
+            has_teacher = (
+                record.best_q is not None if target_mode == "lc0-q-outcome"
+                else train_stub._teacher_available(record, min_teacher_depth)
+            )
+            if arch == "v2":
+                xs.append(features_v2.stm_ordered(record.fen))
+            else:
+                xs.append(feats)
+            validation_group_identities.append(
+                train_stub._validation_group_identity(record)
+            )
+            validation_teacher_flags.append(has_teacher)
+            cp, probability = train_stub._targets_for_record(
+                record,
+                loss_kind=loss_kind,
+                target_cp=target_cp,
+                teacher_mix=teacher_mix,
+                max_teacher_cp=max_teacher_cp,
+                outcome_decay=outcome_decay,
+                min_teacher_depth=min_teacher_depth,
+                wdl_scale_cp=wdl_scale_cp,
+                target_mode=target_mode,
+            )
+            if arch == "v2" and not _fen_stm_is_white(record.fen):
+                # Stored labels are white-POV; the v2 network is stm-relative.
+                cp = -cp
+                probability = 1.0 - probability
+            ys_cp.append(cp)
+            ys_wdl.append(probability)
+            if record.best_move:
+                best_move_available += 1
+            if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
+                raw_teacher_value_available += 1
+            if has_teacher:
+                teacher_value_available += 1
     if not xs:
         raise ValueError("no training samples were loaded")
-    requested_teacher_samples = int(round(len(xs) * teacher_sample_fraction))
+    requested_teacher_samples = (
+        len(xs) if target_mode == "lc0-q-outcome"
+        else int(round(len(xs) * teacher_sample_fraction))
+    )
     teacher_sampling_satisfied = teacher_value_available == requested_teacher_samples
     if (
-        max_samples > 0
+        target_mode == "selfplay"
+        and max_samples > 0
         and 0 < teacher_value_available < len(xs)
         and not teacher_sampling_satisfied
     ):
@@ -924,63 +1225,113 @@ def train_model(
     reference_val_y_cp: List[float] = []
     reference_val_y_wdl: List[float] = []
     if fixed_validation:
-        validation_teacher_value_available = 0
-        validation_raw_teacher_value_available = 0
         validation_path = Path(validation_jsonl_dir)  # type: ignore[arg-type]
-        validation_source_before = {
-            "path": validation_path.resolve().as_posix(),
-            "sha256": _sha256_jsonl_source(validation_path),
-            "records": _count_jsonl_source_records(validation_path),
-            "max_samples": max_validation_samples,
-            "seed": validation_seed,
-        }
-        validation_digest = hashlib.sha256()
-        for feats, record in train_stub.iterate_fixed_validation_samples(
-            validation_path,
+        files = [validation_path] if validation_path.is_file() else sorted(validation_path.glob("*.jsonl"))
+        try:
+            stat_sig = tuple((f.name, f.stat().st_size, f.stat().st_mtime_ns) for f in files)
+        except OSError:
+            stat_sig = None
+
+        cache_key = (
+            validation_path.resolve().as_posix(),
+            stat_sig,
             max_validation_samples,
-            seed=validation_seed,
-            min_teacher_depth=min_teacher_depth,
-            require_teacher=validation_require_teacher,
-        ):
-            validation_digest.update(
-                train_stub._record_identity(record).encode("utf-8")
+            validation_seed,
+            validation_require_teacher,
+            arch,
+            target_mode,
+            loss_kind,
+            target_cp,
+            teacher_mix,
+            max_teacher_cp,
+            outcome_decay,
+            min_teacher_depth,
+            wdl_scale_cp,
+        ) if stat_sig is not None else None
+
+        if cache_key is not None and cache_key in _FIXED_VALIDATION_CACHE:
+            cached = _FIXED_VALIDATION_CACHE[cache_key]
+            reference_val_x = cached["reference_val_x"]
+            reference_val_y_cp = cached["reference_val_y_cp"]
+            reference_val_y_wdl = cached["reference_val_y_wdl"]
+            validation_source = copy.deepcopy(cached["validation_source"])
+            validation_sample_sha256 = cached["validation_sample_sha256"]
+            validation_raw_teacher_value_available = cached["validation_raw_teacher_value_available"]
+            validation_teacher_value_available = cached["validation_teacher_value_available"]
+        else:
+            validation_teacher_value_available = 0
+            validation_raw_teacher_value_available = 0
+            validation_source_before = {
+                "path": validation_path.resolve().as_posix(),
+                "sha256": _sha256_jsonl_source(validation_path),
+                "records": _count_jsonl_source_records(validation_path),
+                "max_samples": max_validation_samples,
+                "seed": validation_seed,
+            }
+            validation_digest = hashlib.sha256()
+            reference_samples = (
+                train_stub.iterate_lc0_samples(
+                    validation_path, max_validation_samples,
+                    include_legacy_features=arch != "v2")
+                if target_mode == "lc0-q-outcome"
+                else train_stub.iterate_fixed_validation_samples(
+                    validation_path, max_validation_samples, seed=validation_seed,
+                    min_teacher_depth=min_teacher_depth,
+                    require_teacher=validation_require_teacher,
+                )
             )
-            validation_digest.update(b"\0")
-            if record.value_cp is not None:
-                validation_raw_teacher_value_available += 1
-            if train_stub._teacher_available(record, min_teacher_depth):
-                validation_teacher_value_available += 1
-            if arch == "v2":
-                reference_val_x.append(features_v2.stm_ordered(record.fen))
-            else:
-                reference_val_x.append(feats)
-            cp, probability = train_stub._targets_for_record(
-                record,
-                loss_kind=loss_kind,
-                target_cp=target_cp,
-                teacher_mix=teacher_mix,
-                max_teacher_cp=max_teacher_cp,
-                outcome_decay=outcome_decay,
-                min_teacher_depth=min_teacher_depth,
-                wdl_scale_cp=wdl_scale_cp,
-            )
-            if arch == "v2" and not _fen_stm_is_white(record.fen):
-                cp = -cp
-                probability = 1.0 - probability
-            reference_val_y_cp.append(cp)
-            reference_val_y_wdl.append(probability)
-        if not reference_val_x:
-            raise ValueError("no fixed reference validation samples were loaded")
-        validation_source = {
-            "path": validation_path.resolve().as_posix(),
-            "sha256": _sha256_jsonl_source(validation_path),
-            "records": _count_jsonl_source_records(validation_path),
-            "max_samples": max_validation_samples,
-            "seed": validation_seed,
-        }
-        if validation_source != validation_source_before:
-            raise ValueError("fixed validation source changed while trainer was reading it")
-        validation_sample_sha256 = validation_digest.hexdigest()
+            for feats, record in reference_samples:
+                validation_digest.update(
+                    train_stub._record_identity(record).encode("utf-8")
+                )
+                validation_digest.update(b"\0")
+                if (record.best_q if target_mode == "lc0-q-outcome" else record.value_cp) is not None:
+                    validation_raw_teacher_value_available += 1
+                if (record.best_q is not None if target_mode == "lc0-q-outcome"
+                        else train_stub._teacher_available(record, min_teacher_depth)):
+                    validation_teacher_value_available += 1
+                if arch == "v2":
+                    reference_val_x.append(features_v2.stm_ordered(record.fen))
+                else:
+                    reference_val_x.append(feats)
+                cp, probability = train_stub._targets_for_record(
+                    record,
+                    loss_kind=loss_kind,
+                    target_cp=target_cp,
+                    teacher_mix=teacher_mix,
+                    max_teacher_cp=max_teacher_cp,
+                    outcome_decay=outcome_decay,
+                    min_teacher_depth=min_teacher_depth,
+                    wdl_scale_cp=wdl_scale_cp,
+                    target_mode=target_mode,
+                )
+                if arch == "v2" and not _fen_stm_is_white(record.fen):
+                    cp = -cp
+                    probability = 1.0 - probability
+                reference_val_y_cp.append(cp)
+                reference_val_y_wdl.append(probability)
+            if not reference_val_x:
+                raise ValueError("no fixed reference validation samples were loaded")
+            validation_source = {
+                "path": validation_path.resolve().as_posix(),
+                "sha256": _sha256_jsonl_source(validation_path),
+                "records": _count_jsonl_source_records(validation_path),
+                "max_samples": max_validation_samples,
+                "seed": validation_seed,
+            }
+            if validation_source != validation_source_before:
+                raise ValueError("fixed validation source changed while trainer was reading it")
+            validation_sample_sha256 = validation_digest.hexdigest()
+            if cache_key is not None:
+                _FIXED_VALIDATION_CACHE[cache_key] = {
+                    "reference_val_x": reference_val_x,
+                    "reference_val_y_cp": reference_val_y_cp,
+                    "reference_val_y_wdl": reference_val_y_wdl,
+                    "validation_source": validation_source,
+                    "validation_sample_sha256": validation_sample_sha256,
+                    "validation_raw_teacher_value_available": validation_raw_teacher_value_available,
+                    "validation_teacher_value_available": validation_teacher_value_available,
+                }
     reference_val_count = len(reference_val_x)
 
     if arch == "v2":
@@ -1309,31 +1660,46 @@ def train_model(
                 reference_va_prediction_max_abs
             )
 
-    if best_state is not None:
+    selected_epoch = epochs if checkpoint_selection == "latest" else best_epoch
+    selected_optimizer_state = (
+        _to_cpu_tree(opt.state_dict())
+        if checkpoint_selection == "latest" else best_optimizer_state
+    )
+    if checkpoint_selection == "best" and best_state is not None:
         model.load_state_dict(best_state)
 
-    if best_optimizer_state is None:
-        best_optimizer_state = _to_cpu_tree(opt.state_dict())
+    if selected_optimizer_state is None:
+        selected_optimizer_state = _to_cpu_tree(opt.state_dict())
 
     selected_eval_x = val_x if val_count > 0 else train_x
     selected_eval_cp = val_y_cp if val_count > 0 else train_y_cp
     selected_eval_wdl = val_y_wdl if val_count > 0 else train_y_wdl
+    # In this mode the selected model is the unchanged final-epoch model,
+    # already evaluated on these exact splits with the same LC0 objective.
+    # Keep the legacy evaluation path for every other training mode.
+    reuse_final_evaluation = (
+        arch == "v2" and target_mode == "lc0-q-outcome"
+        and checkpoint_selection == "latest"
+    )
     (
         selected_val_loss,
         selected_val_cp_mse,
         selected_val_acc,
         selected_val_prediction_mean_abs,
         selected_val_prediction_max_abs,
-    ) = _eval_split(
-        model,
-        selected_eval_x,
-        selected_eval_cp,
-        selected_eval_wdl,
-        batch_size,
-        dev,
-        loss_kind=loss_kind,
-        huber_delta_cp=huber_delta_cp,
-        wdl_scale_cp=wdl_scale_cp,
+    ) = (
+        (va_loss, va_cp_mse, va_acc, va_prediction_mean_abs, va_prediction_max_abs)
+        if reuse_final_evaluation else _eval_split(
+            model,
+            selected_eval_x,
+            selected_eval_cp,
+            selected_eval_wdl,
+            batch_size,
+            dev,
+            loss_kind=loss_kind,
+            huber_delta_cp=huber_delta_cp,
+            wdl_scale_cp=wdl_scale_cp,
+        )
     )
     selected_reference_val_loss = None
     selected_reference_val_cp_mse = None
@@ -1347,43 +1713,54 @@ def train_model(
             selected_reference_val_acc,
             selected_reference_val_prediction_mean_abs,
             selected_reference_val_prediction_max_abs,
-        ) = _eval_split(
-            model,
-            reference_val_x,
-            reference_val_y_cp,
-            reference_val_y_wdl,
-            batch_size,
-            dev,
-            loss_kind=loss_kind,
-            huber_delta_cp=huber_delta_cp,
-            wdl_scale_cp=wdl_scale_cp,
+        ) = (
+            (reference_va_loss, reference_va_cp_mse, reference_va_acc,
+             reference_va_prediction_mean_abs, reference_va_prediction_max_abs)
+            if reuse_final_evaluation else _eval_split(
+                model,
+                reference_val_x,
+                reference_val_y_cp,
+                reference_val_y_wdl,
+                batch_size,
+                dev,
+                loss_kind=loss_kind,
+                huber_delta_cp=huber_delta_cp,
+                wdl_scale_cp=wdl_scale_cp,
+            )
         )
-        best_reference_val_loss = selected_reference_val_loss
-        best_reference_val_cp_mse = selected_reference_val_cp_mse
-        best_reference_val_acc = selected_reference_val_acc
-        best_reference_val_prediction_mean_abs = (
-            selected_reference_val_prediction_mean_abs
-        )
-        best_reference_val_prediction_max_abs = (
-            selected_reference_val_prediction_max_abs
-        )
+        if checkpoint_selection == "best":
+            best_reference_val_loss = selected_reference_val_loss
+            best_reference_val_cp_mse = selected_reference_val_cp_mse
+            best_reference_val_acc = selected_reference_val_acc
+            best_reference_val_prediction_mean_abs = selected_reference_val_prediction_mean_abs
+            best_reference_val_prediction_max_abs = selected_reference_val_prediction_max_abs
 
     out_dir.mkdir(parents=True, exist_ok=True)
     optimizer_state = _save_optimizer_state(
-        best_optimizer_state,
+        selected_optimizer_state,
         model,
         out_dir / "optimizer.pt",
         input_dim=input_dim,
         hidden_dim=hidden_dim,
-        best_epoch=best_epoch,
+        best_epoch=selected_epoch,
         objective=objective,
         arch=arch,
     )
     emb = model.embed.weight.detach().cpu()  # [input, hidden]
-    w1 = emb.transpose(0, 1).contiguous().view(-1).tolist()  # row-major [hidden][input]
-    b1 = model.b1.detach().cpu().view(-1).tolist()
-    w2 = model.out.weight.detach().cpu().view(-1).tolist()  # [hidden]
-    b2 = float(model.out.bias.detach().cpu().item())
+    w1_tensor = emb.transpose(0, 1).contiguous().view(-1)  # row-major [hidden][input]
+    b1_tensor = model.b1.detach().cpu().view(-1)
+    w2_tensor = model.out.weight.detach().cpu().view(-1)  # [hidden]
+    b2_val = float(model.out.bias.detach().cpu().item())
+
+    if orjson is not None and _np is not None:
+        w1 = w1_tensor.numpy()
+        b1 = b1_tensor.numpy()
+        w2 = w2_tensor.numpy()
+    else:
+        w1 = w1_tensor.tolist()
+        b1 = b1_tensor.tolist()
+        w2 = w2_tensor.tolist()
+    b2 = b2_val
 
     checkpoint = {
         "format": (
@@ -1412,6 +1789,9 @@ def train_model(
         "seed": seed,
         "epochs": epochs,
         "best_epoch": best_epoch,
+        "selected_epoch": selected_epoch,
+        "checkpoint_selection": checkpoint_selection,
+        "target_mode": target_mode,
         "device": str(dev),
         "initialized_from": initialized_from,
         "initial_checkpoint_weights_only": initial_checkpoint_weights_only,
@@ -1421,12 +1801,19 @@ def train_model(
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
-        "sampling_schema": train_stub.SAMPLING_SCHEMA,
+        "sampling_schema": (
+            "complete-lc0-chunk-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.SAMPLING_SCHEMA
+        ),
         "validation_sampling_schema": train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
         "reference_validation_sampling_schema": (
-            train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            "complete-lc0-fixed-holdout-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
         ),
-        "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
+        "checkpoint_selection_schema": (
+            "latest-complete-epoch-v1" if checkpoint_selection == "latest"
+            else train_stub.CHECKPOINT_SELECTION_SCHEMA
+        ),
         "reference_validation_max_relative_loss_regression": (
             train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
@@ -1470,12 +1857,19 @@ def train_model(
         "min_teacher_depth": min_teacher_depth,
         "primary_sample_fraction": primary_sample_fraction,
         "teacher_sample_fraction": teacher_sample_fraction,
-        "sampling_schema": train_stub.SAMPLING_SCHEMA,
+        "sampling_schema": (
+            "complete-lc0-chunk-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.SAMPLING_SCHEMA
+        ),
         "validation_sampling_schema": train_stub.PRIMARY_VALIDATION_SAMPLING_SCHEMA,
         "reference_validation_sampling_schema": (
-            train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
+            "complete-lc0-fixed-holdout-v1" if target_mode == "lc0-q-outcome"
+            else train_stub.FIXED_VALIDATION_SAMPLING_SCHEMA
         ),
-        "checkpoint_selection_schema": train_stub.CHECKPOINT_SELECTION_SCHEMA,
+        "checkpoint_selection_schema": (
+            "latest-complete-epoch-v1" if checkpoint_selection == "latest"
+            else train_stub.CHECKPOINT_SELECTION_SCHEMA
+        ),
         "reference_validation_max_relative_loss_regression": (
             train_stub.REFERENCE_VALIDATION_MAX_RELATIVE_LOSS_REGRESSION
         ),
@@ -1506,6 +1900,9 @@ def train_model(
             else 0.0
         ),
         "best_epoch": best_epoch,
+        "selected_epoch": selected_epoch,
+        "checkpoint_selection": checkpoint_selection,
+        "target_mode": target_mode,
         "best_val_loss": best_val,
         "selected_val_loss": selected_val_loss,
         "selected_val_cp_mse": selected_val_cp_mse,
@@ -1621,8 +2018,47 @@ def train_model(
         "backend": "torch",
         "device": str(dev),
     }
-    (out_dir / "checkpoint.json").write_text(json.dumps(checkpoint), encoding="utf-8")
-    (out_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    cp_path = out_dir / "checkpoint.json"
+    if orjson is not None and _np is not None:
+        cp_bytes = orjson.dumps(checkpoint, option=orjson.OPT_SERIALIZE_NUMPY)
+        cp_path.write_bytes(cp_bytes)
+        cp_sha256 = hashlib.sha256(cp_bytes).hexdigest()
+    else:
+        cp_text = json.dumps(checkpoint)
+        cp_path.write_text(cp_text, encoding="utf-8")
+        cp_sha256 = hashlib.sha256(cp_text.encode("utf-8")).hexdigest()
+
+    if orjson is not None:
+        (out_dir / "metrics.json").write_bytes(orjson.dumps(metrics))
+    else:
+        (out_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+
+    stat = cp_path.resolve().stat()
+    meta = {
+        "format": checkpoint["format"],
+        "input_dim": checkpoint["input_dim"],
+        "hidden_dim": checkpoint["hidden_dim"],
+        "feature_set": checkpoint["feature_set"],
+        "target_schema": checkpoint["target_schema"],
+        "objective": copy.deepcopy(checkpoint["objective"]),
+        "optimizer_state": copy.deepcopy(checkpoint.get("optimizer_state")) if checkpoint.get("optimizer_state") is not None else None,
+    }
+    tensors = {
+        "w1": w1_tensor.clone(),
+        "b1": b1_tensor.clone(),
+        "w2": w2_tensor.clone(),
+        "b2": torch.tensor([b2_val], dtype=torch.float32, device="cpu"),
+    }
+    _INITIAL_CHECKPOINT_CACHE[(cp_path.resolve().as_posix(), stat.st_mtime_ns, stat.st_size)] = (
+        meta,
+        tensors,
+        cp_sha256,
+    )
+    while len(_INITIAL_CHECKPOINT_CACHE) > 2:
+        _INITIAL_CHECKPOINT_CACHE.pop(next(iter(_INITIAL_CHECKPOINT_CACHE)))
+
+    if selected_checkpoint_sink is not None:
+        selected_checkpoint_sink(checkpoint)
     return metrics
 
 
@@ -1653,6 +2089,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     ap.add_argument("--quant-qa", type=int, default=255)
     ap.add_argument("--quant-qb", type=int, default=64)
+    ap.add_argument("--target-mode", choices=("selfplay", "lc0-q-outcome"), default="selfplay")
+    ap.add_argument("--checkpoint-selection", choices=("best", "latest"), default="best")
     ap.add_argument("--target-cp", type=float, default=100.0)
     ap.add_argument("--teacher-mix", type=float, default=0.7)
     ap.add_argument("--max-teacher-cp", type=float, default=1500.0)
@@ -1687,6 +2125,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         arch=args.arch,
         quant_qa=args.quant_qa,
         quant_qb=args.quant_qb,
+        target_mode=args.target_mode,
+        checkpoint_selection=args.checkpoint_selection,
         target_cp=args.target_cp,
         teacher_mix=args.teacher_mix,
         max_teacher_cp=args.max_teacher_cp,

@@ -165,8 +165,8 @@ fn write_jsonl_shard_contains_ply_value_and_policy_top_for_engine_games() {
 #[test]
 fn selfplay_preserves_opening_start_fen() {
     let opening_fen = "8/8/8/8/8/8/4K3/7k w - - 0 1";
-    let openings_path = std::path::Path::new("target/selfplay_openings_test.txt");
-    std::fs::write(openings_path, format!("{}\n", opening_fen)).unwrap();
+    let openings_path = std::env::temp_dir().join(format!("piebot_selfplay_openings_test_{}.txt", std::process::id()));
+    std::fs::write(&openings_path, format!("{}\n", opening_fen)).unwrap();
 
     let params = SelfPlayParams {
         games: 1,
@@ -200,4 +200,5 @@ fn selfplay_preserves_opening_start_fen() {
     let games = generate_games(&params).expect("selfplay games");
     assert_eq!(games.len(), 1);
     assert_eq!(games[0].start_fen, opening_fen);
+    let _ = std::fs::remove_file(&openings_path);
 }

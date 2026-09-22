@@ -1,0 +1,522 @@
+test_checkpoint_dimensions_accepts_v2_double_width_head (test_arch_v2.ExportV2Tests.test_checkpoint_dimensions_accepts_v2_double_width_head) ... ok
+test_export_rejects_size_mismatches (test_arch_v2.ExportV2Tests.test_export_rejects_size_mismatches) ... ok
+test_export_writes_piennq02_with_correct_header (test_arch_v2.ExportV2Tests.test_export_writes_piennq02_with_correct_header) ... ok
+test_v2_export_passes_arch_aware_artifact_validation (test_arch_v2.ExportV2Tests.test_v2_export_passes_arch_aware_artifact_validation) ... ok
+test_color_symmetry_of_perspective_relative_indices (test_arch_v2.FeaturesV2Tests.test_color_symmetry_of_perspective_relative_indices) ... ok
+test_dimensions_and_bounds (test_arch_v2.FeaturesV2Tests.test_dimensions_and_bounds) ... ok
+test_stm_ordering_flips_for_black (test_arch_v2.FeaturesV2Tests.test_stm_ordering_flips_for_black) ... ok
+test_fresh_accumulator_is_not_wildly_overscaled (test_arch_v2.ScreluFreshInitTests.test_fresh_accumulator_is_not_wildly_overscaled) ... ok
+test_most_hidden_units_start_inside_the_screlu_live_range (test_arch_v2.ScreluFreshInitTests.test_most_hidden_units_start_inside_the_screlu_live_range) ... ok
+test_tiny_v2_training_produces_v2_checkpoint (test_arch_v2.TrainV2Tests.test_tiny_v2_training_produces_v2_checkpoint) ... ok
+test_acceptance_records_incremental_pst_not_vetoed_evidence_status (test_autopilot.AutopilotTests.test_acceptance_records_incremental_pst_not_vetoed_evidence_status) ... ok
+test_active_blend_uses_exact_promoted_blend_for_active_path (test_autopilot.AutopilotTests.test_active_blend_uses_exact_promoted_blend_for_active_path) ... ok
+test_active_model_resolution_fails_closed_on_missing_or_changed_quant (test_autopilot.AutopilotTests.test_active_model_resolution_fails_closed_on_missing_or_changed_quant) ... ok
+test_atomic_training_lineage_reset_clears_warm_start_but_keeps_audit (test_autopilot.AutopilotTests.test_atomic_training_lineage_reset_clears_warm_start_but_keeps_audit) ... ok
+test_blend_percent_ramps_with_number_of_accepted_models (test_autopilot.AutopilotTests.test_blend_percent_ramps_with_number_of_accepted_models) ... ok
+test_bootstrap_reject_keeps_default_engine_active (test_autopilot.AutopilotTests.test_bootstrap_reject_keeps_default_engine_active) ... ok
+test_cli_overrides_map_sprt_gate_knobs (test_autopilot.AutopilotTests.test_cli_overrides_map_sprt_gate_knobs) ... ok
+test_cli_overrides_outcome_target_cp (test_autopilot.AutopilotTests.test_cli_overrides_outcome_target_cp) ... ok
+test_cli_overrides_selfplay_openings_and_teacher_node_cap (test_autopilot.AutopilotTests.test_cli_overrides_selfplay_openings_and_teacher_node_cap) ... ok
+test_cli_overrides_selfplay_temperature_moves (test_autopilot.AutopilotTests.test_cli_overrides_selfplay_temperature_moves) ... ok
+test_cli_overrides_teacher_mix (test_autopilot.AutopilotTests.test_cli_overrides_teacher_mix) ... ok
+test_collect_replay_jsonl_dirs_from_recent_cycles (test_autopilot.AutopilotTests.test_collect_replay_jsonl_dirs_from_recent_cycles) ... ok
+test_control_loop_cli_overrides_profile_values (test_autopilot.AutopilotTests.test_control_loop_cli_overrides_profile_values) ... ok
+test_cross_arch_blend_override_ignored_before_any_active_model (test_autopilot.AutopilotTests.test_cross_arch_blend_override_ignored_before_any_active_model)
+With no active model there is nothing to be diluted against, so the ... ok
+test_cross_architecture_candidate_can_be_gated_at_a_configured_blend (test_autopilot.AutopilotTests.test_cross_architecture_candidate_can_be_gated_at_a_configured_blend)
+A new architecture is otherwise pinned at the ramp's first rung forever. ... ok
+test_cross_lineage_checks_equal_blend_before_conservative_fallback (test_autopilot.AutopilotTests.test_cross_lineage_checks_equal_blend_before_conservative_fallback) ... ok
+test_current_state_schema_does_not_fallback_to_last_summary_when_no_active_model (test_autopilot.AutopilotTests.test_current_state_schema_does_not_fallback_to_last_summary_when_no_active_model) ... ok
+test_cycle_retention_preserves_external_initial_active_after_rejections (test_autopilot.AutopilotTests.test_cycle_retention_preserves_external_initial_active_after_rejections) ... ok
+test_cycle_retention_prunes_old_cycles_and_preserves_accepted_models (test_autopilot.AutopilotTests.test_cycle_retention_prunes_old_cycles_and_preserves_accepted_models) ... ok
+test_cycle_retention_refuses_accepted_quant_outside_cycles (test_autopilot.AutopilotTests.test_cycle_retention_refuses_accepted_quant_outside_cycles) ... ok
+test_cycle_retention_zero_is_noop_and_unsafe_paths_are_refused (test_autopilot.AutopilotTests.test_cycle_retention_zero_is_noop_and_unsafe_paths_are_refused) ... ok
+test_cycle_seed_is_deterministic_but_varies_by_cycle_and_stream (test_autopilot.AutopilotTests.test_cycle_seed_is_deterministic_but_varies_by_cycle_and_stream) ... ok
+test_cycle_uses_previous_quant_for_bootstrap_after_first_accept (test_autopilot.AutopilotTests.test_cycle_uses_previous_quant_for_bootstrap_after_first_accept) ... ok
+test_default_none_external_teacher_keeps_legacy_kwargs_and_state (test_autopilot.AutopilotTests.test_default_none_external_teacher_keeps_legacy_kwargs_and_state) ... ok
+test_different_runtime_identity_restarts_candidate_blend_ramp (test_autopilot.AutopilotTests.test_different_runtime_identity_restarts_candidate_blend_ramp) ... ok
+test_different_target_objective_restarts_same_architecture_blend_ramp (test_autopilot.AutopilotTests.test_different_target_objective_restarts_same_architecture_blend_ramp) ... ok
+test_explicit_initial_checkpoint_bootstraps_first_training_cycle (test_autopilot.AutopilotTests.test_explicit_initial_checkpoint_bootstraps_first_training_cycle) ... ok
+test_explicit_null_training_checkpoint_starts_fresh_lineage (test_autopilot.AutopilotTests.test_explicit_null_training_checkpoint_starts_fresh_lineage) ... ok
+test_external_checkpoint_is_weights_only_once_then_optimizer_continues (test_autopilot.AutopilotTests.test_external_checkpoint_is_weights_only_once_then_optimizer_continues) ... ok
+test_external_teacher_overrides_state_teacher_but_not_actor (test_autopilot.AutopilotTests.test_external_teacher_overrides_state_teacher_but_not_actor) ... ok
+test_external_teacher_resolver_is_fail_closed_and_piebot_lineage_only (test_autopilot.AutopilotTests.test_external_teacher_resolver_is_fail_closed_and_piebot_lineage_only) ... ok
+test_external_teacher_sha256_recorded_in_cycle_record (test_autopilot.AutopilotTests.test_external_teacher_sha256_recorded_in_cycle_record) ... ok
+test_failed_completion_commit_retries_without_duplicate_or_self_parent (test_autopilot.AutopilotTests.test_failed_completion_commit_retries_without_duplicate_or_self_parent) ... ok
+test_gate_parallelism_is_cache_bound_and_change_forces_fresh_gate (test_autopilot.AutopilotTests.test_gate_parallelism_is_cache_bound_and_change_forces_fresh_gate) ... ok
+test_gate_reject_after_accept_keeps_previous_active_model (test_autopilot.AutopilotTests.test_gate_reject_after_accept_keeps_previous_active_model) ... ok
+test_gate_statistics_require_complete_game_level_pairs (test_autopilot.AutopilotTests.test_gate_statistics_require_complete_game_level_pairs) ... ok
+test_gsprt_accepts_historical_promotion_magnitudes_at_defaults (test_autopilot.AutopilotTests.test_gsprt_accepts_historical_promotion_magnitudes_at_defaults) ... ok
+test_gsprt_decision_accepts_strong_positive_pair_deltas (test_autopilot.AutopilotTests.test_gsprt_decision_accepts_strong_positive_pair_deltas) ... ok
+test_gsprt_decision_bounds_are_monotonic_in_alpha_and_beta (test_autopilot.AutopilotTests.test_gsprt_decision_bounds_are_monotonic_in_alpha_and_beta) ... ok
+test_gsprt_decision_guards_zero_variance_with_floor (test_autopilot.AutopilotTests.test_gsprt_decision_guards_zero_variance_with_floor) ... ok
+test_gsprt_decision_rejects_strong_negative_pair_deltas (test_autopilot.AutopilotTests.test_gsprt_decision_rejects_strong_negative_pair_deltas) ... ok
+test_gsprt_decision_requires_minimum_pairs_before_deciding (test_autopilot.AutopilotTests.test_gsprt_decision_requires_minimum_pairs_before_deciding) ... ok
+test_gsprt_mean_zero_evidence_rejects_at_defaults (test_autopilot.AutopilotTests.test_gsprt_mean_zero_evidence_rejects_at_defaults) ... ok
+test_incremental_pst_policy_configuration_is_fail_closed (test_autopilot.AutopilotTests.test_incremental_pst_policy_configuration_is_fail_closed) ... ok
+test_incremental_pst_regression_veto_never_bypasses_relative_confirmation (test_autopilot.AutopilotTests.test_incremental_pst_regression_veto_never_bypasses_relative_confirmation) ... ok
+test_incremental_pst_regression_veto_requires_eligible_absolute_evidence (test_autopilot.AutopilotTests.test_incremental_pst_regression_veto_requires_eligible_absolute_evidence) ... ok
+test_incremental_successor_defaults_to_strict_pst_superiority (test_autopilot.AutopilotTests.test_incremental_successor_defaults_to_strict_pst_superiority) ... ok
+test_incremental_successor_is_vetoed_when_confidently_worse_than_pst (test_autopilot.AutopilotTests.test_incremental_successor_is_vetoed_when_confidently_worse_than_pst) ... ok
+test_incremental_successor_passes_within_configured_pst_regression_margin (test_autopilot.AutopilotTests.test_incremental_successor_passes_within_configured_pst_regression_margin) ... ok
+test_independent_validation_and_external_anchor_metadata_are_bound_by_sha (test_autopilot.AutopilotTests.test_independent_validation_and_external_anchor_metadata_are_bound_by_sha) ... ok
+test_initial_active_model_seeds_cycle_one_selfplay_and_teacher (test_autopilot.AutopilotTests.test_initial_active_model_seeds_cycle_one_selfplay_and_teacher) ... ok
+test_initial_active_model_validation_is_strict_but_not_current_active (test_autopilot.AutopilotTests.test_initial_active_model_validation_is_strict_but_not_current_active) ... ok
+test_legacy_deployment_state_migration_preserves_exact_active_config (test_autopilot.AutopilotTests.test_legacy_deployment_state_migration_preserves_exact_active_config) ... ok
+test_live_restart_marks_run_running_before_launching_next_cycle (test_autopilot.AutopilotTests.test_live_restart_marks_run_running_before_launching_next_cycle) ... autopilot aborting: cycle 2 failed after 1 attempts: stop after observing launch state
+ok
+test_main_applies_explicit_lineage_reset_before_checkpoint_validation (test_autopilot.AutopilotTests.test_main_applies_explicit_lineage_reset_before_checkpoint_validation) ... ok
+test_main_filters_autopilot_only_kwargs_before_run_pipeline (test_autopilot.AutopilotTests.test_main_filters_autopilot_only_kwargs_before_run_pipeline) ... ok
+test_main_passes_control_loop_options_to_run_pipeline (test_autopilot.AutopilotTests.test_main_passes_control_loop_options_to_run_pipeline) ... ok
+test_main_retries_retention_on_restart_before_starting_another_cycle (test_autopilot.AutopilotTests.test_main_retries_retention_on_restart_before_starting_another_cycle) ... ok
+test_main_sprt_gate_flags_flow_into_confirmation_and_identity (test_autopilot.AutopilotTests.test_main_sprt_gate_flags_flow_into_confirmation_and_identity) ... ok
+test_missing_external_teacher_is_hard_error_before_cycle_start (test_autopilot.AutopilotTests.test_missing_external_teacher_is_hard_error_before_cycle_start) ... autopilot refusing external teacher: external teacher model is missing: /var/folders/qt/908md9g12ys3th9sw1ll3x740000gn/T/tmpgxckyuyd/missing-teacher.nnue
+ok
+test_model_gate_cannot_reuse_stale_json_when_runner_writes_nothing (test_autopilot.AutopilotTests.test_model_gate_cannot_reuse_stale_json_when_runner_writes_nothing) ... ok
+test_model_gate_command_has_one_cargo_separator_and_forwards_flags (test_autopilot.AutopilotTests.test_model_gate_command_has_one_cargo_separator_and_forwards_flags) ... ok
+test_model_gate_missing_game_evidence_is_promotion_ineligible (test_autopilot.AutopilotTests.test_model_gate_missing_game_evidence_is_promotion_ineligible) ... ok
+test_model_gate_parallel_games_must_be_positive (test_autopilot.AutopilotTests.test_model_gate_parallel_games_must_be_positive) ... ok
+test_model_gate_rejects_incomplete_runner_json (test_autopilot.AutopilotTests.test_model_gate_rejects_incomplete_runner_json) ... ok
+test_model_gate_rejects_parallelism_evidence_from_another_request (test_autopilot.AutopilotTests.test_model_gate_rejects_parallelism_evidence_from_another_request) ... ok
+test_paired_bootstrap_is_reproducible_and_requires_positive_lower_bound (test_autopilot.AutopilotTests.test_paired_bootstrap_is_reproducible_and_requires_positive_lower_bound) ... ok
+test_paired_model_gate_rejects_odd_game_count_before_launch (test_autopilot.AutopilotTests.test_paired_model_gate_rejects_odd_game_count_before_launch) ... ok
+test_passing_screen_still_requires_confirmation (test_autopilot.AutopilotTests.test_passing_screen_still_requires_confirmation) ... ok
+test_positive_mean_screen_reaches_strict_confirmation_despite_wide_ci (test_autopilot.AutopilotTests.test_positive_mean_screen_reaches_strict_confirmation_despite_wide_ci) ... ok
+test_profile_and_cli_expose_actor_budget_knobs (test_autopilot.AutopilotTests.test_profile_and_cli_expose_actor_budget_knobs) ... ok
+test_profile_and_cli_expose_adjudication_knobs (test_autopilot.AutopilotTests.test_profile_and_cli_expose_adjudication_knobs) ... ok
+test_profile_default_and_cli_override_for_external_teacher_quant (test_autopilot.AutopilotTests.test_profile_default_and_cli_override_for_external_teacher_quant) ... ok
+test_profile_exposes_selfplay_openings_and_teacher_node_cap (test_autopilot.AutopilotTests.test_profile_exposes_selfplay_openings_and_teacher_node_cap) ... ok
+test_profile_has_sprt_gate_knobs_default_off (test_autopilot.AutopilotTests.test_profile_has_sprt_gate_knobs_default_off) ... ok
+test_quant_identity_includes_runtime_dimensions_and_feature_schema (test_autopilot.AutopilotTests.test_quant_identity_includes_runtime_dimensions_and_feature_schema) ... ok
+test_rejected_candidate_warm_starts_the_next_training_cycle (test_autopilot.AutopilotTests.test_rejected_candidate_warm_starts_the_next_training_cycle) ... ok
+test_replay_lineage_floor_excludes_old_data_without_removing_audit_history (test_autopilot.AutopilotTests.test_replay_lineage_floor_excludes_old_data_without_removing_audit_history) ... ok
+test_replay_uses_each_cycles_fresh_jsonl_not_its_prior_merge (test_autopilot.AutopilotTests.test_replay_uses_each_cycles_fresh_jsonl_not_its_prior_merge) ... ok
+test_same_lineage_ramp_failure_falls_back_to_current_blend_and_promotes (test_autopilot.AutopilotTests.test_same_lineage_ramp_failure_falls_back_to_current_blend_and_promotes) ... ok
+test_saturated_active_model_is_not_reaccepted_when_candidate_is_identical (test_autopilot.AutopilotTests.test_saturated_active_model_is_not_reaccepted_when_candidate_is_identical) ... ok
+test_second_accept_increases_blend_ramp_for_later_cycles (test_autopilot.AutopilotTests.test_second_accept_increases_blend_ramp_for_later_cycles) ... ok
+test_select_lock_backend_prefers_msvcrt_when_fcntl_missing (test_autopilot.AutopilotTests.test_select_lock_backend_prefers_msvcrt_when_fcntl_missing) ... ok
+test_single_instance_lock_rejects_second_acquire (test_autopilot.AutopilotTests.test_single_instance_lock_rejects_second_acquire) ... ok
+test_sprt_batch_merge_reindexes_overlapping_indices_for_validation (test_autopilot.AutopilotTests.test_sprt_batch_merge_reindexes_overlapping_indices_for_validation) ... ok
+test_sprt_confirmation_accepts_after_min_pairs_and_merges_batches (test_autopilot.AutopilotTests.test_sprt_confirmation_accepts_after_min_pairs_and_merges_batches) ... ok
+test_sprt_confirmation_inconclusive_at_max_pairs_rejects (test_autopilot.AutopilotTests.test_sprt_confirmation_inconclusive_at_max_pairs_rejects) ... ok
+test_sprt_confirmation_requires_paired_openings (test_autopilot.AutopilotTests.test_sprt_confirmation_requires_paired_openings) ... ok
+test_sprt_disabled_keeps_legacy_confirmation_flow (test_autopilot.AutopilotTests.test_sprt_disabled_keeps_legacy_confirmation_flow) ... ok
+test_sprt_enabled_confirmation_uses_gsprt_driver (test_autopilot.AutopilotTests.test_sprt_enabled_confirmation_uses_gsprt_driver) ... ok
+test_teacher_lag_selects_older_model_and_its_promoted_blend (test_autopilot.AutopilotTests.test_teacher_lag_selects_older_model_and_its_promoted_blend) ... ok
+test_training_checkpoint_resolver_migrates_legacy_state_and_fails_closed (test_autopilot.AutopilotTests.test_training_checkpoint_resolver_migrates_legacy_state_and_fails_closed) ... ok
+test_training_lineage_floor_and_checkpoint_identity_fail_closed (test_autopilot.AutopilotTests.test_training_lineage_floor_and_checkpoint_identity_fail_closed) ... ok
+test_v4_strict_accepted_evidence_migrates_to_v5_superiority (test_autopilot.AutopilotTests.test_v4_strict_accepted_evidence_migrates_to_v5_superiority) ... ok
+test_v5_pst_not_vetoed_evidence_migration_is_idempotent (test_autopilot.AutopilotTests.test_v5_pst_not_vetoed_evidence_migration_is_idempotent) ... ok
+test_validation_partition_migration_cuts_replay_without_resetting_optimizer (test_autopilot.AutopilotTests.test_validation_partition_migration_cuts_replay_without_resetting_optimizer) ... ok
+test_validation_provenance_never_calls_piebot_teacher_data_absolute (test_autopilot.AutopilotTests.test_validation_provenance_never_calls_piebot_teacher_data_absolute) ... ok
+test_zen5_9755_profile_has_expected_relabel_defaults (test_autopilot.AutopilotTests.test_zen5_9755_profile_has_expected_relabel_defaults) ... ok
+test_jsonl_to_training_samples_handles_new_schema (test_dataloader.DataloaderTests.test_jsonl_to_training_samples_handles_new_schema) ... ok
+test_outcome_valid_is_backward_compatible_and_can_be_false (test_dataloader.DataloaderTests.test_outcome_valid_is_backward_compatible_and_can_be_false) ... ok
+test_read_jsonl_dir_reads_files (test_dataloader.DataloaderTests.test_read_jsonl_dir_reads_files) ... ok
+test_teacher_depth_and_ids_are_optional_and_strictly_typed (test_dataloader.DataloaderTests.test_teacher_depth_and_ids_are_optional_and_strictly_typed) ... ok
+test_capacity_already_used_or_exceeded_returns_zero (test_disk_budget.DiskBudgetTests.test_capacity_already_used_or_exceeded_returns_zero) ... ok
+test_capacity_clamps_larger_overlay_free_space (test_disk_budget.DiskBudgetTests.test_capacity_clamps_larger_overlay_free_space) ... ok
+test_decimal_gigabytes_and_disabled_zero (test_disk_budget.DiskBudgetTests.test_decimal_gigabytes_and_disabled_zero) ... ok
+test_decimal_gigabytes_reject_invalid_inputs (test_disk_budget.DiskBudgetTests.test_decimal_gigabytes_reject_invalid_inputs) ... ok
+test_default_matches_actual_filesystem_free_space (test_disk_budget.DiskBudgetTests.test_default_matches_actual_filesystem_free_space) ... ok
+test_default_requires_only_the_existing_free_field (test_disk_budget.DiskBudgetTests.test_default_requires_only_the_existing_free_field) ... ok
+test_each_call_probes_again_and_propagates_filesystem_errors (test_disk_budget.DiskBudgetTests.test_each_call_probes_again_and_propagates_filesystem_errors) ... ok
+test_filesystem_free_space_remains_the_tighter_limit (test_disk_budget.DiskBudgetTests.test_filesystem_free_space_remains_the_tighter_limit) ... ok
+test_invalid_capacities_fail_before_filesystem_access (test_disk_budget.DiskBudgetTests.test_invalid_capacities_fail_before_filesystem_access) ... ok
+test_filters_suffix_and_threshold (test_fetch_bins.ChooseRecentFilesTests.test_filters_suffix_and_threshold) ... ok
+test_limit_is_respected (test_fetch_bins.ChooseRecentFilesTests.test_limit_is_respected) ... ok
+test_download_rejects_truncated_content_length (test_fetch_bins.DownloadTests.test_download_rejects_truncated_content_length) ... ok
+test_interrupted_download_cleans_part_and_preserves_destination (test_fetch_bins.DownloadTests.test_interrupted_download_cleans_part_and_preserves_destination) ... ok
+test_atomic_manifest_write_preserves_previous_file_on_failure (test_fetch_bins.ManifestTests.test_atomic_manifest_write_preserves_previous_file_on_failure) ... ok
+test_main_returns_failure_and_records_listing_error (test_fetch_bins.ManifestTests.test_main_returns_failure_and_records_listing_error) ... No BIN downloads started; see manifest failures.
+ok
+test_main_returns_failure_and_updates_manifest_for_download_error (test_fetch_bins.ManifestTests.test_main_returns_failure_and_updates_manifest_for_download_error) ... download failed for https://example.com/sample.bin: network lost
+ok
+test_plan_downloads_records_metadata_lookup_failures (test_fetch_bins.ManifestTests.test_plan_downloads_records_metadata_lookup_failures) ... ok
+test_plan_downloads_skips_existing (test_fetch_bins.ManifestTests.test_plan_downloads_skips_existing) ... ok
+test_aliased_manifest_is_rejected_before_any_receipt_exists (test_fetch_lc0_eviction.FetchEvictionTests.test_aliased_manifest_is_rejected_before_any_receipt_exists) ... ok
+test_corrupt_derived_chunk_refuses_even_if_raw_is_present (test_fetch_lc0_eviction.FetchEvictionTests.test_corrupt_derived_chunk_refuses_even_if_raw_is_present) ... ok
+test_corrupt_receipt_is_checked_even_when_raw_is_present (test_fetch_lc0_eviction.FetchEvictionTests.test_corrupt_receipt_is_checked_even_when_raw_is_present) ... ok
+test_default_mode_still_redownloads_missing_raw (test_fetch_lc0_eviction.FetchEvictionTests.test_default_mode_still_redownloads_missing_raw) ... ok
+test_download_capacity_counts_existing_usage_and_keeps_reserve (test_fetch_lc0_eviction.FetchEvictionTests.test_download_capacity_counts_existing_usage_and_keeps_reserve) ... ok
+test_evicted_archive_is_verified_without_manifest_rewrite_or_download (test_fetch_lc0_eviction.FetchEvictionTests.test_evicted_archive_is_verified_without_manifest_rewrite_or_download) ... ok
+test_eviction_flag_is_snapshot_only (test_fetch_lc0_eviction.FetchEvictionTests.test_eviction_flag_is_snapshot_only) ... ok
+test_fetch_respects_exclusive_preparation_lock (test_fetch_lc0_eviction.FetchEvictionTests.test_fetch_respects_exclusive_preparation_lock) ... ok
+test_initialized_corpus_missing_raw_without_receipt_fails_closed (test_fetch_lc0_eviction.FetchEvictionTests.test_initialized_corpus_missing_raw_without_receipt_fails_closed) ... ok
+test_invalid_api_capacity_fails_before_manifest_write_even_if_cached (test_fetch_lc0_eviction.FetchEvictionTests.test_invalid_api_capacity_fails_before_manifest_write_even_if_cached) ... ok
+test_invalid_cli_capacity_fails_before_any_manifest_write (test_fetch_lc0_eviction.FetchEvictionTests.test_invalid_cli_capacity_fails_before_any_manifest_write) ... ok
+test_main_aliased_manifest_is_rejected_before_reading_or_rewriting (test_fetch_lc0_eviction.FetchEvictionTests.test_main_aliased_manifest_is_rejected_before_reading_or_rewriting) ... ok
+test_main_missing_manifest_with_corpus_evidence_cannot_discover_or_write (test_fetch_lc0_eviction.FetchEvictionTests.test_main_missing_manifest_with_corpus_evidence_cannot_discover_or_write) ... ok
+test_main_receipt_resume_preserves_original_manifest_bytes (test_fetch_lc0_eviction.FetchEvictionTests.test_main_receipt_resume_preserves_original_manifest_bytes) ... ok
+test_main_wires_decimal_capacity_and_explicit_raw_root (test_fetch_lc0_eviction.FetchEvictionTests.test_main_wires_decimal_capacity_and_explicit_raw_root) ... ok
+test_missing_dedup_database_cannot_trigger_redownload (test_fetch_lc0_eviction.FetchEvictionTests.test_missing_dedup_database_cannot_trigger_redownload) ... ok
+test_opt_in_initial_download_before_corpus_initialization_is_ordinary (test_fetch_lc0_eviction.FetchEvictionTests.test_opt_in_initial_download_before_corpus_initialization_is_ordinary) ... ok
+test_opt_in_requires_explicit_raw_root (test_fetch_lc0_eviction.FetchEvictionTests.test_opt_in_requires_explicit_raw_root) ... ok
+test_positive_capacity_flag_cannot_be_silently_ignored_in_legacy_mode (test_fetch_lc0_eviction.FetchEvictionTests.test_positive_capacity_flag_cannot_be_silently_ignored_in_legacy_mode) ... ok
+test_prepared_present_archive_without_receipt_preserves_frozen_bytes (test_fetch_lc0_eviction.FetchEvictionTests.test_prepared_present_archive_without_receipt_preserves_frozen_bytes) ... ok
+test_present_raw_checksum_is_checked_and_failure_preserves_manifest (test_fetch_lc0_eviction.FetchEvictionTests.test_present_raw_checksum_is_checked_and_failure_preserves_manifest) ... ok
+test_present_symlink_without_receipt_fails_closed (test_fetch_lc0_eviction.FetchEvictionTests.test_present_symlink_without_receipt_fails_closed) ... ok
+test_verified_present_archive_and_receipt_are_never_deleted_by_fetch (test_fetch_lc0_eviction.FetchEvictionTests.test_verified_present_archive_and_receipt_are_never_deleted_by_fetch) ... ok
+test_curl_checksum_mismatch_does_not_publish (test_fetch_lc0_snapshot.SnapshotTests.test_curl_checksum_mismatch_does_not_publish) ... ok
+test_curl_failure_preserves_existing_and_removes_partial (test_fetch_lc0_snapshot.SnapshotTests.test_curl_failure_preserves_existing_and_removes_partial) ... ok
+test_dated_tar_inventory_includes_boundaries_and_records_size (test_fetch_lc0_snapshot.SnapshotTests.test_dated_tar_inventory_includes_boundaries_and_records_size) ... ok
+test_snapshot_resume_verifies_sha_and_reuses_frozen_inventory (test_fetch_lc0_snapshot.SnapshotTests.test_snapshot_resume_verifies_sha_and_reuses_frozen_inventory) ... ok
+test_atomic_manifest_write_preserves_previous_file_on_failure (test_fetch_pgns.FetchPgnTests.test_atomic_manifest_write_preserves_previous_file_on_failure) ... ok
+test_download_rejects_truncated_content_length (test_fetch_pgns.FetchPgnTests.test_download_rejects_truncated_content_length) ... ok
+test_interrupted_download_cleans_part_and_preserves_destination (test_fetch_pgns.FetchPgnTests.test_interrupted_download_cleans_part_and_preserves_destination) ... ok
+test_main_returns_failure_and_records_listing_error (test_fetch_pgns.FetchPgnTests.test_main_returns_failure_and_records_listing_error) ... list_dir failed for https://storage.lczero.org/files/training_pgns/broken/: listing unavailable
+ok
+test_main_returns_failure_and_updates_manifest_for_download_error (test_fetch_pgns.FetchPgnTests.test_main_returns_failure_and_updates_manifest_for_download_error) ... download failed: network lost
+ok
+test_zero_byte_and_part_files_are_not_complete (test_fetch_pgns.FetchPgnTests.test_zero_byte_and_part_files_are_not_complete) ... ok
+test_archive_and_chunk_paths_must_belong_to_committed_namespace (test_lc0_archive_receipts.ArchiveReceiptTests.test_archive_and_chunk_paths_must_belong_to_committed_namespace) ... ok
+test_changed_raw_checksum_is_retained (test_lc0_archive_receipts.ArchiveReceiptTests.test_changed_raw_checksum_is_retained) ... ok
+test_derived_drift_after_publication_prevents_unlink_and_resume (test_lc0_archive_receipts.ArchiveReceiptTests.test_derived_drift_after_publication_prevents_unlink_and_resume) ... ok
+test_empty_committed_archive_can_be_evicted_with_metadata_preserved (test_lc0_archive_receipts.ArchiveReceiptTests.test_empty_committed_archive_can_be_evicted_with_metadata_preserved) ... ok
+test_exclusive_existing_prepare_lock_prevents_two_owners (test_lc0_archive_receipts.ArchiveReceiptTests.test_exclusive_existing_prepare_lock_prevents_two_owners) ... ok
+test_fsync_or_receipt_publication_failure_keeps_raw (test_lc0_archive_receipts.ArchiveReceiptTests.test_fsync_or_receipt_publication_failure_keeps_raw) ... ok
+test_interrupted_receipt_write_preserves_raw_without_publishing (test_lc0_archive_receipts.ArchiveReceiptTests.test_interrupted_receipt_write_preserves_raw_without_publishing) ... ok
+test_inventory_path_escape_and_part_file_are_never_deleted (test_lc0_archive_receipts.ArchiveReceiptTests.test_inventory_path_escape_and_part_file_are_never_deleted) ... ok
+test_methods_require_context_lock (test_lc0_archive_receipts.ArchiveReceiptTests.test_methods_require_context_lock) ... ok
+test_missing_or_corrupt_derived_files_fail_closed (test_lc0_archive_receipts.ArchiveReceiptTests.test_missing_or_corrupt_derived_files_fail_closed) ... ok
+test_missing_raw_without_receipt_is_not_retroactively_certified (test_lc0_archive_receipts.ArchiveReceiptTests.test_missing_raw_without_receipt_is_not_retroactively_certified) ... ok
+test_post_unlink_directory_fsync_failure_reports_actual_deletion (test_lc0_archive_receipts.ArchiveReceiptTests.test_post_unlink_directory_fsync_failure_reports_actual_deletion) ... ok
+test_publication_directory_fsync_failure_keeps_raw_and_resumes (test_lc0_archive_receipts.ArchiveReceiptTests.test_publication_directory_fsync_failure_keeps_raw_and_resumes) ... ok
+test_raw_replacement_after_receipt_publication_is_not_deleted (test_lc0_archive_receipts.ArchiveReceiptTests.test_raw_replacement_after_receipt_publication_is_not_deleted) ... ok
+test_receipt_and_derived_durability_precede_unlink (test_lc0_archive_receipts.ArchiveReceiptTests.test_receipt_and_derived_durability_precede_unlink) ... ok
+test_receipt_is_rechecked_against_current_manifest_identity_row_and_chunks (test_lc0_archive_receipts.ArchiveReceiptTests.test_receipt_is_rechecked_against_current_manifest_identity_row_and_chunks) ... ok
+test_receipt_survives_failed_unlink_and_can_resume (test_lc0_archive_receipts.ArchiveReceiptTests.test_receipt_survives_failed_unlink_and_can_resume) ... ok
+test_regular_files_and_ancestors_cannot_be_symlinks (test_lc0_archive_receipts.ArchiveReceiptTests.test_regular_files_and_ancestors_cannot_be_symlinks) ... ok
+test_resume_is_idempotent_and_does_not_open_deleted_raw (test_lc0_archive_receipts.ArchiveReceiptTests.test_resume_is_idempotent_and_does_not_open_deleted_raw) ... ok
+test_short_writes_publish_complete_receipt (test_lc0_archive_receipts.ArchiveReceiptTests.test_short_writes_publish_complete_receipt) ... ok
+test_uncommitted_archive_row_cannot_authorize_deletion (test_lc0_archive_receipts.ArchiveReceiptTests.test_uncommitted_archive_row_cannot_authorize_deletion) ... ok
+test_verified_eviction_preserves_manifest_database_and_derived_bytes (test_lc0_archive_receipts.ArchiveReceiptTests.test_verified_eviction_preserves_manifest_database_and_derived_bytes) ... ok
+test_wal_database_is_rejected_without_deletion (test_lc0_archive_receipts.ArchiveReceiptTests.test_wal_database_is_rejected_without_deletion) ... ok
+test_capacity_is_decimal_disabled_by_default_and_immutable_on_resume (test_lc0_autopilot.LC0CampaignTests.test_capacity_is_decimal_disabled_by_default_and_immutable_on_resume) ... Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 4
+Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 3
+Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 1
+Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 2
+Autopilot finished. Completed cycles: 5
+Autopilot finished. Completed cycles: 3
+wrote manifest /var/folders/qt/908md9g12ys3th9sw1ll3x740000gn/T/tmpdmab4ly6/manifest.json
+wrote manifest /var/folders/qt/908md9g12ys3th9sw1ll3x740000gn/T/tmpo4ik5ddy/manifest.json
+wrote manifest /var/folders/qt/908md9g12ys3th9sw1ll3x740000gn/T/tmpeyx8__lz/manifest.json
+wrote manifest /var/folders/qt/908md9g12ys3th9sw1ll3x740000gn/T/tmp7fzzjiwf/manifest.json
+{"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+ok
+test_changed_corpus_manifest_or_bootstrap_refuses_resume (test_lc0_autopilot.LC0CampaignTests.test_changed_corpus_manifest_or_bootstrap_refuses_resume) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+ok
+test_committed_checkpoint_corruption_refuses_resume (test_lc0_autopilot.LC0CampaignTests.test_committed_checkpoint_corruption_refuses_resume) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+ok
+test_complete_chunk_manifest_recovers_after_state_write_failure (test_lc0_autopilot.LC0CampaignTests.test_complete_chunk_manifest_recovers_after_state_write_failure) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+ok
+test_corrupt_chunk_and_incomplete_corpus_rejected (test_lc0_autopilot.LC0CampaignTests.test_corrupt_chunk_and_incomplete_corpus_rejected) ... ok
+test_deadline_stops_before_next_chunk_and_stays_finished_on_restart (test_lc0_autopilot.LC0CampaignTests.test_deadline_stops_before_next_chunk_and_stays_finished_on_restart) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+LC0 campaign has completed its fixed training budget.
+ok
+test_default_30_day_budget_sets_one_immutable_deadline (test_lc0_autopilot.LC0CampaignTests.test_default_30_day_budget_sets_one_immutable_deadline) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 1, "pass_number": 0, "cursor": 1, "chunk_index": 1, "chunk_sha256": "d125a99903e2a7bbb81aa7d0b325b2683e8490ffcc06ffe293c6dd1e44770ba4", "seed": 3397082525919075757}
+{"event": "lc0-chunk-complete", "completed_chunks": 2, "pass_number": 0, "validation_loss": 0.602, "best_validation_loss": 0.601}
+ok
+test_default_parallel_gate_uses_eight_single_thread_games (test_lc0_autopilot.LC0CampaignTests.test_default_parallel_gate_uses_eight_single_thread_games) ... ok
+test_disabled_gate_never_promotes (test_lc0_autopilot.LC0CampaignTests.test_disabled_gate_never_promotes) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 1, "pass_number": 0, "cursor": 1, "chunk_index": 1, "chunk_sha256": "d125a99903e2a7bbb81aa7d0b325b2683e8490ffcc06ffe293c6dd1e44770ba4", "seed": 3397082525919075757}
+{"event": "lc0-chunk-complete", "completed_chunks": 2, "pass_number": 0, "validation_loss": 0.602, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 2, "pass_number": 0, "cursor": 2, "chunk_index": 0, "chunk_sha256": "2dd4e81eca7e0c8136b0e78be0d946515e0f10f4036b0c9c116fa03369feb4e9", "seed": 4399533590959959937}
+{"event": "lc0-chunk-complete", "completed_chunks": 3, "pass_number": 1, "validation_loss": 0.603, "best_validation_loss": 0.601}
+ok
+test_disk_ceiling_rechecked_after_chunk_expansion (test_lc0_autopilot.LC0CampaignTests.test_disk_ceiling_rechecked_after_chunk_expansion) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+ok
+test_disk_ceiling_stops_before_training_even_with_filesystem_space (test_lc0_autopilot.LC0CampaignTests.test_disk_ceiling_stops_before_training_even_with_filesystem_space) ... ok
+test_disk_pressure_evicts_only_reproducible_training_cache (test_lc0_autopilot.LC0CampaignTests.test_disk_pressure_evicts_only_reproducible_training_cache) ... ok
+test_first_chunk_new_optimizer_next_chunk_restores_latest (test_lc0_autopilot.LC0CampaignTests.test_first_chunk_new_optimizer_next_chunk_restores_latest) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 1, "pass_number": 0, "cursor": 1, "chunk_index": 1, "chunk_sha256": "d125a99903e2a7bbb81aa7d0b325b2683e8490ffcc06ffe293c6dd1e44770ba4", "seed": 3397082525919075757}
+{"event": "lc0-chunk-complete", "completed_chunks": 2, "pass_number": 0, "validation_loss": 0.602, "best_validation_loss": 0.601}
+ok
+test_gate_failure_does_not_retrain_completed_chunk (test_lc0_autopilot.LC0CampaignTests.test_gate_failure_does_not_retrain_completed_chunk) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 1, "pass_number": 0, "cursor": 1, "chunk_index": 1, "chunk_sha256": "d125a99903e2a7bbb81aa7d0b325b2683e8490ffcc06ffe293c6dd1e44770ba4", "seed": 3397082525919075757}
+{"event": "lc0-chunk-complete", "completed_chunks": 2, "pass_number": 0, "validation_loss": 0.602, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 2, "pass_number": 0, "cursor": 2, "chunk_index": 0, "chunk_sha256": "2dd4e81eca7e0c8136b0e78be0d946515e0f10f4036b0c9c116fa03369feb4e9", "seed": 4399533590959959937}
+{"event": "lc0-chunk-complete", "completed_chunks": 3, "pass_number": 1, "validation_loss": 0.603, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 3, "pass_number": 1, "cursor": 0, "chunk_index": 0, "chunk_sha256": "2dd4e81eca7e0c8136b0e78be0d946515e0f10f4036b0c9c116fa03369feb4e9", "seed": 2747027438285601675}
+{"event": "lc0-chunk-complete", "completed_chunks": 4, "pass_number": 1, "validation_loss": 0.604, "best_validation_loss": 0.601}
+ok
+test_gate_reuses_confirmed_same_search_policy (test_lc0_autopilot.LC0CampaignTests.test_gate_reuses_confirmed_same_search_policy) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 1, "pass_number": 0, "cursor": 1, "chunk_index": 1, "chunk_sha256": "d125a99903e2a7bbb81aa7d0b325b2683e8490ffcc06ffe293c6dd1e44770ba4", "seed": 3397082525919075757}
+{"event": "lc0-chunk-complete", "completed_chunks": 2, "pass_number": 0, "validation_loss": 0.602, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 2, "pass_number": 0, "cursor": 2, "chunk_index": 0, "chunk_sha256": "2dd4e81eca7e0c8136b0e78be0d946515e0f10f4036b0c9c116fa03369feb4e9", "seed": 4399533590959959937}
+{"event": "lc0-chunk-complete", "completed_chunks": 3, "pass_number": 1, "validation_loss": 0.603, "best_validation_loss": 0.601}
+ok
+test_invalid_capacity_rejected_before_state_creation (test_lc0_autopilot.LC0CampaignTests.test_invalid_capacity_rejected_before_state_creation) ... ok
+test_pass_visits_every_chunk_once_before_repeat_and_retains_best (test_lc0_autopilot.LC0CampaignTests.test_pass_visits_every_chunk_once_before_repeat_and_retains_best) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 1, "pass_number": 0, "cursor": 1, "chunk_index": 1, "chunk_sha256": "d125a99903e2a7bbb81aa7d0b325b2683e8490ffcc06ffe293c6dd1e44770ba4", "seed": 3397082525919075757}
+{"event": "lc0-chunk-complete", "completed_chunks": 2, "pass_number": 0, "validation_loss": 0.602, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 2, "pass_number": 0, "cursor": 2, "chunk_index": 0, "chunk_sha256": "2dd4e81eca7e0c8136b0e78be0d946515e0f10f4036b0c9c116fa03369feb4e9", "seed": 4399533590959959937}
+{"event": "lc0-chunk-complete", "completed_chunks": 3, "pass_number": 1, "validation_loss": 0.603, "best_validation_loss": 0.601}
+{"event": "lc0-chunk-start", "number": 3, "pass_number": 1, "cursor": 0, "chunk_index": 0, "chunk_sha256": "2dd4e81eca7e0c8136b0e78be0d946515e0f10f4036b0c9c116fa03369feb4e9", "seed": 2747027438285601675}
+{"event": "lc0-chunk-complete", "completed_chunks": 4, "pass_number": 1, "validation_loss": 0.604, "best_validation_loss": 0.601}
+ok
+test_single_instance_lock (test_lc0_autopilot.LC0CampaignTests.test_single_instance_lock) ... ok
+test_starting_weights_remain_validation_best_when_first_chunk_regresses (test_lc0_autopilot.LC0CampaignTests.test_starting_weights_remain_validation_best_when_first_chunk_regresses) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.8, "best_validation_loss": 0.7}
+ok
+test_unfinished_chunk_replayed_after_crash (test_lc0_autopilot.LC0CampaignTests.test_unfinished_chunk_replayed_after_crash) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+ok
+test_validation_copy_is_fixed_and_not_training_directory (test_lc0_autopilot.LC0CampaignTests.test_validation_copy_is_fixed_and_not_training_directory) ... {"event": "lc0-chunk-start", "number": 0, "pass_number": 0, "cursor": 0, "chunk_index": 2, "chunk_sha256": "9ad203cdf0bd127511104e0aab386d2d38d228f9d5752c41ca99a87c4e3e5199", "seed": 12479097054601161336}
+{"event": "lc0-chunk-complete", "completed_chunks": 1, "pass_number": 0, "validation_loss": 0.601, "best_validation_loss": 0.601}
+ok
+test_move_from_nn_index_identity (test_lc0_bin.MoveDecodingTests.test_move_from_nn_index_identity) ... ok
+test_move_from_nn_index_transform (test_lc0_bin.MoveDecodingTests.test_move_from_nn_index_transform) ... ok
+test_round_trip (test_lc0_bin.ParseRecordTests.test_round_trip) ... ok
+test_decode_planes_restores_mask (test_lc0_bin.PlaneDecodingTests.test_decode_planes_restores_mask) ... ok
+test_extract_top_moves (test_lc0_bin.PolicyExtractionTests.test_extract_top_moves) ... ok
+test_canonical_black_sample_restores_absolute_board_move_and_value (test_lc0_bin.SampleTests.test_canonical_black_sample_restores_absolute_board_move_and_value) ... ok
+test_canonical_white_sample_uses_absolute_white_perspective (test_lc0_bin.SampleTests.test_canonical_white_sample_uses_absolute_white_perspective) ... ok
+test_record_to_sample_fen (test_lc0_bin.SampleTests.test_record_to_sample_fen) ... ok
+test_unresolved_or_deleted_lc0_records_are_not_valid_outcomes (test_lc0_bin.SampleTests.test_unresolved_or_deleted_lc0_records_are_not_valid_outcomes) ... ok
+test_checksum_mismatch_fails_before_decoding (test_lc0_corpus.CorpusTests.test_checksum_mismatch_fails_before_decoding) ... ok
+test_empty_archive_is_classified_by_inspection (test_lc0_corpus.CorpusTests.test_empty_archive_is_classified_by_inspection) ... corpus archive 1/2: {'games': 0, 'holdout_games': 0, 'training_positions': 0, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 0, 'empty_archives': 1}
+corpus archive 2/2: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 1, 'empty_archives': 0}
+ok
+test_hash_holdout_is_game_level_and_global_sample_is_fixed (test_lc0_corpus.CorpusTests.test_hash_holdout_is_game_level_and_global_sample_is_fixed) ... corpus archive 1/2: {'games': 20, 'holdout_games': 11, 'training_positions': 27, 'holdout_positions': 33, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 20, 'empty_archives': 0}
+corpus archive 2/2: {'games': 20, 'holdout_games': 5, 'training_positions': 45, 'holdout_positions': 15, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 20, 'empty_archives': 0}
+ok
+test_invalid_records_and_deletion_are_dropped (test_lc0_corpus.CorpusTests.test_invalid_records_and_deletion_are_dropped) ... corpus archive 1/1: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 2, 'game_members': 1, 'empty_archives': 0}
+ok
+test_member_dates_real_names_dedup_chunks_and_white_labels (test_lc0_corpus.CorpusTests.test_member_dates_real_names_dedup_chunks_and_white_labels) ... corpus archive 1/2: {'games': 1, 'holdout_games': 0, 'training_positions': 3, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 2, 'rejected_records': 0, 'game_members': 3, 'empty_archives': 0}
+corpus archive 2/2: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 1, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 2, 'empty_archives': 0}
+ok
+test_parallel_game_conversion_matches_sequential_order_and_split (test_lc0_corpus.CorpusTests.test_parallel_game_conversion_matches_sequential_order_and_split) ... corpus archive 1/1: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 1/1: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_renamed_alias_with_changed_contents_fails_and_rolls_back (test_lc0_corpus.CorpusTests.test_renamed_alias_with_changed_contents_fails_and_rolls_back) ... corpus archive 1/3: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 1, 'empty_archives': 0}
+corpus archive 2/3: {'games': 0, 'holdout_games': 0, 'training_positions': 0, 'holdout_positions': 0, 'duplicate_games': 1, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 1, 'empty_archives': 0}
+ok
+test_repacked_same_game_dedups_and_split_ignores_source_name (test_lc0_corpus.CorpusTests.test_repacked_same_game_dedups_and_split_ignores_source_name) ... corpus archive 1/2: {'games': 40, 'holdout_games': 16, 'training_positions': 72, 'holdout_positions': 48, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 40, 'empty_archives': 0}
+corpus archive 2/2: {'games': 0, 'holdout_games': 0, 'training_positions': 0, 'holdout_positions': 0, 'duplicate_games': 40, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 40, 'empty_archives': 0}
+corpus archive 1/2: {'games': 40, 'holdout_games': 16, 'training_positions': 72, 'holdout_positions': 48, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 40, 'empty_archives': 0}
+corpus archive 2/2: {'games': 0, 'holdout_games': 0, 'training_positions': 0, 'holdout_positions': 0, 'duplicate_games': 40, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 40, 'empty_archives': 0}
+ok
+test_requested_validation_rejects_empty_holdout (test_lc0_corpus.CorpusTests.test_requested_validation_rejects_empty_holdout) ... corpus archive 1/1: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 1, 'empty_archives': 0}
+ok
+test_reserve_prevents_any_archive_transaction (test_lc0_corpus.CorpusTests.test_reserve_prevents_any_archive_transaction) ... ok
+test_resume_refuses_changed_configuration (test_lc0_corpus.CorpusTests.test_resume_refuses_changed_configuration) ... corpus archive 1/1: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 1, 'empty_archives': 0}
+ok
+test_resume_rejects_changed_training_cache (test_lc0_corpus.CorpusTests.test_resume_rejects_changed_training_cache) ... corpus archive 1/1: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 1, 'empty_archives': 0}
+ok
+test_truncated_game_rolls_back_and_staged_retry_is_clean (test_lc0_corpus.CorpusTests.test_truncated_game_rolls_back_and_staged_retry_is_clean) ... ok
+test_unsupported_variant_fails (test_lc0_corpus.CorpusTests.test_unsupported_variant_fails) ... ok
+test_value_only_reader_matches_full_decoder_without_policy (test_lc0_corpus.CorpusTests.test_value_only_reader_matches_full_decoder_without_policy) ... ok
+test_wrong_version_fails_and_archive_retry_does_not_duplicate (test_lc0_corpus.CorpusTests.test_wrong_version_fails_and_archive_retry_does_not_duplicate) ... corpus archive 1/2: {'games': 1, 'holdout_games': 0, 'training_positions': 1, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 1, 'empty_archives': 0}
+ok
+test_capacity_ceiling_stops_preparation_with_raw_preserved (test_lc0_corpus_eviction.CorpusEvictionTests.test_capacity_ceiling_stops_preparation_with_raw_preserved) ... ok
+test_compressed_chunk_writer_checks_capacity_on_chunk_boundaries (test_lc0_corpus_eviction.CorpusEvictionTests.test_compressed_chunk_writer_checks_capacity_on_chunk_boundaries) ... ok
+test_crash_after_archive_commit_resumes_without_reconversion (test_lc0_corpus_eviction.CorpusEvictionTests.test_crash_after_archive_commit_resumes_without_reconversion) ... corpus archive 2/2: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_default_retains_raw_and_opt_in_preserves_exact_committed_corpus (test_lc0_corpus_eviction.CorpusEvictionTests.test_default_retains_raw_and_opt_in_preserves_exact_committed_corpus) ... corpus archive 1/2: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 2/2: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_derived_directory_is_durable_before_database_commit (test_lc0_corpus_eviction.CorpusEvictionTests.test_derived_directory_is_durable_before_database_commit) ... corpus archive 1/2: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 2/2: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_each_archive_is_evicted_before_next_conversion_with_identical_targets (test_lc0_corpus_eviction.CorpusEvictionTests.test_each_archive_is_evicted_before_next_conversion_with_identical_targets) ... corpus archive 1/2: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 2/2: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 1/2: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 2/2: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_empty_archive_is_committed_and_evicted_without_losing_other_games (test_lc0_corpus_eviction.CorpusEvictionTests.test_empty_archive_is_committed_and_evicted_without_losing_other_games) ... corpus archive 1/3: {'games': 0, 'holdout_games': 0, 'training_positions': 0, 'holdout_positions': 0, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 0, 'empty_archives': 1}
+corpus archive 2/3: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 3/3: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_eviction_requires_explicit_separate_raw_root_before_conversion (test_lc0_corpus_eviction.CorpusEvictionTests.test_eviction_requires_explicit_separate_raw_root_before_conversion) ... ok
+test_failed_conversion_preserves_its_raw_and_cannot_publish_receipt (test_lc0_corpus_eviction.CorpusEvictionTests.test_failed_conversion_preserves_its_raw_and_cannot_publish_receipt) ... ok
+test_failed_directory_publication_sync_rolls_back_and_resumes_cleanly (test_lc0_corpus_eviction.CorpusEvictionTests.test_failed_directory_publication_sync_rolls_back_and_resumes_cleanly) ... corpus archive 1/2: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 2/2: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_post_identity_crash_keeps_durable_lock_and_fetch_resume_works (test_lc0_corpus_eviction.CorpusEvictionTests.test_post_identity_crash_keeps_durable_lock_and_fetch_resume_works) ... corpus archive 1/2: {'games': 12, 'holdout_games': 8, 'training_positions': 12, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+corpus archive 2/2: {'games': 12, 'holdout_games': 6, 'training_positions': 12, 'holdout_positions': 12, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 0, 'game_members': 12, 'empty_archives': 0}
+ok
+test_real_conversion_rechecks_ceiling_before_committing_or_evicting_archive (test_lc0_corpus_eviction.CorpusEvictionTests.test_real_conversion_rechecks_ceiling_before_committing_or_evicting_archive) ... ok
+test_skipping_legacy_indices_preserves_all_rows_targets_and_provenance (test_lc0_targets.Lc0FeatureConstructionTests.test_skipping_legacy_indices_preserves_all_rows_targets_and_provenance) ... ok
+test_skipping_legacy_indices_preserves_fen_and_target_validation (test_lc0_targets.Lc0FeatureConstructionTests.test_skipping_legacy_indices_preserves_fen_and_target_validation) ... ok
+test_invalid_lc0_labels_fail_instead_of_being_clamped (test_lc0_targets.Lc0TargetTests.test_invalid_lc0_labels_fail_instead_of_being_clamped) ... ok
+test_max_length_outcome_uses_q_alone (test_lc0_targets.Lc0TargetTests.test_max_length_outcome_uses_q_alone) ... ok
+test_q_mixture_uses_direct_probabilities_not_cp_sigmoid (test_lc0_targets.Lc0TargetTests.test_q_mixture_uses_direct_probabilities_not_cp_sigmoid) ... ok
+test_target_identity_changes_only_for_opt_in (test_lc0_targets.Lc0TargetTests.test_target_identity_changes_only_for_opt_in) ... ok
+test_latest_reuses_final_epoch_evaluations_with_exact_artifact_parity (test_lc0_targets.Lc0TrainerTests.test_latest_reuses_final_epoch_evaluations_with_exact_artifact_parity) ... ok
+test_latest_weights_and_bound_adam_survive_rejected_validation (test_lc0_targets.Lc0TrainerTests.test_latest_weights_and_bound_adam_survive_rejected_validation) ... ok
+test_lc0_chunk_limit_rejects_silent_subsampling (test_lc0_targets.Lc0TrainerTests.test_lc0_chunk_limit_rejects_silent_subsampling) ... ok
+test_lc0_rejects_auxiliary_loss_or_wrong_probability_scale (test_lc0_targets.Lc0TrainerTests.test_lc0_rejects_auxiliary_loss_or_wrong_probability_scale) ... ok
+test_new_objective_needs_weights_only_and_initializes_fresh_adam (test_lc0_targets.Lc0TrainerTests.test_new_objective_needs_weights_only_and_initializes_fresh_adam) ... ok
+test_official_binary_archive_through_v2_training_and_quant_export (test_lc0_targets.Lc0TrainerTests.test_official_binary_archive_through_v2_training_and_quant_export) ... corpus archive 1/1: {'games': 20, 'holdout_games': 8, 'training_positions': 36, 'holdout_positions': 24, 'duplicate_games': 0, 'outside_window_games': 0, 'rejected_records': 20, 'game_members': 20, 'empty_archives': 0}
+ok
+test_training_and_fixed_validation_flip_black_targets_exactly_once (test_lc0_targets.Lc0TrainerTests.test_training_and_fixed_validation_flip_black_targets_exactly_once) ... ok
+test_v1_and_selfplay_keep_legacy_features_and_explicit_selected_evaluation (test_lc0_targets.Lc0TrainerTests.test_v1_and_selfplay_keep_legacy_features_and_explicit_selected_evaluation) ... ok
+test_v2_lc0_does_not_build_legacy_indices_for_training_or_holdout (test_lc0_targets.Lc0TrainerTests.test_v2_lc0_does_not_build_legacy_indices_for_training_or_holdout) ... ok
+test_direct_bin_zst_is_decompressed_exactly_once (test_process_bins.DirectZstdIngestTests.test_direct_bin_zst_is_decompressed_exactly_once) ... ok
+test_changed_conversion_options_are_new_work (test_process_pgns.ProcessPgnTests.test_changed_conversion_options_are_new_work) ... ok
+test_changed_source_content_is_new_work (test_process_pgns.ProcessPgnTests.test_changed_source_content_is_new_work) ... ok
+test_existing_shards_are_not_truncated (test_process_pgns.ProcessPgnTests.test_existing_shards_are_not_truncated) ... ok
+test_failed_commit_is_rolled_back_and_not_marked_complete (test_process_pgns.ProcessPgnTests.test_failed_commit_is_rolled_back_and_not_marked_complete) ... ok
+test_failed_final_manifest_write_rolls_back_published_shards (test_process_pgns.ProcessPgnTests.test_failed_final_manifest_write_rolls_back_published_shards) ... ok
+test_multiple_inputs_share_shard_numbering_without_overwrite (test_process_pgns.ProcessPgnTests.test_multiple_inputs_share_shard_numbering_without_overwrite) ... ok
+test_rerun_of_same_source_and_options_is_idempotent (test_process_pgns.ProcessPgnTests.test_rerun_of_same_source_and_options_is_idempotent) ... ok
+test_setup_fen_board_turn_and_absolute_ply_are_preserved (test_process_pgns.ProcessPgnTests.test_setup_fen_board_turn_and_absolute_ply_are_preserved) ... ok
+test_bin_ingest_resets_stale_shards_before_rebuilding (test_run_pipeline.RunPipelineTests.test_bin_ingest_resets_stale_shards_before_rebuilding) ... ok
+test_build_relabel_command_uses_depth_and_period (test_run_pipeline.RunPipelineTests.test_build_relabel_command_uses_depth_and_period) ... ok
+test_build_relabel_command_with_bootstrap_nnue (test_run_pipeline.RunPipelineTests.test_build_relabel_command_with_bootstrap_nnue) ... ok
+test_build_relabel_command_with_node_cap (test_run_pipeline.RunPipelineTests.test_build_relabel_command_with_node_cap) ... ok
+test_build_relabel_command_without_node_cap_omits_flag (test_run_pipeline.RunPipelineTests.test_build_relabel_command_without_node_cap_omits_flag) ... ok
+test_build_selfplay_command_includes_jsonl_and_skip_bin (test_run_pipeline.RunPipelineTests.test_build_selfplay_command_includes_jsonl_and_skip_bin) ... ok
+test_build_selfplay_command_passes_actor_budget (test_run_pipeline.RunPipelineTests.test_build_selfplay_command_passes_actor_budget) ... ok
+test_build_selfplay_command_passes_adjudication_knobs (test_run_pipeline.RunPipelineTests.test_build_selfplay_command_passes_adjudication_knobs) ... ok
+test_build_selfplay_command_with_bootstrap_nnue (test_run_pipeline.RunPipelineTests.test_build_selfplay_command_with_bootstrap_nnue) ... ok
+test_changed_replay_source_invalidates_resumed_training (test_run_pipeline.RunPipelineTests.test_changed_replay_source_invalidates_resumed_training) ... ok
+test_classifier_projection_uses_win_minus_loss (test_run_pipeline.RunPipelineTests.test_classifier_projection_uses_win_minus_loss) ... ok
+test_deep_pass_requires_a_positive_subset_cap (test_run_pipeline.RunPipelineTests.test_deep_pass_requires_a_positive_subset_cap) ... ok
+test_explicit_optimizer_continuation_fails_if_sibling_is_missing (test_run_pipeline.RunPipelineTests.test_explicit_optimizer_continuation_fails_if_sibling_is_missing) ... ok
+test_external_teacher_relabel_engine_is_not_a_pipeline_option (test_run_pipeline.RunPipelineTests.test_external_teacher_relabel_engine_is_not_a_pipeline_option) ... ok
+test_hybrid_second_pass_builds_a_deeper_capped_command (test_run_pipeline.RunPipelineTests.test_hybrid_second_pass_builds_a_deeper_capped_command) ... ok
+test_hybrid_second_pass_must_be_deeper_than_the_first (test_run_pipeline.RunPipelineTests.test_hybrid_second_pass_must_be_deeper_than_the_first) ... ok
+test_hybrid_teacher_depth2_defaults_to_disabled (test_run_pipeline.RunPipelineTests.test_hybrid_teacher_depth2_defaults_to_disabled) ... ok
+test_hybrid_teacher_depth2_is_parsed (test_run_pipeline.RunPipelineTests.test_hybrid_teacher_depth2_is_parsed) ... ok
+test_hybrid_teacher_disabled_validates_trivially (test_run_pipeline.RunPipelineTests.test_hybrid_teacher_disabled_validates_trivially) ... ok
+test_initial_checkpoint_is_forwarded_and_bound_to_resume_provenance (test_run_pipeline.RunPipelineTests.test_initial_checkpoint_is_forwarded_and_bound_to_resume_provenance) ... ok
+test_jsonl_stage_manifest_detects_missing_or_changed_artifacts (test_run_pipeline.RunPipelineTests.test_jsonl_stage_manifest_detects_missing_or_changed_artifacts) ... ok
+test_missing_initial_checkpoint_fails_before_data_stage_work (test_run_pipeline.RunPipelineTests.test_missing_initial_checkpoint_fails_before_data_stage_work) ... ok
+test_pipeline_binds_depth_loss_weighting_and_fixed_validation (test_run_pipeline.RunPipelineTests.test_pipeline_binds_depth_loss_weighting_and_fixed_validation) ... ok
+test_pipeline_from_jsonl_writes_export_files (test_run_pipeline.RunPipelineTests.test_pipeline_from_jsonl_writes_export_files) ... ok
+test_pipeline_rejects_validation_mutation_between_snapshot_and_trainer (test_run_pipeline.RunPipelineTests.test_pipeline_rejects_validation_mutation_between_snapshot_and_trainer) ... ok
+test_pipeline_rejects_validation_source_used_for_training (test_run_pipeline.RunPipelineTests.test_pipeline_rejects_validation_source_used_for_training) ... ok
+test_pipeline_replay_jsonl_dirs_are_merged_for_training (test_run_pipeline.RunPipelineTests.test_pipeline_replay_jsonl_dirs_are_merged_for_training) ... ok
+test_relabel_provenance_invalidates_legacy_fixed_phase_output (test_run_pipeline.RunPipelineTests.test_relabel_provenance_invalidates_legacy_fixed_phase_output) ... ok
+test_relabel_stage_provenance_node_cap_preserves_legacy_identity (test_run_pipeline.RunPipelineTests.test_relabel_stage_provenance_node_cap_preserves_legacy_identity) ... ok
+test_resolve_trainer_backend_auto_without_torch_falls_back (test_run_pipeline.RunPipelineTests.test_resolve_trainer_backend_auto_without_torch_falls_back) ... ok
+test_resolve_trainer_backend_stub (test_run_pipeline.RunPipelineTests.test_resolve_trainer_backend_stub) ... ok
+test_resume_invalidates_old_checkpoint_selection_manifest_schema (test_run_pipeline.RunPipelineTests.test_resume_invalidates_old_checkpoint_selection_manifest_schema)
+A pre-dual-validation cache must not bypass the updated trainer. ... ok
+test_resume_rebuilds_corrupt_export_artifact_without_retraining (test_run_pipeline.RunPipelineTests.test_resume_rebuilds_corrupt_export_artifact_without_retraining) ... ok
+test_resume_rebuilds_corrupt_training_artifacts (test_run_pipeline.RunPipelineTests.test_resume_rebuilds_corrupt_training_artifacts) ... ok
+test_resume_rebuilds_merged_training_data_when_source_content_changes (test_run_pipeline.RunPipelineTests.test_resume_rebuilds_merged_training_data_when_source_content_changes) ... ok
+test_resume_rebuilds_unmarked_partial_selfplay_and_relabel_stages (test_run_pipeline.RunPipelineTests.test_resume_rebuilds_unmarked_partial_selfplay_and_relabel_stages) ... ok
+test_resume_relabel_binds_input_config_and_teacher_model_content (test_run_pipeline.RunPipelineTests.test_resume_relabel_binds_input_config_and_teacher_model_content) ... ok
+test_resume_selfplay_binds_seed_model_content_and_manifest_version (test_run_pipeline.RunPipelineTests.test_resume_selfplay_binds_seed_model_content_and_manifest_version) ... ok
+test_resume_skips_existing_selfplay_relabel_train_export (test_run_pipeline.RunPipelineTests.test_resume_skips_existing_selfplay_relabel_train_export) ... ok
+test_standalone_deep_pass_is_valid_for_actor_labeled_rows (test_run_pipeline.RunPipelineTests.test_standalone_deep_pass_is_valid_for_actor_labeled_rows) ... ok
+test_standalone_deep_pass_reads_actor_rows_and_becomes_training_input (test_run_pipeline.RunPipelineTests.test_standalone_deep_pass_reads_actor_rows_and_becomes_training_input) ... ok
+test_standalone_deep_pass_resume_binds_actor_input_and_deep_config (test_run_pipeline.RunPipelineTests.test_standalone_deep_pass_resume_binds_actor_input_and_deep_config) ... ok
+test_training_identity_validation_rejects_mismatched_checkpoint_metadata (test_run_pipeline.RunPipelineTests.test_training_identity_validation_rejects_mismatched_checkpoint_metadata) ... ok
+test_training_identity_validation_rejects_reference_guard_mismatch (test_run_pipeline.RunPipelineTests.test_training_identity_validation_rejects_reference_guard_mismatch) ... ok
+test_validation_isolation_rejects_copied_shards_and_game_ids (test_run_pipeline.RunPipelineTests.test_validation_isolation_rejects_copied_shards_and_game_ids) ... ok
+test_weights_only_checkpoint_cli_and_invalid_combinations (test_run_pipeline.RunPipelineTests.test_weights_only_checkpoint_cli_and_invalid_combinations) ... ok
+test_weights_only_transition_is_forwarded_and_bound_to_resume_identity (test_run_pipeline.RunPipelineTests.test_weights_only_transition_is_forwarded_and_bound_to_resume_identity) ... ok
+test_non_finite_losses_are_rejected (test_train_stub.CheckpointSelectionTests.test_non_finite_losses_are_rejected) ... ok
+test_primary_regression_beyond_tolerance_is_rejected (test_train_stub.CheckpointSelectionTests.test_primary_regression_beyond_tolerance_is_rejected) ... ok
+test_reference_absolute_regression_guard_still_applies (test_train_stub.CheckpointSelectionTests.test_reference_absolute_regression_guard_still_applies) ... ok
+test_reference_gain_with_primary_noise_is_selected (test_train_stub.CheckpointSelectionTests.test_reference_gain_with_primary_noise_is_selected) ... ok
+test_reference_regression_is_rejected (test_train_stub.CheckpointSelectionTests.test_reference_regression_is_rejected) ... ok
+test_without_reference_split_falls_back_to_strict_primary (test_train_stub.CheckpointSelectionTests.test_without_reference_split_falls_back_to_strict_primary) ... ok
+test_checkpoint_records_target_and_objective_schemas (test_train_stub.TrainStubTests.test_checkpoint_records_target_and_objective_schemas) ... ok
+test_compact_partition_matches_training_record_wrapper (test_train_stub.TrainStubTests.test_compact_partition_matches_training_record_wrapper) ... ok
+test_external_validation_can_require_depth_eligible_teacher (test_train_stub.TrainStubTests.test_external_validation_can_require_depth_eligible_teacher) ... ok
+test_external_validation_is_reference_only_for_epoch_selection (test_train_stub.TrainStubTests.test_external_validation_is_reference_only_for_epoch_selection) ... ok
+test_external_validation_rejects_a_copied_legacy_record (test_train_stub.TrainStubTests.test_external_validation_rejects_a_copied_legacy_record) ... ok
+test_external_validation_rejects_a_copied_training_shard (test_train_stub.TrainStubTests.test_external_validation_rejects_a_copied_training_shard) ... ok
+test_external_validation_rejects_overlapping_game_provenance (test_train_stub.TrainStubTests.test_external_validation_rejects_overlapping_game_provenance) ... ok
+test_external_validation_rejects_the_training_source (test_train_stub.TrainStubTests.test_external_validation_rejects_the_training_source) ... ok
+test_external_validation_sampling_ignores_training_mix_knobs (test_train_stub.TrainStubTests.test_external_validation_sampling_ignores_training_mix_knobs) ... ok
+test_full_halfkp_schema_keys_both_piece_colors_to_both_kings (test_train_stub.TrainStubTests.test_full_halfkp_schema_keys_both_piece_colors_to_both_kings) ... ok
+test_internal_split_hash_is_order_invariant_and_stable_for_replay (test_train_stub.TrainStubTests.test_internal_split_hash_is_order_invariant_and_stable_for_replay) ... ok
+test_internal_split_keeps_complete_games_in_one_partition (test_train_stub.TrainStubTests.test_internal_split_keeps_complete_games_in_one_partition) ... ok
+test_internal_split_keeps_oversampled_records_in_one_partition (test_train_stub.TrainStubTests.test_internal_split_keeps_oversampled_records_in_one_partition) ... ok
+test_internal_split_preserves_teacher_mix_when_groups_allow_it (test_train_stub.TrainStubTests.test_internal_split_preserves_teacher_mix_when_groups_allow_it) ... ok
+test_internal_split_tiny_fallback_keeps_both_sides_nonempty (test_train_stub.TrainStubTests.test_internal_split_tiny_fallback_keeps_both_sides_nonempty) ... ok
+test_invalid_outcome_uses_unmixed_teacher_target (test_train_stub.TrainStubTests.test_invalid_outcome_uses_unmixed_teacher_target) ... ok
+test_iterate_samples_skips_invalid_outcome_with_shallow_teacher (test_train_stub.TrainStubTests.test_iterate_samples_skips_invalid_outcome_with_shallow_teacher) ... ok
+test_iterate_samples_skips_invalid_outcome_without_teacher (test_train_stub.TrainStubTests.test_iterate_samples_skips_invalid_outcome_without_teacher) ... ok
+test_primary_source_gets_half_of_capped_samples (test_train_stub.TrainStubTests.test_primary_source_gets_half_of_capped_samples) ... ok
+test_reference_guard_allows_small_mismatch_but_blocks_large_regression (test_train_stub.TrainStubTests.test_reference_guard_allows_small_mismatch_but_blocks_large_regression) ... ok
+test_replay_sources_are_balanced_before_max_samples_and_deterministic (test_train_stub.TrainStubTests.test_replay_sources_are_balanced_before_max_samples_and_deterministic) ... ok
+test_shallow_teacher_is_ignored_when_outcome_is_valid (test_train_stub.TrainStubTests.test_shallow_teacher_is_ignored_when_outcome_is_valid) ... ok
+test_stub_warm_start_preserves_parent_when_zero_lr_cannot_improve (test_train_stub.TrainStubTests.test_stub_warm_start_preserves_parent_when_zero_lr_cannot_improve) ... ok
+test_stub_warm_start_rejects_missing_or_mismatched_target_identity (test_train_stub.TrainStubTests.test_stub_warm_start_rejects_missing_or_mismatched_target_identity) ... ok
+test_stub_warm_start_requires_exact_feature_identity (test_train_stub.TrainStubTests.test_stub_warm_start_requires_exact_feature_identity) ... ok
+test_target_blends_teacher_and_result_q (test_train_stub.TrainStubTests.test_target_blends_teacher_and_result_q) ... ok
+test_target_uses_outcome_when_teacher_missing (test_train_stub.TrainStubTests.test_target_uses_outcome_when_teacher_missing) ... ok
+test_teacher_fraction_deterministically_oversamples_sparse_labels (test_train_stub.TrainStubTests.test_teacher_fraction_deterministically_oversamples_sparse_labels) ... ok
+test_teacher_fraction_is_independent_of_primary_source_fraction (test_train_stub.TrainStubTests.test_teacher_fraction_is_independent_of_primary_source_fraction) ... ok
+test_train_loss_improves_on_simple_dataset (test_train_stub.TrainStubTests.test_train_loss_improves_on_simple_dataset) ... ok
+test_train_model_writes_metrics_and_checkpoint (test_train_stub.TrainStubTests.test_train_model_writes_metrics_and_checkpoint) ... ok
+test_wdl_cp_gradient_matches_reported_bce_objective (test_train_stub.TrainStubTests.test_wdl_cp_gradient_matches_reported_bce_objective) ... ok
+test_wdl_decisive_outcomes_are_finite_cp_anchors (test_train_stub.TrainStubTests.test_wdl_decisive_outcomes_are_finite_cp_anchors) ... ok
+test_wdl_loss_reports_cp_metrics (test_train_stub.TrainStubTests.test_wdl_loss_reports_cp_metrics) ... ok
+test_wdl_outcome_decay_is_applied_in_cp_space (test_train_stub.TrainStubTests.test_wdl_outcome_decay_is_applied_in_cp_space) ... ok
+test_wdl_target_blends_probabilities_and_respects_teacher_depth (test_train_stub.TrainStubTests.test_wdl_target_blends_probabilities_and_respects_teacher_depth) ... ok
+test_all_empty_feature_bags_preserve_batch_shape (test_train_torch.TorchBatchPackingTests.test_all_empty_feature_bags_preserve_batch_shape) ... ok
+test_best_optimizer_state_round_trips_with_checkpoint (test_train_torch.TorchBatchPackingTests.test_best_optimizer_state_round_trips_with_checkpoint) ... ok
+test_checkpoint_rejects_different_optimizer_moments_for_same_weights (test_train_torch.TorchBatchPackingTests.test_checkpoint_rejects_different_optimizer_moments_for_same_weights) ... ok
+test_cp_loss_weight_zero_is_exactly_the_legacy_objective (test_train_torch.TorchBatchPackingTests.test_cp_loss_weight_zero_is_exactly_the_legacy_objective)
+v8's cp term must be inert at weight 0 so v7 semantics are unchanged. ... ok
+test_cp_term_restores_gradient_where_the_wdl_target_saturates (test_train_torch.TorchBatchPackingTests.test_cp_term_restores_gradient_where_the_wdl_target_saturates)
+The whole point of v8's objective change. ... ok
+test_external_validation_is_reference_only_for_epoch_selection (test_train_torch.TorchBatchPackingTests.test_external_validation_is_reference_only_for_epoch_selection)
+A mismatched fixed corpus must not replace the aligned holdout. ... ok
+test_fixed_validation_can_require_depth_eligible_teacher (test_train_torch.TorchBatchPackingTests.test_fixed_validation_can_require_depth_eligible_teacher) ... ok
+test_fixed_validation_is_separate_from_training_and_reports_cp_metrics (test_train_torch.TorchBatchPackingTests.test_fixed_validation_is_separate_from_training_and_reports_cp_metrics) ... ok
+test_fixed_validation_rejects_overlapping_game_provenance (test_train_torch.TorchBatchPackingTests.test_fixed_validation_rejects_overlapping_game_provenance) ... ok
+test_fixed_validation_rejects_the_training_source (test_train_torch.TorchBatchPackingTests.test_fixed_validation_rejects_the_training_source) ... ok
+test_objective_loss_supports_mse_huber_and_soft_wdl (test_train_torch.TorchBatchPackingTests.test_objective_loss_supports_mse_huber_and_soft_wdl) ... ok
+test_optimizer_rejects_adam_beta_or_epsilon_mismatch (test_train_torch.TorchBatchPackingTests.test_optimizer_rejects_adam_beta_or_epsilon_mismatch) ... ok
+test_optimizer_rejects_an_incompatible_objective (test_train_torch.TorchBatchPackingTests.test_optimizer_rejects_an_incompatible_objective) ... ok
+test_optimizer_rejects_same_schema_checkpoint_with_modified_weights (test_train_torch.TorchBatchPackingTests.test_optimizer_rejects_same_schema_checkpoint_with_modified_weights) ... ok
+test_optimizer_state_is_saved_from_the_selected_epoch (test_train_torch.TorchBatchPackingTests.test_optimizer_state_is_saved_from_the_selected_epoch) ... ok
+test_optimizer_state_requires_an_initial_checkpoint (test_train_torch.TorchBatchPackingTests.test_optimizer_state_requires_an_initial_checkpoint) ... ok
+test_pack_batch_is_byte_identical_to_the_reference_loop (test_train_torch.TorchBatchPackingTests.test_pack_batch_is_byte_identical_to_the_reference_loop) ... ok
+test_reference_guard_allows_small_mismatch_but_blocks_large_regression (test_train_torch.TorchBatchPackingTests.test_reference_guard_allows_small_mismatch_but_blocks_large_regression)
+Primary loss selects epochs inside the depth-6 safety envelope. ... ok
+test_strict_warm_start_still_rejects_objective_transition (test_train_torch.TorchBatchPackingTests.test_strict_warm_start_still_rejects_objective_transition) ... ok
+test_teacher_metrics_distinguish_raw_from_depth_eligible_values (test_train_torch.TorchBatchPackingTests.test_teacher_metrics_distinguish_raw_from_depth_eligible_values) ... ok
+test_warm_start_rejects_incompatible_hidden_dimension (test_train_torch.TorchBatchPackingTests.test_warm_start_rejects_incompatible_hidden_dimension) ... ok
+test_warm_start_rejects_missing_or_mismatched_feature_set (test_train_torch.TorchBatchPackingTests.test_warm_start_rejects_missing_or_mismatched_feature_set) ... ok
+test_warm_start_rejects_missing_or_mismatched_target_identity (test_train_torch.TorchBatchPackingTests.test_warm_start_rejects_missing_or_mismatched_target_identity) ... ok
+test_warm_start_round_trips_parent_weights_with_zero_learning_rate (test_train_torch.TorchBatchPackingTests.test_warm_start_round_trips_parent_weights_with_zero_learning_rate) ... ok
+test_wdl_cp_diagnostics_use_probability_implied_target (test_train_torch.TorchBatchPackingTests.test_wdl_cp_diagnostics_use_probability_implied_target) ... ok
+test_weights_only_warm_start_categorically_rejects_optimizer_restore (test_train_torch.TorchBatchPackingTests.test_weights_only_warm_start_categorically_rejects_optimizer_restore) ... ok
+test_weights_only_warm_start_loads_exact_weights_across_objectives (test_train_torch.TorchBatchPackingTests.test_weights_only_warm_start_loads_exact_weights_across_objectives) ... ok
+test_weights_only_warm_start_rejects_non_finite_model_tensors (test_train_torch.TorchBatchPackingTests.test_weights_only_warm_start_rejects_non_finite_model_tensors) ... ok
+
+----------------------------------------------------------------------
+Ran 385 tests in 24.852s
+
+OK

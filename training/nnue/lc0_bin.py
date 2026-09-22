@@ -577,12 +577,31 @@ def build_fen_from_planes(record: V6Record, planes: Sequence[Plane]) -> dict:
             masks[key] = _mirror_mask(masks[key])
         castlings = castlings.mirror()
 
+    # Preserve _piece_char's first-match priority even for overlapping masks.
+    # Enumerating occupied bits avoids twelve mask tests for every empty square.
+    pieces: list[str | None] = [None] * 64
+    occupied = 0
+    for piece, key in (
+        ('P', 'pawns_us'), ('p', 'pawns_them'),
+        ('N', 'knights_us'), ('n', 'knights_them'),
+        ('B', 'bishops_us'), ('b', 'bishops_them'),
+        ('R', 'rooks_us'), ('r', 'rooks_them'),
+        ('Q', 'queens_us'), ('q', 'queens_them'),
+        ('K', 'kings_us'), ('k', 'kings_them'),
+    ):
+        mask = masks[key] & ~occupied
+        occupied |= mask
+        while mask:
+            bit = mask & -mask
+            pieces[bit.bit_length() - 1] = piece
+            mask ^= bit
+
     rows: list[str] = []
     for rank in range(7, -1, -1):
         empty = 0
         row_chars: list[str] = []
         for file in range(8):
-            piece = _piece_char(file, rank, masks)
+            piece = pieces[rank * 8 + file]
             if piece:
                 if empty:
                     row_chars.append(str(empty))

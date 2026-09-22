@@ -1,0 +1,124 @@
+{
+  "committed_by_qualification": false,
+  "entire_piebot_scripts_deploy_equal_current_runtime": true,
+  "features_gold": {
+    "exact_bytes": true,
+    "path": "PieBot/tests/data/halfkp_dp_fixture.json",
+    "sha256": "4b7de7a8be3e378796e1f79e981ab71c63d9ff65bc02ff07b367733454578c43"
+  },
+  "finished_at_utc": "2026-09-08T06:22:12.365970+00:00",
+  "fresh_tests": {
+    "nnue": {
+      "command": [
+        "/private/tmp/piebot-lc0-venv/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-v",
+        "training/nnue/tests"
+      ],
+      "exit_code": 0,
+      "log": "evidence/lc0_runtime_current_20260908/nnue.log",
+      "ok": true,
+      "seconds": 29.106977916992037,
+      "sha256": "002ee61cabdae1317f531aa8abe9c70d015b06e11fba008586679d9c526e21cd",
+      "skipped": 0,
+      "tests": 403
+    },
+    "scripts": {
+      "command": [
+        "/private/tmp/piebot-lc0-venv/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-v",
+        "scripts/tests"
+      ],
+      "exit_code": 0,
+      "log": "evidence/lc0_runtime_current_20260908/scripts.log",
+      "ok": true,
+      "seconds": 11.947343415988144,
+      "sha256": "77b5ac28c3071c4da3d67b234ace1608ac6c3454833915a35ebb2ca0ecdbb90b",
+      "skipped": 0,
+      "tests": 142
+    }
+  },
+  "parallel_download_concurrency_default": 4,
+  "parallel_launcher_sha256": "f1c6b9ea3542ecd36706e2db11b28b2a99c4d8e28837a3c20889bc5339b7be0e",
+  "production_config_sha256": "ee976e51c8412cdc67d4ae7c5dad36a4f40c24bcaf10ec3c086795cb7a6353d5",
+  "production_piebot_tree": "5c6360ddbead51609f71aa70737a57956531ffe2",
+  "protected_script_sha256": {
+    "scripts/lc0_anchor_monitor.py": "286130a88e2fe70d4ccf6031fe29be32952b4759c04450379540ae96c9b6bebc",
+    "scripts/ranked_engine_monitor.py": null,
+    "scripts/uci_elo_arena.py": "e3fdf511065998a67c36125fe39f93b783b0714700c9c52b4f3bd015ca09b737",
+    "scripts/uci_elo_ladder.py": "f93855d9c225208c3993fac314a750bdcb2b965a55367196749008e8a5cde911"
+  },
+  "python_version": "Python 3.14.5",
+  "remote_actions": false,
+  "reviewed_encoder_source": "a13ad857067891f33ee391e159531d183ed91af1",
+  "runtime_base": "9c432db72bff8d406765caafc8fe0dfff096fa97",
+  "rust_reused_not_rerun": {
+    "cargo_git_objects": {
+      "PieBot/Cargo.lock": "bf8b25889825004daa3707fbc2a634deac7b5f3f",
+      "PieBot/Cargo.toml": "2e0bbcf03c4f29ebdd40179b1e3a63317278b765"
+    },
+    "prior_qualifying_evidence": "evidence/lc0_throughput_20260907/trainer_parity.json",
+    "prior_qualifying_evidence_sha256": "65ba6cd03df4a16dd8ba16c82aaa83b201c4a9d16827ba1fe5e6ac899637c275",
+    "production_tree": "5c6360ddbead51609f71aa70737a57956531ffe2",
+    "protected_script_sha256": {
+      "scripts/lc0_anchor_monitor.py": "286130a88e2fe70d4ccf6031fe29be32952b4759c04450379540ae96c9b6bebc",
+      "scripts/ranked_engine_monitor.py": null,
+      "scripts/uci_elo_arena.py": "e3fdf511065998a67c36125fe39f93b783b0714700c9c52b4f3bd015ca09b737",
+      "scripts/uci_elo_ladder.py": "f93855d9c225208c3993fac314a750bdcb2b965a55367196749008e8a5cde911"
+    },
+    "rust_runs": {
+      "rust_all_features": {
+        "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml",
+        "criterion_test_mode_successes": 25,
+        "exit_code": 0,
+        "failed": 0,
+        "ignored": 0,
+        "log": "evidence/lc0_runtime_20260908/rust_all_features.log",
+        "log_sha256": "0b9fd3e8c19f0be88387b2f364bdece36e9031e68432f14215cdeaa3dbcc9c89",
+        "passed": 209,
+        "status": "reused, not rerun",
+        "test_summary_blocks": 56
+      },
+      "rust_default": {
+        "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml",
+        "criterion_test_mode_successes": 25,
+        "exit_code": 0,
+        "failed": 0,
+        "ignored": 0,
+        "log": "evidence/lc0_runtime_20260908/rust_default.log",
+        "log_sha256": "cd8a7797799243333949d04089986119e57b0ed0263910b8faea0258d5edf811",
+        "passed": 218,
+        "status": "reused, not rerun",
+        "test_summary_blocks": 56
+      }
+    },
+    "status": "reused, not rerun; exact entire production PieBot tree, working files, original log hashes and test counts verified",
+    "whole_piebot_tree_objects": {
+      "7c4535f82d1bf0fe26ea8a62446e89a0d65c2bba": "5c6360ddbead51609f71aa70737a57956531ffe2",
+      "9c432db72bff8d406765caafc8fe0dfff096fa97": "5c6360ddbead51609f71aa70737a57956531ffe2",
+      "a50a0759f785ead89d0651a673c3089cc9afcc28": "5c6360ddbead51609f71aa70737a57956531ffe2",
+      "b517c47cb86b9f524118df6469b29d7d76495898": "5c6360ddbead51609f71aa70737a57956531ffe2"
+    },
+    "working_tree_diff_from_production_empty": true
+  },
+  "schema": "piebot-lc0-runtime-current-validation-v1",
+  "sequential_suites": true,
+  "source_and_test_hashes_unchanged": true,
+  "source_scope": [
+    "training/nnue/features_v2.py",
+    "training/nnue/lc0_bin.py",
+    "training/nnue/tests/test_features_v2_throughput.py",
+    "training/nnue/tests/test_lc0_fen_throughput.py"
+  ],
+  "started_at_utc": "2026-09-08T06:21:16.148204+00:00",
+  "thread_environment": {
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "base_commit": "a02fd3eb09c9e179b25353f0fd6e5575441ad189",
+  "branch": "side/lc0-parallel-runtime",
+  "changed_runtime_and_test_sha256": {
+    "scripts/run_vast_lc0.sh": "f1c6b9ea3542ecd36706e2db11b28b2a99c4d8e28837a3c20889bc5339b7be0e",
+    "scripts/tests/test_lc0_parallel_deployment.py": "630bee5101dc561493ccba5a464e8686f57b7e518d78c7a7848e77c55803e4e4",
+    "training/nnue/fetch_lc0_bins.py": "b3108a3345a7540522d7fa20f6f4421d7cbb68856e08ba85269113ae9978819b",
+    "training/nnue/lc0_deploy.py": "7ff54f4a68031f91a9a7ed095aebc9117ccbf4d44bf89909efabf3762c3c15b8",
+    "training/nnue/tests/test_fetch_lc0_parallel.py": "7b94e3e209348a9cbf3a19bed81fd54687103e51b6ec03c23becfc4be6eaf1c2"
+  },
+  "fresh_tests": {
+    "nnue": {
+      "exit_code": 0,
+      "log": "evidence/lc0_parallel_downloads_20260908/nnue.log",
+      "seconds": 25.77,
+      "sha256": "dcafb3678527ddad8409d8e4b257c4c1134037d040bc9398bd0a5d1ce9c55653",
+      "tests": 392
+    },
+    "scripts": {
+      "exit_code": 0,
+      "log": "evidence/lc0_parallel_downloads_20260908/scripts.log",
+      "seconds": 13.315,
+      "sha256": "73ea66a29bc93178c36f2b87a6bbf4e18e626bd16c7f21ba49742677eb046b09",
+      "tests": 142
+    }
+  },
+  "limits": "Mocked network concurrency and disk-admission tests; no live throughput measurement or box preflight. This package is not deployed.",
+  "mode": "runtime",
+  "recorded_at": "2026-09-08T01:56:34.501571+00:00",
+  "remote_actions": false,
+  "rust_reuse_reference": "evidence/lc0_runtime_20260908/rust_reuse.json",
+  "rust_reuse_reference_sha256": "37bb49286e855309a109fc6db44f37db19260eb1217d0222dc4c2c7e56bbd176",
+  "rust_reused_not_rerun": [
+    {
+      "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml",
+      "criterion_test_mode_successes": 25,
+      "exit_code": 0,
+      "failed": 0,
+      "ignored": 0,
+      "log": "evidence/lc0_runtime_20260908/rust_all_features.log",
+      "log_sha256": "0b9fd3e8c19f0be88387b2f364bdece36e9031e68432f14215cdeaa3dbcc9c89",
+      "passed": 209,
+      "status": "reused, not rerun",
+      "test_summary_blocks": 56
+    },
+    {
+      "command": "CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml",
+      "criterion_test_mode_successes": 25,
+      "exit_code": 0,
+      "failed": 0,
+      "ignored": 0,
+      "log": "evidence/lc0_runtime_20260908/rust_default.log",
+      "log_sha256": "cd8a7797799243333949d04089986119e57b0ed0263910b8faea0258d5edf811",
+      "passed": 218,
+      "status": "reused, not rerun",
+      "test_summary_blocks": 56
+    }
+  ],
+  "schema": "piebot-lc0-parallel-downloads-validation-v1",
+  "unchanged_rust_tree": "5c6360ddbead51609f71aa70737a57956531ffe2"
+}
