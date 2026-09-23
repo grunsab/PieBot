@@ -1965,26 +1965,22 @@ impl Searcher {
         }
     }
 
-    fn null_move_reduction(&self, depth: u32, eval: i32, beta: i32) -> u32 {
+    pub fn null_move_reduction(&self, depth: u32, eval: i32, beta: i32) -> u32 {
         let mut r = if depth <= 4 { 1 } else { 2 };
-        if depth >= 8 {
+        if depth >= 6 {
             r = 3;
         }
-        if depth >= 11 {
+        if depth >= 10 {
             r = 4;
         }
         let eval_margin = eval - beta;
-        if eval_margin > 300 {
+        if eval_margin > 250 {
             r += 1;
         }
-        if eval_margin > 600 {
+        if eval_margin > 500 {
             r += 1;
         }
-        if depth <= 12 && r > 2 {
-            r = 2;
-        }
-        r = r.min(depth.saturating_sub(1));
-        r.max(1)
+        r.clamp(1, depth.saturating_sub(1).max(1))
     }
 
     fn should_try_null_move(
