@@ -17,40 +17,10 @@ fn piece_value(piece: Piece) -> i32 {
     }
 }
 
-#[inline]
-fn bb_contains(bb: BitBoard, target: Square) -> bool {
-    for sq in bb {
-        if sq == target {
-            return true;
-        }
-    }
-    false
-}
-
 fn piece_at_square(board: &Board, sq: Square) -> Option<(Color, Piece)> {
-    // Check which color occupies this square
-    let color = if bb_contains(board.colors(Color::White), sq) {
-        Color::White
-    } else if bb_contains(board.colors(Color::Black), sq) {
-        Color::Black
-    } else {
-        return None; // Empty square
-    };
-
-    // Find which piece type
-    for &piece in &[
-        Piece::Pawn,
-        Piece::Knight,
-        Piece::Bishop,
-        Piece::Rook,
-        Piece::Queen,
-        Piece::King,
-    ] {
-        if bb_contains(board.pieces(piece), sq) {
-            return Some((color, piece));
-        }
-    }
-    None
+    let piece = board.piece_on(sq)?;
+    let color = board.color_on(sq)?;
+    Some((color, piece))
 }
 
 // Bitboard-based attack generation for SEE
@@ -83,43 +53,27 @@ fn get_pawn_attacks(sq: Square, color: Color) -> BitBoard {
 fn get_attackers(board: &Board, target: Square, color: Color, occupied: BitBoard) -> BitBoard {
     let our_pieces = board.colors(color);
 
-    let mut attackers = BitBoard::EMPTY;
-
-    // Pawns
+    // Pawns: a pawn of `color` at `sq` attacks `target` iff `sq` is attacked by a pawn of `!color` at `target`
     let pawns = board.pieces(Piece::Pawn) & our_pieces;
-    for sq in pawns {
-        if bb_contains(get_pawn_attacks(sq, color), target) {
-            attackers |= square_bb(sq);
-        }
-    }
+    let pawn_attackers = get_pawn_attacks(target, !color) & pawns;
 
     // Knights
     let knights = board.pieces(Piece::Knight) & our_pieces;
-    for sq in knights {
-        if bb_contains(get_knight_attacks(sq), target) {
-            attackers |= square_bb(sq);
-        }
-    }
+    let knight_attackers = get_knight_attacks(target) & knights;
 
-    // Bishops and Queens (diagonal attacks)
+    // Bishops and Queens (diagonal attacks through current occupied)
     let bishops_queens = (board.pieces(Piece::Bishop) | board.pieces(Piece::Queen)) & our_pieces;
-    let bishop_atks = get_bishop_attacks(target, occupied);
-    attackers |= bishops_queens & bishop_atks;
+    let bishop_atks = get_bishop_attacks(target, occupied) & bishops_queens;
 
-    // Rooks and Queens (straight attacks)
+    // Rooks and Queens (straight attacks through current occupied)
     let rooks_queens = (board.pieces(Piece::Rook) | board.pieces(Piece::Queen)) & our_pieces;
-    let rook_atks = get_rook_attacks(target, occupied);
-    attackers |= rooks_queens & rook_atks;
+    let rook_atks = get_rook_attacks(target, occupied) & rooks_queens;
 
     // King
     let king = board.pieces(Piece::King) & our_pieces;
-    for sq in king {
-        if bb_contains(get_king_attacks(sq), target) {
-            attackers |= square_bb(sq);
-        }
-    }
+    let king_attackers = get_king_attacks(target) & king;
 
-    attackers
+    pawn_attackers | knight_attackers | bishop_atks | rook_atks | king_attackers
 }
 
 // Find the least valuable attacker of target square for given color
@@ -130,6 +84,9 @@ fn least_valuable_attacker(
     occupied: BitBoard,
 ) -> Option<(Square, Piece)> {
     let attackers = get_attackers(board, target, color, occupied) & occupied; // Mask with occupied!
+    if attackers.is_empty() {
+        return None;
+    }
 
     // Check each piece type in order of value (cheapest first)
     for &piece in &[
@@ -178,9 +135,10 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
         }
     }
 
-    // Track material gains in the exchange sequence
-    // gains[0] = value captured by initial move
-    let mut gains: Vec<i32> = vec![captured_val];
+    // Track material gains in the exchange sequence on the stack (max 32 captures, zero heap allocations)
+    let mut gains = [0i32; 32];
+    gains[0] = captured_val;
+    let mut gain_count: usize = 1;
 
     // Remove the initial attacker from occupied
     occupied ^= square_bb(from_sq);
@@ -207,8 +165,11 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
 
             // Calculate gain: we capture current_occupant_val, then subtract what we gained so far
             // This represents the material swing from the perspective of alternating sides
-            let gain = current_occupant_val - *gains.last().unwrap();
-            gains.push(gain);
+            let gain = current_occupant_val - gains[gain_count - 1];
+            if gain_count < 32 {
+                gains[gain_count] = gain;
+                gain_count += 1;
+            }
 
             // Remove this attacker from occupied
             occupied ^= square_bb(sq);
@@ -228,7 +189,7 @@ pub fn see_gain_cp(board: &Board, mv: cozy_chess::Move) -> Option<i32> {
 
     // Minimax fold from the end: each player chooses whether to stop or continue
     // Stockfish-style fold: gains[i] = -max(-gains[i], gains[i+1])
-    for i in (0..gains.len().saturating_sub(1)).rev() {
+    for i in (0..gain_count.saturating_sub(1)).rev() {
         let a = -gains[i];
         let b = gains[i + 1];
         let m = if a > b { a } else { b };

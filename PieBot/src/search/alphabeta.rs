@@ -2199,12 +2199,13 @@ impl Searcher {
                     match self.search_depth_window(board, d, alpha, beta) {
                         Ok(result) => {
                             if result.score_cp <= alpha {
-                                delta *= 2;
-                                alpha = (committed.score_cp - delta).max(-MATE_SCORE);
+                                delta += delta * 2 / 3 + 5;
+                                alpha = (result.score_cp - delta).max(-MATE_SCORE);
+                                beta = (alpha + beta) / 2;
                                 self.prepare_root_state(board);
                             } else if result.score_cp >= beta {
-                                delta *= 2;
-                                beta = (committed.score_cp + delta).min(MATE_SCORE);
+                                delta += delta * 2 / 3 + 5;
+                                beta = (result.score_cp + delta).min(MATE_SCORE);
                                 self.prepare_root_state(board);
                             } else {
                                 break Ok(result);
