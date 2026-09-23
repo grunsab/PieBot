@@ -12,7 +12,7 @@ const HIST_PROMO_KINDS: usize = 5; // None, N, B, R, Q
 const HIST_SIZE: usize = 64 * 64 * HIST_PROMO_KINDS;
 const PIECE_SQUARE_ENTRIES: usize = 6 * 64; // 384
 const CONTHIST_SIZE: usize = PIECE_SQUARE_ENTRIES * PIECE_SQUARE_ENTRIES; // 147,456
-const HISTORY_MAX: i32 = 400;
+const HISTORY_MAX: i32 = 8192;
 
 pub static LMR_TABLE: std::sync::LazyLock<[[i32; 64]; 64]> = std::sync::LazyLock::new(|| {
     let mut table = [[0i32; 64]; 64];
@@ -48,9 +48,9 @@ pub fn lmr_reduction_improving(
         r += 1;
     }
 
-    if history_score > 150 {
+    if history_score > 2000 {
         r = r.saturating_sub(1);
-    } else if history_score < -150 && r >= 1 {
+    } else if history_score < -2000 && r >= 1 {
         r += 1;
     }
 
@@ -83,7 +83,7 @@ fn piece_sq_index(piece: cozy_chess::Piece, sq: Square) -> usize {
 
 #[inline]
 fn update_history_score(entry: &mut i32, bonus: i32) {
-    let clamped_bonus = bonus.clamp(-HISTORY_MAX, HISTORY_MAX);
+    let clamped_bonus = bonus.clamp(-1200, 1200);
     *entry += clamped_bonus - (*entry * clamped_bonus.abs()) / HISTORY_MAX;
 }
 
@@ -972,7 +972,7 @@ impl Searcher {
                     }
                 } else {
                     let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
-                    (killer_weight + gives_check_bonus + hist).clamp(-500_000, 500_000)
+                    (killer_weight + gives_check_bonus + hist / 8).clamp(-500_000, 500_000)
                 };
                 scored.push((m, -sort_score));
             }
@@ -1323,7 +1323,7 @@ impl Searcher {
             } else {
                 let killer_weight = if kb > 0 { kb * 1000 } else { 0 };
                 let cm_weight = if cm > 0 { 20_000 } else { 0 };
-                (killer_weight + cm_weight + hist + conthist).clamp(-500_000, 500_000)
+                (killer_weight + cm_weight + hist / 8 + conthist).clamp(-500_000, 500_000)
             };
             scored.push((m, -sort_score));
         }

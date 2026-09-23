@@ -1,4 +1,4 @@
-use piebot::search::alphabeta_temp::{lmr_reduction, lmr_reduction_improving};
+use piebot::search::alphabeta::{lmr_reduction, lmr_reduction_improving};
 
 #[test]
 fn test_lmr_reduction_table_and_history_modulation() {
