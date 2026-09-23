@@ -1624,7 +1624,11 @@ impl Searcher {
                 && beta.abs() < MATE_TT_THRESHOLD
                 && !is_endgame_king_move
             {
-                let lmp_threshold = 3 + 3 * (depth as usize) * (depth as usize);
+                let lmp_threshold = if improving {
+                    3 + 2 * (depth as usize) * (depth as usize)
+                } else {
+                    2 + (depth as usize) * (depth as usize)
+                };
                 let mi = move_index(m);
                 let hist = self.history_table.get(mi).copied().unwrap_or(0);
                 if num_quiets_tried > lmp_threshold && hist <= 0 {
