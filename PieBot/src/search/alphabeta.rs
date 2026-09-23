@@ -672,7 +672,7 @@ impl Searcher {
             && self.node_limit == u64::MAX
             && (!self.use_nnue || self.nnue_quant.is_some())
         {
-            return self.search_depth_parallel(board, depth);
+            return self.search_depth_parallel(board, depth, -MATE_SCORE, MATE_SCORE);
         }
 
         if self.use_nnue {
@@ -856,10 +856,12 @@ impl Searcher {
         &mut self,
         board: &Board,
         depth: u32,
+        alpha0: i32,
+        beta0: i32,
     ) -> Result<SearchResult, SearchAbort> {
         self.poll_abort()?;
-        let mut alpha = -MATE_SCORE;
-        let beta = MATE_SCORE;
+        let mut alpha = alpha0;
+        let beta = beta0;
         let orig_alpha = alpha;
         let mut bestmove: Option<Move>;
         let mut best_score: i32;
@@ -2241,7 +2243,7 @@ impl Searcher {
         let mut best_score = -MATE_SCORE;
 
         if self.threads > 1 && depth >= 4 {
-            return self.search_depth_internal(board, depth);
+            return self.search_depth_parallel(board, depth, alpha, beta);
         }
 
         if self.use_nnue {
