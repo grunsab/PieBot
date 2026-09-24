@@ -1694,6 +1694,7 @@ impl Searcher {
                 let r = if self.use_lmr
                     && depth >= 3
                     && idx >= 3
+                    && !is_in_check
                     && !gives_check
                     && !self.is_capture(board, m)
                     && m.promotion.is_none()
