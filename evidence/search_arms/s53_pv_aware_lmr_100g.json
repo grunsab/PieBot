@@ -1,0 +1,1052 @@
+{
+  "base_threads": 1,
+  "baseline": {
+    "avg_depth": 13.555761050490105,
+    "avg_nps": 3309805.4768396104,
+    "moves": 5407,
+    "nodes": 2131935471,
+    "time_s": 644.1271204359999
+  },
+  "engines": {
+    "baseline": "piebot::search::alphabeta::Searcher",
+    "experimental": "piebot::search::alphabeta_temp::Searcher"
+  },
+  "exp_threads": 1,
+  "experimental": {
+    "avg_depth": 13.42841307962313,
+    "avg_nps": 3323043.219369733,
+    "moves": 5413,
+    "nodes": 2138552610,
+    "time_s": 643.5524514199999
+  },
+  "fixed_depth": null,
+  "game_results": [
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 0,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 60,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 1,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 150,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 2,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 128,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 3,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 143,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 4,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 46,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 5,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 119,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 6,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 96,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 7,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 155,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 8,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 57,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 9,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 150,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 10,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 146,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 11,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 150,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 12,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 136,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 13,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 77,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 14,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 122,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 15,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 135,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 16,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 167,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 17,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 117,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 18,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 82,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 19,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 119,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 20,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 169,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 21,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 83,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 22,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 87,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 23,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 196,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 24,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 115,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 25,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 143,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 26,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 151,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 27,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 161,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 28,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 148,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 29,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 138,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 30,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 109,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 31,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 179,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 32,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 70,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 33,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 89,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 34,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 147,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 35,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 154,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 36,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 142,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 37,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 138,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 38,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 99,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 39,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 155,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 40,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 78,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 41,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 38,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 42,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 110,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 43,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 131,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 44,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 94,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 45,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 99,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 46,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 104,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 47,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 164,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 48,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 200,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 49,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 129,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 50,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 194,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 51,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 79,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 52,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 97,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 53,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 93,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 54,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 111,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 55,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 119,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 56,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 78,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 57,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 158,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 58,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 148,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 59,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 111,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 60,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 81,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 61,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 75,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 62,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 125,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 63,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 121,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 64,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 138,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 65,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 133,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 66,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 113,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 67,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 60,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 68,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 81,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 69,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 105,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 70,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 165,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 71,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 121,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 72,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 103,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 73,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 120,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 74,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 124,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 75,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 91,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 76,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 153,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 77,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 115,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 78,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 90,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 79,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 127,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 80,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 121,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 81,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 60,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 82,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 159,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 83,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 200,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 84,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 108,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 85,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 154,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 86,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 156,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 87,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 140,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 88,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 134,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 89,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 114,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 90,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 165,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 91,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 118,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 92,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 22,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 93,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 150,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 94,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 143,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 95,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 62,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 0.5,
+      "experimental_score": 0.5,
+      "game_index": 96,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 102,
+      "result_baseline_pov": 0.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 0.0,
+      "experimental_score": 1.0,
+      "game_index": 97,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 105,
+      "result_baseline_pov": -1.0
+    },
+    {
+      "baseline_is_white": true,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 98,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 123,
+      "result_baseline_pov": 1.0
+    },
+    {
+      "baseline_is_white": false,
+      "baseline_score": 1.0,
+      "experimental_score": 0.0,
+      "game_index": 99,
+      "opening_id": null,
+      "pair_index": null,
+      "plies": 80,
+      "result_baseline_pov": 1.0
+    }
+  ],
+  "games": 100,
+  "match_wall_time_s": 1287.749862,
+  "movetime_ms": 150,
+  "noise_plies": 12,
+  "noise_topk": 5,
+  "pair_results": [],
+  "paired_openings": false,
+  "pairing": {
+    "base_seed": 1,
+    "canonical_game_order": true,
+    "enabled": false,
+    "engine_reset_per_game": false,
+    "opening_policy": "legacy-engine-ordered-noise",
+    "pair_count": 0,
+    "parallel_work_unit": "game"
+  },
+  "parallel_games": 1,
+  "parallel_games_requested": 1,
+  "parallelism_schema": "bounded-pair-workers-v1",
+  "points": {
+    "baseline": 24.0,
+    "draws": 41,
+    "experimental": 35.0
+  },
+  "seed": 1,
+  "self_compare": false,
+  "threads": 1
+}

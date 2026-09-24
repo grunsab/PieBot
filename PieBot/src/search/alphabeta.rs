@@ -1704,6 +1704,11 @@ impl Searcher {
                     if self.use_killers && self.killer_bonus(ply, m) > 0 {
                         red = red.saturating_sub(1);
                     }
+                    if !non_pv {
+                        red = red.saturating_sub(1);
+                    } else if idx >= 6 {
+                        red += 1;
+                    }
                     red.min(depth.saturating_sub(2))
                 } else {
                     0
