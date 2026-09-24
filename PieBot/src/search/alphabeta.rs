@@ -1672,7 +1672,7 @@ impl Searcher {
                 self.move_stack[ply as usize] = Some((moving_piece, m.to));
             }
             self.search_history.push(child.clone());
-            let ext = if gives_check { 1 } else { 0 };
+            let ext = if gives_check && crate::search::see::see_gain_cp(board, m).unwrap_or(0) >= 0 { 1 } else { 0 };
             // Principal variation search: the first move is searched with the
             // full window; every later move is scouted with a zero window
             // (optionally LMR-reduced) and re-searched at the full window only

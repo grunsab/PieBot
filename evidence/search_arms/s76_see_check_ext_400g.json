@@ -1,0 +1,25 @@
+{
+  "arm": "S76",
+  "name": "SEE-Guarded Check Extension",
+  "games": 400,
+  "experimental_wins": 98,
+  "baseline_wins": 87,
+  "draws": 215,
+  "experimental_score": 0.51375,
+  "elo_diff": 9.56,
+  "ci_95": [
+    -13.03,
+    33.11
+  ],
+  "positive_pairs": 66,
+  "negative_pairs": 58,
+  "neutral_pairs": 76,
+  "mean_pair_delta": 0.0275,
+  "net_wins": 11,
+  "depth_diff": 0.26,
+  "nps_diff_pct": 2.23,
+  "matein3_nodes_baseline": 7040783,
+  "matein3_nodes_experimental": 5030682,
+  "matein3_node_reduction_pct": -28.55,
+  "verdict": "promote"
+}

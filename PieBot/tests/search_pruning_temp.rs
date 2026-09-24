@@ -54,6 +54,20 @@ fn test_internal_iterative_reduction() {
     assert!(res.nodes > 0, "Nodes searched");
 }
 
+#[test]
+fn test_see_guarded_check_extension_temp() {
+    let mut searcher = Searcher::default();
+    searcher.set_use_lmr(true);
+    searcher.set_use_nullmove(true);
+    searcher.set_use_history(true);
+
+    // Position with a checking move
+    let board: Board = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3".parse().unwrap();
+    let res = searcher.search_depth(&board, 5);
+    assert!(res.bestmove.is_some());
+    assert!(res.nodes > 0);
+}
+
 
 
 
