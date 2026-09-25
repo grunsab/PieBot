@@ -40,3 +40,21 @@ fn test_aspiration_window_resolves_fluctuation() {
     assert!(nodes > 0);
     assert!(score.abs() < 100);
 }
+
+#[test]
+fn test_aspiration_window_movetime_fluctuating_tactical() {
+    let fens = [
+        "r1bqk2r/pppp1ppp/2n5/4p3/1bB1n3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 6",
+        "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP1BBPPP/R2QK2R w KQ - 4 8",
+    ];
+    for fen in fens {
+        let board = Board::from_fen(fen, false).expect("valid fen");
+        let mut searcher = Searcher::default();
+        searcher.set_use_aspiration(true);
+        searcher.set_order_captures(true);
+        let (bestmove, score, nodes) = searcher.search_movetime(&board, 50, 6);
+        assert!(bestmove.is_some());
+        assert!(nodes > 0);
+        assert!(score.abs() < 1500);
+    }
+}

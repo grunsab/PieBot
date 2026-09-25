@@ -32,3 +32,22 @@ fn history_table_reduces_nodes() {
         r1.nodes
     );
 }
+
+#[test]
+fn history_scaling_differentiates_quiets_in_temp_searcher() {
+    use piebot::search::alphabeta_temp::{SearchParams, Searcher};
+    let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3";
+    let b = Board::from_fen(fen, false).unwrap();
+
+    let mut s = Searcher::default();
+    let mut p = SearchParams::default();
+    p.depth = 4;
+    p.use_tt = true;
+    p.order_captures = true;
+    p.use_history = true;
+    p.threads = 1;
+    let res = s.search_with_params(&b, p);
+
+    assert!(res.nodes > 0);
+    assert!(res.bestmove.is_some());
+}

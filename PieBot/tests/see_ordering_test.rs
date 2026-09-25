@@ -26,3 +26,35 @@ fn test_bad_captures_ordered_after_quiet_moves() {
     let best = res.bestmove.expect("should find a move");
     assert_ne!(best, "a1d4", "Engine should not play suicidal capture");
 }
+
+#[test]
+fn probcut_parity_between_baseline_and_temp() {
+    let fens = [
+        "r1bqk2r/pppp1ppp/2n5/4p3/1bB1n3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 6",
+    ];
+
+    for fen in fens {
+        let board = Board::from_fen(fen, false).expect("valid fen");
+        let mut base_s = piebot::search::alphabeta::Searcher::default();
+        let mut temp_s = piebot::search::alphabeta_temp::Searcher::default();
+
+        let base_res = base_s.search_depth(&board, 6);
+        let temp_res = temp_s.search_depth(&board, 6);
+
+        assert_eq!(
+            base_res.bestmove, temp_res.bestmove,
+            "bestmove mismatch on FEN {fen}: base {:?} vs temp {:?}",
+            base_res.bestmove, temp_res.bestmove
+        );
+        assert_eq!(
+            base_res.score_cp, temp_res.score_cp,
+            "score mismatch on FEN {fen}: base {} vs temp {}",
+            base_res.score_cp, temp_res.score_cp
+        );
+        assert_eq!(
+            base_res.nodes, temp_res.nodes,
+            "nodes mismatch on FEN {fen}: base {} vs temp {}",
+            base_res.nodes, temp_res.nodes
+        );
+    }
+}

@@ -1653,9 +1653,15 @@ impl Searcher {
                         }
                     }
                 } else if depth <= 2 && m.promotion.is_none() {
-                    if let Some(gain) = crate::search::see::see_gain_cp(board, m) {
-                        if gain < -50 * (depth as i32) {
-                            continue;
+                    let is_killer = self.use_killers && self.killer_bonus(ply, m) > 0;
+                    let is_countermove = self.use_history
+                        && parent_move_idx != usize::MAX
+                        && self.counter_move.get(parent_move_idx).copied() == Some(move_index(m));
+                    if !is_killer && !is_countermove {
+                        if let Some(gain) = crate::search::see::see_gain_cp(board, m) {
+                            if gain < -50 * (depth as i32) {
+                                continue;
+                            }
                         }
                     }
                 }
@@ -2583,6 +2589,12 @@ impl Searcher {
     }
     pub fn last_seldepth(&self) -> u32 {
         self.max_seldepth
+    }
+    #[doc(hidden)]
+    pub fn set_killer_for_test(&mut self, ply: usize, slot: usize, m: Move) {
+        if ply < self.killers.len() && slot < 2 {
+            self.killers[ply][slot] = Some(m);
+        }
     }
 
     pub fn set_use_nnue(&mut self, on: bool) {

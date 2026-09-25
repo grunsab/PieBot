@@ -68,6 +68,33 @@ fn test_see_guarded_check_extension_temp() {
     assert!(res.nodes > 0);
 }
 
+#[test]
+fn test_killer_exempt_from_quiet_see_pruning_temp() {
+    use cozy_chess::{Move, Square};
+    let mut searcher = Searcher::default();
+    searcher.set_use_killers(true);
+    searcher.set_use_nullmove(true);
+
+    // Position where a quiet move moves to an attacked square (SEE < 0)
+    // White knight on f3 moves to g5 where it's attacked by black queen/pawns
+    let fen = "r1bqk2r/pppp1ppp/2n5/4p3/1bB1n3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 6";
+    let board = Board::from_fen(fen, false).unwrap();
+    let sacrifice_move = Move {
+        from: Square::F3,
+        to: Square::G5,
+        promotion: None,
+    };
+    // Confirm this quiet move has negative SEE
+    let gain = piebot::search::see::see_gain_cp(&board, sacrifice_move).unwrap_or(0);
+    assert!(gain < -50, "Move should have negative SEE: {gain}");
+
+    searcher.set_killer_for_test(0, 0, sacrifice_move);
+    let res = searcher.search_depth(&board, 2);
+    assert!(res.bestmove.is_some());
+    assert!(res.nodes > 0);
+}
+
+
 
 
 
