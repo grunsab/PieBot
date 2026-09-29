@@ -244,6 +244,7 @@ mod pleco_uci {
         threads: usize,
         hash_mb: usize,
         searcher: PlecoSearcher,
+        pub default_model_path: Option<String>,
     }
     impl UciEnginePleco {
         pub fn new() -> Self {
@@ -252,7 +253,11 @@ mod pleco_uci {
                 threads: 1,
                 hash_mb: 64,
                 searcher: PlecoSearcher::default(),
+                default_model_path: None,
             }
+        }
+        pub fn auto_load_default_model(&mut self) -> bool {
+            false
         }
         fn cmd_uci(&self) {
             println!("id name PieBot (Pleco)");
@@ -435,6 +440,7 @@ pub struct UciEngine {
     threads: usize,
     use_nnue: bool,
     nnue_loaded: bool,
+    pub default_model_path: Option<String>,
 }
 
 #[cfg(not(feature = "board-pleco"))]
@@ -469,7 +475,61 @@ impl UciEngine {
             threads: 1,
             use_nnue: false,
             nnue_loaded: false,
+            default_model_path: None,
         }
+    }
+
+    pub fn auto_load_default_model(&mut self) -> bool {
+        let candidates = [
+            "models/lc0_chunk_00034965.nnue",
+            "../models/lc0_chunk_00034965.nnue",
+            "../../models/lc0_chunk_00034965.nnue",
+            "models/v8_cycle_000013_quant.nnue",
+            "../models/v8_cycle_000013_quant.nnue",
+            "../../models/v8_cycle_000013_quant.nnue",
+        ];
+
+        if let Ok(env_path) =
+            std::env::var("PIEBOT_NNUE_QUANT_FILE").or_else(|_| std::env::var("PIEBOT_NNUE_FILE"))
+        {
+            if std::path::Path::new(&env_path).is_file() {
+                if self.apply_setoption("NNUEQuantFile", &env_path).is_none() {
+                    self.use_nnue = true;
+                    self.searcher.set_use_nnue(true);
+                    self.searcher.set_eval_blend_percent(75);
+                    self.default_model_path = Some(env_path);
+                    return true;
+                }
+            }
+        }
+
+        let mut paths_to_try: Vec<std::path::PathBuf> = Vec::new();
+        for rel in candidates {
+            paths_to_try.push(std::path::PathBuf::from(rel));
+        }
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                for rel in candidates {
+                    paths_to_try.push(exe_dir.join(rel));
+                }
+            }
+        }
+
+        for path in paths_to_try {
+            if path.is_file() {
+                let path_str = path.to_string_lossy().to_string();
+                if self.apply_setoption("NNUEQuantFile", &path_str).is_none() {
+                    self.use_nnue = true;
+                    self.searcher.set_use_nnue(true);
+                    self.searcher.set_eval_blend_percent(75);
+                    self.default_model_path = Some(path_str);
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     fn cmd_uci(&self) {
@@ -477,10 +537,13 @@ impl UciEngine {
         println!("id author PieBot Team");
         println!("option name Threads type spin default 1 min 1 max 512");
         println!("option name Hash type spin default 64 min 1 max 16384");
-        println!("option name UseNNUE type check default false");
+        println!("option name UseNNUE type check default {}", self.use_nnue);
         println!("option name NNUEFile type string default ");
-        println!("option name NNUEQuantFile type string default ");
-        println!("option name EvalBlend type spin default 100 min 0 max 100");
+        println!(
+            "option name NNUEQuantFile type string default {}",
+            self.default_model_path.as_deref().unwrap_or("")
+        );
+        println!("option name EvalBlend type spin default 75 min 0 max 100");
         println!("uciok");
     }
 
@@ -536,6 +599,7 @@ impl UciEngine {
                         self.searcher.set_nnue_network(Some(nn));
                         self.nnue_loaded = true;
                         self.searcher.set_use_nnue(self.use_nnue);
+                        self.default_model_path = Some(value.to_string());
                         None
                     }
                     Err(error) => Some(format!("info string failed to load NNUEFile: {error}")),
@@ -559,6 +623,7 @@ impl UciEngine {
                     self.searcher.set_nnue_quant_model(model);
                     self.nnue_loaded = true;
                     self.searcher.set_use_nnue(self.use_nnue);
+                    self.default_model_path = Some(value.to_string());
                     None
                 }
                 Err(error) => Some(format!("info string failed to load NNUEQuantFile: {error}")),
@@ -1069,5 +1134,24 @@ mod tests {
             .expect("standard UCI castling move should apply");
         assert_eq!(castled.board().piece_on(Square::G1), Some(Piece::King));
         assert_eq!(castled.board().piece_on(Square::F1), Some(Piece::Rook));
+    }
+
+    #[test]
+    fn auto_load_default_model_finds_and_enables_model() {
+        let mut engine = UciEngine::new();
+        assert!(!engine.nnue_loaded);
+        assert!(!engine.use_nnue);
+
+        let candidate1 = std::path::Path::new("models/lc0_chunk_00034965.nnue");
+        let candidate2 = std::path::Path::new("../models/lc0_chunk_00034965.nnue");
+        let candidate3 = std::path::Path::new("models/v8_cycle_000013_quant.nnue");
+        let candidate4 = std::path::Path::new("../models/v8_cycle_000013_quant.nnue");
+        if candidate1.is_file() || candidate2.is_file() || candidate3.is_file() || candidate4.is_file() {
+            let loaded = engine.auto_load_default_model();
+            assert!(loaded);
+            assert!(engine.nnue_loaded);
+            assert!(engine.use_nnue);
+            assert!(engine.default_model_path.is_some());
+        }
     }
 }

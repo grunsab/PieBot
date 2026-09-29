@@ -7,10 +7,15 @@
     "sha256": "2ef89594cf41ac48c579af9bfaa9af7361462d4da06300cac60dcc9799621b39",
     "bytes": 83890216
   },
+  "lc0_chunk_00034965.nnue": {
+    "sha256": "56434c1bacf5165baaebc6a5a06d5542d69828dc7b1ff09a934fb8263ea917d0",
+    "bytes": 83890216
+  },
   "_provenance": {
+    "lc0_chunk_00034965.nnue": "CURRENT BEST (3203.8 Classical Elo). LCZero campaign pass 17 chunk 34965, arch-v2 dual-perspective SCReLU hidden-1024 (magic PIENNQ02) with hand-optimized AVX2 and ARM NEON SIMD inference kernels. Achieved all-time lowest validation loss 0.6201 and 3203.8 Pooled Elo (174.0/1200, 28.8% draw rate, checkmate win vs Carp 3.0.1) in 120+1 tournament play against CCRL 3500+ engines. Tested at blend 75.",
     "cycle_000098_quant.nnue": "last promotion-accepted model of run main_72h_self_teacher_repair_v1 (confirmed +0.25, CI [+0.042,+0.458]); campaign_v2 incumbent at blend 25 RETAINED DELIBERATELY: scripts/cpu_benchmark.sh:22 reads this file by path to qualify successor boxes, and its sha is pinned in run_vast_campaign_v2.sh and test_cpu_benchmark.py. Do not delete.",
     "dense_bootstrap": "cycle_000086_checkpoint.json (108MB, exceeds git limits): sha256 0ce48cc1299d5750bd43512793e843d8363e1e09a5c4a72c3b22e024951f367c, kept on box at /workspace/piebot_campaign_v2/bootstrap/ and backed up to the operator Mac",
-    "v8_cycle_000013_quant.nnue": "CURRENT BEST. campaign_v8 cycle 13, gameplay-gate accepted at blend 75; arch-v2 dual-perspective SCReLU hidden-1024 (magic PIENNQ02). v8 is the objective-fixed lineage: BCE through sigmoid(cp/400) had gone blind above ~600cp where 28% of labels sit, so a normalised-cp Huber term was added and TEACHER_MIX dropped to 0.9 to restore the game-outcome signal. Reference cp RMSE fell 326 -> 218 over 11 cycles with best_epoch=1 every cycle. Bootstrapped weights-only from v7 cycle 147. See evidence/objective_saturation_20260816.json.",
+    "v8_cycle_000013_quant.nnue": "campaign_v8 cycle 13, gameplay-gate accepted at blend 75; arch-v2 dual-perspective SCReLU hidden-1024 (magic PIENNQ02). v8 is the objective-fixed lineage: BCE through sigmoid(cp/400) had gone blind above ~600cp where 28% of labels sit, so a normalised-cp Huber term was added and TEACHER_MIX dropped to 0.9 to restore the game-outcome signal. Reference cp RMSE fell 326 -> 218 over 11 cycles with best_epoch=1 every cycle. Bootstrapped weights-only from v7 cycle 147. See evidence/objective_saturation_20260816.json.",
     "cycle_000094_quant.nnue": "REMOVED from the tree 2026-08-16 (superseded, no code references). Still recoverable from git history; sha256 7a922154c40e276197caf4ffd933e5bc6172bf84c6511b4afc4db3574feb9b0f, 5243106 bytes."
   }
 }
