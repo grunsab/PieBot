@@ -1,0 +1,57 @@
+{
+  "game": "gxZ1uOYx",
+  "ply": 65,
+  "fen": "3rbnk1/ppr2p2/7p/4PN2/8/q1PBQ3/6PP/2R3K1 w - - 1 33",
+  "stockfish_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+  "node_budget": 2000000,
+  "moves": {
+    "e3h6": {
+      "san": "Qxh6",
+      "cp_stm": -371,
+      "mate": null,
+      "depth": 18,
+      "nodes": 2000471,
+      "pv_uci": [
+        "e3h6",
+        "a3c5"
+      ],
+      "cp_loss": 319
+    },
+    "f5h6": {
+      "san": "Nxh6+",
+      "cp_stm": -36,
+      "mate": null,
+      "depth": 21,
+      "nodes": 2000187,
+      "pv_uci": [
+        "f5h6",
+        "g8h8"
+      ],
+      "cp_loss": 0
+    }
+  },
+  "best": {
+    "cp_stm": -52,
+    "mate": null,
+    "depth": 22,
+    "nodes": 2000481,
+    "pv_uci": [
+      "f5h6",
+      "g8h8",
+      "e3g5",
+      "f8g6",
+      "h6g4",
+      "h8g8",
+      "g4f6",
+      "g8f8",
+      "d3g6",
+      "f7g6",
+      "g5h6",
+      "f8f7",
+      "c1f1",
+      "a3c5",
+      "g1h1",
+      "c5c4"
+    ]
+  }
+}

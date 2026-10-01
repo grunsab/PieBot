@@ -1,0 +1,64 @@
+   Compiling serde_core v1.0.228
+   Compiling num-traits v0.2.19
+   Compiling either v1.15.0
+   Compiling rayon v1.11.0
+   Compiling serde_json v1.0.145
+   Compiling serde v1.0.228
+   Compiling rand_distr v0.4.3
+   Compiling piebot v0.1.0 (/home/ubuntu/lichess-bot/engines/PieBot-lazy-smp-20261001/PieBot)
+    Finished `release` profile [optimized] target(s) in 1m 49s
+     Running tests/lazy_smp.rs (target/release/deps/lazy_smp-8efdad48804335b4)
+
+running 3 tests
+test node_limit_is_global_with_multiple_threads_and_aspiration ... ok
+test stopping_parallel_search_joins_helpers_and_allows_another_search ... ok
+test deterministic_search_is_identical_when_more_threads_are_requested ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/lichess_smp_blunders.rs (target/release/deps/lichess_smp_blunders-b767cd55944091d3)
+
+running 2 tests
+test historical_blunders_have_legal_immediate_refutations ... ok
+test real_nnue_parallel_search_avoids_recorded_blunders_and_mate_in_one ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+     Running tests/search_core_temp_regressions.rs (target/release/deps/search_core_temp_regressions-b1cebd0922c89a6f)
+
+running 16 tests
+test checkmate_outranks_a_fifty_move_claim_in_qsearch ... ok
+test interrupted_iteration_keeps_last_completed_depth_result ... ok
+test external_stop_returns_fallback_without_completing_a_partial_iteration ... ok
+test completed_search_reports_completed_depth_and_real_selective_depth ... ok
+test qsearch_includes_en_passant_and_promotions ... ok
+test qsearch_obeys_node_budget_and_does_not_complete_partial_depth ... ok
+test qsearch_in_check_searches_quiet_legal_evasions_instead_of_stand_pat ... ok
+test qsearch_scores_checkmate_and_stalemate_as_terminal ... ok
+test quiet_mate_on_halfmove_one_hundred_is_scored_as_mate ... ok
+test parallel_search_aggregates_worker_selective_depth ... ok
+test search_returns_draw_for_fifty_move_and_insufficient_material_positions ... ok
+test search_returns_draw_for_supplied_threefold_history ... ok
+test zero_movetime_reports_no_completed_iteration_but_returns_legal_fallback ... ok
+test recursive_quant_search_matches_full_recompute_for_special_move_paths ... ok
+test recursive_quant_search_does_not_leak_accumulator_between_siblings_or_searches ... ok
+test dense_nnue_remains_full_recompute_correct_when_threads_are_requested ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/uci_moves.rs (target/release/deps/uci_moves-c9c56b1be471ffa6)
+
+running 2 tests
+test apply_moves_relative_to_a_fen_position ... ok
+test apply_startpos_moves_sequence ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/uci_stop.rs (target/release/deps/uci_stop-0117f5d882602290)
+
+running 1 test
+info string Loaded default NNUE model: ../models/lc0_chunk_00034965.nnue
+test stop_interrupts_an_active_search_and_returns_bestmove ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+

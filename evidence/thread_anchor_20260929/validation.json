@@ -1,0 +1,1458 @@
+{
+  "all_features": [
+    {
+      "elapsed_s": 21.55931566603249,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_incremental-d435430c4b675bc1.log",
+      "name": "nnue_incremental",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_incremental-d435430c4b675bc1",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 42.617858582991175,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_search_basic-88b9c9611ba1740a.log",
+      "name": "search_basic",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_basic-88b9c9611ba1740a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 63.76251658296678,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_inc_bench-580d222efed0292a.log",
+      "name": "nnue_inc_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_inc_bench-580d222efed0292a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 84.72393041598843,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_lmp_improving-3657b2c81bd2d12a.log",
+      "name": "lmp_improving",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lmp_improving-3657b2c81bd2d12a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 105.7648002919741,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_ordering-0a981ca3a221bd80.log",
+      "name": "ordering",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/ordering-0a981ca3a221bd80",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 126.78749112499645,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_tt_bucket-bb5317ec23b2cca6.log",
+      "name": "tt_bucket",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_bucket-bb5317ec23b2cca6",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 148.29936170898145,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nullmove-8698760073a0b54d.log",
+      "name": "nullmove",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nullmove-8698760073a0b54d",
+      "returncode": 0
+    },
+    {
+      "binary_sha256": "fefbe3cc9584b8c76ee0a87d47661577c347f4dd291290636a3f3f5fc2c61829",
+      "elapsed_s": 2.2269598750281148,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/retry_all_features_uci_stop_after_battery.log",
+      "name": "uci_stop",
+      "original_attempt": {
+        "elapsed_s": 171.16511916700983,
+        "kind": [
+          "test"
+        ],
+        "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_uci_stop-f8a61b2557db3277.log",
+        "name": "uci_stop",
+        "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/uci_stop-f8a61b2557db3277",
+        "returncode": 101
+      },
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/uci_stop-f8a61b2557db3277",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.84553079196485,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_root_parallel_quant-d615043268858535.log",
+      "name": "root_parallel_quant",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/root_parallel_quant-d615043268858535",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 170.47677933401428,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_selfplay-21531264efb636ec.log",
+      "name": "selfplay",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/selfplay-21531264efb636ec",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.4995238329866,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_tt_aging-b414ce22a1712bcf.log",
+      "name": "tt_aging",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_aging-b414ce22a1712bcf",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 169.37614041700726,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_alphabeta_accept-69f7e6a79ed7fe3a.log",
+      "name": "alphabeta_accept",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/alphabeta_accept-69f7e6a79ed7fe3a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 170.43886629102053,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_search_bench-79d1a4bd3f71411c.log",
+      "name": "search_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_bench-79d1a4bd3f71411c",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 170.6625230840291,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_selfplay-f31fd9867d5c1df8.log",
+      "name": "selfplay",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/selfplay-f31fd9867d5c1df8",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 173.00195345800603,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_pleco_positions-073f5f1d6afed68b.log",
+      "name": "pleco_positions",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/pleco_positions-073f5f1d6afed68b",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 171.81738195900107,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_simd_eval_test-ca9155564d34e598.log",
+      "name": "simd_eval_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/simd_eval_test-ca9155564d34e598",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 173.07542462501442,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_smooth_history-986e89af33e8ff1b.log",
+      "name": "smooth_history",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/smooth_history-986e89af33e8ff1b",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 171.22381041600602,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_accept_temp-64ed9ed285ae7cf0.log",
+      "name": "accept_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/accept_temp-64ed9ed285ae7cf0",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 173.2411913750111,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_eval_blend_temp-f1525316f31b4a22.log",
+      "name": "eval_blend_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_blend_temp-f1525316f31b4a22",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 176.9664622080163,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_perft-5130dda3ea8aa906.log",
+      "name": "perft",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/perft-5130dda3ea8aa906",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 177.53485433303285,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_search_core_temp_regressions-4cab0568f92ee917.log",
+      "name": "search_core_temp_regressions",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_core_temp_regressions-4cab0568f92ee917",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 174.5700835000025,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_blend_bench-742793fde43453ef.log",
+      "name": "blend_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/blend_bench-742793fde43453ef",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 174.11527079105144,
+      "kind": [
+        "lib"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_piebot-2839613236fff834.log",
+      "name": "piebot",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/piebot-2839613236fff834",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 187.491244542005,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_lmr_table_temp-e01a6e4ed641f98c.log",
+      "name": "lmr_table_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lmr_table_temp-e01a6e4ed641f98c",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 188.35925391700584,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_eval-e2cb969017bd97e0.log",
+      "name": "nnue_eval",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_eval-e2cb969017bd97e0",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 189.49305579200154,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_qsearch_bench-8b99974a049404f7.log",
+      "name": "qsearch_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/qsearch_bench-8b99974a049404f7",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 190.34655683295568,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_heuristics_v1-d85e029837842bc8.log",
+      "name": "heuristics_v1",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/heuristics_v1-d85e029837842bc8",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 186.17252158402698,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_root_parallel-43dc2be03e19b221.log",
+      "name": "root_parallel",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/root_parallel-43dc2be03e19b221",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 184.3818656670046,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_uci_moves-796c1f1faec584e9.log",
+      "name": "uci_moves",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/uci_moves-796c1f1faec584e9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 189.62587945803534,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_v2_head_bench-83bcad68a8fa6bb6.log",
+      "name": "nnue_v2_head_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_v2_head_bench-83bcad68a8fa6bb6",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 185.71213291597087,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_search_movetime-3891539e18fa8fbd.log",
+      "name": "search_movetime",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_movetime-3891539e18fa8fbd",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 206.15545708400896,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_eval_blend_quant-63fd33a989294fe3.log",
+      "name": "eval_blend_quant",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_blend_quant-63fd33a989294fe3",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 205.7233193750144,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_time_manager-e390bb58f6aa3954.log",
+      "name": "time_manager",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/time_manager-e390bb58f6aa3954",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 204.6773844169802,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_aspiration_widening_test-f0605d8610422cd0.log",
+      "name": "aspiration_widening_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/aspiration_widening_test-f0605d8610422cd0",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 203.92861558299046,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_compare_play-99bc8d619caa6af0.log",
+      "name": "compare_play",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/compare_play-99bc8d619caa6af0",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 203.59091525000986,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_lazy_smp-a124fc321429bc9c.log",
+      "name": "lazy_smp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lazy_smp-a124fc321429bc9c",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 203.12269712495618,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_lmr_table-23749a1f8b3968b3.log",
+      "name": "lmr_table",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lmr_table-23749a1f8b3968b3",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 201.81564337498276,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_file-80cee47e0eacf0ab.log",
+      "name": "nnue_file",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_file-80cee47e0eacf0ab",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 203.73150587495184,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_uci-53c9f8ba41414c1f.log",
+      "name": "uci",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/uci-53c9f8ba41414c1f",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 169.6167524170014,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_eval_pst-95019706f0a6f73a.log",
+      "name": "eval_pst",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_pst-95019706f0a6f73a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 170.9472907500458,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_quant-a00e1ffb0e150044.log",
+      "name": "nnue_quant",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_quant-a00e1ffb0e150044",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 174.44710004195804,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_search_threads-5bc1d5d0b0e9b329.log",
+      "name": "search_threads",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_threads-5bc1d5d0b0e9b329",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 178.47620179201476,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_selfplay_io-63a919f5abb114ea.log",
+      "name": "selfplay_io",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/selfplay_io-63a919f5abb114ea",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 180.5495132909855,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_tt_capacity-8b354e9b884c617d.log",
+      "name": "tt_capacity",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_capacity-8b354e9b884c617d",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 182.2918756250292,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_stub-75cb8313a1e7d86f.log",
+      "name": "nnue_stub",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_stub-75cb8313a1e7d86f",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 189.9321543329861,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_qsearch-09d428e7e47bdf26.log",
+      "name": "qsearch",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/qsearch-09d428e7e47bdf26",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 193.3027553340071,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_tt_flags-27e643b1b9f22493.log",
+      "name": "tt_flags",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_flags-27e643b1b9f22493",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 192.91719537501922,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_history_table-461045d63a5fbe49.log",
+      "name": "history_table",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/history_table-461045d63a5fbe49",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 191.57267850002972,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_perft-02baf6790de3b7f9.log",
+      "name": "perft",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/perft-02baf6790de3b7f9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 188.22212279197993,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nmp_scaling_temp-c8093b5931bf2ec1.log",
+      "name": "nmp_scaling_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nmp_scaling_temp-c8093b5931bf2ec1",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 184.56861991604092,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_v2-b678b4369d41a677.log",
+      "name": "nnue_v2",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_v2-b678b4369d41a677",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 181.9163786249701,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_openings_suite-0721b1e252fe19bb.log",
+      "name": "openings_suite",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/openings_suite-0721b1e252fe19bb",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 180.78320929204347,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_zobrist_rule_state-477ba9452bb16e9e.log",
+      "name": "zobrist_rule_state",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/zobrist_rule_state-477ba9452bb16e9e",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 172.12788475002162,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_search_draw_rules-1a0856f1bfab0530.log",
+      "name": "search_draw_rules",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_draw_rules-1a0856f1bfab0530",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.6109932080144,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_split_points-c4483d739b005344.log",
+      "name": "split_points",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/split_points-c4483d739b005344",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 169.34428579197265,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nps_bench-7a27c60ef51126f5.log",
+      "name": "nps_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nps_bench-7a27c60ef51126f5",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.63845454202965,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_continuation_history_temp-1be5bb55792536d9.log",
+      "name": "continuation_history_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/continuation_history_temp-1be5bb55792536d9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.5551295420155,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_see-edc6c115fb57550a.log",
+      "name": "see",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/see-edc6c115fb57550a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.8867311659851,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_positions_consistency-c8f898e83988d116.log",
+      "name": "positions_consistency",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/positions_consistency-c8f898e83988d116",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.27205062500434,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_tt_and_time-aa94d36b1b9ba312.log",
+      "name": "tt_and_time",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_and_time-aa94d36b1b9ba312",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.40449258300941,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_capture_history_test-2fcdc4d64f11494f.log",
+      "name": "capture_history_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/capture_history_test-2fcdc4d64f11494f",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 243.8162543749786,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_see_ordering_test-88b600c7b7f80a0a.log",
+      "name": "see_ordering_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/see_ordering_test-88b600c7b7f80a0a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.30883808300132,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_halfkp-306667bad8231dc3.log",
+      "name": "nnue_halfkp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_halfkp-306667bad8231dc3",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 166.73026116698748,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_arch_v2-8f00afb9db87b5f0.log",
+      "name": "nnue_arch_v2",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_arch_v2-8f00afb9db87b5f0",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 168.32794787501916,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_search_pruning_temp-e4c8036d56996a04.log",
+      "name": "search_pruning_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_pruning_temp-e4c8036d56996a04",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 167.73410912498366,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_nnue_bench-ffbf2b685f126515.log",
+      "name": "nnue_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_bench-ffbf2b685f126515",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 146.59474266599864,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_relabel_jsonl-8b98957a546cfe96.log",
+      "name": "relabel_jsonl",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/relabel_jsonl-8b98957a546cfe96",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 147.43777150003007,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_build_mate_suite-e9e09c6e9596f22b.log",
+      "name": "build_mate_suite",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/build_mate_suite-e9e09c6e9596f22b",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 147.39334445801796,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_eval_blend-b03288b90cd99e55.log",
+      "name": "eval_blend",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_blend-b03288b90cd99e55",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 158.30314241698943,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_position_history-fd9dfb5a63591ba8.log",
+      "name": "position_history",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/position_history-fd9dfb5a63591ba8",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 172.27287362504285,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_eval_bench-a8bca618444088eb.log",
+      "name": "eval_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_bench-a8bca618444088eb",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 174.25230591598665,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/all_features_accept-3093704db8178b06.log",
+      "name": "accept",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/accept-3093704db8178b06",
+      "returncode": 0
+    }
+  ],
+  "default": [
+    {
+      "elapsed_s": 0.008583457965869457,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_accept_temp-3b58dead8e1fe858.log",
+      "name": "accept_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/accept_temp-3b58dead8e1fe858",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 87.65387416700833,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_lmp_improving-5e99d0f0f8e57f56.log",
+      "name": "lmp_improving",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lmp_improving-5e99d0f0f8e57f56",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.010821207950357348,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_eval_blend-37c2fd6cecbd4e47.log",
+      "name": "eval_blend",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_blend-37c2fd6cecbd4e47",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 151.06881366699236,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_eval_bench-47664c208e29c4f9.log",
+      "name": "eval_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_bench-47664c208e29c4f9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 174.073844833998,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_inc_bench-473de420835cd250.log",
+      "name": "nnue_inc_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_inc_bench-473de420835cd250",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.02054383303038776,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_eval_blend_temp-65db070cb7d4192c.log",
+      "name": "eval_blend_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_blend_temp-65db070cb7d4192c",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 197.69060604204424,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_v2-c142ddb41b0f8c38.log",
+      "name": "nnue_v2",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_v2-c142ddb41b0f8c38",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 219.74855737498729,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_search_basic-3cbf581a5f77b8b9.log",
+      "name": "search_basic",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_basic-3cbf581a5f77b8b9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 241.97524624998914,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_time_manager-54d8f0aeb7808b34.log",
+      "name": "time_manager",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/time_manager-54d8f0aeb7808b34",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.5646673750015907,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_alphabeta_accept-e89f9ce9c3266fb9.log",
+      "name": "alphabeta_accept",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/alphabeta_accept-e89f9ce9c3266fb9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 266.63910370797385,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_v2_head_bench-ee0d506a61c7d652.log",
+      "name": "nnue_v2_head_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_v2_head_bench-ee0d506a61c7d652",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 285.7604767080047,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_see-41e5ef2eff727955.log",
+      "name": "see",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/see-41e5ef2eff727955",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 220.31938991695642,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_root_parallel-e86bdea447e91515.log",
+      "name": "root_parallel",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/root_parallel-e86bdea447e91515",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 179.11876908299746,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_uci_moves-f3b01b21a1974429.log",
+      "name": "uci_moves",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/uci_moves-f3b01b21a1974429",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 183.12043654196896,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_perft-99ef76604ced00ac.log",
+      "name": "perft",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/perft-99ef76604ced00ac",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 176.7424539590138,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_search_movetime-fa247edc67047180.log",
+      "name": "search_movetime",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_movetime-fa247edc67047180",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.24036191700724885,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_compare_play-e5d18b98d5d50dd9.log",
+      "name": "compare_play",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/compare_play-e5d18b98d5d50dd9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 177.5409297499573,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_search_threads-1dcc5e28718dc708.log",
+      "name": "search_threads",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_threads-1dcc5e28718dc708",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.07201841700589284,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_relabel_jsonl-52c70eb0c092d037.log",
+      "name": "relabel_jsonl",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/relabel_jsonl-52c70eb0c092d037",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 177.3432457500021,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_search_pruning_temp-8a90acdd5d4f792e.log",
+      "name": "search_pruning_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_pruning_temp-8a90acdd5d4f792e",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.010935749975033104,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_accept-0b014c3f2ea1aa63.log",
+      "name": "accept",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/accept-0b014c3f2ea1aa63",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.009113916021306068,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_build_mate_suite-6f0e233e9bb5f3e1.log",
+      "name": "build_mate_suite",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/build_mate_suite-6f0e233e9bb5f3e1",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 24.317373375000898,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nmp_scaling_temp-8dd767dbc951a491.log",
+      "name": "nmp_scaling_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nmp_scaling_temp-8dd767dbc951a491",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 223.5819942909875,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_search_draw_rules-67ca3d7446b21565.log",
+      "name": "search_draw_rules",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_draw_rules-67ca3d7446b21565",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 267.92915945802815,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_bench-c69d6a43dd4a5609.log",
+      "name": "nnue_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_bench-c69d6a43dd4a5609",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 38.312025624967646,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_lmr_table-5536aa6ab28cf19f.log",
+      "name": "lmr_table",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lmr_table-5536aa6ab28cf19f",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 346.0002482080017,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_tt_capacity-6ca7e887b5fc9fc0.log",
+      "name": "tt_capacity",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_capacity-6ca7e887b5fc9fc0",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 339.8364913749974,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_pleco_positions-dde10614af570cba.log",
+      "name": "pleco_positions",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/pleco_positions-dde10614af570cba",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 395.5909162919852,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_see_ordering_test-77ee5963bfe771e1.log",
+      "name": "see_ordering_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/see_ordering_test-77ee5963bfe771e1",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 345.2614549170248,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_selfplay-5bc515b888195a24.log",
+      "name": "selfplay",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/selfplay-5bc515b888195a24",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.34659008402377367,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_continuation_history_temp-08943c278c370616.log",
+      "name": "continuation_history_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/continuation_history_temp-08943c278c370616",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.03318874997785315,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_eval_pst-0851ab5cee330a54.log",
+      "name": "eval_pst",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_pst-0851ab5cee330a54",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 21.22490154200932,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_lazy_smp-e73cea662e87157d.log",
+      "name": "lazy_smp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lazy_smp-e73cea662e87157d",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 382.1624066249933,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_tt_bucket-2e534b7ed45ab21e.log",
+      "name": "tt_bucket",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_bucket-2e534b7ed45ab21e",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 401.58133916702354,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_file-af6d9dbc5dc3375b.log",
+      "name": "nnue_file",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_file-af6d9dbc5dc3375b",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.18048145802458748,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_heuristics_v1-ae6a260a438b0a96.log",
+      "name": "heuristics_v1",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/heuristics_v1-ae6a260a438b0a96",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 356.01573820901103,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_simd_eval_test-0805262919abe490.log",
+      "name": "simd_eval_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/simd_eval_test-0805262919abe490",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 268.3867368340143,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_selfplay_io-0c5e940edc268d29.log",
+      "name": "selfplay_io",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/selfplay_io-0c5e940edc268d29",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 205.38666900002863,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_smooth_history-ebff9b826c436253.log",
+      "name": "smooth_history",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/smooth_history-ebff9b826c436253",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 206.60899437504122,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_halfkp-ace96913979c003e.log",
+      "name": "nnue_halfkp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_halfkp-ace96913979c003e",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 220.61099620797904,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_tt_flags-9889f62f041d0e8e.log",
+      "name": "tt_flags",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_flags-9889f62f041d0e8e",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 25.54671225004131,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_zobrist_rule_state-fc63bcaf0bf64dea.log",
+      "name": "zobrist_rule_state",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/zobrist_rule_state-fc63bcaf0bf64dea",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.1300107499700971,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_aspiration_widening_test-78ac0e4cbea90eb4.log",
+      "name": "aspiration_widening_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/aspiration_widening_test-78ac0e4cbea90eb4",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 257.43251212500036,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_ordering-a017f203291730e8.log",
+      "name": "ordering",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/ordering-a017f203291730e8",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.13067541603231803,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_capture_history_test-435ab5a6e32e54ab.log",
+      "name": "capture_history_test",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/capture_history_test-435ab5a6e32e54ab",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 50.969155750004575,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_lmr_table_temp-7c9846eeff512873.log",
+      "name": "lmr_table_temp",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/lmr_table_temp-7c9846eeff512873",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 319.5043258749647,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_qsearch-f1275358394c25e2.log",
+      "name": "qsearch",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/qsearch-f1275358394c25e2",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 289.8913735409733,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_incremental-7a53c67362294bd9.log",
+      "name": "nnue_incremental",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_incremental-7a53c67362294bd9",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 310.4624042090145,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_tt_aging-6869ba83005018dd.log",
+      "name": "tt_aging",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_aging-6869ba83005018dd",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 318.1861920829979,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nps_bench-b80d9e807f4d6b14.log",
+      "name": "nps_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nps_bench-b80d9e807f4d6b14",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 322.9631072500488,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_search_core_temp_regressions-60c23b88a42a4aca.log",
+      "name": "search_core_temp_regressions",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_core_temp_regressions-60c23b88a42a4aca",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 317.4454777499777,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_tt_and_time-d7a0897b61029658.log",
+      "name": "tt_and_time",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/tt_and_time-d7a0897b61029658",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 291.9311665830319,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_search_bench-1c407d08053932ea.log",
+      "name": "search_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/search_bench-1c407d08053932ea",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 212.42283841699827,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_eval-59d7d3fb4ec8bc42.log",
+      "name": "nnue_eval",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_eval-59d7d3fb4ec8bc42",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 191.33779116597725,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_openings_suite-4419747ba064dda3.log",
+      "name": "openings_suite",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/openings_suite-4419747ba064dda3",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.022817416989710182,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_eval_blend_quant-21a1a351264fe673.log",
+      "name": "eval_blend_quant",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/eval_blend_quant-21a1a351264fe673",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.2379527089651674,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_history_table-da8d48ed398a8b78.log",
+      "name": "history_table",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/history_table-da8d48ed398a8b78",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 177.64589770894963,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_stub-0638c566d66d0ccf.log",
+      "name": "nnue_stub",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_stub-0638c566d66d0ccf",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 34.094591375032905,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_arch_v2-66ccfa8f882b0d5c.log",
+      "name": "nnue_arch_v2",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_arch_v2-66ccfa8f882b0d5c",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.023936542042065412,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_perft-9e13717385157d02.log",
+      "name": "perft",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/perft-9e13717385157d02",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.012030999991111457,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_selfplay-64a83df719544329.log",
+      "name": "selfplay",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/selfplay-64a83df719544329",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.9737283749855123,
+      "kind": [
+        "lib"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_piebot-5c3e189c4614591c.log",
+      "name": "piebot",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/piebot-5c3e189c4614591c",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 0.02554591599619016,
+      "kind": [
+        "bin"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_uci-f8068a24507dd931.log",
+      "name": "uci",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/uci-f8068a24507dd931",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 213.92985570797464,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_position_history-ba0e8f0254ec2ac7.log",
+      "name": "position_history",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/position_history-ba0e8f0254ec2ac7",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 272.64589387504384,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_blend_bench-5911a20578122027.log",
+      "name": "blend_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/blend_bench-5911a20578122027",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 297.5326545830467,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_positions_consistency-51423db3fb8ffdee.log",
+      "name": "positions_consistency",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/positions_consistency-51423db3fb8ffdee",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 313.52114708395675,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_uci_stop-bf5a3f87836b7144.log",
+      "name": "uci_stop",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/uci_stop-bf5a3f87836b7144",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 327.2275083329878,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_split_points-214e0851add07589.log",
+      "name": "split_points",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/split_points-214e0851add07589",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 354.85213241598103,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nnue_quant-d536e8f28d4e565a.log",
+      "name": "nnue_quant",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nnue_quant-d536e8f28d4e565a",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 361.4274494999554,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_nullmove-7165f5790551bcb3.log",
+      "name": "nullmove",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/nullmove-7165f5790551bcb3",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 324.37195600004634,
+      "kind": [
+        "bench"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_qsearch_bench-7c9ade6154480d33.log",
+      "name": "qsearch_bench",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/qsearch_bench-7c9ade6154480d33",
+      "returncode": 0
+    },
+    {
+      "elapsed_s": 323.04099133395357,
+      "kind": [
+        "test"
+      ],
+      "log": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/lazy_smp_fix_20260929/default_root_parallel_quant-edd3bc1aeba4e9af.log",
+      "name": "root_parallel_quant",
+      "path": "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot/target/debug/deps/root_parallel_quant-edd3bc1aeba4e9af",
+      "returncode": 0
+    }
+  ],
+  "updated_at": "2026-09-29T22:37:44.039545+00:00"
+}

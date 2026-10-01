@@ -1,0 +1,23 @@
+{
+  "created_at": "2026-09-29T22:10:05.666670+00:00",
+  "games_per_setting": 100,
+  "settings": [
+    1,
+    8
+  ],
+  "stockfish_elo": 3190,
+  "stockfish_threads": 1,
+  "time_control": "60+0.5",
+  "model_sha256": "56434c1bacf5165baaebc6a5a06d5542d69828dc7b1ff09a934fb8263ea917d0",
+  "engine_source_sha256": "d6686e65337edc4bb23b754f1eb40e6a3ceb5f5b12e9c0600ce2b236d8130f97",
+  "arena_source_sha256": "2370d1f3c38be170865a5f5416dc354e40445d04acaa3fa0f010b6ba32659246",
+  "driver_source_sha256": "57bc7c65559b7af8079e24312d18826302f1b2216bca6bb82c0f961173c5f68f",
+  "validation_pid": 8845,
+  "files": {
+    "bin/piebot-uci": "6dcb5d84f9b5fa069cc13f33a78d2b31e006d48456a6774b7972e76eb88e96f7",
+    "bin/stockfish-18": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+    "openings.json": "1135500045b4676e13a74c30522cd7e07b01744a3df6468e799dd3f9e775c821"
+  },
+  "cpu": "Mac16,8, 8 performance + 4 efficiency cores; macOS schedules 8 workers; no CPU affinity pin",
+  "user_authorization": "100 games per setting, matched openings, 60+0.5; full comparison after Lazy SMP fix."
+}

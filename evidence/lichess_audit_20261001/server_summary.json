@@ -1,0 +1,202 @@
+{
+  "config": {
+    "token": "<REDACTED>",
+    "url": "https://lichess.org/",
+    "engine": {
+      "dir": "./engines/PieBot/PieBot/target/release/",
+      "name": "uci",
+      "working_dir": "/home/ubuntu/lichess-bot/engines/PieBot",
+      "protocol": "uci",
+      "ponder": true,
+      "polyglot": {
+        "enabled": false,
+        "book": {
+          "standard": [
+            "engines/book1.bin",
+            "engines/book2.bin"
+          ]
+        },
+        "min_weight": 1,
+        "selection": "weighted_random",
+        "max_depth": 20,
+        "normalization": "none"
+      },
+      "draw_or_resign": {
+        "resign_enabled": false,
+        "resign_score": -1000,
+        "resign_for_egtb_minus_two": true,
+        "resign_moves": 3,
+        "offer_draw_enabled": true,
+        "offer_draw_score": 0,
+        "offer_draw_for_egtb_zero": true,
+        "offer_draw_moves": 10,
+        "offer_draw_pieces": 10
+      },
+      "online_moves": {
+        "max_out_of_book_moves": 10,
+        "max_retries": 2,
+        "chessdb_book": {
+          "enabled": false,
+          "min_time": 10,
+          "max_time": 10800,
+          "move_quality": "best",
+          "min_depth": 20
+        },
+        "lichess_cloud_analysis": {
+          "enabled": false,
+          "min_time": 10,
+          "max_time": 10800,
+          "move_quality": "best",
+          "max_score_difference": 10,
+          "min_depth": 20,
+          "min_knodes": 0
+        },
+        "lichess_opening_explorer": {
+          "enabled": false,
+          "min_time": 10,
+          "max_time": 10800,
+          "source": "masters",
+          "player_name": "",
+          "sort": "winrate",
+          "min_games": 10000
+        },
+        "online_egtb": {
+          "enabled": false,
+          "min_time": 10,
+          "max_time": 10800,
+          "max_pieces": 7,
+          "source": "lichess",
+          "move_quality": "best"
+        }
+      },
+      "lichess_bot_tbs": {
+        "syzygy": {
+          "enabled": false,
+          "paths": [
+            "engines/syzygy"
+          ],
+          "max_pieces": 7,
+          "move_quality": "best"
+        },
+        "gaviota": {
+          "enabled": false,
+          "paths": [
+            "engines/gaviota"
+          ],
+          "max_pieces": 5,
+          "min_dtm_to_consider_as_wdl_1": 120,
+          "move_quality": "best"
+        }
+      },
+      "homemade_options": null,
+      "uci_options": {
+        "NNUEQuantFile": "/home/ubuntu/lichess-bot/engines/PieBot/models/lc0_chunk_00034965.nnue",
+        "UseNNUE": true,
+        "EvalBlend": 75,
+        "Threads": 2,
+        "Hash": 512
+      },
+      "silence_stderr": false
+    },
+    "abort_time": 30,
+    "fake_think_time": false,
+    "rate_limiting_delay": 0,
+    "max_takebacks_accepted": 0,
+    "quit_after_all_games_finish": false,
+    "correspondence": {
+      "move_time": 60,
+      "checkin_period": 300,
+      "disconnect_time": 150,
+      "ponder": false
+    },
+    "challenge": {
+      "concurrency": 1,
+      "sort_by": "best",
+      "preference": "none",
+      "accept_bot": true,
+      "only_bot": false,
+      "max_increment": 10,
+      "min_increment": 0,
+      "max_base": 250,
+      "min_base": 120,
+      "max_days": 14,
+      "min_days": 1,
+      "variants": [
+        "standard"
+      ],
+      "time_controls": [
+        "bullet",
+        "blitz",
+        "rapid",
+        "classical"
+      ],
+      "modes": [
+        "rated"
+      ],
+      "bullet_requires_increment": true,
+      "max_simultaneous_games_per_user": 5
+    },
+    "greeting": {
+      "hello": "Hi! I'm {me}. Good luck! Type !help for a list of commands I can respond to.",
+      "goodbye": "Good game!",
+      "hello_spectators": "Hi! I'm {me}. Type !help for a list of commands I can respond to.",
+      "goodbye_spectators": "Thanks for watching!"
+    },
+    "matchmaking": {
+      "allow_matchmaking": true,
+      "allow_during_games": false,
+      "challenge_variant": "random",
+      "challenge_timeout": 1,
+      "challenge_initial_time": [
+        120
+      ],
+      "challenge_increment": [
+        1,
+        2
+      ],
+      "opponent_rating_difference": 500,
+      "rating_preference": "high",
+      "challenge_mode": "rated",
+      "challenge_filter": "none",
+      "include_challenge_block_list": false
+    }
+  },
+  "processes": [
+    {
+      "pid": 3933929,
+      "args": "/home/ubuntu/lichess-bot/venv/bin/python -u /home/ubuntu/lichess-bot/lichess-bot.py --config /home/ubuntu/lichess-bot/config.yml ",
+      "cwd": "/home/ubuntu/lichess-bot",
+      "search_environment": [
+        "RAYON_NUM_THREADS=2"
+      ]
+    }
+  ],
+  "files": {
+    "PieBot/target/release/uci": {
+      "size": 1735672,
+      "sha256": "e8c22ae36f0084c26ef1f7f19f2cbedfd0ff21370d05cd5f7aacc85f191be79e",
+      "mtime": 1790653002.1643887
+    },
+    "models/lc0_chunk_00034965.nnue": {
+      "size": 83890216,
+      "sha256": "56434c1bacf5165baaebc6a5a06d5542d69828dc7b1ff09a934fb8263ea917d0",
+      "mtime": 1790652599.9133987
+    }
+  },
+  "host": "Linux vps-5d9b1da8 6.14.0-37-generic #37-Ubuntu SMP PREEMPT_DYNAMIC Fri Nov 14 22:10:32 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux\n",
+  "cpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           40 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  4\nOn-line CPU(s) list:                     0-3\nVendor ID:                               GenuineIntel\nModel name:                              Intel Core Processor (Haswell, no TSX)\nCPU family:                              6\nModel:                                   60\nThread(s) per core:                      1\nCore(s) per socket:                      1\nSocket(s):                               4\nStepping:                                1\nBogoMIPS:                                5986.13\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 syscall nx rdtscp lm constant_tsc rep_good nopl xtopology cpuid tsc_known_freq pni pclmulqdq vmx ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm cpuid_fault pti tpr_shadow flexpriority ept vpid ept_ad fsgsbase bmi1 avx2 smep bmi2 erms invpcid xsaveopt arat vnmi md_clear\nVirtualization:                          VT-x\nHypervisor vendor:                       KVM\nVirtualization type:                     full\nL1d cache:                               128 KiB (4 instances)\nL1i cache:                               128 KiB (4 instances)\nL2 cache:                                16 MiB (4 instances)\nL3 cache:                                64 MiB (4 instances)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-3\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Mitigation; Aligned branch/return thunks\nVulnerability Itlb multihit:             KVM: Mitigation: Split huge pages\nVulnerability L1tf:                      Mitigation; PTE Inversion; VMX conditional cache flushes, SMT disabled\nVulnerability Mds:                       Mitigation; Clear CPU buffers; SMT Host state unknown\nVulnerability Meltdown:                  Mitigation; PTI\nVulnerability Mmio stale data:           Unknown: No mitigations\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Vulnerable\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Retpolines; STIBP disabled; RSB filling; PBRSB-eIBRS Not affected; BHI Retpoline\nVulnerability Srbds:                     Unknown: Dependent on hypervisor status\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n",
+  "uptime": " 22:18:47 up 84 days, 12:55, 11 users,  load average: 0.18, 0.37, 0.50\n",
+  "free": "               total        used        free      shared  buff/cache   available\nMem:            7750        3099         592         273        4628        4650\nSwap:              0           0           0\n",
+  "git_head": "a7d470596a0dd18a77a15d70f1ecd070edb55a14",
+  "git_status": "",
+  "cpu_stat": "cpu  144151862 12442 61031557 2695322056 247239 0 1773594 1456740 0 0\ncpu0 36092316 3226 15299169 673875433 60023 0 554938 370926 0 0\ncpu1 35958353 3038 15218346 673946495 61315 0 463342 366532 0 0\ncpu2 35904533 3115 15229834 673713060 63897 0 422816 366325 0 0\ncpu3 36196658 3062 15284207 673787067 62003 0 332497 352956 0 0\nintr 20953722996 0 9 0 0 655 0 3 0 0 0 0 753449 15 0 0 0 0 0 0 0 0 0 0 0 0 369 0 0 0 3875388 3998198 4184803 3971387 0 21440634 30403533 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\nctxt 33524716137\nbtime 1783588975\nprocesses 270559084\nprocs_running 3\nprocs_blocked 0\nsoftirq 5674860740 2 796965170 6977 668298390 22 0 151005 1595475589 1759 2613961826\n",
+  "cpu_quota": null,
+  "source_hashes": {
+    "PieBot/src/uci.rs": {
+      "sha256": "ee5607056bc1a74ab68f60c06f994fbcaffa08b05dffd3649d76c0d563bb0a13"
+    },
+    "PieBot/src/search/alphabeta.rs": {
+      "sha256": "57036a6221b476da8f3f24074b7794b7be30423c78a07004a0f72220bb0674ae"
+    }
+  }
+}

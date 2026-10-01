@@ -1,0 +1,15 @@
+{
+  "binary_sha256": "9c3327de9d27074659ece9104142ee236a78c8cd07b5866546d4919535387331",
+  "exact_historical_blunders_avoided": 42,
+  "six_case_trials": 42,
+  "six_case_trials_under_200cp": 38,
+  "broader_positions_under_200cp": 41,
+  "broader_total": 45,
+  "review_passed_for_deployment": true,
+  "limitations": [
+    "Four of 45 major-error positions remain >=200 cp worse than best.",
+    "Four of seven repeated RbqMJLNn trials select Rhd8, assessed at 259 cp loss at 2M nodes and 233 cp loss at 10M nodes.",
+    "Passing means the confirmed root-collector defect is removed and its recorded catastrophic moves avoided; it does not mean every replacement is optimal or establish an Elo recovery."
+  ],
+  "model_sha256": "56434c1bacf5165baaebc6a5a06d5542d69828dc7b1ff09a934fb8263ea917d0"
+}

@@ -1,0 +1,69 @@
+{
+  "verified_at": "2026-09-30T07:46:59.338862+00:00",
+  "status": "passed",
+  "games_replayed": 200,
+  "matched_opening_pairs": 50,
+  "colors_per_setting": {
+    "white": 50,
+    "black": 50
+  },
+  "sequential_ABBA_schedule_verified": true,
+  "only_thread_option_differs": true,
+  "pinned_binaries_model_openings_verified": true,
+  "all_moves_legal_and_outcomes_reproduced": true,
+  "crashes_timeouts_adjudications": 0,
+  "summaries": {
+    "1": {
+      "wins": 1,
+      "draws": 60,
+      "losses": 39,
+      "score_rate": 0.31,
+      "elo_vs_anchor": -138.99495876119303,
+      "nominal_anchor_estimate": 3051.005041238807,
+      "termination_counts": {
+        "chess_threefold_repetition": 60,
+        "chess_checkmate": 40
+      }
+    },
+    "8": {
+      "wins": 5,
+      "draws": 71,
+      "losses": 24,
+      "score_rate": 0.405,
+      "elo_vs_anchor": -66.82477700555239,
+      "nominal_anchor_estimate": 3123.1752229944477,
+      "termination_counts": {
+        "chess_threefold_repetition": 71,
+        "chess_checkmate": 29
+      }
+    }
+  },
+  "elo_8_minus_1": 72.17018175564064,
+  "joint_paired_bootstrap_95_ci": [
+    26.32564481482611,
+    119.43956505913043
+  ],
+  "bootstrap_samples": 10000,
+  "bootstrap_seed": 20260929,
+  "elapsed_hours": 8.886448466666666,
+  "validation": {
+    "default": {
+      "executables": 72,
+      "tests_passed": 251,
+      "retries": []
+    },
+    "all_features": {
+      "executables": 72,
+      "tests_passed": 241,
+      "retries": [
+        "uci_stop"
+      ]
+    }
+  },
+  "raw_files_sha256": {
+    "arm_1t.json": "9bb0910390d0827fdc23c06815310c502dd60201024509983332a3c827925281",
+    "arm_8t.json": "bf538224e80d007d3182d1c2587789143b2190063b249a3ae39b511e013f79a8",
+    "comparison.json": "7c7e2b186a5e0d2a4db4e88e62d83ff3fd4c3f84119d2adb0c89ac7c8a4a01f7",
+    "manifest.json": "83bfc2055fd6eba8ea05b1fef2e029cbae1f7dce5891af14433dcf5372c32df1"
+  }
+}

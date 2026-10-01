@@ -1,0 +1,9 @@
+{
+  "local_head": "f8b895dac877b1d9b9816a2c3fa98098305c6007",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "source_sha256": "d6686e65337edc4bb23b754f1eb40e6a3ceb5f5b12e9c0600ce2b236d8130f97",
+  "patch_sha256": "e4517d42de4f51c071a3eb733e69ef3d265fb36a9aa90f5085d8ebffce98b16e",
+  "user_authorized_long_gate_override": true,
+  "existing_full_validation": "evidence/lazy_smp_20260929.md",
+  "prior_audit": "evidence/lichess_audit_20261001/report.md"
+}

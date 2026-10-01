@@ -1,0 +1,70 @@
+{
+  "game": "PJzgiueQ",
+  "ply": 42,
+  "fen": "3rk3/1p3ppp/p3pn2/N7/PB2b1P1/1P2PN2/2r1BP1P/R4K2 b - - 2 21",
+  "stockfish_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+  "node_budget": 2000000,
+  "moves": {
+    "d8c8": {
+      "san": "Rdc8",
+      "cp_stm": -406,
+      "mate": null,
+      "depth": 21,
+      "nodes": 2000744,
+      "pv_uci": [
+        "d8c8",
+        "a5c4",
+        "c8c4",
+        "b3c4",
+        "f6g4",
+        "f3d2",
+        "g4h2",
+        "f1g1",
+        "c2d2",
+        "b4d2",
+        "h2f3",
+        "e2f3",
+        "e4f3",
+        "g1h2",
+        "f7f6",
+        "h2g3"
+      ],
+      "cp_loss": 266
+    },
+    "f6g4": {
+      "san": "Nxg4",
+      "cp_stm": -131,
+      "mate": null,
+      "depth": 27,
+      "nodes": 2000233,
+      "pv_uci": [
+        "f6g4"
+      ],
+      "cp_loss": 0
+    }
+  },
+  "best": {
+    "cp_stm": -140,
+    "mate": null,
+    "depth": 27,
+    "nodes": 2000227,
+    "pv_uci": [
+      "f6g4",
+      "f3d2",
+      "g4h2",
+      "f1e1",
+      "d8d2",
+      "b4d2",
+      "h2f3",
+      "e2f3",
+      "e4f3",
+      "a5c4",
+      "f7f6",
+      "a1c1",
+      "c2c1",
+      "d2c1",
+      "e6e5",
+      "c1a3"
+    ]
+  }
+}

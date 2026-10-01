@@ -1,0 +1,22 @@
+[
+  {
+    "path": "PieBot/src/search/alphabeta.rs",
+    "old": "57036a6221b476da8f3f24074b7794b7be30423c78a07004a0f72220bb0674ae",
+    "new": "d6686e65337edc4bb23b754f1eb40e6a3ceb5f5b12e9c0600ce2b236d8130f97"
+  },
+  {
+    "path": "PieBot/tests/data/lichess_smp_blunders_20261001.json",
+    "old": "missing",
+    "new": "1262294636f13d07de3f14ddfff3169d26a282e8832ae28f3ac97df3488f6b7f"
+  },
+  {
+    "path": "PieBot/tests/lazy_smp.rs",
+    "old": "missing",
+    "new": "3cce0fbde0329a61d253f76c65bbef0176e10c05c7fe66d8f533faea4940b75f"
+  },
+  {
+    "path": "PieBot/tests/lichess_smp_blunders.rs",
+    "old": "missing",
+    "new": "e7c2558968e5b8d486d1714335a36597bf4e64d0dd63d12263c24a19ef172d85"
+  }
+]

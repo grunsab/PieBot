@@ -1,0 +1,1091 @@
+{
+  "description": "Six game-derived regression positions from the September 29\u2013October 1 Lichess audit. Replay complete history; reject the recorded blunder and any move allowing mate in one.",
+  "model_file": "lc0_chunk_00034965.nnue",
+  "model_sha256": "56434c1bacf5165baaebc6a5a06d5542d69828dc7b1ff09a934fb8263ea917d0",
+  "cases": [
+    {
+      "id": "sEi3c6E4",
+      "url": "https://lichess.org/sEi3c6E4#43",
+      "ply": 43,
+      "fen": "1r3rk1/pn3p1p/3b1p2/3Q3P/3Pp1qN/1p2P3/PP3P2/R3KB1R w KQ - 0 22",
+      "history_uci": [
+        "d2d4",
+        "g8f6",
+        "c2c4",
+        "e7e6",
+        "g1f3",
+        "d7d5",
+        "c4d5",
+        "e6d5",
+        "b1c3",
+        "c8f5",
+        "d1b3",
+        "b8c6",
+        "c1g5",
+        "c6a5",
+        "b3a4",
+        "c7c6",
+        "g5f6",
+        "g7f6",
+        "e2e3",
+        "b7b5",
+        "a4d1",
+        "f5g6",
+        "h2h4",
+        "b5b4",
+        "c3a4",
+        "f8d6",
+        "a4c5",
+        "e8g8",
+        "h4h5",
+        "g6e4",
+        "c5e4",
+        "d5e4",
+        "f3h4",
+        "d8c8",
+        "d1a4",
+        "a5b7",
+        "g2g4",
+        "c8g4",
+        "a4c6",
+        "a8b8",
+        "c6d5",
+        "b4b3"
+      ],
+      "history_fens": [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+        "rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 2",
+        "rnbqkb1r/pppppppp/5n2/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2",
+        "rnbqkb1r/pppp1ppp/4pn2/8/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3",
+        "rnbqkb1r/pppp1ppp/4pn2/8/2PP4/5N2/PP2PPPP/RNBQKB1R b KQkq - 1 3",
+        "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/5N2/PP2PPPP/RNBQKB1R w KQkq - 0 4",
+        "rnbqkb1r/ppp2ppp/4pn2/3P4/3P4/5N2/PP2PPPP/RNBQKB1R b KQkq - 0 4",
+        "rnbqkb1r/ppp2ppp/5n2/3p4/3P4/5N2/PP2PPPP/RNBQKB1R w KQkq - 0 5",
+        "rnbqkb1r/ppp2ppp/5n2/3p4/3P4/2N2N2/PP2PPPP/R1BQKB1R b KQkq - 1 5",
+        "rn1qkb1r/ppp2ppp/5n2/3p1b2/3P4/2N2N2/PP2PPPP/R1BQKB1R w KQkq - 2 6",
+        "rn1qkb1r/ppp2ppp/5n2/3p1b2/3P4/1QN2N2/PP2PPPP/R1B1KB1R b KQkq - 3 6",
+        "r2qkb1r/ppp2ppp/2n2n2/3p1b2/3P4/1QN2N2/PP2PPPP/R1B1KB1R w KQkq - 4 7",
+        "r2qkb1r/ppp2ppp/2n2n2/3p1bB1/3P4/1QN2N2/PP2PPPP/R3KB1R b KQkq - 5 7",
+        "r2qkb1r/ppp2ppp/5n2/n2p1bB1/3P4/1QN2N2/PP2PPPP/R3KB1R w KQkq - 6 8",
+        "r2qkb1r/ppp2ppp/5n2/n2p1bB1/Q2P4/2N2N2/PP2PPPP/R3KB1R b KQkq - 7 8",
+        "r2qkb1r/pp3ppp/2p2n2/n2p1bB1/Q2P4/2N2N2/PP2PPPP/R3KB1R w KQkq - 0 9",
+        "r2qkb1r/pp3ppp/2p2B2/n2p1b2/Q2P4/2N2N2/PP2PPPP/R3KB1R b KQkq - 0 9",
+        "r2qkb1r/pp3p1p/2p2p2/n2p1b2/Q2P4/2N2N2/PP2PPPP/R3KB1R w KQkq - 0 10",
+        "r2qkb1r/pp3p1p/2p2p2/n2p1b2/Q2P4/2N1PN2/PP3PPP/R3KB1R b KQkq - 0 10",
+        "r2qkb1r/p4p1p/2p2p2/np1p1b2/Q2P4/2N1PN2/PP3PPP/R3KB1R w KQkq - 0 11",
+        "r2qkb1r/p4p1p/2p2p2/np1p1b2/3P4/2N1PN2/PP3PPP/R2QKB1R b KQkq - 1 11",
+        "r2qkb1r/p4p1p/2p2pb1/np1p4/3P4/2N1PN2/PP3PPP/R2QKB1R w KQkq - 2 12",
+        "r2qkb1r/p4p1p/2p2pb1/np1p4/3P3P/2N1PN2/PP3PP1/R2QKB1R b KQkq - 0 12",
+        "r2qkb1r/p4p1p/2p2pb1/n2p4/1p1P3P/2N1PN2/PP3PP1/R2QKB1R w KQkq - 0 13",
+        "r2qkb1r/p4p1p/2p2pb1/n2p4/Np1P3P/4PN2/PP3PP1/R2QKB1R b KQkq - 1 13",
+        "r2qk2r/p4p1p/2pb1pb1/n2p4/Np1P3P/4PN2/PP3PP1/R2QKB1R w KQkq - 2 14",
+        "r2qk2r/p4p1p/2pb1pb1/n1Np4/1p1P3P/4PN2/PP3PP1/R2QKB1R b KQkq - 3 14",
+        "r2q1rk1/p4p1p/2pb1pb1/n1Np4/1p1P3P/4PN2/PP3PP1/R2QKB1R w KQ - 4 15",
+        "r2q1rk1/p4p1p/2pb1pb1/n1Np3P/1p1P4/4PN2/PP3PP1/R2QKB1R b KQ - 0 15",
+        "r2q1rk1/p4p1p/2pb1p2/n1Np3P/1p1Pb3/4PN2/PP3PP1/R2QKB1R w KQ - 1 16",
+        "r2q1rk1/p4p1p/2pb1p2/n2p3P/1p1PN3/4PN2/PP3PP1/R2QKB1R b KQ - 0 16",
+        "r2q1rk1/p4p1p/2pb1p2/n6P/1p1Pp3/4PN2/PP3PP1/R2QKB1R w KQ - 0 17",
+        "r2q1rk1/p4p1p/2pb1p2/n6P/1p1Pp2N/4P3/PP3PP1/R2QKB1R b KQ - 1 17",
+        "r1q2rk1/p4p1p/2pb1p2/n6P/1p1Pp2N/4P3/PP3PP1/R2QKB1R w KQ - 2 18",
+        "r1q2rk1/p4p1p/2pb1p2/n6P/Qp1Pp2N/4P3/PP3PP1/R3KB1R b KQ - 3 18",
+        "r1q2rk1/pn3p1p/2pb1p2/7P/Qp1Pp2N/4P3/PP3PP1/R3KB1R w KQ - 4 19",
+        "r1q2rk1/pn3p1p/2pb1p2/7P/Qp1Pp1PN/4P3/PP3P2/R3KB1R b KQ - 0 19",
+        "r4rk1/pn3p1p/2pb1p2/7P/Qp1Pp1qN/4P3/PP3P2/R3KB1R w KQ - 0 20",
+        "r4rk1/pn3p1p/2Qb1p2/7P/1p1Pp1qN/4P3/PP3P2/R3KB1R b KQ - 0 20",
+        "1r3rk1/pn3p1p/2Qb1p2/7P/1p1Pp1qN/4P3/PP3P2/R3KB1R w KQ - 1 21",
+        "1r3rk1/pn3p1p/3b1p2/3Q3P/1p1Pp1qN/4P3/PP3P2/R3KB1R b KQ - 2 21",
+        "1r3rk1/pn3p1p/3b1p2/3Q3P/3Pp1qN/1p2P3/PP3P2/R3KB1R w KQ - 0 22"
+      ],
+      "bad_move": "h5h6",
+      "bad_san": "h6",
+      "refutation_uci": "d6b4",
+      "refutation_is_mate": true,
+      "live_go": "go wtime 65169 btime 68450 winc 1000 binc 1000",
+      "live_depth": 15,
+      "live_score_cp": 350,
+      "prefix_searches": [
+        {
+          "ply": 1,
+          "go": "go movetime 10000"
+        },
+        {
+          "ply": 3,
+          "go": "go wtime 118999 btime 120000 winc 1000 binc 1000"
+        },
+        {
+          "ply": 5,
+          "go": "go wtime 116589 btime 120940 winc 1000 binc 1000"
+        },
+        {
+          "ply": 7,
+          "go": "go wtime 111879 btime 121870 winc 1000 binc 1000"
+        },
+        {
+          "ply": 9,
+          "go": "go wtime 109360 btime 122810 winc 1000 binc 1000"
+        },
+        {
+          "ply": 11,
+          "go": "go wtime 107240 btime 119670 winc 1000 binc 1000"
+        },
+        {
+          "ply": 13,
+          "go": "go wtime 102919 btime 115300 winc 1000 binc 1000"
+        },
+        {
+          "ply": 15,
+          "go": "go wtime 99829 btime 107130 winc 1000 binc 1000"
+        },
+        {
+          "ply": 17,
+          "go": "go wtime 96589 btime 104370 winc 1000 binc 1000"
+        },
+        {
+          "ply": 19,
+          "go": "go wtime 93079 btime 98030 winc 1000 binc 1000"
+        },
+        {
+          "ply": 21,
+          "go": "go wtime 89889 btime 95980 winc 1000 binc 1000"
+        },
+        {
+          "ply": 23,
+          "go": "go wtime 87979 btime 92380 winc 1000 binc 1000"
+        },
+        {
+          "ply": 25,
+          "go": "go wtime 85339 btime 90210 winc 1000 binc 1000"
+        },
+        {
+          "ply": 27,
+          "go": "go wtime 83609 btime 88250 winc 1000 binc 1000"
+        },
+        {
+          "ply": 29,
+          "go": "go wtime 81839 btime 80040 winc 1000 binc 1000"
+        },
+        {
+          "ply": 31,
+          "go": "go wtime 78409 btime 78700 winc 1000 binc 1000"
+        },
+        {
+          "ply": 33,
+          "go": "go wtime 76910 btime 76930 winc 1000 binc 1000"
+        },
+        {
+          "ply": 35,
+          "go": "go wtime 74749 btime 75710 winc 1000 binc 1000"
+        },
+        {
+          "ply": 37,
+          "go": "go wtime 72899 btime 73950 winc 1000 binc 1000"
+        },
+        {
+          "ply": 39,
+          "go": "go wtime 70769 btime 72300 winc 1000 binc 1000"
+        },
+        {
+          "ply": 41,
+          "go": "go wtime 68430 btime 69580 winc 1000 binc 1000"
+        },
+        {
+          "ply": 43,
+          "go": "go wtime 65169 btime 68450 winc 1000 binc 1000"
+        }
+      ]
+    },
+    {
+      "id": "zQoaxfK6",
+      "url": "https://lichess.org/zQoaxfK6#3",
+      "ply": 3,
+      "fen": "rnbqkbnr/ppppp1pp/8/5p2/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
+      "history_uci": [
+        "d2d4",
+        "f7f5"
+      ],
+      "history_fens": [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+        "rnbqkbnr/ppppp1pp/8/5p2/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2"
+      ],
+      "bad_move": "c1h6",
+      "bad_san": "Bh6",
+      "refutation_uci": "g8h6",
+      "refutation_is_mate": false,
+      "live_go": "go wtime 119000 btime 120000 winc 2000 binc 2000",
+      "live_depth": 15,
+      "live_score_cp": 126,
+      "prefix_searches": [
+        {
+          "ply": 1,
+          "go": "go movetime 10000"
+        },
+        {
+          "ply": 3,
+          "go": "go wtime 119000 btime 120000 winc 2000 binc 2000"
+        }
+      ]
+    },
+    {
+      "id": "aGvveGBK",
+      "url": "https://lichess.org/aGvveGBK#66",
+      "ply": 66,
+      "fen": "1k6/1pp5/p1np3q/P2N4/2N1P2n/1PP1Qp2/6pP/6K1 b - - 5 33",
+      "history_uci": [
+        "e2e4",
+        "e7e5",
+        "g1f3",
+        "b8c6",
+        "f1b5",
+        "a7a6",
+        "b5a4",
+        "g8f6",
+        "d2d3",
+        "f8c5",
+        "a4b3",
+        "d7d6",
+        "a2a4",
+        "h7h6",
+        "c1e3",
+        "c5e3",
+        "f2e3",
+        "c8e6",
+        "b3e6",
+        "f7e6",
+        "b1c3",
+        "d8e7",
+        "e1g1",
+        "e8c8",
+        "d3d4",
+        "h8f8",
+        "d1d3",
+        "c8b8",
+        "a4a5",
+        "g7g5",
+        "a1a4",
+        "e5d4",
+        "e3d4",
+        "g5g4",
+        "f3d2",
+        "f6d7",
+        "f1f8",
+        "d8f8",
+        "d3e3",
+        "h6h5",
+        "d4d5",
+        "e6d5",
+        "c3d5",
+        "e7g7",
+        "c2c3",
+        "d7e5",
+        "d2c4",
+        "h5h4",
+        "b2b3",
+        "e5f3",
+        "g1h1",
+        "h4h3",
+        "a4a2",
+        "f3h4",
+        "a2f2",
+        "h3g2",
+        "h1g1",
+        "f8f3",
+        "f2f3",
+        "g4f3",
+        "e3f2",
+        "g7h7",
+        "f2e1",
+        "h7h6",
+        "e1e3"
+      ],
+      "history_fens": [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+        "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+        "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+        "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+        "r1bqkbnr/1ppp1ppp/p1n5/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 4",
+        "r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 5",
+        "r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/3P1N2/PPP2PPP/RNBQK2R b KQkq - 0 5",
+        "r1bqk2r/1ppp1ppp/p1n2n2/2b1p3/B3P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 1 6",
+        "r1bqk2r/1ppp1ppp/p1n2n2/2b1p3/4P3/1B1P1N2/PPP2PPP/RNBQK2R b KQkq - 2 6",
+        "r1bqk2r/1pp2ppp/p1np1n2/2b1p3/4P3/1B1P1N2/PPP2PPP/RNBQK2R w KQkq - 0 7",
+        "r1bqk2r/1pp2ppp/p1np1n2/2b1p3/P3P3/1B1P1N2/1PP2PPP/RNBQK2R b KQkq - 0 7",
+        "r1bqk2r/1pp2pp1/p1np1n1p/2b1p3/P3P3/1B1P1N2/1PP2PPP/RNBQK2R w KQkq - 0 8",
+        "r1bqk2r/1pp2pp1/p1np1n1p/2b1p3/P3P3/1B1PBN2/1PP2PPP/RN1QK2R b KQkq - 1 8",
+        "r1bqk2r/1pp2pp1/p1np1n1p/4p3/P3P3/1B1PbN2/1PP2PPP/RN1QK2R w KQkq - 0 9",
+        "r1bqk2r/1pp2pp1/p1np1n1p/4p3/P3P3/1B1PPN2/1PP3PP/RN1QK2R b KQkq - 0 9",
+        "r2qk2r/1pp2pp1/p1npbn1p/4p3/P3P3/1B1PPN2/1PP3PP/RN1QK2R w KQkq - 1 10",
+        "r2qk2r/1pp2pp1/p1npBn1p/4p3/P3P3/3PPN2/1PP3PP/RN1QK2R b KQkq - 0 10",
+        "r2qk2r/1pp3p1/p1nppn1p/4p3/P3P3/3PPN2/1PP3PP/RN1QK2R w KQkq - 0 11",
+        "r2qk2r/1pp3p1/p1nppn1p/4p3/P3P3/2NPPN2/1PP3PP/R2QK2R b KQkq - 1 11",
+        "r3k2r/1pp1q1p1/p1nppn1p/4p3/P3P3/2NPPN2/1PP3PP/R2QK2R w KQkq - 2 12",
+        "r3k2r/1pp1q1p1/p1nppn1p/4p3/P3P3/2NPPN2/1PP3PP/R2Q1RK1 b kq - 3 12",
+        "2kr3r/1pp1q1p1/p1nppn1p/4p3/P3P3/2NPPN2/1PP3PP/R2Q1RK1 w - - 4 13",
+        "2kr3r/1pp1q1p1/p1nppn1p/4p3/P2PP3/2N1PN2/1PP3PP/R2Q1RK1 b - - 0 13",
+        "2kr1r2/1pp1q1p1/p1nppn1p/4p3/P2PP3/2N1PN2/1PP3PP/R2Q1RK1 w - - 1 14",
+        "2kr1r2/1pp1q1p1/p1nppn1p/4p3/P2PP3/2NQPN2/1PP3PP/R4RK1 b - - 2 14",
+        "1k1r1r2/1pp1q1p1/p1nppn1p/4p3/P2PP3/2NQPN2/1PP3PP/R4RK1 w - - 3 15",
+        "1k1r1r2/1pp1q1p1/p1nppn1p/P3p3/3PP3/2NQPN2/1PP3PP/R4RK1 b - - 0 15",
+        "1k1r1r2/1pp1q3/p1nppn1p/P3p1p1/3PP3/2NQPN2/1PP3PP/R4RK1 w - - 0 16",
+        "1k1r1r2/1pp1q3/p1nppn1p/P3p1p1/R2PP3/2NQPN2/1PP3PP/5RK1 b - - 1 16",
+        "1k1r1r2/1pp1q3/p1nppn1p/P5p1/R2pP3/2NQPN2/1PP3PP/5RK1 w - - 0 17",
+        "1k1r1r2/1pp1q3/p1nppn1p/P5p1/R2PP3/2NQ1N2/1PP3PP/5RK1 b - - 0 17",
+        "1k1r1r2/1pp1q3/p1nppn1p/P7/R2PP1p1/2NQ1N2/1PP3PP/5RK1 w - - 0 18",
+        "1k1r1r2/1pp1q3/p1nppn1p/P7/R2PP1p1/2NQ4/1PPN2PP/5RK1 b - - 1 18",
+        "1k1r1r2/1ppnq3/p1npp2p/P7/R2PP1p1/2NQ4/1PPN2PP/5RK1 w - - 2 19",
+        "1k1r1R2/1ppnq3/p1npp2p/P7/R2PP1p1/2NQ4/1PPN2PP/6K1 b - - 0 19",
+        "1k3r2/1ppnq3/p1npp2p/P7/R2PP1p1/2NQ4/1PPN2PP/6K1 w - - 0 20",
+        "1k3r2/1ppnq3/p1npp2p/P7/R2PP1p1/2N1Q3/1PPN2PP/6K1 b - - 1 20",
+        "1k3r2/1ppnq3/p1npp3/P6p/R2PP1p1/2N1Q3/1PPN2PP/6K1 w - - 0 21",
+        "1k3r2/1ppnq3/p1npp3/P2P3p/R3P1p1/2N1Q3/1PPN2PP/6K1 b - - 0 21",
+        "1k3r2/1ppnq3/p1np4/P2p3p/R3P1p1/2N1Q3/1PPN2PP/6K1 w - - 0 22",
+        "1k3r2/1ppnq3/p1np4/P2N3p/R3P1p1/4Q3/1PPN2PP/6K1 b - - 0 22",
+        "1k3r2/1ppn2q1/p1np4/P2N3p/R3P1p1/4Q3/1PPN2PP/6K1 w - - 1 23",
+        "1k3r2/1ppn2q1/p1np4/P2N3p/R3P1p1/2P1Q3/1P1N2PP/6K1 b - - 0 23",
+        "1k3r2/1pp3q1/p1np4/P2Nn2p/R3P1p1/2P1Q3/1P1N2PP/6K1 w - - 1 24",
+        "1k3r2/1pp3q1/p1np4/P2Nn2p/R1N1P1p1/2P1Q3/1P4PP/6K1 b - - 2 24",
+        "1k3r2/1pp3q1/p1np4/P2Nn3/R1N1P1pp/2P1Q3/1P4PP/6K1 w - - 0 25",
+        "1k3r2/1pp3q1/p1np4/P2Nn3/R1N1P1pp/1PP1Q3/6PP/6K1 b - - 0 25",
+        "1k3r2/1pp3q1/p1np4/P2N4/R1N1P1pp/1PP1Qn2/6PP/6K1 w - - 1 26",
+        "1k3r2/1pp3q1/p1np4/P2N4/R1N1P1pp/1PP1Qn2/6PP/7K b - - 2 26",
+        "1k3r2/1pp3q1/p1np4/P2N4/R1N1P1p1/1PP1Qn1p/6PP/7K w - - 0 27",
+        "1k3r2/1pp3q1/p1np4/P2N4/2N1P1p1/1PP1Qn1p/R5PP/7K b - - 1 27",
+        "1k3r2/1pp3q1/p1np4/P2N4/2N1P1pn/1PP1Q2p/R5PP/7K w - - 2 28",
+        "1k3r2/1pp3q1/p1np4/P2N4/2N1P1pn/1PP1Q2p/5RPP/7K b - - 3 28",
+        "1k3r2/1pp3q1/p1np4/P2N4/2N1P1pn/1PP1Q3/5RpP/7K w - - 0 29",
+        "1k3r2/1pp3q1/p1np4/P2N4/2N1P1pn/1PP1Q3/5RpP/6K1 b - - 1 29",
+        "1k6/1pp3q1/p1np4/P2N4/2N1P1pn/1PP1Qr2/5RpP/6K1 w - - 2 30",
+        "1k6/1pp3q1/p1np4/P2N4/2N1P1pn/1PP1QR2/6pP/6K1 b - - 0 30",
+        "1k6/1pp3q1/p1np4/P2N4/2N1P2n/1PP1Qp2/6pP/6K1 w - - 0 31",
+        "1k6/1pp3q1/p1np4/P2N4/2N1P2n/1PP2p2/5QpP/6K1 b - - 1 31",
+        "1k6/1pp4q/p1np4/P2N4/2N1P2n/1PP2p2/5QpP/6K1 w - - 2 32",
+        "1k6/1pp4q/p1np4/P2N4/2N1P2n/1PP2p2/6pP/4Q1K1 b - - 3 32",
+        "1k6/1pp5/p1np3q/P2N4/2N1P2n/1PP2p2/6pP/4Q1K1 w - - 4 33",
+        "1k6/1pp5/p1np3q/P2N4/2N1P2n/1PP1Qp2/6pP/6K1 b - - 5 33"
+      ],
+      "bad_move": "h6f4",
+      "bad_san": "Qf4",
+      "refutation_uci": "e3f4",
+      "refutation_is_mate": false,
+      "live_go": "go wtime 71210 btime 47959 winc 2000 binc 2000",
+      "live_depth": 16,
+      "live_score_cp": 674,
+      "prefix_searches": [
+        {
+          "ply": 2,
+          "go": "go movetime 10000"
+        },
+        {
+          "ply": 4,
+          "go": "go wtime 121980 btime 118999 winc 2000 binc 2000"
+        },
+        {
+          "ply": 6,
+          "go": "go wtime 123960 btime 114389 winc 2000 binc 2000"
+        },
+        {
+          "ply": 8,
+          "go": "go wtime 125940 btime 110899 winc 2000 binc 2000"
+        },
+        {
+          "ply": 10,
+          "go": "go wtime 127920 btime 106619 winc 2000 binc 2000"
+        },
+        {
+          "ply": 12,
+          "go": "go wtime 129900 btime 103129 winc 2000 binc 2000"
+        },
+        {
+          "ply": 14,
+          "go": "go wtime 131880 btime 101789 winc 2000 binc 2000"
+        },
+        {
+          "ply": 16,
+          "go": "go wtime 129460 btime 99369 winc 2000 binc 2000"
+        },
+        {
+          "ply": 18,
+          "go": "go wtime 127000 btime 97839 winc 2000 binc 2000"
+        },
+        {
+          "ply": 20,
+          "go": "go wtime 124530 btime 96079 winc 2000 binc 2000"
+        },
+        {
+          "ply": 22,
+          "go": "go wtime 121940 btime 92769 winc 2000 binc 2000"
+        },
+        {
+          "ply": 24,
+          "go": "go wtime 119410 btime 91289 winc 2000 binc 2000"
+        },
+        {
+          "ply": 26,
+          "go": "go wtime 116940 btime 90059 winc 2000 binc 2000"
+        },
+        {
+          "ply": 28,
+          "go": "go wtime 114520 btime 87696 winc 2000 binc 2000"
+        },
+        {
+          "ply": 30,
+          "go": "go wtime 112160 btime 85729 winc 2000 binc 2000"
+        },
+        {
+          "ply": 32,
+          "go": "go wtime 109850 btime 82509 winc 2000 binc 2000"
+        },
+        {
+          "ply": 34,
+          "go": "go wtime 107510 btime 80790 winc 2000 binc 2000"
+        },
+        {
+          "ply": 36,
+          "go": "go wtime 105140 btime 78810 winc 2000 binc 2000"
+        },
+        {
+          "ply": 38,
+          "go": "go wtime 102830 btime 75879 winc 2000 binc 2000"
+        },
+        {
+          "ply": 40,
+          "go": "go wtime 100390 btime 73189 winc 2000 binc 2000"
+        },
+        {
+          "ply": 42,
+          "go": "go wtime 98020 btime 69889 winc 2000 binc 2000"
+        },
+        {
+          "ply": 44,
+          "go": "go wtime 95610 btime 68609 winc 2000 binc 2000"
+        },
+        {
+          "ply": 46,
+          "go": "go wtime 93170 btime 66639 winc 2000 binc 2000"
+        },
+        {
+          "ply": 48,
+          "go": "go wtime 90790 btime 64299 winc 2000 binc 2000"
+        },
+        {
+          "ply": 50,
+          "go": "go wtime 88480 btime 62859 winc 2000 binc 2000"
+        },
+        {
+          "ply": 52,
+          "go": "go wtime 86230 btime 60070 winc 2000 binc 2000"
+        },
+        {
+          "ply": 54,
+          "go": "go wtime 84050 btime 58179 winc 2000 binc 2000"
+        },
+        {
+          "ply": 56,
+          "go": "go wtime 81930 btime 56089 winc 2000 binc 2000"
+        },
+        {
+          "ply": 58,
+          "go": "go wtime 79780 btime 53639 winc 2000 binc 2000"
+        },
+        {
+          "ply": 60,
+          "go": "go wtime 77690 btime 51679 winc 2000 binc 2000"
+        },
+        {
+          "ply": 62,
+          "go": "go wtime 75460 btime 51069 winc 2000 binc 2000"
+        },
+        {
+          "ply": 64,
+          "go": "go wtime 73300 btime 49970 winc 2000 binc 2000"
+        },
+        {
+          "ply": 66,
+          "go": "go wtime 71210 btime 47959 winc 2000 binc 2000"
+        }
+      ]
+    },
+    {
+      "id": "U0E0YGi4",
+      "url": "https://lichess.org/U0E0YGi4#61",
+      "ply": 61,
+      "fen": "r6k/1r3p1p/1q2bPn1/4p3/4P3/1NQ5/PP1R3P/1K1B3R w - - 13 31",
+      "history_uci": [
+        "e2e4",
+        "c7c5",
+        "g1f3",
+        "e7e6",
+        "d2d4",
+        "c5d4",
+        "f3d4",
+        "a7a6",
+        "c2c4",
+        "f8c5",
+        "d4b3",
+        "c5a7",
+        "b1c3",
+        "d7d6",
+        "d1e2",
+        "g8f6",
+        "c1e3",
+        "e8g8",
+        "e3a7",
+        "a8a7",
+        "e1c1",
+        "b7b6",
+        "g2g4",
+        "b6b5",
+        "c4b5",
+        "a7c7",
+        "c1b1",
+        "a6b5",
+        "g4g5",
+        "f6e8",
+        "c3b5",
+        "c7b7",
+        "f2f4",
+        "d8b6",
+        "e2d2",
+        "b8c6",
+        "f1e2",
+        "e6e5",
+        "f4f5",
+        "c6e7",
+        "f5f6",
+        "g7f6",
+        "g5f6",
+        "e7g6",
+        "b5d6",
+        "e8d6",
+        "d2d6",
+        "b6e3",
+        "d6d3",
+        "e3b6",
+        "d3d6",
+        "b6e3",
+        "d6d3",
+        "e3b6",
+        "d1d2",
+        "c8e6",
+        "e2d1",
+        "f8a8",
+        "d3c3",
+        "g8h8"
+      ],
+      "history_fens": [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+        "rnbqkbnr/pp1p1ppp/4p3/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3",
+        "rnbqkbnr/pp1p1ppp/4p3/2p5/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 3",
+        "rnbqkbnr/pp1p1ppp/4p3/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+        "rnbqkbnr/pp1p1ppp/4p3/8/3NP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4",
+        "rnbqkbnr/1p1p1ppp/p3p3/8/3NP3/8/PPP2PPP/RNBQKB1R w KQkq - 0 5",
+        "rnbqkbnr/1p1p1ppp/p3p3/8/2PNP3/8/PP3PPP/RNBQKB1R b KQkq - 0 5",
+        "rnbqk1nr/1p1p1ppp/p3p3/2b5/2PNP3/8/PP3PPP/RNBQKB1R w KQkq - 1 6",
+        "rnbqk1nr/1p1p1ppp/p3p3/2b5/2P1P3/1N6/PP3PPP/RNBQKB1R b KQkq - 2 6",
+        "rnbqk1nr/bp1p1ppp/p3p3/8/2P1P3/1N6/PP3PPP/RNBQKB1R w KQkq - 3 7",
+        "rnbqk1nr/bp1p1ppp/p3p3/8/2P1P3/1NN5/PP3PPP/R1BQKB1R b KQkq - 4 7",
+        "rnbqk1nr/bp3ppp/p2pp3/8/2P1P3/1NN5/PP3PPP/R1BQKB1R w KQkq - 0 8",
+        "rnbqk1nr/bp3ppp/p2pp3/8/2P1P3/1NN5/PP2QPPP/R1B1KB1R b KQkq - 1 8",
+        "rnbqk2r/bp3ppp/p2ppn2/8/2P1P3/1NN5/PP2QPPP/R1B1KB1R w KQkq - 2 9",
+        "rnbqk2r/bp3ppp/p2ppn2/8/2P1P3/1NN1B3/PP2QPPP/R3KB1R b KQkq - 3 9",
+        "rnbq1rk1/bp3ppp/p2ppn2/8/2P1P3/1NN1B3/PP2QPPP/R3KB1R w KQ - 4 10",
+        "rnbq1rk1/Bp3ppp/p2ppn2/8/2P1P3/1NN5/PP2QPPP/R3KB1R b KQ - 0 10",
+        "1nbq1rk1/rp3ppp/p2ppn2/8/2P1P3/1NN5/PP2QPPP/R3KB1R w KQ - 0 11",
+        "1nbq1rk1/rp3ppp/p2ppn2/8/2P1P3/1NN5/PP2QPPP/2KR1B1R b - - 1 11",
+        "1nbq1rk1/r4ppp/pp1ppn2/8/2P1P3/1NN5/PP2QPPP/2KR1B1R w - - 0 12",
+        "1nbq1rk1/r4ppp/pp1ppn2/8/2P1P1P1/1NN5/PP2QP1P/2KR1B1R b - - 0 12",
+        "1nbq1rk1/r4ppp/p2ppn2/1p6/2P1P1P1/1NN5/PP2QP1P/2KR1B1R w - - 0 13",
+        "1nbq1rk1/r4ppp/p2ppn2/1P6/4P1P1/1NN5/PP2QP1P/2KR1B1R b - - 0 13",
+        "1nbq1rk1/2r2ppp/p2ppn2/1P6/4P1P1/1NN5/PP2QP1P/2KR1B1R w - - 1 14",
+        "1nbq1rk1/2r2ppp/p2ppn2/1P6/4P1P1/1NN5/PP2QP1P/1K1R1B1R b - - 2 14",
+        "1nbq1rk1/2r2ppp/3ppn2/1p6/4P1P1/1NN5/PP2QP1P/1K1R1B1R w - - 0 15",
+        "1nbq1rk1/2r2ppp/3ppn2/1p4P1/4P3/1NN5/PP2QP1P/1K1R1B1R b - - 0 15",
+        "1nbqnrk1/2r2ppp/3pp3/1p4P1/4P3/1NN5/PP2QP1P/1K1R1B1R w - - 1 16",
+        "1nbqnrk1/2r2ppp/3pp3/1N4P1/4P3/1N6/PP2QP1P/1K1R1B1R b - - 0 16",
+        "1nbqnrk1/1r3ppp/3pp3/1N4P1/4P3/1N6/PP2QP1P/1K1R1B1R w - - 1 17",
+        "1nbqnrk1/1r3ppp/3pp3/1N4P1/4PP2/1N6/PP2Q2P/1K1R1B1R b - - 0 17",
+        "1nb1nrk1/1r3ppp/1q1pp3/1N4P1/4PP2/1N6/PP2Q2P/1K1R1B1R w - - 1 18",
+        "1nb1nrk1/1r3ppp/1q1pp3/1N4P1/4PP2/1N6/PP1Q3P/1K1R1B1R b - - 2 18",
+        "2b1nrk1/1r3ppp/1qnpp3/1N4P1/4PP2/1N6/PP1Q3P/1K1R1B1R w - - 3 19",
+        "2b1nrk1/1r3ppp/1qnpp3/1N4P1/4PP2/1N6/PP1QB2P/1K1R3R b - - 4 19",
+        "2b1nrk1/1r3ppp/1qnp4/1N2p1P1/4PP2/1N6/PP1QB2P/1K1R3R w - - 0 20",
+        "2b1nrk1/1r3ppp/1qnp4/1N2pPP1/4P3/1N6/PP1QB2P/1K1R3R b - - 0 20",
+        "2b1nrk1/1r2nppp/1q1p4/1N2pPP1/4P3/1N6/PP1QB2P/1K1R3R w - - 1 21",
+        "2b1nrk1/1r2nppp/1q1p1P2/1N2p1P1/4P3/1N6/PP1QB2P/1K1R3R b - - 0 21",
+        "2b1nrk1/1r2np1p/1q1p1p2/1N2p1P1/4P3/1N6/PP1QB2P/1K1R3R w - - 0 22",
+        "2b1nrk1/1r2np1p/1q1p1P2/1N2p3/4P3/1N6/PP1QB2P/1K1R3R b - - 0 22",
+        "2b1nrk1/1r3p1p/1q1p1Pn1/1N2p3/4P3/1N6/PP1QB2P/1K1R3R w - - 1 23",
+        "2b1nrk1/1r3p1p/1q1N1Pn1/4p3/4P3/1N6/PP1QB2P/1K1R3R b - - 0 23",
+        "2b2rk1/1r3p1p/1q1n1Pn1/4p3/4P3/1N6/PP1QB2P/1K1R3R w - - 0 24",
+        "2b2rk1/1r3p1p/1q1Q1Pn1/4p3/4P3/1N6/PP2B2P/1K1R3R b - - 0 24",
+        "2b2rk1/1r3p1p/3Q1Pn1/4p3/4P3/1N2q3/PP2B2P/1K1R3R w - - 1 25",
+        "2b2rk1/1r3p1p/5Pn1/4p3/4P3/1N1Qq3/PP2B2P/1K1R3R b - - 2 25",
+        "2b2rk1/1r3p1p/1q3Pn1/4p3/4P3/1N1Q4/PP2B2P/1K1R3R w - - 3 26",
+        "2b2rk1/1r3p1p/1q1Q1Pn1/4p3/4P3/1N6/PP2B2P/1K1R3R b - - 4 26",
+        "2b2rk1/1r3p1p/3Q1Pn1/4p3/4P3/1N2q3/PP2B2P/1K1R3R w - - 5 27",
+        "2b2rk1/1r3p1p/5Pn1/4p3/4P3/1N1Qq3/PP2B2P/1K1R3R b - - 6 27",
+        "2b2rk1/1r3p1p/1q3Pn1/4p3/4P3/1N1Q4/PP2B2P/1K1R3R w - - 7 28",
+        "2b2rk1/1r3p1p/1q3Pn1/4p3/4P3/1N1Q4/PP1RB2P/1K5R b - - 8 28",
+        "5rk1/1r3p1p/1q2bPn1/4p3/4P3/1N1Q4/PP1RB2P/1K5R w - - 9 29",
+        "5rk1/1r3p1p/1q2bPn1/4p3/4P3/1N1Q4/PP1R3P/1K1B3R b - - 10 29",
+        "r5k1/1r3p1p/1q2bPn1/4p3/4P3/1N1Q4/PP1R3P/1K1B3R w - - 11 30",
+        "r5k1/1r3p1p/1q2bPn1/4p3/4P3/1NQ5/PP1R3P/1K1B3R b - - 12 30",
+        "r6k/1r3p1p/1q2bPn1/4p3/4P3/1NQ5/PP1R3P/1K1B3R w - - 13 31"
+      ],
+      "bad_move": "c3h3",
+      "bad_san": "Qh3",
+      "refutation_uci": "e6h3",
+      "refutation_is_mate": false,
+      "live_go": "go wtime 58409 btime 62880 winc 2000 binc 2000",
+      "live_depth": 15,
+      "live_score_cp": 371,
+      "prefix_searches": [
+        {
+          "ply": 1,
+          "go": "go movetime 10000"
+        },
+        {
+          "ply": 3,
+          "go": "go wtime 118999 btime 120000 winc 2000 binc 2000"
+        },
+        {
+          "ply": 5,
+          "go": "go wtime 117139 btime 118530 winc 2000 binc 2000"
+        },
+        {
+          "ply": 7,
+          "go": "go wtime 114910 btime 117310 winc 2000 binc 2000"
+        },
+        {
+          "ply": 9,
+          "go": "go wtime 111039 btime 115850 winc 2000 binc 2000"
+        },
+        {
+          "ply": 11,
+          "go": "go wtime 109500 btime 113340 winc 2000 binc 2000"
+        },
+        {
+          "ply": 13,
+          "go": "go wtime 105739 btime 111480 winc 2000 binc 2000"
+        },
+        {
+          "ply": 15,
+          "go": "go wtime 103759 btime 109540 winc 2000 binc 2000"
+        },
+        {
+          "ply": 17,
+          "go": "go wtime 101779 btime 107660 winc 2000 binc 2000"
+        },
+        {
+          "ply": 19,
+          "go": "go wtime 99669 btime 105600 winc 2000 binc 2000"
+        },
+        {
+          "ply": 21,
+          "go": "go wtime 95870 btime 101950 winc 2000 binc 2000"
+        },
+        {
+          "ply": 23,
+          "go": "go wtime 94039 btime 97650 winc 2000 binc 2000"
+        },
+        {
+          "ply": 25,
+          "go": "go wtime 92419 btime 95610 winc 2000 binc 2000"
+        },
+        {
+          "ply": 27,
+          "go": "go wtime 90379 btime 93350 winc 2000 binc 2000"
+        },
+        {
+          "ply": 29,
+          "go": "go wtime 88978 btime 90670 winc 2000 binc 2000"
+        },
+        {
+          "ply": 31,
+          "go": "go wtime 87189 btime 88850 winc 2000 binc 2000"
+        },
+        {
+          "ply": 33,
+          "go": "go wtime 85639 btime 87070 winc 2000 binc 2000"
+        },
+        {
+          "ply": 35,
+          "go": "go wtime 83519 btime 85350 winc 2000 binc 2000"
+        },
+        {
+          "ply": 37,
+          "go": "go wtime 81609 btime 83300 winc 2000 binc 2000"
+        },
+        {
+          "ply": 39,
+          "go": "go wtime 78699 btime 81440 winc 2000 binc 2000"
+        },
+        {
+          "ply": 41,
+          "go": "go wtime 76439 btime 79570 winc 2000 binc 2000"
+        },
+        {
+          "ply": 43,
+          "go": "go wtime 74839 btime 78080 winc 2000 binc 2000"
+        },
+        {
+          "ply": 45,
+          "go": "go wtime 73810 btime 76630 winc 2000 binc 2000"
+        },
+        {
+          "ply": 47,
+          "go": "go wtime 71689 btime 75150 winc 2000 binc 2000"
+        },
+        {
+          "ply": 49,
+          "go": "go wtime 68459 btime 73730 winc 2000 binc 2000"
+        },
+        {
+          "ply": 51,
+          "go": "go wtime 67129 btime 71650 winc 2000 binc 2000"
+        },
+        {
+          "ply": 53,
+          "go": "go wtime 66160 btime 70370 winc 2000 binc 2000"
+        },
+        {
+          "ply": 55,
+          "go": "go wtime 63210 btime 68870 winc 2000 binc 2000"
+        },
+        {
+          "ply": 57,
+          "go": "go wtime 60650 btime 66930 winc 2000 binc 2000"
+        },
+        {
+          "ply": 59,
+          "go": "go wtime 59179 btime 65810 winc 2000 binc 2000"
+        },
+        {
+          "ply": 61,
+          "go": "go wtime 58409 btime 62880 winc 2000 binc 2000"
+        }
+      ]
+    },
+    {
+      "id": "C3d1f8t5",
+      "url": "https://lichess.org/C3d1f8t5#37",
+      "ply": 37,
+      "fen": "3rk2r/p2qp2p/1pp1pnpb/3pB3/8/2NQ1N2/PP3PPP/R4RK1 w k - 6 19",
+      "history_uci": [
+        "e2e4",
+        "c7c6",
+        "d2d4",
+        "d7d5",
+        "e4e5",
+        "c8f5",
+        "d1f3",
+        "f5c2",
+        "e5e6",
+        "f7e6",
+        "f1d3",
+        "c2d3",
+        "f3d3",
+        "g8f6",
+        "g1f3",
+        "d8a5",
+        "b1c3",
+        "b8a6",
+        "e1g1",
+        "a6c5",
+        "d4c5",
+        "a5c5",
+        "c1e3",
+        "c5d6",
+        "e3d4",
+        "g7g6",
+        "d4e5",
+        "d6d7",
+        "c3a4",
+        "b7b6",
+        "d3a3",
+        "a8c8",
+        "a3d3",
+        "c8d8",
+        "a4c3",
+        "f8h6"
+      ],
+      "history_fens": [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        "rnbqkbnr/pp1ppppp/2p5/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 2",
+        "rnbqkbnr/pp2pppp/2p5/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3",
+        "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3",
+        "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/8/PPP2PPP/RNBQKBNR w KQkq - 1 4",
+        "rn1qkbnr/pp2pppp/2p5/3pPb2/3P4/5Q2/PPP2PPP/RNB1KBNR b KQkq - 2 4",
+        "rn1qkbnr/pp2pppp/2p5/3pP3/3P4/5Q2/PPb2PPP/RNB1KBNR w KQkq - 0 5",
+        "rn1qkbnr/pp2pppp/2p1P3/3p4/3P4/5Q2/PPb2PPP/RNB1KBNR b KQkq - 0 5",
+        "rn1qkbnr/pp2p1pp/2p1p3/3p4/3P4/5Q2/PPb2PPP/RNB1KBNR w KQkq - 0 6",
+        "rn1qkbnr/pp2p1pp/2p1p3/3p4/3P4/3B1Q2/PPb2PPP/RNB1K1NR b KQkq - 1 6",
+        "rn1qkbnr/pp2p1pp/2p1p3/3p4/3P4/3b1Q2/PP3PPP/RNB1K1NR w KQkq - 0 7",
+        "rn1qkbnr/pp2p1pp/2p1p3/3p4/3P4/3Q4/PP3PPP/RNB1K1NR b KQkq - 0 7",
+        "rn1qkb1r/pp2p1pp/2p1pn2/3p4/3P4/3Q4/PP3PPP/RNB1K1NR w KQkq - 1 8",
+        "rn1qkb1r/pp2p1pp/2p1pn2/3p4/3P4/3Q1N2/PP3PPP/RNB1K2R b KQkq - 2 8",
+        "rn2kb1r/pp2p1pp/2p1pn2/q2p4/3P4/3Q1N2/PP3PPP/RNB1K2R w KQkq - 3 9",
+        "rn2kb1r/pp2p1pp/2p1pn2/q2p4/3P4/2NQ1N2/PP3PPP/R1B1K2R b KQkq - 4 9",
+        "r3kb1r/pp2p1pp/n1p1pn2/q2p4/3P4/2NQ1N2/PP3PPP/R1B1K2R w KQkq - 5 10",
+        "r3kb1r/pp2p1pp/n1p1pn2/q2p4/3P4/2NQ1N2/PP3PPP/R1B2RK1 b kq - 6 10",
+        "r3kb1r/pp2p1pp/2p1pn2/q1np4/3P4/2NQ1N2/PP3PPP/R1B2RK1 w kq - 7 11",
+        "r3kb1r/pp2p1pp/2p1pn2/q1Pp4/8/2NQ1N2/PP3PPP/R1B2RK1 b kq - 0 11",
+        "r3kb1r/pp2p1pp/2p1pn2/2qp4/8/2NQ1N2/PP3PPP/R1B2RK1 w kq - 0 12",
+        "r3kb1r/pp2p1pp/2p1pn2/2qp4/8/2NQBN2/PP3PPP/R4RK1 b kq - 1 12",
+        "r3kb1r/pp2p1pp/2pqpn2/3p4/8/2NQBN2/PP3PPP/R4RK1 w kq - 2 13",
+        "r3kb1r/pp2p1pp/2pqpn2/3p4/3B4/2NQ1N2/PP3PPP/R4RK1 b kq - 3 13",
+        "r3kb1r/pp2p2p/2pqpnp1/3p4/3B4/2NQ1N2/PP3PPP/R4RK1 w kq - 0 14",
+        "r3kb1r/pp2p2p/2pqpnp1/3pB3/8/2NQ1N2/PP3PPP/R4RK1 b kq - 1 14",
+        "r3kb1r/pp1qp2p/2p1pnp1/3pB3/8/2NQ1N2/PP3PPP/R4RK1 w kq - 2 15",
+        "r3kb1r/pp1qp2p/2p1pnp1/3pB3/N7/3Q1N2/PP3PPP/R4RK1 b kq - 3 15",
+        "r3kb1r/p2qp2p/1pp1pnp1/3pB3/N7/3Q1N2/PP3PPP/R4RK1 w kq - 0 16",
+        "r3kb1r/p2qp2p/1pp1pnp1/3pB3/N7/Q4N2/PP3PPP/R4RK1 b kq - 1 16",
+        "2r1kb1r/p2qp2p/1pp1pnp1/3pB3/N7/Q4N2/PP3PPP/R4RK1 w k - 2 17",
+        "2r1kb1r/p2qp2p/1pp1pnp1/3pB3/N7/3Q1N2/PP3PPP/R4RK1 b k - 3 17",
+        "3rkb1r/p2qp2p/1pp1pnp1/3pB3/N7/3Q1N2/PP3PPP/R4RK1 w k - 4 18",
+        "3rkb1r/p2qp2p/1pp1pnp1/3pB3/8/2NQ1N2/PP3PPP/R4RK1 b k - 5 18",
+        "3rk2r/p2qp2p/1pp1pnpb/3pB3/8/2NQ1N2/PP3PPP/R4RK1 w k - 6 19"
+      ],
+      "bad_move": "d3c4",
+      "bad_san": "Qc4",
+      "refutation_uci": "d5c4",
+      "refutation_is_mate": false,
+      "live_go": "go wtime 75460 btime 94030 winc 2000 binc 2000",
+      "live_depth": 12,
+      "live_score_cp": 353,
+      "prefix_searches": [
+        {
+          "ply": 1,
+          "go": "go movetime 10000"
+        },
+        {
+          "ply": 3,
+          "go": "go wtime 118999 btime 120000 winc 2000 binc 2000"
+        },
+        {
+          "ply": 5,
+          "go": "go wtime 116890 btime 121950 winc 2000 binc 2000"
+        },
+        {
+          "ply": 7,
+          "go": "go wtime 112369 btime 123910 winc 2000 binc 2000"
+        },
+        {
+          "ply": 9,
+          "go": "go wtime 110609 btime 122570 winc 2000 binc 2000"
+        },
+        {
+          "ply": 11,
+          "go": "go wtime 108599 btime 121190 winc 2000 binc 2000"
+        },
+        {
+          "ply": 13,
+          "go": "go wtime 106120 btime 119870 winc 2000 binc 2000"
+        },
+        {
+          "ply": 15,
+          "go": "go wtime 103299 btime 116770 winc 2000 binc 2000"
+        },
+        {
+          "ply": 17,
+          "go": "go wtime 99179 btime 115210 winc 2000 binc 2000"
+        },
+        {
+          "ply": 19,
+          "go": "go wtime 97929 btime 113590 winc 2000 binc 2000"
+        },
+        {
+          "ply": 21,
+          "go": "go wtime 96239 btime 112010 winc 2000 binc 2000"
+        },
+        {
+          "ply": 23,
+          "go": "go wtime 93869 btime 110500 winc 2000 binc 2000"
+        },
+        {
+          "ply": 25,
+          "go": "go wtime 90699 btime 108990 winc 2000 binc 2000"
+        },
+        {
+          "ply": 27,
+          "go": "go wtime 88229 btime 105120 winc 2000 binc 2000"
+        },
+        {
+          "ply": 29,
+          "go": "go wtime 84740 btime 101520 winc 2000 binc 2000"
+        },
+        {
+          "ply": 31,
+          "go": "go wtime 83850 btime 100200 winc 2000 binc 2000"
+        },
+        {
+          "ply": 33,
+          "go": "go wtime 80699 btime 96890 winc 2000 binc 2000"
+        },
+        {
+          "ply": 35,
+          "go": "go wtime 77519 btime 95660 winc 2000 binc 2000"
+        },
+        {
+          "ply": 37,
+          "go": "go wtime 75460 btime 94030 winc 2000 binc 2000"
+        }
+      ]
+    },
+    {
+      "id": "RbqMJLNn",
+      "url": "https://lichess.org/RbqMJLNn#32",
+      "ply": 32,
+      "fen": "2k4r/pppr1ppp/4bb2/1P6/5B2/2N5/PP3PPP/2R1R1K1 b - - 8 16",
+      "history_uci": [
+        "e2e4",
+        "e7e5",
+        "g1f3",
+        "b8c6",
+        "f1b5",
+        "g8f6",
+        "e1g1",
+        "f6e4",
+        "d2d4",
+        "e4d6",
+        "d4e5",
+        "d6b5",
+        "c2c4",
+        "d7d6",
+        "c4b5",
+        "c6e5",
+        "f1e1",
+        "f8e7",
+        "f3e5",
+        "d6e5",
+        "d1d8",
+        "e7d8",
+        "e1e5",
+        "c8e6",
+        "b1c3",
+        "d8f6",
+        "e5e1",
+        "e8c8",
+        "c1f4",
+        "d8d7",
+        "a1c1"
+      ],
+      "history_fens": [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+        "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+        "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+        "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4",
+        "r1bqkb1r/pppp1ppp/2n5/1B2p3/4n3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 5",
+        "r1bqkb1r/pppp1ppp/2n5/1B2p3/3Pn3/5N2/PPP2PPP/RNBQ1RK1 b kq - 0 5",
+        "r1bqkb1r/pppp1ppp/2nn4/1B2p3/3P4/5N2/PPP2PPP/RNBQ1RK1 w kq - 1 6",
+        "r1bqkb1r/pppp1ppp/2nn4/1B2P3/8/5N2/PPP2PPP/RNBQ1RK1 b kq - 0 6",
+        "r1bqkb1r/pppp1ppp/2n5/1n2P3/8/5N2/PPP2PPP/RNBQ1RK1 w kq - 0 7",
+        "r1bqkb1r/pppp1ppp/2n5/1n2P3/2P5/5N2/PP3PPP/RNBQ1RK1 b kq - 0 7",
+        "r1bqkb1r/ppp2ppp/2np4/1n2P3/2P5/5N2/PP3PPP/RNBQ1RK1 w kq - 0 8",
+        "r1bqkb1r/ppp2ppp/2np4/1P2P3/8/5N2/PP3PPP/RNBQ1RK1 b kq - 0 8",
+        "r1bqkb1r/ppp2ppp/3p4/1P2n3/8/5N2/PP3PPP/RNBQ1RK1 w kq - 0 9",
+        "r1bqkb1r/ppp2ppp/3p4/1P2n3/8/5N2/PP3PPP/RNBQR1K1 b kq - 1 9",
+        "r1bqk2r/ppp1bppp/3p4/1P2n3/8/5N2/PP3PPP/RNBQR1K1 w kq - 2 10",
+        "r1bqk2r/ppp1bppp/3p4/1P2N3/8/8/PP3PPP/RNBQR1K1 b kq - 0 10",
+        "r1bqk2r/ppp1bppp/8/1P2p3/8/8/PP3PPP/RNBQR1K1 w kq - 0 11",
+        "r1bQk2r/ppp1bppp/8/1P2p3/8/8/PP3PPP/RNB1R1K1 b kq - 0 11",
+        "r1bbk2r/ppp2ppp/8/1P2p3/8/8/PP3PPP/RNB1R1K1 w kq - 0 12",
+        "r1bbk2r/ppp2ppp/8/1P2R3/8/8/PP3PPP/RNB3K1 b kq - 0 12",
+        "r2bk2r/ppp2ppp/4b3/1P2R3/8/8/PP3PPP/RNB3K1 w kq - 1 13",
+        "r2bk2r/ppp2ppp/4b3/1P2R3/8/2N5/PP3PPP/R1B3K1 b kq - 2 13",
+        "r3k2r/ppp2ppp/4bb2/1P2R3/8/2N5/PP3PPP/R1B3K1 w kq - 3 14",
+        "r3k2r/ppp2ppp/4bb2/1P6/8/2N5/PP3PPP/R1B1R1K1 b kq - 4 14",
+        "2kr3r/ppp2ppp/4bb2/1P6/8/2N5/PP3PPP/R1B1R1K1 w - - 5 15",
+        "2kr3r/ppp2ppp/4bb2/1P6/5B2/2N5/PP3PPP/R3R1K1 b - - 6 15",
+        "2k4r/pppr1ppp/4bb2/1P6/5B2/2N5/PP3PPP/R3R1K1 w - - 7 16",
+        "2k4r/pppr1ppp/4bb2/1P6/5B2/2N5/PP3PPP/2R1R1K1 b - - 8 16"
+      ],
+      "bad_move": "f6g5",
+      "bad_san": "Bg5",
+      "refutation_uci": "f4g5",
+      "refutation_is_mate": false,
+      "live_go": "go wtime 81910 btime 110749 winc 2000 binc 2000",
+      "live_depth": 14,
+      "live_score_cp": 203,
+      "prefix_searches": [
+        {
+          "ply": 2,
+          "go": "go movetime 10000"
+        },
+        {
+          "ply": 4,
+          "go": "go wtime 181980 btime 179000 winc 2000 binc 2000"
+        },
+        {
+          "ply": 6,
+          "go": "go wtime 183960 btime 173899 winc 2000 binc 2000"
+        },
+        {
+          "ply": 8,
+          "go": "go wtime 185940 btime 168730 winc 2000 binc 2000"
+        },
+        {
+          "ply": 10,
+          "go": "go wtime 187920 btime 164919 winc 2000 binc 2000"
+        },
+        {
+          "ply": 12,
+          "go": "go wtime 189900 btime 160079 winc 2000 binc 2000"
+        },
+        {
+          "ply": 14,
+          "go": "go wtime 171590 btime 157229 winc 2000 binc 2000"
+        },
+        {
+          "ply": 16,
+          "go": "go wtime 157610 btime 153500 winc 2000 binc 2000"
+        },
+        {
+          "ply": 18,
+          "go": "go wtime 141190 btime 147289 winc 2000 binc 2000"
+        },
+        {
+          "ply": 20,
+          "go": "go wtime 135360 btime 142489 winc 2000 binc 2000"
+        },
+        {
+          "ply": 22,
+          "go": "go wtime 116750 btime 136739 winc 2000 binc 2000"
+        },
+        {
+          "ply": 24,
+          "go": "go wtime 100340 btime 130099 winc 2000 binc 2000"
+        },
+        {
+          "ply": 26,
+          "go": "go wtime 95780 btime 124309 winc 2000 binc 2000"
+        },
+        {
+          "ply": 28,
+          "go": "go wtime 89050 btime 120989 winc 2000 binc 2000"
+        },
+        {
+          "ply": 30,
+          "go": "go wtime 85380 btime 115129 winc 2000 binc 2000"
+        },
+        {
+          "ply": 32,
+          "go": "go wtime 81910 btime 110749 winc 2000 binc 2000"
+        }
+      ]
+    }
+  ]
+}

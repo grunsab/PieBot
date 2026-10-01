@@ -1,0 +1,7 @@
+{"event": "waiting_for_game_to_finish", "engine_pids": [2246228], "games": ["h9VYE1fE"]}
+{"event": "waiting_for_game_to_finish", "engine_pids": [2246228], "games": ["h9VYE1fE"]}
+{"event": "waiting_for_game_to_finish", "engine_pids": [2246228], "games": ["h9VYE1fE"]}
+{"event": "waiting_for_game_to_finish", "engine_pids": [2246228], "games": ["h9VYE1fE"]}
+{"event": "waiting_for_game_to_finish", "engine_pids": [2246228], "games": ["h9VYE1fE"]}
+{"event": "waiting_for_game_to_finish", "engine_pids": [2246228], "games": ["h9VYE1fE"]}
+{"action": "mitigate", "at": "2026-10-01T22:50:24.958503+00:00", "stopped_pids": [3933929], "backup": "/home/ubuntu/lichess-bot/deployment_lazy_smp_20261001/config.before_mitigation.20261001T225132Z.yml", "started": {"pid": 2252394, "log": "/home/ubuntu/lichess-bot/nohup.lazy-smp.1t.20261001T225132Z.log", "threads": 1}, "running_pids": [2252394], "engine_pids": [], "engine_configuration": {"dir": "./engines/PieBot/PieBot/target/release/", "name": "uci", "working_dir": "/home/ubuntu/lichess-bot/engines/PieBot", "uci_options": {"NNUEQuantFile": "/home/ubuntu/lichess-bot/engines/PieBot/models/lc0_chunk_00034965.nnue", "UseNNUE": true, "EvalBlend": 75, "Threads": 1, "Hash": 512}}, "config_sha256": "24edb3e1f006816cea9323f12a46612e6d539cac42c3b3ba6c52669d85cd75aa"}

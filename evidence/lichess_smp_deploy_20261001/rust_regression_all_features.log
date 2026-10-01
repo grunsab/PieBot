@@ -1,0 +1,10 @@
+   Compiling piebot v0.1.0 (/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/PieBot)
+    Finished `release` profile [optimized] target(s) in 22.18s
+     Running tests/lichess_smp_blunders.rs (PieBot/target/release/deps/lichess_smp_blunders-43d00147b7dfdb88)
+
+running 2 tests
+test historical_blunders_have_legal_immediate_refutations ... ok
+test real_nnue_parallel_search_avoids_recorded_blunders_and_mate_in_one ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+

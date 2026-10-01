@@ -1,0 +1,121 @@
+{
+  "game": "RbqMJLNn",
+  "ply": 32,
+  "fen": "2k4r/pppr1ppp/4bb2/1P6/5B2/2N5/PP3PPP/2R1R1K1 b - - 8 16",
+  "stockfish_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+  "node_budget": 2000000,
+  "moves": {
+    "f6g5": {
+      "san": "Bg5",
+      "cp_stm": -464,
+      "mate": null,
+      "depth": 22,
+      "nodes": 2000422,
+      "pv_uci": [
+        "f6g5",
+        "f4g5",
+        "h7h6",
+        "g5f4",
+        "h8g8",
+        "f2f3",
+        "b7b6",
+        "c1d1",
+        "d7d1",
+        "e1d1",
+        "g8e8",
+        "d1c1",
+        "f7f6",
+        "h2h4",
+        "e8e7",
+        "g2g4"
+      ],
+      "cp_loss": 546
+    },
+    "g7g5": {
+      "san": "g5",
+      "cp_stm": 32,
+      "mate": null,
+      "depth": 25,
+      "nodes": 2000437,
+      "pv_uci": [
+        "g7g5",
+        "f4e5"
+      ],
+      "cp_loss": 50
+    },
+    "b7b6": {
+      "san": "b6",
+      "cp_stm": 91,
+      "mate": null,
+      "depth": 23,
+      "nodes": 2000120,
+      "pv_uci": [
+        "b7b6",
+        "b2b3"
+      ],
+      "cp_loss": 0
+    },
+    "h8d8": {
+      "san": "Rhd8",
+      "cp_stm": -177,
+      "mate": null,
+      "depth": 23,
+      "nodes": 2000562,
+      "pv_uci": [
+        "h8d8",
+        "b5b6",
+        "a7b6",
+        "c3b5",
+        "c8b8",
+        "f4c7",
+        "d7c7",
+        "b5c7",
+        "e6d7",
+        "e1d1",
+        "f6b2",
+        "c1b1",
+        "b2f6",
+        "c7b5",
+        "d7e6",
+        "d1d8"
+      ],
+      "cp_loss": 259
+    },
+    "h8e8": {
+      "san": "Re8",
+      "cp_stm": 44,
+      "mate": null,
+      "depth": 26,
+      "nodes": 2000428,
+      "pv_uci": [
+        "h8e8",
+        "c3e4"
+      ],
+      "cp_loss": 38
+    }
+  },
+  "best": {
+    "cp_stm": 82,
+    "mate": null,
+    "depth": 23,
+    "nodes": 2000467,
+    "pv_uci": [
+      "b7b6",
+      "b2b3",
+      "f6e7",
+      "f2f3",
+      "h8e8",
+      "c1d1",
+      "e6f5",
+      "d1d7",
+      "f5d7",
+      "g1f2",
+      "h7h5",
+      "e1d1",
+      "e7b4",
+      "d1c1",
+      "b4a3",
+      "c1d1"
+    ]
+  }
+}

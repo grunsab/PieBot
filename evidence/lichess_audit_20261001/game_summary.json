@@ -1,0 +1,4881 @@
+{
+  "pools": {
+    "blitz": {
+      "games": 105,
+      "wdl": [
+        40,
+        24,
+        41
+      ],
+      "score": 0.49523809523809526,
+      "terminations": {
+        "1:mate": 34,
+        "0:mate": 41,
+        "0.5:draw": 23,
+        "1:outoftime": 2,
+        "1:resign": 4,
+        "0.5:outoftime": 1
+      },
+      "first_rating": 2408,
+      "last_rating": 2291,
+      "opponent_rating_median": 2258
+    },
+    "bullet": {
+      "games": 81,
+      "wdl": [
+        33,
+        21,
+        27
+      ],
+      "score": 0.5370370370370371,
+      "terminations": {
+        "0:mate": 27,
+        "1:mate": 28,
+        "0.5:draw": 21,
+        "1:resign": 2,
+        "1:outoftime": 3
+      },
+      "first_rating": 2334,
+      "last_rating": 2346,
+      "opponent_rating_median": 2311
+    }
+  },
+  "games": [
+    {
+      "id": "3N8q0TWl",
+      "date": "2026-09-30T00:05:14.054000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "white",
+      "opponent": "bhonduesque",
+      "opponent_rating": 2147,
+      "opponent_title": "BOT",
+      "rating": 2408,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 105,
+      "analysis_plies": 104,
+      "opening": {
+        "eco": "D21",
+        "name": "Queen's Gambit Accepted: Normal Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 2751
+    },
+    {
+      "id": "9IRhcPKZ",
+      "date": "2026-09-30T02:42:09.799000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "sharpSundae",
+      "opponent_rating": 2953,
+      "opponent_title": "BOT",
+      "rating": 2334,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 122,
+      "analysis_plies": 121,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 1575
+    },
+    {
+      "id": "M7txMmIo",
+      "date": "2026-09-30T03:06:13.267000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "black",
+      "opponent": "wangha",
+      "opponent_rating": 2472,
+      "opponent_title": "BOT",
+      "rating": 2412,
+      "rating_diff": -10,
+      "score": 0,
+      "status": "mate",
+      "plies": 55,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C70",
+        "name": "Ruy Lopez: Morphy Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 8093
+    },
+    {
+      "id": "0r6hyb6h",
+      "date": "2026-09-30T03:10:29.871000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 0,
+        "totalTime": 180
+      },
+      "color": "black",
+      "opponent": "thunfisch-bot",
+      "opponent_rating": 2260,
+      "opponent_title": "BOT",
+      "rating": 2402,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 109,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C25",
+        "name": "Vienna Game: Max Lange Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 2771
+    },
+    {
+      "id": "PCnLhxpT",
+      "date": "2026-09-30T03:32:45.930000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 1,
+        "totalTime": 220
+      },
+      "color": "white",
+      "opponent": "bobby_pcolla",
+      "opponent_rating": 1642,
+      "opponent_title": "BOT",
+      "rating": 2398,
+      "rating_diff": 0,
+      "score": 1,
+      "status": "outoftime",
+      "plies": 15,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B12",
+        "name": "Caro-Kann Defense",
+        "ply": 3
+      },
+      "last_clock_cs": 14620
+    },
+    {
+      "id": "6jEgHajB",
+      "date": "2026-09-30T03:42:24.672000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "black",
+      "opponent": "fpga-chess",
+      "opponent_rating": 2273,
+      "opponent_title": "BOT",
+      "rating": 2398,
+      "rating_diff": -3,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 231,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Tarrasch Defense, Pseudo-Tarrasch",
+        "ply": 6
+      },
+      "last_clock_cs": 1095
+    },
+    {
+      "id": "EMbo5U6x",
+      "date": "2026-09-30T03:58:14.406000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "GroshBoss",
+      "opponent_rating": 2173,
+      "opponent_title": "BOT",
+      "rating": 2333,
+      "rating_diff": 6,
+      "score": 1,
+      "status": "mate",
+      "plies": 177,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E60",
+        "name": "King's Indian Defense: Normal Variation, King's Knight Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 725
+    },
+    {
+      "id": "lUDRfFh0",
+      "date": "2026-09-30T04:13:19.487000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "nebubot",
+      "opponent_rating": 2473,
+      "opponent_title": "BOT",
+      "rating": 2339,
+      "rating_diff": 4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 85,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C50",
+        "name": "Italian Game: Giuoco Piano",
+        "ply": 6
+      },
+      "last_clock_cs": 3393
+    },
+    {
+      "id": "5yZLuTrM",
+      "date": "2026-09-30T04:20:06.554000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Blobfish-Bot",
+      "opponent_rating": 2381,
+      "opponent_title": "BOT",
+      "rating": 2343,
+      "rating_diff": 11,
+      "score": 1,
+      "status": "mate",
+      "plies": 161,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined",
+        "ply": 4
+      },
+      "last_clock_cs": 835
+    },
+    {
+      "id": "UOq7Tubm",
+      "date": "2026-09-30T04:29:48.932000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Bongaclang",
+      "opponent_rating": 2306,
+      "opponent_title": "BOT",
+      "rating": 2354,
+      "rating_diff": -1,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 87,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A40",
+        "name": "Englund Gambit",
+        "ply": 2
+      },
+      "last_clock_cs": 3112
+    },
+    {
+      "id": "SGL8BktU",
+      "date": "2026-09-30T04:36:22.451000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "RomanticBot",
+      "opponent_rating": 2812,
+      "opponent_title": "BOT",
+      "rating": 2395,
+      "rating_diff": 9,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 265,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A40",
+        "name": "Englund Gambit",
+        "ply": 2
+      },
+      "last_clock_cs": 873
+    },
+    {
+      "id": "XXE3FSnc",
+      "date": "2026-09-30T04:53:20.280000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "TroutBot",
+      "opponent_rating": 2214,
+      "opponent_title": "BOT",
+      "rating": 2353,
+      "rating_diff": 6,
+      "score": 1,
+      "status": "mate",
+      "plies": 112,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C47",
+        "name": "Four Knights Game: Italian Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 1248
+    },
+    {
+      "id": "uZDLfBSh",
+      "date": "2026-09-30T05:01:10.010000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "aposeij",
+      "opponent_rating": 2313,
+      "opponent_title": "BOT",
+      "rating": 2359,
+      "rating_diff": 8,
+      "score": 1,
+      "status": "mate",
+      "plies": 131,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E11",
+        "name": "Bogo-Indian Defense: Vitolins Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1709
+    },
+    {
+      "id": "1k9didGE",
+      "date": "2026-09-30T05:07:58.269000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "AggressiveStockfish",
+      "opponent_rating": 2802,
+      "opponent_title": "BOT",
+      "rating": 2367,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 119,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Tarrasch Defense, Pseudo-Tarrasch",
+        "ply": 6
+      },
+      "last_clock_cs": 1879
+    },
+    {
+      "id": "fJpnAYpN",
+      "date": "2026-09-30T05:14:23.229000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "thunfisch-bot",
+      "opponent_rating": 2258,
+      "opponent_title": "BOT",
+      "rating": 2404,
+      "rating_diff": 7,
+      "score": 1,
+      "status": "mate",
+      "plies": 161,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E70",
+        "name": "King's Indian Defense: Normal Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1467
+    },
+    {
+      "id": "ODC6vfpw",
+      "date": "2026-09-30T05:26:19.041000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "RomanticBot",
+      "opponent_rating": 2829,
+      "opponent_title": "BOT",
+      "rating": 2366,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 79,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C38",
+        "name": "King's Gambit Accepted: Traditional Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 3972
+    },
+    {
+      "id": "Xwa1IxfJ",
+      "date": "2026-09-30T05:32:58.733000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "DarkElectronBot",
+      "opponent_rating": 1959,
+      "opponent_title": "BOT",
+      "rating": 2411,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 54,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C44",
+        "name": "King's Knight Opening: Normal Variation",
+        "ply": 4
+      },
+      "last_clock_cs": 5939
+    },
+    {
+      "id": "zBb9oG9f",
+      "date": "2026-09-30T05:41:37.926000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Chess3Bot",
+      "opponent_rating": 2325,
+      "opponent_title": "BOT",
+      "rating": 2365,
+      "rating_diff": -10,
+      "score": 0,
+      "status": "mate",
+      "plies": 111,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D40",
+        "name": "Queen's Gambit Declined: Semi-Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 2087
+    },
+    {
+      "id": "lP5mEMOb",
+      "date": "2026-09-30T05:52:51.753000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Stepbot_Chess",
+      "opponent_rating": 1907,
+      "opponent_title": "BOT",
+      "rating": 2355,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 100,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D05",
+        "name": "Queen's Pawn Game: Colle System",
+        "ply": 7
+      },
+      "last_clock_cs": 2440
+    },
+    {
+      "id": "JWeqHb5K",
+      "date": "2026-09-30T06:01:23.981000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "pawn_git",
+      "opponent_rating": 2749,
+      "opponent_title": "BOT",
+      "rating": 2356,
+      "rating_diff": -2,
+      "score": 0,
+      "status": "mate",
+      "plies": 98,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D31",
+        "name": "Queen's Gambit Declined: Queen's Knight Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 2224
+    },
+    {
+      "id": "foxzKG8U",
+      "date": "2026-09-30T06:07:29.197000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "matmoi",
+      "opponent_rating": 1974,
+      "opponent_title": "BOT",
+      "rating": 2412,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "resign",
+      "plies": 54,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A05",
+        "name": "King's Indian Attack",
+        "ply": 4
+      },
+      "last_clock_cs": 6100
+    },
+    {
+      "id": "d4Xy5UgZ",
+      "date": "2026-09-30T06:12:23.940000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "banerot",
+      "opponent_rating": 2741,
+      "opponent_title": "BOT",
+      "rating": 2414,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 112,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D10",
+        "name": "Slav Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 2429
+    },
+    {
+      "id": "SQYwSfWv",
+      "date": "2026-09-30T06:22:13.080000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "Blobfish-Bot",
+      "opponent_rating": 2329,
+      "opponent_title": "BOT",
+      "rating": 2411,
+      "rating_diff": -13,
+      "score": 0,
+      "status": "mate",
+      "plies": 153,
+      "analysis_plies": 152,
+      "opening": {
+        "eco": "D20",
+        "name": "Queen's Gambit Accepted: Old Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 2080
+    },
+    {
+      "id": "afKmbtCA",
+      "date": "2026-09-30T06:33:47.818000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "bot64jaques",
+      "opponent_rating": 2367,
+      "opponent_title": "BOT",
+      "rating": 2398,
+      "rating_diff": -10,
+      "score": 0,
+      "status": "mate",
+      "plies": 173,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 2142
+    },
+    {
+      "id": "GOX88csY",
+      "date": "2026-09-30T06:48:25.064000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "DeMen100ns-bot",
+      "opponent_rating": 2129,
+      "opponent_title": "BOT",
+      "rating": 2354,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 150,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D05",
+        "name": "Queen's Pawn Game: Colle System",
+        "ply": 7
+      },
+      "last_clock_cs": 651
+    },
+    {
+      "id": "5wDKmkDk",
+      "date": "2026-09-30T06:55:39.910000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "BretemaBot",
+      "opponent_rating": 2802,
+      "opponent_title": "BOT",
+      "rating": 2388,
+      "rating_diff": -2,
+      "score": 0,
+      "status": "mate",
+      "plies": 83,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 4012
+    },
+    {
+      "id": "U0E0YGi4",
+      "date": "2026-09-30T07:03:57.837000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "Blobfish-Bot",
+      "opponent_rating": 2336,
+      "opponent_title": "BOT",
+      "rating": 2386,
+      "rating_diff": -11,
+      "score": 0,
+      "status": "mate",
+      "plies": 96,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B41",
+        "name": "Sicilian Defense: Kan Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 3978
+    },
+    {
+      "id": "sEi3c6E4",
+      "date": "2026-09-30T07:12:03.551000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Zagreus_Engine",
+      "opponent_rating": 2349,
+      "opponent_title": "BOT",
+      "rating": 2358,
+      "rating_diff": -9,
+      "score": 0,
+      "status": "mate",
+      "plies": 44,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E10",
+        "name": "Indian Defense: Anti-Nimzo-Indian",
+        "ply": 5
+      },
+      "last_clock_cs": 6392
+    },
+    {
+      "id": "5THTwpVY",
+      "date": "2026-09-30T07:15:47.421000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "EclipseBOT",
+      "opponent_rating": 1994,
+      "opponent_title": "BOT",
+      "rating": 2375,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 101,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D35",
+        "name": "Queen's Gambit Declined: Exchange Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 3155
+    },
+    {
+      "id": "2rfXO435",
+      "date": "2026-09-30T07:23:36.561000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "SleepMindEngine",
+      "opponent_rating": 2769,
+      "opponent_title": "BOT",
+      "rating": 2376,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 77,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C70",
+        "name": "Ruy Lopez: Morphy Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 4689
+    },
+    {
+      "id": "OvXxMEBU",
+      "date": "2026-09-30T07:36:31.687000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "prokopakop",
+      "opponent_rating": 2571,
+      "opponent_title": "BOT",
+      "rating": 2375,
+      "rating_diff": -5,
+      "score": 0,
+      "status": "mate",
+      "plies": 115,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 2198
+    },
+    {
+      "id": "JDZZip5m",
+      "date": "2026-09-30T07:44:53.445000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Voigtsbach",
+      "opponent_rating": 2105,
+      "opponent_title": "BOT",
+      "rating": 2349,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 62,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D00",
+        "name": "Amazon Attack",
+        "ply": 3
+      },
+      "last_clock_cs": 5118
+    },
+    {
+      "id": "EB80L8Cs",
+      "date": "2026-09-30T07:49:35.185000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "simpleEval",
+      "opponent_rating": 2118,
+      "opponent_title": "BOT",
+      "rating": 2370,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 142,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A09",
+        "name": "R\u00e9ti Opening: Advance Variation",
+        "ply": 4
+      },
+      "last_clock_cs": 1227
+    },
+    {
+      "id": "ygWNRXpy",
+      "date": "2026-09-30T08:02:11.773000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "Iskelt-Corax",
+      "opponent_rating": 1894,
+      "opponent_title": "BOT",
+      "rating": 2374,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 70,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C65",
+        "name": "Ruy Lopez: Berlin Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 4337
+    },
+    {
+      "id": "knE8aF9o",
+      "date": "2026-09-30T08:08:58.714000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "ColossusBOT",
+      "opponent_rating": 2523,
+      "opponent_title": "BOT",
+      "rating": 2375,
+      "rating_diff": 4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 144,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D43",
+        "name": "Semi-Slav Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 1968
+    },
+    {
+      "id": "M1euHpqA",
+      "date": "2026-09-30T08:18:33.946000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "rpiBot73",
+      "opponent_rating": 2484,
+      "opponent_title": "BOT",
+      "rating": 2379,
+      "rating_diff": 11,
+      "score": 1,
+      "status": "mate",
+      "plies": 203,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E10",
+        "name": "Indian Defense: Anti-Nimzo-Indian",
+        "ply": 5
+      },
+      "last_clock_cs": 1047
+    },
+    {
+      "id": "KJKcrpVQ",
+      "date": "2026-09-30T08:30:15.505000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Bongaclang",
+      "opponent_rating": 2313,
+      "opponent_title": "BOT",
+      "rating": 2353,
+      "rating_diff": -1,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 61,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C20",
+        "name": "Bongcloud Attack",
+        "ply": 3
+      },
+      "last_clock_cs": 5296
+    },
+    {
+      "id": "S985mzTM",
+      "date": "2026-09-30T08:35:45.884000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "simpleEval",
+      "opponent_rating": 2116,
+      "opponent_title": "BOT",
+      "rating": 2390,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 117,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A53",
+        "name": "Old Indian Defense: Czech Variation, with Nf3",
+        "ply": 6
+      },
+      "last_clock_cs": 2069
+    },
+    {
+      "id": "vRdCb6Is",
+      "date": "2026-09-30T08:44:10.495000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "botchessbot",
+      "opponent_rating": 2522,
+      "opponent_title": "BOT",
+      "rating": 2393,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 110,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: Zukertort Variation",
+        "ply": 3
+      },
+      "last_clock_cs": 2305
+    },
+    {
+      "id": "aGvveGBK",
+      "date": "2026-09-30T08:55:52.030000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "entebot",
+      "opponent_rating": 1958,
+      "opponent_title": "BOT",
+      "rating": 2387,
+      "rating_diff": -16,
+      "score": 0,
+      "status": "mate",
+      "plies": 85,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C70",
+        "name": "Ruy Lopez: Morphy Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 4247
+    },
+    {
+      "id": "5ruQEKAn",
+      "date": "2026-09-30T09:01:57.184000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "philidor-142M",
+      "opponent_rating": 1983,
+      "opponent_title": "BOT",
+      "rating": 2371,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "outoftime",
+      "plies": 109,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: Symmetrical Variation",
+        "ply": 4
+      },
+      "last_clock_cs": 2470
+    },
+    {
+      "id": "CNO2kB1w",
+      "date": "2026-09-30T09:16:41.037000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "SleepMindEngine",
+      "opponent_rating": 2814,
+      "opponent_title": "BOT",
+      "rating": 2352,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 138,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E10",
+        "name": "Indian Defense: Anti-Nimzo-Indian",
+        "ply": 5
+      },
+      "last_clock_cs": 1316
+    },
+    {
+      "id": "nK6VX9Hb",
+      "date": "2026-09-30T09:27:47.606000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "kulubot",
+      "opponent_rating": 2277,
+      "opponent_title": "BOT",
+      "rating": 2373,
+      "rating_diff": -10,
+      "score": 0,
+      "status": "mate",
+      "plies": 133,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: London System, with e6",
+        "ply": 5
+      },
+      "last_clock_cs": 2337
+    },
+    {
+      "id": "JRndV0O9",
+      "date": "2026-09-30T09:36:12.639000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "GroshBoss",
+      "opponent_rating": 2097,
+      "opponent_title": "BOT",
+      "rating": 2363,
+      "rating_diff": -5,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 76,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 4832
+    },
+    {
+      "id": "nvZQfQ7b",
+      "date": "2026-09-30T09:43:13.371000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "SleepMindEngine",
+      "opponent_rating": 2777,
+      "opponent_title": "BOT",
+      "rating": 2358,
+      "rating_diff": -2,
+      "score": 0,
+      "status": "mate",
+      "plies": 166,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Traditional Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 1720
+    },
+    {
+      "id": "ge5nISsk",
+      "date": "2026-09-30T09:52:55.592000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "AaronsEngine",
+      "opponent_rating": 2344,
+      "opponent_title": "BOT",
+      "rating": 2351,
+      "rating_diff": -8,
+      "score": 0,
+      "status": "mate",
+      "plies": 134,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E11",
+        "name": "Bogo-Indian Defense: Exchange Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1968
+    },
+    {
+      "id": "tICTILgf",
+      "date": "2026-09-30T09:59:35.938000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "sunfish-nnue-engine",
+      "opponent_rating": 1852,
+      "opponent_title": "BOT",
+      "rating": 2343,
+      "rating_diff": -7,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 32,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A43",
+        "name": "Benoni Defense: Benoni-Indian Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 7395
+    },
+    {
+      "id": "XzZ8tACc",
+      "date": "2026-09-30T10:06:01.190000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "Iskelt-Corax",
+      "opponent_rating": 1899,
+      "opponent_title": "BOT",
+      "rating": 2356,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 109,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E20",
+        "name": "Nimzo-Indian Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 1747
+    },
+    {
+      "id": "J42GMiJ1",
+      "date": "2026-09-30T10:18:59.899000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "ColossusBOT",
+      "opponent_rating": 2557,
+      "opponent_title": "BOT",
+      "rating": 2336,
+      "rating_diff": -4,
+      "score": 0,
+      "status": "mate",
+      "plies": 116,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D43",
+        "name": "Semi-Slav Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 1881
+    },
+    {
+      "id": "pLmFX5uR",
+      "date": "2026-09-30T10:28:42.405000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "WolfuhfuhBot",
+      "opponent_rating": 2160,
+      "opponent_title": "BOT",
+      "rating": 2357,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 168,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C54",
+        "name": "Italian Game: Classical Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1209
+    },
+    {
+      "id": "fsj5oDsP",
+      "date": "2026-09-30T10:38:18.174000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "TroutBot",
+      "opponent_rating": 2194,
+      "opponent_title": "BOT",
+      "rating": 2361,
+      "rating_diff": -3,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 75,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 4096
+    },
+    {
+      "id": "r0xHBm9j",
+      "date": "2026-09-30T10:47:04.088000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "fpga-chess",
+      "opponent_rating": 2276,
+      "opponent_title": "BOT",
+      "rating": 2358,
+      "rating_diff": 6,
+      "score": 1,
+      "status": "mate",
+      "plies": 157,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D06",
+        "name": "Queen's Gambit Declined: Marshall Defense, Tan Gambit",
+        "ply": 6
+      },
+      "last_clock_cs": 1345
+    },
+    {
+      "id": "Dz5GkdfP",
+      "date": "2026-09-30T10:58:17.248000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Iskelt-Corax",
+      "opponent_rating": 1956,
+      "opponent_title": "BOT",
+      "rating": 2332,
+      "rating_diff": -6,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 69,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C65",
+        "name": "Ruy Lopez: Berlin Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 4062
+    },
+    {
+      "id": "2z6sd6eD",
+      "date": "2026-09-30T11:04:01.077000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Zagreus_Engine",
+      "opponent_rating": 2353,
+      "opponent_title": "BOT",
+      "rating": 2326,
+      "rating_diff": -7,
+      "score": 0,
+      "status": "mate",
+      "plies": 110,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D12",
+        "name": "Slav Defense: Quiet Variation, Schallopp Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 2677
+    },
+    {
+      "id": "70SVLsvo",
+      "date": "2026-09-30T11:11:08.811000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "bot64jaques",
+      "opponent_rating": 2383,
+      "opponent_title": "BOT",
+      "rating": 2364,
+      "rating_diff": 0,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 78,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Traditional Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 4926
+    },
+    {
+      "id": "GHPk8cFh",
+      "date": "2026-09-30T11:19:55.562000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "TroutBot",
+      "opponent_rating": 2197,
+      "opponent_title": "BOT",
+      "rating": 2364,
+      "rating_diff": -11,
+      "score": 0,
+      "status": "mate",
+      "plies": 104,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A56",
+        "name": "Benoni Defense: Hrom\u00e1dka System",
+        "ply": 6
+      },
+      "last_clock_cs": 3483
+    },
+    {
+      "id": "yrgATAlH",
+      "date": "2026-09-30T11:29:50.987000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "Zagreus_Engine",
+      "opponent_rating": 2306,
+      "opponent_title": "BOT",
+      "rating": 2353,
+      "rating_diff": -8,
+      "score": 0,
+      "status": "mate",
+      "plies": 71,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 4780
+    },
+    {
+      "id": "LB4OIXjv",
+      "date": "2026-09-30T11:36:45.294000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Musashi-thebot",
+      "opponent_rating": 2317,
+      "opponent_title": "BOT",
+      "rating": 2319,
+      "rating_diff": -8,
+      "score": 0,
+      "status": "mate",
+      "plies": 96,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E10",
+        "name": "Indian Defense: Anti-Nimzo-Indian",
+        "ply": 5
+      },
+      "last_clock_cs": 2819
+    },
+    {
+      "id": "YKeQbF1I",
+      "date": "2026-09-30T11:45:38.700000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "stickshark99",
+      "opponent_rating": 2089,
+      "opponent_title": "BOT",
+      "rating": 2311,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 116,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D53",
+        "name": "Queen's Gambit Declined",
+        "ply": 8
+      },
+      "last_clock_cs": 2095
+    },
+    {
+      "id": "a0la7g4z",
+      "date": "2026-09-30T11:54:24.372000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "GarboBot",
+      "opponent_rating": 1876,
+      "opponent_title": "BOT",
+      "rating": 2345,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 100,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 2235
+    },
+    {
+      "id": "eqUKcXIH",
+      "date": "2026-09-30T11:59:46.547000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "TeensyCheesy",
+      "opponent_rating": 2232,
+      "opponent_title": "BOT",
+      "rating": 2346,
+      "rating_diff": -2,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 89,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D53",
+        "name": "Queen's Gambit Declined",
+        "ply": 8
+      },
+      "last_clock_cs": 3850
+    },
+    {
+      "id": "iDBhSbyz",
+      "date": "2026-09-30T12:07:01.300000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "RavenEngine",
+      "opponent_rating": 2208,
+      "opponent_title": "BOT",
+      "rating": 2344,
+      "rating_diff": -9,
+      "score": 0,
+      "status": "mate",
+      "plies": 129,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A29",
+        "name": "English Opening: King's English Variation, Four Knights Variation, Fianchetto Line",
+        "ply": 7
+      },
+      "last_clock_cs": 1805
+    },
+    {
+      "id": "0uQycpT3",
+      "date": "2026-09-30T12:13:54.237000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 3,
+        "totalTime": 300
+      },
+      "color": "black",
+      "opponent": "artidigm_research",
+      "opponent_rating": 2380,
+      "opponent_title": "BOT",
+      "rating": 2335,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 107,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Classical Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 4343
+    },
+    {
+      "id": "4gdYf2B0",
+      "date": "2026-09-30T12:26:04.618000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "RomanticBot",
+      "opponent_rating": 2808,
+      "opponent_title": "BOT",
+      "rating": 2329,
+      "rating_diff": 6,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 244,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A40",
+        "name": "Englund Gambit: Main Line",
+        "ply": 6
+      },
+      "last_clock_cs": 1214
+    },
+    {
+      "id": "QuJB1y9N",
+      "date": "2026-09-30T12:38:56.223000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "DeMen100ns-bot",
+      "opponent_rating": 2114,
+      "opponent_title": "BOT",
+      "rating": 2307,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 102,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: Symmetrical Variation",
+        "ply": 4
+      },
+      "last_clock_cs": 2360
+    },
+    {
+      "id": "FJN06nWm",
+      "date": "2026-09-30T12:47:14.047000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "TeensyCheesy",
+      "opponent_rating": 2264,
+      "opponent_title": "BOT",
+      "rating": 2303,
+      "rating_diff": -8,
+      "score": 0,
+      "status": "mate",
+      "plies": 106,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E10",
+        "name": "Indian Defense: Anti-Nimzo-Indian",
+        "ply": 5
+      },
+      "last_clock_cs": 2284
+    },
+    {
+      "id": "eYumg2wZ",
+      "date": "2026-09-30T13:00:06.247000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "PlayMarius",
+      "opponent_rating": 2107,
+      "opponent_title": "BOT",
+      "rating": 2295,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 97,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Traditional Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 2284
+    },
+    {
+      "id": "vLiwuMUL",
+      "date": "2026-09-30T13:05:49.281000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "RomanticBot2",
+      "opponent_rating": 2433,
+      "opponent_title": "BOT",
+      "rating": 2298,
+      "rating_diff": -4,
+      "score": 0,
+      "status": "mate",
+      "plies": 128,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D38",
+        "name": "Queen's Gambit Declined: Ragozin Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 1600
+    },
+    {
+      "id": "PJzgiueQ",
+      "date": "2026-09-30T13:16:34.447000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "bbc_bot",
+      "opponent_rating": 2633,
+      "opponent_title": "BOT",
+      "rating": 2294,
+      "rating_diff": -2,
+      "score": 0,
+      "status": "mate",
+      "plies": 85,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D22",
+        "name": "Queen's Gambit Accepted: Alekhine Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 2928
+    },
+    {
+      "id": "JmkjU0sa",
+      "date": "2026-09-30T13:21:50.400000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "baby_eubos",
+      "opponent_rating": 1843,
+      "opponent_title": "BOT",
+      "rating": 2335,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "resign",
+      "plies": 95,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C42",
+        "name": "Petrov's Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 3039
+    },
+    {
+      "id": "rgbaZFMp",
+      "date": "2026-09-30T13:32:35.168000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "pawn_git",
+      "opponent_rating": 2752,
+      "opponent_title": "BOT",
+      "rating": 2292,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 135,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C49",
+        "name": "Four Knights Game: Spanish Variation, Double Spanish",
+        "ply": 8
+      },
+      "last_clock_cs": 1154
+    },
+    {
+      "id": "a4S7eoBR",
+      "date": "2026-09-30T13:39:36.690000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "EclipseBOT",
+      "opponent_rating": 1974,
+      "opponent_title": "BOT",
+      "rating": 2336,
+      "rating_diff": null,
+      "score": 1,
+      "status": "mate",
+      "plies": 125,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D35",
+        "name": "Queen's Gambit Declined: Exchange Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 1810
+    },
+    {
+      "id": "UkcVK8Fq",
+      "date": "2026-09-30T13:49:31.873000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Iskelt-Corax",
+      "opponent_rating": 1961,
+      "opponent_title": "BOT",
+      "rating": 2291,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 89,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E11",
+        "name": "Bogo-Indian Defense: Nimzowitsch Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 2667
+    },
+    {
+      "id": "zCjyGtbm",
+      "date": "2026-09-30T13:55:57.713000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "rpiBot73",
+      "opponent_rating": 2472,
+      "opponent_title": "BOT",
+      "rating": 2336,
+      "rating_diff": -4,
+      "score": 0,
+      "status": "mate",
+      "plies": 69,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights, Vienna Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 4330
+    },
+    {
+      "id": "HmJBBTvP",
+      "date": "2026-09-30T14:05:46.956000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "VidBot",
+      "opponent_rating": 2220,
+      "opponent_title": "BOT",
+      "rating": 2293,
+      "rating_diff": 5,
+      "score": 1,
+      "status": "mate",
+      "plies": 196,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D21",
+        "name": "Queen's Gambit Accepted: Rosenthal Variation",
+        "ply": 6
+      },
+      "last_clock_cs": 457
+    },
+    {
+      "id": "YE4mPhp8",
+      "date": "2026-09-30T14:14:11.575000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Voigtsbach",
+      "opponent_rating": 2102,
+      "opponent_title": "BOT",
+      "rating": 2298,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 111,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D06",
+        "name": "Queen's Gambit Declined: Marshall Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 1684
+    },
+    {
+      "id": "FWI2CMZc",
+      "date": "2026-09-30T14:23:40.179000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "justbot-v1",
+      "opponent_rating": 2711,
+      "opponent_title": "BOT",
+      "rating": 2332,
+      "rating_diff": 5,
+      "score": 0.5,
+      "status": "outoftime",
+      "plies": 123,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Traditional Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 2330
+    },
+    {
+      "id": "zQoaxfK6",
+      "date": "2026-09-30T14:39:05.541000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "MrTonnerre",
+      "opponent_rating": 2175,
+      "opponent_title": "BOT",
+      "rating": 2337,
+      "rating_diff": -10,
+      "score": 0,
+      "status": "mate",
+      "plies": 62,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A80",
+        "name": "Dutch Defense",
+        "ply": 2
+      },
+      "last_clock_cs": 5106
+    },
+    {
+      "id": "peldC2Ds",
+      "date": "2026-09-30T15:35:21.029000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 1,
+        "totalTime": 220
+      },
+      "color": "white",
+      "opponent": "rchessengine",
+      "opponent_rating": 2157,
+      "opponent_title": "BOT",
+      "rating": 2327,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 147,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D31",
+        "name": "Semi-Slav Defense: Accelerated Move Order",
+        "ply": 6
+      },
+      "last_clock_cs": 681
+    },
+    {
+      "id": "fpAr3Coz",
+      "date": "2026-09-30T16:18:18.715000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "TalosBot",
+      "opponent_rating": 2507,
+      "opponent_title": "BOT",
+      "rating": 2301,
+      "rating_diff": 4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 257,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 551
+    },
+    {
+      "id": "RbqMJLNn",
+      "date": "2026-09-30T16:32:11.421000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "black",
+      "opponent": "Mithandros",
+      "opponent_rating": 2166,
+      "opponent_title": "BOT",
+      "rating": 2331,
+      "rating_diff": -9,
+      "score": 0,
+      "status": "mate",
+      "plies": 81,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 4750
+    },
+    {
+      "id": "G3h3pkL7",
+      "date": "2026-09-30T18:44:30.718000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 1,
+        "totalTime": 220
+      },
+      "color": "white",
+      "opponent": "Vic98lg",
+      "opponent_rating": 2547,
+      "opponent_title": "BOT",
+      "rating": 2322,
+      "rating_diff": 3,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 99,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B30",
+        "name": "Sicilian Defense: Nyezhmetdinov-Rossolimo Attack",
+        "ply": 5
+      },
+      "last_clock_cs": 3711
+    },
+    {
+      "id": "iaQsigGH",
+      "date": "2026-09-30T19:39:20.576000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "black",
+      "opponent": "Mithandros",
+      "opponent_rating": 2188,
+      "opponent_title": "BOT",
+      "rating": 2325,
+      "rating_diff": -8,
+      "score": 0,
+      "status": "mate",
+      "plies": 119,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C65",
+        "name": "Ruy Lopez: Berlin Defense, Anti-Berlin Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 3786
+    },
+    {
+      "id": "xeYpEWCh",
+      "date": "2026-09-30T20:48:14.297000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "black",
+      "opponent": "fpga-chess",
+      "opponent_rating": 2354,
+      "opponent_title": "BOT",
+      "rating": 2317,
+      "rating_diff": -5,
+      "score": 0,
+      "status": "mate",
+      "plies": 275,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: London System, with e6",
+        "ply": 5
+      },
+      "last_clock_cs": 1178
+    },
+    {
+      "id": "FLgE4CED",
+      "date": "2026-09-30T21:03:32.809000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "white",
+      "opponent": "artidigm_research",
+      "opponent_rating": 2372,
+      "opponent_title": "BOT",
+      "rating": 2312,
+      "rating_diff": -5,
+      "score": 0,
+      "status": "mate",
+      "plies": 80,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Traditional Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 5034
+    },
+    {
+      "id": "fmrgZ5Z5",
+      "date": "2026-09-30T21:30:56.871000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "GreenseerEngine",
+      "opponent_rating": 2107,
+      "opponent_title": "BOT",
+      "rating": 2305,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 71,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D10",
+        "name": "Slav Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 3654
+    },
+    {
+      "id": "1SnTg4VS",
+      "date": "2026-09-30T22:18:00.915000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 5,
+        "totalTime": 380
+      },
+      "color": "white",
+      "opponent": "snowfishBot",
+      "opponent_rating": 1938,
+      "opponent_title": "BOT",
+      "rating": 2307,
+      "rating_diff": -5,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 117,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D26",
+        "name": "Queen's Gambit Accepted: Normal Variation, Traditional System",
+        "ply": 8
+      },
+      "last_clock_cs": 4276
+    },
+    {
+      "id": "iQcdCVTf",
+      "date": "2026-09-30T23:02:51.576000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 5,
+        "totalTime": 380
+      },
+      "color": "white",
+      "opponent": "GreenseerEngine",
+      "opponent_rating": 2057,
+      "opponent_title": "BOT",
+      "rating": 2302,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 79,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B54",
+        "name": "Sicilian Defense: Modern Variations, Main Line",
+        "ply": 8
+      },
+      "last_clock_cs": 6987
+    },
+    {
+      "id": "ZNnS2GqX",
+      "date": "2026-09-30T23:39:22.971000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "black",
+      "opponent": "Mithandros",
+      "opponent_rating": 2210,
+      "opponent_title": "BOT",
+      "rating": 2304,
+      "rating_diff": 5,
+      "score": 1,
+      "status": "mate",
+      "plies": 148,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: London System, with e6",
+        "ply": 5
+      },
+      "last_clock_cs": 1846
+    },
+    {
+      "id": "qrC0KKjG",
+      "date": "2026-09-30T23:58:18.946000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 0,
+        "totalTime": 180
+      },
+      "color": "white",
+      "opponent": "Zagreus_Engine",
+      "opponent_rating": 2308,
+      "opponent_title": "BOT",
+      "rating": 2309,
+      "rating_diff": -1,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 52,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D31",
+        "name": "Semi-Slav Defense: Accelerated Move Order",
+        "ply": 6
+      },
+      "last_clock_cs": 7281
+    },
+    {
+      "id": "gxZ1uOYx",
+      "date": "2026-10-01T00:23:21.903000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "white",
+      "opponent": "FlowBot",
+      "opponent_rating": 2611,
+      "opponent_title": "BOT",
+      "rating": 2308,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 126,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights, Vienna Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 2995
+    },
+    {
+      "id": "kTW2aTxl",
+      "date": "2026-10-01T01:44:15.713000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "white",
+      "opponent": "wangha",
+      "opponent_rating": 2453,
+      "opponent_title": "BOT",
+      "rating": 2307,
+      "rating_diff": -4,
+      "score": 0,
+      "status": "mate",
+      "plies": 90,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 4967
+    },
+    {
+      "id": "gpPPd6rS",
+      "date": "2026-10-01T04:04:15.163000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "AconcaguaBot",
+      "opponent_rating": 2281,
+      "opponent_title": "BOT",
+      "rating": 2303,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 99,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 2072
+    },
+    {
+      "id": "yjnFKJh3",
+      "date": "2026-10-01T04:10:33.985000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "bbc_bot",
+      "opponent_rating": 2683,
+      "opponent_title": "BOT",
+      "rating": 2297,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 114,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D43",
+        "name": "Semi-Slav Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 3051
+    },
+    {
+      "id": "KTu3CLpF",
+      "date": "2026-10-01T04:19:05.986000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "sxphia",
+      "opponent_rating": 2541,
+      "opponent_title": "BOT",
+      "rating": 2308,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 84,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B40",
+        "name": "Sicilian Defense: French Variation",
+        "ply": 4
+      },
+      "last_clock_cs": 2844
+    },
+    {
+      "id": "MPPQRM8A",
+      "date": "2026-10-01T04:26:14.128000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "uzenatch",
+      "opponent_rating": 1931,
+      "opponent_title": "BOT",
+      "rating": 2296,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 83,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D31",
+        "name": "Queen's Gambit Declined: Queen's Knight Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 3271
+    },
+    {
+      "id": "e8mISBLA",
+      "date": "2026-10-01T04:33:08.710000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "LeMuffinBot",
+      "opponent_rating": 1990,
+      "opponent_title": "BOT",
+      "rating": 2305,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 53,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C65",
+        "name": "Ruy Lopez: Berlin Defense, Anti-Berlin Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 5193
+    },
+    {
+      "id": "70tlh8Ni",
+      "date": "2026-10-01T04:39:13.299000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "TheChessblazer",
+      "opponent_rating": 1976,
+      "opponent_title": "BOT",
+      "rating": 2297,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 90,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Tarrasch Defense, Pseudo-Tarrasch",
+        "ply": 6
+      },
+      "last_clock_cs": 3238
+    },
+    {
+      "id": "aDKPAme7",
+      "date": "2026-10-01T04:46:28.178000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "aposeij",
+      "opponent_rating": 2275,
+      "opponent_title": "BOT",
+      "rating": 2299,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 74,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E11",
+        "name": "Bogo-Indian Defense: Nimzowitsch Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 4749
+    },
+    {
+      "id": "wvDDYj8t",
+      "date": "2026-10-01T04:52:40.911000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "stickshark99",
+      "opponent_rating": 2090,
+      "opponent_title": "BOT",
+      "rating": 2307,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 178,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A50",
+        "name": "Indian Defense: Normal Variation",
+        "ply": 3
+      },
+      "last_clock_cs": 1054
+    },
+    {
+      "id": "cDQc4aEM",
+      "date": "2026-10-01T05:02:43.565000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "KirinChessBot",
+      "opponent_rating": 2542,
+      "opponent_title": "BOT",
+      "rating": 2303,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 60,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D40",
+        "name": "Queen's Gambit Declined: Semi-Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 5213
+    },
+    {
+      "id": "7NNdUlnv",
+      "date": "2026-10-01T05:14:04.164000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Bot5551",
+      "opponent_rating": 1844,
+      "opponent_title": "BOT",
+      "rating": 2300,
+      "rating_diff": -5,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 44,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D40",
+        "name": "Queen's Gambit Declined: Semi-Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 6218
+    },
+    {
+      "id": "1CBF4XZk",
+      "date": "2026-10-01T05:21:12.411000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "KirinChessBot",
+      "opponent_rating": 2530,
+      "opponent_title": "BOT",
+      "rating": 2293,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 108,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C00",
+        "name": "French Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 3093
+    },
+    {
+      "id": "ACpWhwts",
+      "date": "2026-10-01T05:28:06.163000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "StupidChessRobot",
+      "opponent_rating": 2508,
+      "opponent_title": "BOT",
+      "rating": 2290,
+      "rating_diff": -2,
+      "score": 0,
+      "status": "mate",
+      "plies": 107,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D05",
+        "name": "Queen's Pawn Game: Colle System",
+        "ply": 6
+      },
+      "last_clock_cs": 3433
+    },
+    {
+      "id": "xGwRsPH6",
+      "date": "2026-10-01T05:38:30.594000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "WolfuhfuhBot",
+      "opponent_rating": 2143,
+      "opponent_title": "BOT",
+      "rating": 2295,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 141,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D10",
+        "name": "Slav Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 1401
+    },
+    {
+      "id": "xZ2n1t26",
+      "date": "2026-10-01T05:45:17.576000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "LunaEngineChess",
+      "opponent_rating": 2588,
+      "opponent_title": "BOT",
+      "rating": 2299,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 110,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D43",
+        "name": "Semi-Slav Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 2253
+    },
+    {
+      "id": "xl3mqlhV",
+      "date": "2026-10-01T05:51:22.992000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "bhonduesque",
+      "opponent_rating": 2163,
+      "opponent_title": "BOT",
+      "rating": 2288,
+      "rating_diff": -8,
+      "score": 0,
+      "status": "mate",
+      "plies": 109,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 2249
+    },
+    {
+      "id": "dCEKeAtH",
+      "date": "2026-10-01T06:00:01.530000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "Stepbot_Chess",
+      "opponent_rating": 1865,
+      "opponent_title": "BOT",
+      "rating": 2280,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 97,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D20",
+        "name": "Queen's Gambit Accepted: Old Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 2838
+    },
+    {
+      "id": "onIvDYgZ",
+      "date": "2026-10-01T06:09:50.959000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "VidBot",
+      "opponent_rating": 2215,
+      "opponent_title": "BOT",
+      "rating": 2296,
+      "rating_diff": -1,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 98,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E20",
+        "name": "Nimzo-Indian Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 3050
+    },
+    {
+      "id": "gV6tiM97",
+      "date": "2026-10-01T06:14:30.286000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "matmoi",
+      "opponent_rating": 2081,
+      "opponent_title": "BOT",
+      "rating": 2295,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "resign",
+      "plies": 80,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A22",
+        "name": "English Opening: King's English Variation, Two Knights Variation, Reversed Dragon",
+        "ply": 6
+      },
+      "last_clock_cs": 3779
+    },
+    {
+      "id": "h9xU20Yd",
+      "date": "2026-10-01T06:19:26.100000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "Valhalla-Bot",
+      "opponent_rating": 2633,
+      "opponent_title": "BOT",
+      "rating": 2281,
+      "rating_diff": 4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 40,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D38",
+        "name": "Queen's Gambit Declined: Ragozin Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 7498
+    },
+    {
+      "id": "sDdHbSNL",
+      "date": "2026-10-01T06:23:59.714000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "MrTonnerre",
+      "opponent_rating": 2231,
+      "opponent_title": "BOT",
+      "rating": 2298,
+      "rating_diff": 5,
+      "score": 1,
+      "status": "mate",
+      "plies": 114,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D32",
+        "name": "Queen's Gambit Declined: Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 1951
+    },
+    {
+      "id": "njJc7tFn",
+      "date": "2026-10-01T06:37:59.133000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "PlayMarius",
+      "opponent_rating": 2120,
+      "opponent_title": "BOT",
+      "rating": 2303,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "resign",
+      "plies": 117,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D06",
+        "name": "Queen's Gambit Declined: Marshall Defense, Tan Gambit",
+        "ply": 6
+      },
+      "last_clock_cs": 2171
+    },
+    {
+      "id": "HcdOaZMC",
+      "date": "2026-10-01T06:44:10.132000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "RavenEngine",
+      "opponent_rating": 2267,
+      "opponent_title": "BOT",
+      "rating": 2306,
+      "rating_diff": 5,
+      "score": 1,
+      "status": "mate",
+      "plies": 148,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C70",
+        "name": "Ruy Lopez: Morphy Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 1148
+    },
+    {
+      "id": "ku1oCzFJ",
+      "date": "2026-10-01T06:53:10.359000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "ThrorBjorn",
+      "opponent_rating": 1952,
+      "opponent_title": "BOT",
+      "rating": 2311,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 122,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game",
+        "ply": 7
+      },
+      "last_clock_cs": 1113
+    },
+    {
+      "id": "t0mmSvCU",
+      "date": "2026-10-01T07:01:00.581000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "artidigm_research",
+      "opponent_rating": 2108,
+      "opponent_title": "BOT",
+      "rating": 2312,
+      "rating_diff": -8,
+      "score": 0,
+      "status": "mate",
+      "plies": 127,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1553
+    },
+    {
+      "id": "VM43kYAX",
+      "date": "2026-10-01T07:07:26.106000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "Stepbot_Chess",
+      "opponent_rating": 1868,
+      "opponent_title": "BOT",
+      "rating": 2285,
+      "rating_diff": -10,
+      "score": 0,
+      "status": "mate",
+      "plies": 124,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined",
+        "ply": 4
+      },
+      "last_clock_cs": 2564
+    },
+    {
+      "id": "Pwm4E75k",
+      "date": "2026-10-01T07:22:24.490000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "justbot-v1",
+      "opponent_rating": 2736,
+      "opponent_title": "BOT",
+      "rating": 2275,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 113,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D32",
+        "name": "Queen's Gambit Declined: Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 2552
+    },
+    {
+      "id": "0n34Qzaw",
+      "date": "2026-10-01T07:31:05.796000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "NeraChess",
+      "opponent_rating": 2744,
+      "opponent_title": "BOT",
+      "rating": 2274,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 188,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D40",
+        "name": "Queen's Gambit Declined: Semi-Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 1370
+    },
+    {
+      "id": "lFnRUdlx",
+      "date": "2026-10-01T07:42:52.487000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Ribfish-Bot",
+      "opponent_rating": 2144,
+      "opponent_title": "BOT",
+      "rating": 2304,
+      "rating_diff": -3,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 99,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D01",
+        "name": "Rapport-Jobava System",
+        "ply": 5
+      },
+      "last_clock_cs": 3209
+    },
+    {
+      "id": "IxTlmbkL",
+      "date": "2026-10-01T07:51:16.900000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "TidyMazeBot",
+      "opponent_rating": 2371,
+      "opponent_title": "BOT",
+      "rating": 2301,
+      "rating_diff": -4,
+      "score": 0,
+      "status": "mate",
+      "plies": 83,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 3066
+    },
+    {
+      "id": "gUbcCp3W",
+      "date": "2026-10-01T07:59:35.288000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "GroshBoss",
+      "opponent_rating": 2158,
+      "opponent_title": "BOT",
+      "rating": 2297,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 93,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C02",
+        "name": "French Defense: Advance Variation, Extended Bishop Swap",
+        "ply": 6
+      },
+      "last_clock_cs": 2584
+    },
+    {
+      "id": "F9c4E0iM",
+      "date": "2026-10-01T08:04:58.330000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "black",
+      "opponent": "FlounderBot",
+      "opponent_rating": 2070,
+      "opponent_title": "BOT",
+      "rating": 2273,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 120,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D00",
+        "name": "Queen's Pawn Game: Accelerated London System",
+        "ply": 3
+      },
+      "last_clock_cs": 2721
+    },
+    {
+      "id": "ceX4XAIL",
+      "date": "2026-10-01T08:15:36.356000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "Goldfish-Engine",
+      "opponent_rating": 2168,
+      "opponent_title": "BOT",
+      "rating": 2276,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 168,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1757
+    },
+    {
+      "id": "HHDNXxMC",
+      "date": "2026-10-01T08:26:35.425000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "lukebot",
+      "opponent_rating": 2178,
+      "opponent_title": "BOT",
+      "rating": 2280,
+      "rating_diff": -7,
+      "score": 0,
+      "status": "mate",
+      "plies": 63,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C47",
+        "name": "Four Knights Game: Italian Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 4936
+    },
+    {
+      "id": "kQt8gn5i",
+      "date": "2026-10-01T08:36:12.500000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "AATK_VanguardX",
+      "opponent_rating": 2723,
+      "opponent_title": "BOT",
+      "rating": 2300,
+      "rating_diff": 11,
+      "score": 1,
+      "status": "outoftime",
+      "plies": 110,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 2205
+    },
+    {
+      "id": "P2GhdTnL",
+      "date": "2026-10-01T08:47:24.325000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "likeawizard-bot",
+      "opponent_rating": 2223,
+      "opponent_title": "BOT",
+      "rating": 2273,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 94,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B06",
+        "name": "Modern Defense: Pseudo-Austrian Attack",
+        "ply": 7
+      },
+      "last_clock_cs": 4227
+    },
+    {
+      "id": "bpnPWGHh",
+      "date": "2026-10-01T08:58:58.966000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "nebubot",
+      "opponent_rating": 2404,
+      "opponent_title": "BOT",
+      "rating": 2267,
+      "rating_diff": -4,
+      "score": 0,
+      "status": "mate",
+      "plies": 215,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights, Vienna Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 2096
+    },
+    {
+      "id": "QJwyzWle",
+      "date": "2026-10-01T09:11:41.289000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "TalosBot",
+      "opponent_rating": 2493,
+      "opponent_title": "BOT",
+      "rating": 2311,
+      "rating_diff": 9,
+      "score": 1,
+      "status": "mate",
+      "plies": 144,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C70",
+        "name": "Ruy Lopez: Morphy Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 905
+    },
+    {
+      "id": "C3d1f8t5",
+      "date": "2026-10-01T09:22:07.920000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "uSunfish",
+      "opponent_rating": 1781,
+      "opponent_title": "BOT",
+      "rating": 2263,
+      "rating_diff": -11,
+      "score": 0,
+      "status": "mate",
+      "plies": 62,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B12",
+        "name": "Caro-Kann Defense: Advance Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 6280
+    },
+    {
+      "id": "nhNqgnJh",
+      "date": "2026-10-01T09:28:06.022000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "AconcaguaBot",
+      "opponent_rating": 2354,
+      "opponent_title": "BOT",
+      "rating": 2320,
+      "rating_diff": 6,
+      "score": 1,
+      "status": "mate",
+      "plies": 131,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D43",
+        "name": "Semi-Slav Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 894
+    },
+    {
+      "id": "QR2ZDi3K",
+      "date": "2026-10-01T09:35:41.597000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "nebubot",
+      "opponent_rating": 2407,
+      "opponent_title": "BOT",
+      "rating": 2252,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 74,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A50",
+        "name": "Slav Indian",
+        "ply": 4
+      },
+      "last_clock_cs": 4424
+    },
+    {
+      "id": "AgxzUVPg",
+      "date": "2026-10-01T09:42:00.848000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "halcyonbot",
+      "opponent_rating": 2193,
+      "opponent_title": "BOT",
+      "rating": 2249,
+      "rating_diff": -1,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 120,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E11",
+        "name": "Bogo-Indian Defense: Wade-Smyslov Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 2533
+    },
+    {
+      "id": "MHe3RmI3",
+      "date": "2026-10-01T09:51:00.941000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "bhonduesque",
+      "opponent_rating": 2161,
+      "opponent_title": "BOT",
+      "rating": 2248,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 126,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1553
+    },
+    {
+      "id": "RYLHqJwI",
+      "date": "2026-10-01T09:59:25.848000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "rpiBot73",
+      "opponent_rating": 2493,
+      "opponent_title": "BOT",
+      "rating": 2252,
+      "rating_diff": 9,
+      "score": 1,
+      "status": "mate",
+      "plies": 93,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D53",
+        "name": "Queen's Gambit Declined",
+        "ply": 8
+      },
+      "last_clock_cs": 3157
+    },
+    {
+      "id": "i0zSgor7",
+      "date": "2026-10-01T10:05:11.979000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "JesterChessRobot",
+      "opponent_rating": 2504,
+      "opponent_title": "BOT",
+      "rating": 2326,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 79,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C20",
+        "name": "King's Pawn Game: Wayward Queen Attack",
+        "ply": 3
+      },
+      "last_clock_cs": 3522
+    },
+    {
+      "id": "cs27miN7",
+      "date": "2026-10-01T10:10:10.891000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "uSunfish",
+      "opponent_rating": 1792,
+      "opponent_title": "BOT",
+      "rating": 2261,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 72,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A00",
+        "name": "Hungarian Opening",
+        "ply": 1
+      },
+      "last_clock_cs": 4291
+    },
+    {
+      "id": "1oBqBs4o",
+      "date": "2026-10-01T10:18:09.187000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "TeensyCheesy",
+      "opponent_rating": 2303,
+      "opponent_title": "BOT",
+      "rating": 2323,
+      "rating_diff": 0,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 118,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: Zukertort Variation",
+        "ply": 3
+      },
+      "last_clock_cs": 2235
+    },
+    {
+      "id": "mjXw3mCC",
+      "date": "2026-10-01T10:29:01.256000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "stickshark99",
+      "opponent_rating": 2081,
+      "opponent_title": "BOT",
+      "rating": 2323,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 186,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D30",
+        "name": "Queen's Gambit Declined: Capablanca Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1409
+    },
+    {
+      "id": "SClacytr",
+      "date": "2026-10-01T10:39:03.948000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "CosetteBot",
+      "opponent_rating": 2058,
+      "opponent_title": "BOT",
+      "rating": 2262,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 192,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C67",
+        "name": "Ruy Lopez: Berlin Defense, Rio Gambit Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 1128
+    },
+    {
+      "id": "RNliCq1c",
+      "date": "2026-10-01T10:51:05.862000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Hyperopic",
+      "opponent_rating": 2079,
+      "opponent_title": "BOT",
+      "rating": 2319,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 86,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C49",
+        "name": "Four Knights Game: Spanish Variation, Double Spanish",
+        "ply": 8
+      },
+      "last_clock_cs": 2681
+    },
+    {
+      "id": "SksLEJMh",
+      "date": "2026-10-01T10:59:45.203000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "kulubot",
+      "opponent_rating": 2311,
+      "opponent_title": "BOT",
+      "rating": 2321,
+      "rating_diff": 0,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 123,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C47",
+        "name": "Four Knights Game: Gunsberg Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 2217
+    },
+    {
+      "id": "wHiGBTlb",
+      "date": "2026-10-01T11:08:17.103000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Valhalla-Bot",
+      "opponent_rating": 2637,
+      "opponent_title": "BOT",
+      "rating": 2321,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 123,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A03",
+        "name": "Bird Opening: Dutch Variation",
+        "ply": 2
+      },
+      "last_clock_cs": 1704
+    },
+    {
+      "id": "yYOinRIr",
+      "date": "2026-10-01T11:15:04.224000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "byte-knight",
+      "opponent_rating": 2394,
+      "opponent_title": "BOT",
+      "rating": 2265,
+      "rating_diff": 8,
+      "score": 1,
+      "status": "mate",
+      "plies": 172,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights, Vienna Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1094
+    },
+    {
+      "id": "z1zF7LD8",
+      "date": "2026-10-01T11:26:38.416000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "DeMen100ns-bot",
+      "opponent_rating": 2089,
+      "opponent_title": "BOT",
+      "rating": 2273,
+      "rating_diff": -3,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 99,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A06",
+        "name": "Zukertort Opening",
+        "ply": 2
+      },
+      "last_clock_cs": 3473
+    },
+    {
+      "id": "PnDZ1rNw",
+      "date": "2026-10-01T11:37:30.868000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "DeepBecky",
+      "opponent_rating": 2727,
+      "opponent_title": "BOT",
+      "rating": 2320,
+      "rating_diff": -1,
+      "score": 0,
+      "status": "mate",
+      "plies": 80,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E10",
+        "name": "Indian Defense: Anti-Nimzo-Indian",
+        "ply": 5
+      },
+      "last_clock_cs": 3399
+    },
+    {
+      "id": "LGEBehOx",
+      "date": "2026-10-01T11:48:01.946000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "pi0w",
+      "opponent_rating": 2048,
+      "opponent_title": "BOT",
+      "rating": 2319,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 76,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A05",
+        "name": "King's Indian Attack",
+        "ply": 4
+      },
+      "last_clock_cs": 3255
+    },
+    {
+      "id": "mZNWBxHj",
+      "date": "2026-10-01T11:55:23.853000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "byte-knight",
+      "opponent_rating": 2432,
+      "opponent_title": "BOT",
+      "rating": 2321,
+      "rating_diff": 2,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 88,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B30",
+        "name": "Sicilian Defense: Old Sicilian",
+        "ply": 4
+      },
+      "last_clock_cs": 4584
+    },
+    {
+      "id": "rU7qvFsK",
+      "date": "2026-10-01T12:02:10.574000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "KirinChessBot",
+      "opponent_rating": 2529,
+      "opponent_title": "BOT",
+      "rating": 2270,
+      "rating_diff": 4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 86,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D53",
+        "name": "Queen's Gambit Declined",
+        "ply": 8
+      },
+      "last_clock_cs": 4253
+    },
+    {
+      "id": "UZ4BVsex",
+      "date": "2026-10-01T12:08:15.518000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "KirinChessBot",
+      "opponent_rating": 2544,
+      "opponent_title": "BOT",
+      "rating": 2323,
+      "rating_diff": 3,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 98,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D53",
+        "name": "Queen's Gambit Declined",
+        "ply": 8
+      },
+      "last_clock_cs": 2140
+    },
+    {
+      "id": "3EUtlgw1",
+      "date": "2026-10-01T12:14:54.872000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Blobfish-Bot",
+      "opponent_rating": 2364,
+      "opponent_title": "BOT",
+      "rating": 2326,
+      "rating_diff": 0,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 176,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A56",
+        "name": "Benoni Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 1218
+    },
+    {
+      "id": "fgY1FIsD",
+      "date": "2026-10-01T12:27:53.487000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "entebot",
+      "opponent_rating": 1945,
+      "opponent_title": "BOT",
+      "rating": 2274,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 151,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D31",
+        "name": "Queen's Gambit Declined: Queen's Knight Variation",
+        "ply": 5
+      },
+      "last_clock_cs": 1087
+    },
+    {
+      "id": "8WxeZAfY",
+      "date": "2026-10-01T12:39:42.067000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "artidigm_research",
+      "opponent_rating": 2400,
+      "opponent_title": "BOT",
+      "rating": 2275,
+      "rating_diff": 2,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 71,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 4657
+    },
+    {
+      "id": "sBokCf7h",
+      "date": "2026-10-01T12:47:10.458000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "SleepMindEngine",
+      "opponent_rating": 2769,
+      "opponent_title": "BOT",
+      "rating": 2277,
+      "rating_diff": 0,
+      "score": 0,
+      "status": "mate",
+      "plies": 66,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 5051
+    },
+    {
+      "id": "fySCSVq8",
+      "date": "2026-10-01T12:55:00.902000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "AconcaguaBot",
+      "opponent_rating": 2292,
+      "opponent_title": "BOT",
+      "rating": 2277,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 102,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D37",
+        "name": "Queen's Gambit Declined: Three Knights Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 3505
+    },
+    {
+      "id": "w6Lg0GPn",
+      "date": "2026-10-01T13:04:56.340000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "Blobfish-Bot",
+      "opponent_rating": 2339,
+      "opponent_title": "BOT",
+      "rating": 2271,
+      "rating_diff": 1,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 68,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B06",
+        "name": "Modern Defense",
+        "ply": 2
+      },
+      "last_clock_cs": 5499
+    },
+    {
+      "id": "oRrBB2MQ",
+      "date": "2026-10-01T13:10:40.177000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "DarkElectronBot",
+      "opponent_rating": 1942,
+      "opponent_title": "BOT",
+      "rating": 2272,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 64,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A56",
+        "name": "Benoni Defense: Czech Benoni Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 6129
+    },
+    {
+      "id": "ujCK0Ft0",
+      "date": "2026-10-01T13:16:09.722000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "WolfuhfuhBot",
+      "opponent_rating": 2147,
+      "opponent_title": "BOT",
+      "rating": 2326,
+      "rating_diff": -2,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 137,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C47",
+        "name": "Four Knights Game: Italian Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 1385
+    },
+    {
+      "id": "AAz130CW",
+      "date": "2026-10-01T13:22:49.755000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "AconcaguaBot",
+      "opponent_rating": 2354,
+      "opponent_title": "BOT",
+      "rating": 2324,
+      "rating_diff": 0,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 204,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C60",
+        "name": "Ruy Lopez: Lucena Variation",
+        "ply": 6
+      },
+      "last_clock_cs": 538
+    },
+    {
+      "id": "hDNuobke",
+      "date": "2026-10-01T13:31:14.696000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "matmoi",
+      "opponent_rating": 1972,
+      "opponent_title": "BOT",
+      "rating": 2268,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 80,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C45",
+        "name": "Scotch Game: Schmidt Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 4536
+    },
+    {
+      "id": "5oXt2ZYz",
+      "date": "2026-10-01T13:39:25.438000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "justbot-v1",
+      "opponent_rating": 2823,
+      "opponent_title": "BOT",
+      "rating": 2324,
+      "rating_diff": 11,
+      "score": 1,
+      "status": "outoftime",
+      "plies": 122,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D35",
+        "name": "Queen's Gambit Declined: Exchange Variation",
+        "ply": 7
+      },
+      "last_clock_cs": 1785
+    },
+    {
+      "id": "l0mX5oKW",
+      "date": "2026-10-01T13:46:32.991000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "aposeij",
+      "opponent_rating": 2284,
+      "opponent_title": "BOT",
+      "rating": 2264,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 74,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E20",
+        "name": "Nimzo-Indian Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 4533
+    },
+    {
+      "id": "p4RHZsh6",
+      "date": "2026-10-01T13:54:44.171000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "Botvunnix",
+      "opponent_rating": 2416,
+      "opponent_title": "BOT",
+      "rating": 2258,
+      "rating_diff": 2,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 200,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A50",
+        "name": "Slav Indian",
+        "ply": 4
+      },
+      "last_clock_cs": 1051
+    },
+    {
+      "id": "Qt7acRlI",
+      "date": "2026-10-01T14:05:37.083000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "PlayMarius",
+      "opponent_rating": 2002,
+      "opponent_title": "BOT",
+      "rating": 2260,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "resign",
+      "plies": 67,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D06",
+        "name": "Queen's Gambit Declined: Marshall Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 4740
+    },
+    {
+      "id": "b1dYmdaa",
+      "date": "2026-10-01T14:13:18.716000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "nebubot",
+      "opponent_rating": 2405,
+      "opponent_title": "BOT",
+      "rating": 2263,
+      "rating_diff": 2,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 80,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D25",
+        "name": "Queen's Gambit Accepted: Winawer Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 4133
+    },
+    {
+      "id": "AoII4Fdx",
+      "date": "2026-10-01T14:31:13.942000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "Ask-AATK-bot",
+      "opponent_rating": 2748,
+      "opponent_title": "BOT",
+      "rating": 2335,
+      "rating_diff": 11,
+      "score": 1,
+      "status": "outoftime",
+      "plies": 37,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D40",
+        "name": "Queen's Gambit Declined: Semi-Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 6109
+    },
+    {
+      "id": "6atTWHQz",
+      "date": "2026-10-01T14:37:30.800000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "TheChessblazer",
+      "opponent_rating": 1985,
+      "opponent_title": "BOT",
+      "rating": 2346,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 115,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C50",
+        "name": "Italian Game: Giuoco Piano",
+        "ply": 6
+      },
+      "last_clock_cs": 1666
+    },
+    {
+      "id": "Vcb0FQ7K",
+      "date": "2026-10-01T14:49:11.718000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "SoloBot",
+      "opponent_rating": 2610,
+      "opponent_title": "BOT",
+      "rating": 2347,
+      "rating_diff": -2,
+      "score": 0,
+      "status": "mate",
+      "plies": 91,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C44",
+        "name": "Scotch Game: Scotch Gambit, Dubois R\u00e9ti Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 2894
+    },
+    {
+      "id": "LEko2Bo3",
+      "date": "2026-10-01T14:55:51.873000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "bot_adario",
+      "opponent_rating": 2514,
+      "opponent_title": "BOT",
+      "rating": 2345,
+      "rating_diff": -3,
+      "score": 0,
+      "status": "mate",
+      "plies": 72,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A56",
+        "name": "Benoni Defense: Hrom\u00e1dka System",
+        "ply": 6
+      },
+      "last_clock_cs": 4096
+    },
+    {
+      "id": "5VS8YGlV",
+      "date": "2026-10-01T15:00:25.543000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "TidyMazeBot",
+      "opponent_rating": 2377,
+      "opponent_title": "BOT",
+      "rating": 2342,
+      "rating_diff": -5,
+      "score": 0,
+      "status": "mate",
+      "plies": 93,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C65",
+        "name": "Ruy Lopez: Berlin Defense, Beverwijk Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 2669
+    },
+    {
+      "id": "BTycPL61",
+      "date": "2026-10-01T15:10:07.622000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "LeMuffinBot",
+      "opponent_rating": 1927,
+      "opponent_title": "BOT",
+      "rating": 2265,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 112,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C47",
+        "name": "Four Knights Game: Scotch Variation Accepted",
+        "ply": 8
+      },
+      "last_clock_cs": 2013
+    },
+    {
+      "id": "ID3DbdtG",
+      "date": "2026-10-01T15:17:22.462000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "PeachFruit",
+      "opponent_rating": 2281,
+      "opponent_title": "BOT",
+      "rating": 2266,
+      "rating_diff": 6,
+      "score": 1,
+      "status": "mate",
+      "plies": 195,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "B07",
+        "name": "Pirc Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 1032
+    },
+    {
+      "id": "qlnhxVW4",
+      "date": "2026-10-01T15:31:24.260000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "stickshark99",
+      "opponent_rating": 2032,
+      "opponent_title": "BOT",
+      "rating": 2272,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 157,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D53",
+        "name": "Queen's Gambit Declined",
+        "ply": 8
+      },
+      "last_clock_cs": 1850
+    },
+    {
+      "id": "4dQwLoA4",
+      "date": "2026-10-01T15:42:22.828000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "uSunfish",
+      "opponent_rating": 1782,
+      "opponent_title": "BOT",
+      "rating": 2274,
+      "rating_diff": 1,
+      "score": 1,
+      "status": "mate",
+      "plies": 73,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D31",
+        "name": "Queen's Gambit Declined: Charousek Variation",
+        "ply": 6
+      },
+      "last_clock_cs": 3881
+    },
+    {
+      "id": "8bFf3qjn",
+      "date": "2026-10-01T15:49:16.758000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "jangine",
+      "opponent_rating": 2035,
+      "opponent_title": "BOT",
+      "rating": 2275,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 128,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D20",
+        "name": "Queen's Gambit Accepted: Central Variation, McDonnell Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 1481
+    },
+    {
+      "id": "Pixmk8hX",
+      "date": "2026-10-01T15:58:30.750000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "WolfuhfuhBot",
+      "opponent_rating": 2149,
+      "opponent_title": "BOT",
+      "rating": 2337,
+      "rating_diff": -3,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 56,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D10",
+        "name": "Slav Defense",
+        "ply": 4
+      },
+      "last_clock_cs": 5157
+    },
+    {
+      "id": "muVc0u9j",
+      "date": "2026-10-01T16:03:53.574000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "MinibruteforceBot",
+      "opponent_rating": 2065,
+      "opponent_title": "BOT",
+      "rating": 2277,
+      "rating_diff": 3,
+      "score": 1,
+      "status": "mate",
+      "plies": 139,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E10",
+        "name": "Indian Defense: Anti-Nimzo-Indian",
+        "ply": 5
+      },
+      "last_clock_cs": 1400
+    },
+    {
+      "id": "L5cho2WY",
+      "date": "2026-10-01T16:13:00.615000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "black",
+      "opponent": "sseh-c",
+      "opponent_rating": 1950,
+      "opponent_title": "BOT",
+      "rating": 2280,
+      "rating_diff": -4,
+      "score": 0.5,
+      "status": "draw",
+      "plies": 71,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C70",
+        "name": "Ruy Lopez: Morphy Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 4887
+    },
+    {
+      "id": "kByjk9zZ",
+      "date": "2026-10-01T16:18:08.973000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "white",
+      "opponent": "bot64jaques",
+      "opponent_rating": 2319,
+      "opponent_title": "BOT",
+      "rating": 2334,
+      "rating_diff": -6,
+      "score": 0,
+      "status": "mate",
+      "plies": 120,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "E20",
+        "name": "Nimzo-Indian Defense",
+        "ply": 6
+      },
+      "last_clock_cs": 1625
+    },
+    {
+      "id": "VuviyY7t",
+      "date": "2026-10-01T16:25:17.071000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "VidBot",
+      "opponent_rating": 2222,
+      "opponent_title": "BOT",
+      "rating": 2328,
+      "rating_diff": 4,
+      "score": 1,
+      "status": "mate",
+      "plies": 138,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D02",
+        "name": "Queen's Pawn Game: London System",
+        "ply": 5
+      },
+      "last_clock_cs": 1290
+    },
+    {
+      "id": "SG06OAmX",
+      "date": "2026-10-01T16:31:00.612000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Hyperopic",
+      "opponent_rating": 2085,
+      "opponent_title": "BOT",
+      "rating": 2332,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 104,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C36",
+        "name": "King's Gambit Accepted: Abbazia Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 2263
+    },
+    {
+      "id": "U7jtGlig",
+      "date": "2026-10-01T16:39:11.526000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "debzero",
+      "opponent_rating": 1972,
+      "opponent_title": "BOT",
+      "rating": 2334,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 56,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A01",
+        "name": "Nimzo-Larsen Attack: Modern Variation",
+        "ply": 2
+      },
+      "last_clock_cs": 4682
+    },
+    {
+      "id": "jcMtEWVo",
+      "date": "2026-10-01T16:49:49.700000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "Voigtsbach",
+      "opponent_rating": 2110,
+      "opponent_title": "BOT",
+      "rating": 2336,
+      "rating_diff": 2,
+      "score": 1,
+      "status": "mate",
+      "plies": 122,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A06",
+        "name": "Zukertort Opening: Old Indian Attack",
+        "ply": 3
+      },
+      "last_clock_cs": 1610
+    },
+    {
+      "id": "DNg2ntzf",
+      "date": "2026-10-01T16:57:25.840000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 120,
+        "increment": 2,
+        "totalTime": 200
+      },
+      "color": "white",
+      "opponent": "AconcaguaBot",
+      "opponent_rating": 2301,
+      "opponent_title": "BOT",
+      "rating": 2276,
+      "rating_diff": 5,
+      "score": 1,
+      "status": "resign",
+      "plies": 121,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "A35",
+        "name": "English Opening: Symmetrical Variation, Four Knights Variation",
+        "ply": 6
+      },
+      "last_clock_cs": 2208
+    },
+    {
+      "id": "4lb8MkuW",
+      "date": "2026-10-01T17:21:57.176000+00:00",
+      "speed": "blitz",
+      "clock": {
+        "initial": 180,
+        "increment": 2,
+        "totalTime": 260
+      },
+      "color": "white",
+      "opponent": "prokopakop",
+      "opponent_rating": 2525,
+      "opponent_title": "BOT",
+      "rating": 2281,
+      "rating_diff": 10,
+      "score": 1,
+      "status": "mate",
+      "plies": 51,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "D40",
+        "name": "Queen's Gambit Declined: Semi-Tarrasch Defense",
+        "ply": 8
+      },
+      "last_clock_cs": 8019
+    },
+    {
+      "id": "ichfrq0C",
+      "date": "2026-10-01T18:16:04.207000+00:00",
+      "speed": "bullet",
+      "clock": {
+        "initial": 120,
+        "increment": 1,
+        "totalTime": 160
+      },
+      "color": "black",
+      "opponent": "TalosBot",
+      "opponent_rating": 2456,
+      "opponent_title": "BOT",
+      "rating": 2338,
+      "rating_diff": 8,
+      "score": 1,
+      "status": "mate",
+      "plies": 134,
+      "analysis_plies": 0,
+      "opening": {
+        "eco": "C65",
+        "name": "Ruy Lopez: Berlin Defense, Beverwijk Variation",
+        "ply": 8
+      },
+      "last_clock_cs": 1525
+    }
+  ]
+}

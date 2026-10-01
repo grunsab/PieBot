@@ -1,0 +1,613 @@
+Traceback (most recent call last):
+  File "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/thread_anchor_20260929/run.py", line 211, in <module>
+    main()
+    ~~~~^^
+  File "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/thread_anchor_20260929/run.py", line 159, in main
+    counts, ready, records = validation_state()
+                             ~~~~~~~~~~~~~~~~^^
+  File "/Users/rishisachdev/Documents/GitHub/chess_engines/piebot/piebot_rust/out/thread_anchor_20260929/run.py", line 111, in validation_state
+    raise RuntimeError(f'Correctness checks failed in {arm}: {failures}')
+RuntimeError: Correctness checks failed in all_features: ['uci_stop']
+Recovery is waiting for the complete validation battery; no match games have been played.
+Validation complete; resuming the authorized comparison with its pinned inputs.
+Starting 1T game 1/100, pair 1, white
+<UciProtocol (pid=14574)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 1: score=0.5 termination=chess_threefold_repetition duration=125.6s
+Starting 8T game 1/100, pair 1, white
+<UciProtocol (pid=14612)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 1: score=0.5 termination=chess_threefold_repetition duration=134.9s
+Starting 8T game 2/100, pair 1, black
+<UciProtocol (pid=14741)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 2: score=0.0 termination=chess_checkmate duration=175.7s
+Starting 1T game 2/100, pair 1, black
+<UciProtocol (pid=14806)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 2: score=0.0 termination=chess_checkmate duration=164.0s
+Starting 8T game 3/100, pair 2, white
+<UciProtocol (pid=14855)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 3: score=1.0 termination=chess_checkmate duration=167.3s
+Starting 1T game 3/100, pair 2, white
+<UciProtocol (pid=14946)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 3: score=0.5 termination=chess_threefold_repetition duration=203.4s
+Starting 1T game 4/100, pair 2, black
+<UciProtocol (pid=14977)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 4: score=0.0 termination=chess_checkmate duration=167.5s
+Starting 8T game 4/100, pair 2, black
+<UciProtocol (pid=15015)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 4: score=0.5 termination=chess_threefold_repetition duration=156.5s
+Starting 1T game 5/100, pair 3, white
+<UciProtocol (pid=15218)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 5: score=0.5 termination=chess_threefold_repetition duration=166.8s
+Starting 8T game 5/100, pair 3, white
+<UciProtocol (pid=15251)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 5: score=0.5 termination=chess_threefold_repetition duration=138.3s
+Starting 8T game 6/100, pair 3, black
+<UciProtocol (pid=15295)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 6: score=0.5 termination=chess_threefold_repetition duration=142.0s
+Starting 1T game 6/100, pair 3, black
+<UciProtocol (pid=15335)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 6: score=0.0 termination=chess_checkmate duration=149.1s
+Starting 8T game 7/100, pair 4, white
+<UciProtocol (pid=15532)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 7: score=0.0 termination=chess_checkmate duration=210.4s
+Starting 1T game 7/100, pair 4, white
+<UciProtocol (pid=15700)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 7: score=0.5 termination=chess_threefold_repetition duration=171.9s
+Starting 1T game 8/100, pair 4, black
+<UciProtocol (pid=15762)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 8: score=0.5 termination=chess_threefold_repetition duration=180.3s
+Starting 8T game 8/100, pair 4, black
+<UciProtocol (pid=15803)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 8: score=0.0 termination=chess_checkmate duration=174.0s
+Starting 1T game 9/100, pair 5, white
+<UciProtocol (pid=15896)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 9: score=0.5 termination=chess_threefold_repetition duration=143.0s
+Starting 8T game 9/100, pair 5, white
+<UciProtocol (pid=15953)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 9: score=0.5 termination=chess_threefold_repetition duration=172.0s
+Starting 8T game 10/100, pair 5, black
+<UciProtocol (pid=16326)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 10: score=0.0 termination=chess_checkmate duration=185.4s
+Starting 1T game 10/100, pair 5, black
+<UciProtocol (pid=16819)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 10: score=0.0 termination=chess_checkmate duration=167.8s
+Starting 8T game 11/100, pair 6, white
+<UciProtocol (pid=16857)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 11: score=0.0 termination=chess_checkmate duration=164.6s
+Starting 1T game 11/100, pair 6, white
+<UciProtocol (pid=16896)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 11: score=0.0 termination=chess_checkmate duration=121.2s
+Starting 1T game 12/100, pair 6, black
+<UciProtocol (pid=16916)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 12: score=0.5 termination=chess_threefold_repetition duration=186.9s
+Starting 8T game 12/100, pair 6, black
+<UciProtocol (pid=16957)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 12: score=0.5 termination=chess_threefold_repetition duration=159.9s
+Starting 1T game 13/100, pair 7, white
+<UciProtocol (pid=17105)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 13: score=0.5 termination=chess_threefold_repetition duration=165.0s
+Starting 8T game 13/100, pair 7, white
+<UciProtocol (pid=17152)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 13: score=0.0 termination=chess_checkmate duration=151.2s
+Starting 8T game 14/100, pair 7, black
+<UciProtocol (pid=17184)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 14: score=0.5 termination=chess_threefold_repetition duration=190.8s
+Starting 1T game 14/100, pair 7, black
+<UciProtocol (pid=17219)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 14: score=0.0 termination=chess_checkmate duration=184.9s
+Starting 8T game 15/100, pair 8, white
+<UciProtocol (pid=17309)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 15: score=0.5 termination=chess_threefold_repetition duration=146.3s
+Starting 1T game 15/100, pair 8, white
+<UciProtocol (pid=17482)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 15: score=0.0 termination=chess_checkmate duration=170.1s
+Starting 1T game 16/100, pair 8, black
+<UciProtocol (pid=17538)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 16: score=0.0 termination=chess_checkmate duration=179.1s
+Starting 8T game 16/100, pair 8, black
+<UciProtocol (pid=17586)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 16: score=0.0 termination=chess_checkmate duration=195.2s
+Starting 1T game 17/100, pair 9, white
+<UciProtocol (pid=17619)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 17: score=0.5 termination=chess_threefold_repetition duration=149.6s
+Starting 8T game 17/100, pair 9, white
+<UciProtocol (pid=17660)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 17: score=0.5 termination=chess_threefold_repetition duration=154.1s
+Starting 8T game 18/100, pair 9, black
+<UciProtocol (pid=17690)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 18: score=0.5 termination=chess_threefold_repetition duration=163.2s
+Starting 1T game 18/100, pair 9, black
+<UciProtocol (pid=17864)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 18: score=0.5 termination=chess_threefold_repetition duration=171.5s
+Starting 8T game 19/100, pair 10, white
+<UciProtocol (pid=17925)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 19: score=0.5 termination=chess_threefold_repetition duration=160.7s
+Starting 1T game 19/100, pair 10, white
+<UciProtocol (pid=17957)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 19: score=0.5 termination=chess_threefold_repetition duration=140.1s
+Starting 1T game 20/100, pair 10, black
+<UciProtocol (pid=18004)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 20: score=0.0 termination=chess_checkmate duration=170.2s
+Starting 8T game 20/100, pair 10, black
+<UciProtocol (pid=18030)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 20: score=0.5 termination=chess_threefold_repetition duration=145.2s
+Starting 1T game 21/100, pair 11, white
+<UciProtocol (pid=18176)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 21: score=0.5 termination=chess_threefold_repetition duration=158.6s
+Starting 8T game 21/100, pair 11, white
+<UciProtocol (pid=18278)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 21: score=0.5 termination=chess_threefold_repetition duration=140.7s
+Starting 8T game 22/100, pair 11, black
+<UciProtocol (pid=18309)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 22: score=0.5 termination=chess_threefold_repetition duration=128.8s
+Starting 1T game 22/100, pair 11, black
+<UciProtocol (pid=18344)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 22: score=0.0 termination=chess_checkmate duration=148.4s
+Starting 8T game 23/100, pair 12, white
+<UciProtocol (pid=18397)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 23: score=0.5 termination=chess_threefold_repetition duration=117.9s
+Starting 1T game 23/100, pair 12, white
+<UciProtocol (pid=18436)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 23: score=0.5 termination=chess_threefold_repetition duration=138.1s
+Starting 1T game 24/100, pair 12, black
+<UciProtocol (pid=18476)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 24: score=0.0 termination=chess_checkmate duration=194.0s
+Starting 8T game 24/100, pair 12, black
+<UciProtocol (pid=18683)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 24: score=0.0 termination=chess_checkmate duration=179.7s
+Starting 1T game 25/100, pair 13, white
+<UciProtocol (pid=18726)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 25: score=0.0 termination=chess_checkmate duration=197.4s
+Starting 8T game 25/100, pair 13, white
+<UciProtocol (pid=18776)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 25: score=0.5 termination=chess_threefold_repetition duration=163.8s
+Starting 8T game 26/100, pair 13, black
+<UciProtocol (pid=18819)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 26: score=0.0 termination=chess_checkmate duration=169.0s
+Starting 1T game 26/100, pair 13, black
+<UciProtocol (pid=18874)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 26: score=0.5 termination=chess_threefold_repetition duration=157.2s
+Starting 8T game 27/100, pair 14, white
+<UciProtocol (pid=19295)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 27: score=1.0 termination=chess_checkmate duration=169.7s
+Starting 1T game 27/100, pair 14, white
+<UciProtocol (pid=19346)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 27: score=0.5 termination=chess_threefold_repetition duration=179.1s
+Starting 1T game 28/100, pair 14, black
+<UciProtocol (pid=19415)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 28: score=0.5 termination=chess_threefold_repetition duration=138.7s
+Starting 8T game 28/100, pair 14, black
+<UciProtocol (pid=19452)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 28: score=0.5 termination=chess_threefold_repetition duration=132.7s
+Starting 1T game 29/100, pair 15, white
+<UciProtocol (pid=19620)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 29: score=0.5 termination=chess_threefold_repetition duration=156.3s
+Starting 8T game 29/100, pair 15, white
+<UciProtocol (pid=19663)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 29: score=0.5 termination=chess_threefold_repetition duration=189.0s
+Starting 8T game 30/100, pair 15, black
+<UciProtocol (pid=20510)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 30: score=0.5 termination=chess_threefold_repetition duration=124.9s
+Starting 1T game 30/100, pair 15, black
+<UciProtocol (pid=20721)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 30: score=0.5 termination=chess_threefold_repetition duration=155.4s
+Starting 8T game 31/100, pair 16, white
+<UciProtocol (pid=20748)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 31: score=0.0 termination=chess_checkmate duration=207.5s
+Starting 1T game 31/100, pair 16, white
+<UciProtocol (pid=20843)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 31: score=0.5 termination=chess_threefold_repetition duration=139.6s
+Starting 1T game 32/100, pair 16, black
+<UciProtocol (pid=20867)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 32: score=0.0 termination=chess_checkmate duration=193.5s
+Starting 8T game 32/100, pair 16, black
+<UciProtocol (pid=21047)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 32: score=0.0 termination=chess_checkmate duration=178.0s
+Starting 1T game 33/100, pair 17, white
+<UciProtocol (pid=21104)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 33: score=0.5 termination=chess_threefold_repetition duration=142.7s
+Starting 8T game 33/100, pair 17, white
+<UciProtocol (pid=21145)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 33: score=0.5 termination=chess_threefold_repetition duration=162.0s
+Starting 8T game 34/100, pair 17, black
+<UciProtocol (pid=21171)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 34: score=0.5 termination=chess_threefold_repetition duration=127.9s
+Starting 1T game 34/100, pair 17, black
+<UciProtocol (pid=21229)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 34: score=0.5 termination=chess_threefold_repetition duration=131.0s
+Starting 8T game 35/100, pair 18, white
+<UciProtocol (pid=21256)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 35: score=0.5 termination=chess_threefold_repetition duration=118.5s
+Starting 1T game 35/100, pair 18, white
+<UciProtocol (pid=21398)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 35: score=0.5 termination=chess_threefold_repetition duration=128.6s
+Starting 1T game 36/100, pair 18, black
+<UciProtocol (pid=21449)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 36: score=0.0 termination=chess_checkmate duration=170.1s
+Starting 8T game 36/100, pair 18, black
+<UciProtocol (pid=21480)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 36: score=0.5 termination=chess_threefold_repetition duration=195.9s
+Starting 1T game 37/100, pair 19, white
+<UciProtocol (pid=21533)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 37: score=0.5 termination=chess_threefold_repetition duration=177.8s
+Starting 8T game 37/100, pair 19, white
+<UciProtocol (pid=21567)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 37: score=0.5 termination=chess_threefold_repetition duration=132.8s
+Starting 8T game 38/100, pair 19, black
+<UciProtocol (pid=21611)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 38: score=0.5 termination=chess_threefold_repetition duration=233.7s
+Starting 1T game 38/100, pair 19, black
+<UciProtocol (pid=21784)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 38: score=0.0 termination=chess_checkmate duration=138.8s
+Starting 8T game 39/100, pair 20, white
+<UciProtocol (pid=21827)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 39: score=0.0 termination=chess_checkmate duration=195.5s
+Starting 1T game 39/100, pair 20, white
+<UciProtocol (pid=21880)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 39: score=0.0 termination=chess_checkmate duration=151.3s
+Starting 1T game 40/100, pair 20, black
+<UciProtocol (pid=21904)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 40: score=0.0 termination=chess_checkmate duration=165.7s
+Starting 8T game 40/100, pair 20, black
+<UciProtocol (pid=21955)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 40: score=1.0 termination=chess_checkmate duration=167.6s
+Starting 1T game 41/100, pair 21, white
+<UciProtocol (pid=22101)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 41: score=0.5 termination=chess_threefold_repetition duration=174.6s
+Starting 8T game 41/100, pair 21, white
+<UciProtocol (pid=22154)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 41: score=0.5 termination=chess_threefold_repetition duration=127.7s
+Starting 8T game 42/100, pair 21, black
+<UciProtocol (pid=22173)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 42: score=0.5 termination=chess_threefold_repetition duration=152.1s
+Starting 1T game 42/100, pair 21, black
+<UciProtocol (pid=22236)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 42: score=0.5 termination=chess_threefold_repetition duration=159.1s
+Starting 8T game 43/100, pair 22, white
+<UciProtocol (pid=22267)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 43: score=0.5 termination=chess_threefold_repetition duration=135.8s
+Starting 1T game 43/100, pair 22, white
+<UciProtocol (pid=22305)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 43: score=0.0 termination=chess_checkmate duration=186.3s
+Starting 1T game 44/100, pair 22, black
+<UciProtocol (pid=22461)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 44: score=0.0 termination=chess_checkmate duration=180.9s
+Starting 8T game 44/100, pair 22, black
+<UciProtocol (pid=22536)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 44: score=0.5 termination=chess_threefold_repetition duration=188.6s
+Starting 1T game 45/100, pair 23, white
+<UciProtocol (pid=22563)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 45: score=0.0 termination=chess_checkmate duration=171.5s
+Starting 8T game 45/100, pair 23, white
+<UciProtocol (pid=22616)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 45: score=0.5 termination=chess_threefold_repetition duration=157.3s
+Starting 8T game 46/100, pair 23, black
+<UciProtocol (pid=22639)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 46: score=0.5 termination=chess_threefold_repetition duration=177.6s
+Starting 1T game 46/100, pair 23, black
+<UciProtocol (pid=22808)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 46: score=0.0 termination=chess_checkmate duration=151.0s
+Starting 8T game 47/100, pair 24, white
+<UciProtocol (pid=22836)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 47: score=0.5 termination=chess_threefold_repetition duration=136.4s
+Starting 1T game 47/100, pair 24, white
+<UciProtocol (pid=22877)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 47: score=0.5 termination=chess_threefold_repetition duration=169.2s
+Starting 1T game 48/100, pair 24, black
+<UciProtocol (pid=22900)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 48: score=0.0 termination=chess_checkmate duration=202.9s
+Starting 8T game 48/100, pair 24, black
+<UciProtocol (pid=22957)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 48: score=0.0 termination=chess_checkmate duration=170.0s
+Starting 1T game 49/100, pair 25, white
+<UciProtocol (pid=23115)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 49: score=0.5 termination=chess_threefold_repetition duration=117.8s
+Starting 8T game 49/100, pair 25, white
+<UciProtocol (pid=23156)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 49: score=0.5 termination=chess_threefold_repetition duration=134.6s
+Starting 8T game 50/100, pair 25, black
+<UciProtocol (pid=23176)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 50: score=0.5 termination=chess_threefold_repetition duration=160.1s
+Starting 1T game 50/100, pair 25, black
+<UciProtocol (pid=23220)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 50: score=0.5 termination=chess_threefold_repetition duration=173.0s
+Starting 8T game 51/100, pair 26, white
+<UciProtocol (pid=23255)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 51: score=0.5 termination=chess_threefold_repetition duration=106.6s
+Starting 1T game 51/100, pair 26, white
+<UciProtocol (pid=23434)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 51: score=0.5 termination=chess_threefold_repetition duration=179.2s
+Starting 1T game 52/100, pair 26, black
+<UciProtocol (pid=23581)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 52: score=0.5 termination=chess_threefold_repetition duration=182.7s
+Starting 8T game 52/100, pair 26, black
+<UciProtocol (pid=23635)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 52: score=0.0 termination=chess_checkmate duration=140.0s
+Starting 1T game 53/100, pair 27, white
+<UciProtocol (pid=23659)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 53: score=0.5 termination=chess_threefold_repetition duration=147.9s
+Starting 8T game 53/100, pair 27, white
+<UciProtocol (pid=23701)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 53: score=0.5 termination=chess_threefold_repetition duration=155.2s
+Starting 8T game 54/100, pair 27, black
+<UciProtocol (pid=23747)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 54: score=0.5 termination=chess_threefold_repetition duration=122.8s
+Starting 1T game 54/100, pair 27, black
+<UciProtocol (pid=23775)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 54: score=0.0 termination=chess_checkmate duration=145.6s
+Starting 8T game 55/100, pair 28, white
+<UciProtocol (pid=23934)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 55: score=0.5 termination=chess_threefold_repetition duration=150.2s
+Starting 1T game 55/100, pair 28, white
+<UciProtocol (pid=23988)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 55: score=0.5 termination=chess_threefold_repetition duration=184.0s
+Starting 1T game 56/100, pair 28, black
+<UciProtocol (pid=24062)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 56: score=0.5 termination=chess_threefold_repetition duration=183.1s
+Starting 8T game 56/100, pair 28, black
+<UciProtocol (pid=24121)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 56: score=0.5 termination=chess_threefold_repetition duration=125.3s
+Starting 1T game 57/100, pair 29, white
+<UciProtocol (pid=24148)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 57: score=0.5 termination=chess_threefold_repetition duration=187.0s
+Starting 8T game 57/100, pair 29, white
+<UciProtocol (pid=24199)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 57: score=0.5 termination=chess_threefold_repetition duration=132.1s
+Starting 8T game 58/100, pair 29, black
+<UciProtocol (pid=24351)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 58: score=0.5 termination=chess_threefold_repetition duration=159.6s
+Starting 1T game 58/100, pair 29, black
+<UciProtocol (pid=24392)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 58: score=0.5 termination=chess_threefold_repetition duration=177.7s
+Starting 8T game 59/100, pair 30, white
+<UciProtocol (pid=24432)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 59: score=0.5 termination=chess_threefold_repetition duration=158.7s
+Starting 1T game 59/100, pair 30, white
+<UciProtocol (pid=24473)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 59: score=0.5 termination=chess_threefold_repetition duration=168.7s
+Starting 1T game 60/100, pair 30, black
+<UciProtocol (pid=24506)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 60: score=0.0 termination=chess_checkmate duration=169.7s
+Starting 8T game 60/100, pair 30, black
+<UciProtocol (pid=24670)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 60: score=0.0 termination=chess_checkmate duration=144.6s
+Starting 1T game 61/100, pair 31, white
+<UciProtocol (pid=24698)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 61: score=0.5 termination=chess_threefold_repetition duration=149.9s
+Starting 8T game 61/100, pair 31, white
+<UciProtocol (pid=24728)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 61: score=0.5 termination=chess_threefold_repetition duration=171.2s
+Starting 8T game 62/100, pair 31, black
+<UciProtocol (pid=24769)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 62: score=0.0 termination=chess_checkmate duration=205.9s
+Starting 1T game 62/100, pair 31, black
+<UciProtocol (pid=24816)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 62: score=0.5 termination=chess_threefold_repetition duration=171.4s
+Starting 8T game 63/100, pair 32, white
+<UciProtocol (pid=24844)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 63: score=0.0 termination=chess_checkmate duration=189.5s
+Starting 1T game 63/100, pair 32, white
+<UciProtocol (pid=25087)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 63: score=0.0 termination=chess_checkmate duration=146.0s
+Starting 1T game 64/100, pair 32, black
+<UciProtocol (pid=25894)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 64: score=0.0 termination=chess_checkmate duration=148.1s
+Starting 8T game 64/100, pair 32, black
+<UciProtocol (pid=25939)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 64: score=0.0 termination=chess_checkmate duration=160.3s
+Starting 1T game 65/100, pair 33, white
+<UciProtocol (pid=25988)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 65: score=0.5 termination=chess_threefold_repetition duration=139.2s
+Starting 8T game 65/100, pair 33, white
+<UciProtocol (pid=26032)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 65: score=0.5 termination=chess_threefold_repetition duration=174.4s
+Starting 8T game 66/100, pair 33, black
+<UciProtocol (pid=26176)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 66: score=0.5 termination=chess_threefold_repetition duration=201.1s
+Starting 1T game 66/100, pair 33, black
+<UciProtocol (pid=26231)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 66: score=0.0 termination=chess_checkmate duration=174.9s
+Starting 8T game 67/100, pair 34, white
+<UciProtocol (pid=26283)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 67: score=0.5 termination=chess_threefold_repetition duration=129.2s
+Starting 1T game 67/100, pair 34, white
+<UciProtocol (pid=26335)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 67: score=0.5 termination=chess_threefold_repetition duration=117.4s
+Starting 1T game 68/100, pair 34, black
+<UciProtocol (pid=26375)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 68: score=0.5 termination=chess_threefold_repetition duration=120.3s
+Starting 8T game 68/100, pair 34, black
+<UciProtocol (pid=26416)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 68: score=0.5 termination=chess_threefold_repetition duration=124.3s
+Starting 1T game 69/100, pair 35, white
+<UciProtocol (pid=26641)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 69: score=1.0 termination=chess_checkmate duration=188.4s
+Starting 8T game 69/100, pair 35, white
+<UciProtocol (pid=26673)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 69: score=0.5 termination=chess_threefold_repetition duration=175.8s
+Starting 8T game 70/100, pair 35, black
+<UciProtocol (pid=26718)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 70: score=0.5 termination=chess_threefold_repetition duration=175.1s
+Starting 1T game 70/100, pair 35, black
+<UciProtocol (pid=26762)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 70: score=0.0 termination=chess_checkmate duration=184.6s
+Starting 8T game 71/100, pair 36, white
+<UciProtocol (pid=26793)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 71: score=0.5 termination=chess_threefold_repetition duration=134.1s
+Starting 1T game 71/100, pair 36, white
+<UciProtocol (pid=26836)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 71: score=0.0 termination=chess_checkmate duration=201.4s
+Starting 1T game 72/100, pair 36, black
+<UciProtocol (pid=26989)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 72: score=0.0 termination=chess_checkmate duration=199.7s
+Starting 8T game 72/100, pair 36, black
+<UciProtocol (pid=27045)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 72: score=0.0 termination=chess_checkmate duration=156.5s
+Starting 1T game 73/100, pair 37, white
+<UciProtocol (pid=27070)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 73: score=0.5 termination=chess_threefold_repetition duration=160.1s
+Starting 8T game 73/100, pair 37, white
+<UciProtocol (pid=27254)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 73: score=0.5 termination=chess_threefold_repetition duration=118.1s
+Starting 8T game 74/100, pair 37, black
+<UciProtocol (pid=27273)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 74: score=0.0 termination=chess_checkmate duration=183.8s
+Starting 1T game 74/100, pair 37, black
+<UciProtocol (pid=27439)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 74: score=0.5 termination=chess_threefold_repetition duration=166.4s
+Starting 8T game 75/100, pair 38, white
+<UciProtocol (pid=27471)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 75: score=0.0 termination=chess_checkmate duration=232.6s
+Starting 1T game 75/100, pair 38, white
+<UciProtocol (pid=27526)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 75: score=0.0 termination=chess_checkmate duration=230.8s
+Starting 1T game 76/100, pair 38, black
+<UciProtocol (pid=27612)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 76: score=0.0 termination=chess_checkmate duration=156.6s
+Starting 8T game 76/100, pair 38, black
+<UciProtocol (pid=27636)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 76: score=0.5 termination=chess_threefold_repetition duration=140.9s
+Starting 1T game 77/100, pair 39, white
+<UciProtocol (pid=27801)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 77: score=0.0 termination=chess_checkmate duration=145.3s
+Starting 8T game 77/100, pair 39, white
+<UciProtocol (pid=27828)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 77: score=0.5 termination=chess_threefold_repetition duration=192.0s
+Starting 8T game 78/100, pair 39, black
+<UciProtocol (pid=27897)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 78: score=0.0 termination=chess_checkmate duration=135.6s
+Starting 1T game 78/100, pair 39, black
+<UciProtocol (pid=27929)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 78: score=0.0 termination=chess_checkmate duration=212.5s
+Starting 8T game 79/100, pair 40, white
+<UciProtocol (pid=27989)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 79: score=0.5 termination=chess_threefold_repetition duration=142.9s
+Starting 1T game 79/100, pair 40, white
+<UciProtocol (pid=28133)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 79: score=0.5 termination=chess_threefold_repetition duration=163.2s
+Starting 1T game 80/100, pair 40, black
+<UciProtocol (pid=28186)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 80: score=0.5 termination=chess_threefold_repetition duration=118.1s
+Starting 8T game 80/100, pair 40, black
+<UciProtocol (pid=28210)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 80: score=0.5 termination=chess_threefold_repetition duration=143.1s
+Starting 1T game 81/100, pair 41, white
+<UciProtocol (pid=28251)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 81: score=0.5 termination=chess_threefold_repetition duration=155.6s
+Starting 8T game 81/100, pair 41, white
+<UciProtocol (pid=28277)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 81: score=0.5 termination=chess_threefold_repetition duration=120.5s
+Starting 8T game 82/100, pair 41, black
+<UciProtocol (pid=28311)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 82: score=0.5 termination=chess_threefold_repetition duration=135.5s
+Starting 1T game 82/100, pair 41, black
+<UciProtocol (pid=28444)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 82: score=0.0 termination=chess_checkmate duration=189.2s
+Starting 8T game 83/100, pair 42, white
+<UciProtocol (pid=28511)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 83: score=0.5 termination=chess_threefold_repetition duration=178.3s
+Starting 1T game 83/100, pair 42, white
+<UciProtocol (pid=28544)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 83: score=0.0 termination=chess_checkmate duration=174.8s
+Starting 1T game 84/100, pair 42, black
+<UciProtocol (pid=28591)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 84: score=0.0 termination=chess_checkmate duration=164.8s
+Starting 8T game 84/100, pair 42, black
+<UciProtocol (pid=28613)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 84: score=0.5 termination=chess_threefold_repetition duration=156.8s
+Starting 1T game 85/100, pair 43, white
+<UciProtocol (pid=28659)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 85: score=0.5 termination=chess_threefold_repetition duration=142.4s
+Starting 8T game 85/100, pair 43, white
+<UciProtocol (pid=28802)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 85: score=1.0 termination=chess_checkmate duration=176.0s
+Starting 8T game 86/100, pair 43, black
+<UciProtocol (pid=28855)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 86: score=0.5 termination=chess_threefold_repetition duration=158.1s
+Starting 1T game 86/100, pair 43, black
+<UciProtocol (pid=28879)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 86: score=0.5 termination=chess_threefold_repetition duration=125.2s
+Starting 8T game 87/100, pair 44, white
+<UciProtocol (pid=28913)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 87: score=0.5 termination=chess_threefold_repetition duration=136.7s
+Starting 1T game 87/100, pair 44, white
+<UciProtocol (pid=28957)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 87: score=0.5 termination=chess_threefold_repetition duration=141.5s
+Starting 1T game 88/100, pair 44, black
+<UciProtocol (pid=28994)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 88: score=0.5 termination=chess_threefold_repetition duration=168.5s
+Starting 8T game 88/100, pair 44, black
+<UciProtocol (pid=29145)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 88: score=0.5 termination=chess_threefold_repetition duration=149.4s
+Starting 1T game 89/100, pair 45, white
+<UciProtocol (pid=29184)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 89: score=0.5 termination=chess_threefold_repetition duration=138.8s
+Starting 8T game 89/100, pair 45, white
+<UciProtocol (pid=29228)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 89: score=0.5 termination=chess_threefold_repetition duration=141.9s
+Starting 8T game 90/100, pair 45, black
+<UciProtocol (pid=29268)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 90: score=0.5 termination=chess_threefold_repetition duration=119.3s
+Starting 1T game 90/100, pair 45, black
+<UciProtocol (pid=29319)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 90: score=0.5 termination=chess_threefold_repetition duration=151.9s
+Starting 8T game 91/100, pair 46, white
+<UciProtocol (pid=29361)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 91: score=0.5 termination=chess_threefold_repetition duration=121.9s
+Starting 1T game 91/100, pair 46, white
+<UciProtocol (pid=29513)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 91: score=0.5 termination=chess_threefold_repetition duration=136.8s
+Starting 1T game 92/100, pair 46, black
+<UciProtocol (pid=29545)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 92: score=0.5 termination=chess_threefold_repetition duration=170.7s
+Starting 8T game 92/100, pair 46, black
+<UciProtocol (pid=29592)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 92: score=0.5 termination=chess_threefold_repetition duration=179.6s
+Starting 1T game 93/100, pair 47, white
+<UciProtocol (pid=29630)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 93: score=0.5 termination=chess_threefold_repetition duration=164.1s
+Starting 8T game 93/100, pair 47, white
+<UciProtocol (pid=29669)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 93: score=0.5 termination=chess_threefold_repetition duration=126.7s
+Starting 8T game 94/100, pair 47, black
+<UciProtocol (pid=29698)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 94: score=1.0 termination=chess_checkmate duration=177.3s
+Starting 1T game 94/100, pair 47, black
+<UciProtocol (pid=29857)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 94: score=0.5 termination=chess_threefold_repetition duration=145.3s
+Starting 8T game 95/100, pair 48, white
+<UciProtocol (pid=29908)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 95: score=0.0 termination=chess_checkmate duration=179.6s
+Starting 1T game 95/100, pair 48, white
+<UciProtocol (pid=29946)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 95: score=0.5 termination=chess_threefold_repetition duration=110.9s
+Starting 1T game 96/100, pair 48, black
+<UciProtocol (pid=29971)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 96: score=0.0 termination=chess_checkmate duration=234.0s
+Starting 8T game 96/100, pair 48, black
+<UciProtocol (pid=30163)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 96: score=0.0 termination=chess_checkmate duration=173.9s
+Starting 1T game 97/100, pair 49, white
+<UciProtocol (pid=30322)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 97: score=0.5 termination=chess_threefold_repetition duration=125.4s
+Starting 8T game 97/100, pair 49, white
+<UciProtocol (pid=30355)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 97: score=0.5 termination=chess_threefold_repetition duration=156.3s
+Starting 8T game 98/100, pair 49, black
+<UciProtocol (pid=31339)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 98: score=0.5 termination=chess_threefold_repetition duration=89.8s
+Starting 1T game 98/100, pair 49, black
+<UciProtocol (pid=31361)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 98: score=0.0 termination=chess_checkmate duration=153.7s
+Starting 8T game 99/100, pair 50, white
+<UciProtocol (pid=31397)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 99: score=0.5 termination=chess_threefold_repetition duration=115.9s
+Starting 1T game 99/100, pair 50, white
+<UciProtocol (pid=31442)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 99: score=0.5 termination=chess_threefold_repetition duration=136.5s
+Starting 1T game 100/100, pair 50, black
+<UciProtocol (pid=31473)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 1T game 100: score=0.5 termination=chess_threefold_repetition duration=158.7s
+Starting 8T game 100/100, pair 50, black
+<UciProtocol (pid=31631)>: stderr >> info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+Finished 8T game 100: score=0.5 termination=chess_threefold_repetition duration=135.8s
+All 200 games complete. See REPORT.md and comparison.json.

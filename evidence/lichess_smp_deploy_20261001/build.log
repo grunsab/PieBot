@@ -1,0 +1,2 @@
+{"command": ["cargo", "build", "--release", "--locked", "--offline", "--bin", "uci", "--bin", "accept", "--bin", "accept_temp"], "returncode": 0, "seconds": 68.33838868141174, "log": "/home/ubuntu/lichess-bot/deployment_lazy_smp_20261001/build_test_0.log"}
+{"command": ["cargo", "test", "--release", "--locked", "--offline", "--lib"], "returncode": 101, "seconds": 0.1328577995300293, "log": "/home/ubuntu/lichess-bot/deployment_lazy_smp_20261001/build_test_1.log"}

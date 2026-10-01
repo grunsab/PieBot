@@ -2,7 +2,7 @@
 
 PieBot is a high-performance chess engine written in Rust (`PieBot/`) featuring hand-written AVX2 and ARM NEON SIMD inference kernels, parallel alpha-beta search with modern selectivity heuristics, and an advanced neural network training pipeline (`training/nnue/`) designed for continuous self-improvement and empirical validation against top-tier engines.
 
-PieBot officially exceeds **3200 Classical Elo** in `120+1` match play against CCRL 3500+ engines.
+PieBot is evaluated through internal `120+1` matches against CCRL-listed engines. Those performance estimates are not an official CCRL ranking or a Lichess rating. See the [Lichess audit](evidence/lichess_audit_20261001/REPORT.md) and [verified Lazy SMP deployment](evidence/lichess_smp_deploy_20261001/REPORT.md) for the measured results and their limits.
 
 ---
 
@@ -111,7 +111,7 @@ PieBot works out-of-the-box with any standard UCI-compliant chess graphical inte
 
 | Option | Type | Default | Valid Range | Description |
 | :--- | :---: | :---: | :---: | :--- |
-| `Threads` | `spin` | `1` | `1 .. 512` | Number of parallel search threads (root-parallel work-sharing). |
+| `Threads` | `spin` | `1` | `1 .. 512` | Total Lazy SMP search threads, including the main search. Workers and their private search state are reused across moves. |
 | `Hash` | `spin` | `64` | `1 .. 16384` | Transposition Table (TT) capacity in megabytes (MiB). |
 | `UseNNUE` | `check` | `true` | `true / false` | Enables neural network evaluation. Defaults to `true` when a valid model is found. |
 | `NNUEQuantFile` | `string` | *(auto)* | Valid file path | Path to quantized int8 NNUE model (`PIENNQ02`). Auto-detects `models/lc0_chunk_00034965.nnue`. |
@@ -124,6 +124,11 @@ setoption name Threads value 8
 setoption name Hash value 256
 setoption name EvalBlend value 75
 ```
+
+The NNUE engine sizes its own search pool from `Threads`; no `RAYON_NUM_THREADS`
+setting is needed. Helpers share the transposition table and immutable NNUE
+weights, while the main search selects the move. Deterministic searches, explicit
+node budgets, and the development dense-f32 NNUE backend use one search thread.
 
 ---
 
@@ -221,8 +226,10 @@ Per `AGENTS.md`, all search changes undergo empirical A/B evaluation against the
 
 ```bash
 # Paired opening A/B match runner
-cargo run --release --bin compare_play --manifest-path PieBot/Cargo.toml -- \
-  --games 400 --movetime 150 --paired-openings --openings-file books/openings_v1.fen \
+cargo run --locked --release --bin compare_play --manifest-path PieBot/Cargo.toml -- \
+  --games 400 --movetime 1000 --paired-openings --openings-file books/openings_v1.fen \
+  --base-eval nnue --base-blend 75 --base-nnue-quant-file models/lc0_chunk_00034965.nnue \
+  --exp-eval nnue --exp-blend 75 --exp-nnue-quant-file models/lc0_chunk_00034965.nnue \
   --parallel-games 8 --threads 1 --json-out /tmp/ab_screen.json
 ```
 

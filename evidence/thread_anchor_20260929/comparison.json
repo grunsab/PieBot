@@ -1,0 +1,92 @@
+{
+  "arms": {
+    "1": {
+      "bootstrap_samples": 10000,
+      "complete_pairs": 50,
+      "draws": 60,
+      "elo_95_ci": [
+        -181.70334870406327,
+        -99.95098928663995
+      ],
+      "elo_difference": -138.99495876119303,
+      "games": 100,
+      "losses": 39,
+      "pair_score_counts": {
+        "0.0": 9,
+        "0.5": 20,
+        "1.0": 21,
+        "1.5": 0,
+        "2.0": 0
+      },
+      "pentanomial": [
+        9,
+        20,
+        21,
+        0,
+        0
+      ],
+      "score_95_ci": [
+        0.26,
+        0.36
+      ],
+      "score_points": 31.0,
+      "score_rate": 0.31,
+      "termination_counts": {
+        "chess_checkmate": 40,
+        "chess_threefold_repetition": 60
+      },
+      "wins": 1
+    },
+    "8": {
+      "bootstrap_samples": 10000,
+      "complete_pairs": 50,
+      "draws": 71,
+      "elo_95_ci": [
+        -103.73254463206946,
+        -31.354042247811993
+      ],
+      "elo_difference": -66.82477700555239,
+      "games": 100,
+      "losses": 24,
+      "pair_score_counts": {
+        "0.0": 4,
+        "0.5": 15,
+        "1.0": 27,
+        "1.5": 4,
+        "2.0": 0
+      },
+      "pentanomial": [
+        4,
+        15,
+        27,
+        4,
+        0
+      ],
+      "score_95_ci": [
+        0.355,
+        0.455
+      ],
+      "score_points": 40.5,
+      "score_rate": 0.405,
+      "termination_counts": {
+        "chess_checkmate": 29,
+        "chess_threefold_repetition": 71
+      },
+      "wins": 5
+    }
+  },
+  "comparison": {
+    "bootstrap_samples": 10000,
+    "elo_8_minus_1": 72.17018175564064,
+    "matched_opening_pairs": 50,
+    "paired_95_ci": [
+      26.32564481482609,
+      119.43956505913042
+    ],
+    "score_1": 0.31,
+    "score_8": 0.405
+  },
+  "interpretation": "Relative to Stockfish 18 UCI_Elo=3190 on this Mac at 60+0.5; not a published CCRL rating.",
+  "status": "complete",
+  "updated_at": "2026-09-30T07:30:54.725204+00:00"
+}

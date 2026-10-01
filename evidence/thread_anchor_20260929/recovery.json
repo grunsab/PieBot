@@ -1,0 +1,6 @@
+{
+  "status": "verified_retries_passed",
+  "initial_driver_sha256": "57bc7c65559b7af8079e24312d18826302f1b2216bca6bb82c0f961173c5f68f",
+  "resumed_driver_sha256": "9451ff83f00cc2ff1413fbef3816a92a38712b1ec0afe75244104808168a236a",
+  "note": "Raw validation results remain untouched. Only hash-verified successful reruns can supersede failures. Engine binaries, model, options and game plans are unchanged."
+}

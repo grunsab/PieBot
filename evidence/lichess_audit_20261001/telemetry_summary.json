@@ -1,0 +1,50 @@
+{
+  "logged_moves": 10365,
+  "matched_moves": 10331,
+  "matched_games": 186,
+  "all": {
+    "moves": 10331,
+    "median_depth": 15,
+    "mean_depth": 15.128061175104056,
+    "median_nps": 215278.35951134382,
+    "aggregate_nps": 225580.5168263251,
+    "median_search_s": 3.092,
+    "mean_search_s": 3.2879014616203657,
+    "median_nodes": 674574
+  },
+  "opening_middle_ply_10_to_60": {
+    "moves": 4634,
+    "median_depth": 16.0,
+    "mean_depth": 15.648683642641346,
+    "median_nps": 209903.93751058797,
+    "aggregate_nps": 213623.44760172014,
+    "median_search_s": 3.576,
+    "mean_search_s": 3.790044669831679,
+    "median_nodes": 762968.0
+  },
+  "by_pool": {
+    "bullet": {
+      "moves": 4428,
+      "median_depth": 15.0,
+      "mean_depth": 14.722448057813912,
+      "median_nps": 213460.6785866592,
+      "aggregate_nps": 222740.70029688705,
+      "median_search_s": 2.556,
+      "mean_search_s": 2.731368337850045,
+      "median_nodes": 545335.5
+    },
+    "blitz": {
+      "moves": 5903,
+      "median_depth": 16,
+      "mean_depth": 15.432322547857021,
+      "median_nps": 216365.54540151663,
+      "aggregate_nps": 227150.78404874433,
+      "median_search_s": 3.481,
+      "mean_search_s": 3.7053720142300524,
+      "median_nodes": 773598
+    }
+  },
+  "nnue_true_starts": 191,
+  "nnue_false_starts": 0,
+  "ponder_commands": 0
+}

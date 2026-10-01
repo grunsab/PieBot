@@ -1,0 +1,287 @@
+{
+  "created_at": "2026-10-01T22:40:09.601448+00:00",
+  "window": {
+    "account": "PieBot",
+    "since_utc": "2026-09-29T22:13:40+00:00",
+    "until_utc": "2026-10-01T22:13:40+00:00",
+    "filter": "game creation time",
+    "endpoint": "https://lichess.org/api/games/user/PieBot",
+    "params": {
+      "since": 1790720020000,
+      "until": 1790892820000,
+      "moves": "true",
+      "clocks": "true",
+      "evals": "true",
+      "opening": "true",
+      "pgnInJson": "true",
+      "sort": "dateAsc"
+    },
+    "downloaded_at": "2026-10-01T22:16:29.810510+00:00",
+    "games": 186,
+    "pgn_games": 186,
+    "sha256": {
+      "games.ndjson": "107e3d9c42b8999e9b0137145e5a4010c961905f0eb977db330a0f2d5891b702",
+      "games.pgn": "ab84e4d68b6688fb15e3d2ebf409177598231a737c9f38e9c9c632666b39b431"
+    }
+  },
+  "results": {
+    "blitz": {
+      "games": 105,
+      "wdl": [
+        40,
+        24,
+        41
+      ],
+      "score": 0.49523809523809526,
+      "terminations": {
+        "1:mate": 34,
+        "0:mate": 41,
+        "0.5:draw": 23,
+        "1:outoftime": 2,
+        "1:resign": 4,
+        "0.5:outoftime": 1
+      },
+      "first_rating": 2408,
+      "last_rating": 2291,
+      "opponent_rating_median": 2258
+    },
+    "bullet": {
+      "games": 81,
+      "wdl": [
+        33,
+        21,
+        27
+      ],
+      "score": 0.5370370370370371,
+      "terminations": {
+        "0:mate": 27,
+        "1:mate": 28,
+        "0.5:draw": 21,
+        "1:resign": 2,
+        "1:outoftime": 3
+      },
+      "first_rating": 2334,
+      "last_rating": 2346,
+      "opponent_rating_median": 2311
+    }
+  },
+  "total_wdl": [
+    73,
+    45,
+    68
+  ],
+  "losses": {
+    "games": 68,
+    "checkmates": 68,
+    "timeouts": 0,
+    "last_clock_median_seconds": 29.11,
+    "last_clock_min_seconds": 11.54
+  },
+  "screen": {
+    "games": 186,
+    "positions": 20847,
+    "piebot_moves": 10331,
+    "nodes_per_position": 50000,
+    "deep_refined_loss_positions": 68,
+    "refinement_nodes_per_root_search": 2000000,
+    "confirmed_cp_loss_at_least_200": 45,
+    "live_reported_positive_for_these": 29,
+    "refined_safe_to_losing": 41
+  },
+  "telemetry": {
+    "logged_moves": 10365,
+    "matched_moves": 10331,
+    "matched_games": 186,
+    "all": {
+      "moves": 10331,
+      "median_depth": 15,
+      "mean_depth": 15.128061175104056,
+      "median_nps": 215278.35951134382,
+      "aggregate_nps": 225580.5168263251,
+      "median_search_s": 3.092,
+      "mean_search_s": 3.2879014616203657,
+      "median_nodes": 674574
+    },
+    "opening_middle_ply_10_to_60": {
+      "moves": 4634,
+      "median_depth": 16.0,
+      "mean_depth": 15.648683642641346,
+      "median_nps": 209903.93751058797,
+      "aggregate_nps": 213623.44760172014,
+      "median_search_s": 3.576,
+      "mean_search_s": 3.790044669831679,
+      "median_nodes": 762968.0
+    },
+    "by_pool": {
+      "bullet": {
+        "moves": 4428,
+        "median_depth": 15.0,
+        "mean_depth": 14.722448057813912,
+        "median_nps": 213460.6785866592,
+        "aggregate_nps": 222740.70029688705,
+        "median_search_s": 2.556,
+        "mean_search_s": 2.731368337850045,
+        "median_nodes": 545335.5
+      },
+      "blitz": {
+        "moves": 5903,
+        "median_depth": 16,
+        "mean_depth": 15.432322547857021,
+        "median_nps": 216365.54540151663,
+        "aggregate_nps": 227150.78404874433,
+        "median_search_s": 3.481,
+        "mean_search_s": 3.7053720142300524,
+        "median_nodes": 773598
+      }
+    },
+    "nnue_true_starts": 191,
+    "nnue_false_starts": 0,
+    "ponder_commands": 0
+  },
+  "deployment": {
+    "binary": {
+      "size": 1735672,
+      "sha256": "e8c22ae36f0084c26ef1f7f19f2cbedfd0ff21370d05cd5f7aacc85f191be79e",
+      "mtime": 1790653002.1643887
+    },
+    "model": {
+      "size": 83890216,
+      "sha256": "56434c1bacf5165baaebc6a5a06d5542d69828dc7b1ff09a934fb8263ea917d0",
+      "mtime": 1790652599.9133987
+    },
+    "source_sha256": "57036a6221b476da8f3f24074b7794b7be30423c78a07004a0f72220bb0674ae",
+    "git_head": "a7d470596a0dd18a77a15d70f1ecd070edb55a14",
+    "threads": 2,
+    "rayon_workers": 2,
+    "nnue_enabled": true,
+    "blend": 75,
+    "lazy_smp_deployed": false,
+    "production_changed_during_audit": false
+  },
+  "parity": {
+    "single_thread_cases": 5,
+    "moves_scores_nodes_identical_mac_server": true
+  },
+  "bound_bug": {
+    "instrumented_archived_source_sha256": "778af9417b0d66bea8763fc6108f6e13ef2faf574a0931f8abef1ff5ebad8cdf",
+    "source_instrumentation": "Recorded each tail task local alpha and whether the selected move only supplied an upper bound; selection/search logic unchanged. Diagnostic crate reuses current unchanged evaluation dependencies.",
+    "positions": 68,
+    "elected_upper_events": 27,
+    "positions_with_events": 21,
+    "final_depth_elected_upper": 2,
+    "scope": "Confirms a correctness defect; does not attribute every historical loss or measure recovered Elo."
+  },
+  "examples": [
+    {
+      "game": "zQoaxfK6",
+      "url": "https://lichess.org/zQoaxfK6#3",
+      "move_number": 2,
+      "ply": 3,
+      "color": "white",
+      "move": "Bh6",
+      "live_cp": 126,
+      "live_depth": 15,
+      "search_seconds": 3.956,
+      "clock_before_s": 120.03,
+      "stockfish_best_cp_stm": 66,
+      "stockfish_played_cp_stm": -438,
+      "refutation": [
+        "Bh6",
+        "Nxh6",
+        "e4",
+        "fxe4",
+        "Nc3",
+        "d5"
+      ],
+      "better_move": "Bg5"
+    },
+    {
+      "game": "sEi3c6E4",
+      "url": "https://lichess.org/sEi3c6E4#43",
+      "move_number": 22,
+      "ply": 43,
+      "color": "white",
+      "move": "h6",
+      "live_cp": 350,
+      "live_depth": 15,
+      "search_seconds": 3.154,
+      "clock_before_s": 66.19,
+      "stockfish_best_cp_stm": 220,
+      "stockfish_played_cp_stm": -99999,
+      "refutation": [
+        "h6",
+        "Bb4#"
+      ],
+      "better_move": "Be2"
+    },
+    {
+      "game": "aGvveGBK",
+      "url": "https://lichess.org/aGvveGBK#66",
+      "move_number": 33,
+      "ply": 66,
+      "color": "black",
+      "move": "Qf4",
+      "live_cp": 674,
+      "live_depth": 16,
+      "search_seconds": 3.222,
+      "clock_before_s": 48.99,
+      "stockfish_best_cp_stm": 439,
+      "stockfish_played_cp_stm": -835,
+      "refutation": [
+        "Qf4",
+        "Qxf4",
+        "Nd8",
+        "Qf8",
+        "f2+",
+        "Qxf2"
+      ],
+      "better_move": "Qh5"
+    },
+    {
+      "game": "U0E0YGi4",
+      "url": "https://lichess.org/U0E0YGi4#61",
+      "move_number": 31,
+      "ply": 61,
+      "color": "white",
+      "move": "Qh3",
+      "live_cp": 371,
+      "live_depth": 15,
+      "search_seconds": 3.42,
+      "clock_before_s": 59.39,
+      "stockfish_best_cp_stm": 205,
+      "stockfish_played_cp_stm": -684,
+      "refutation": [
+        "Qh3",
+        "Bxh3",
+        "Rd5",
+        "Be6",
+        "Bc2",
+        "Qa7"
+      ],
+      "better_move": "Re1"
+    },
+    {
+      "game": "C3d1f8t5",
+      "url": "https://lichess.org/C3d1f8t5#37",
+      "move_number": 19,
+      "ply": 37,
+      "color": "white",
+      "move": "Qc4",
+      "live_cp": 353,
+      "live_depth": 12,
+      "search_seconds": 3.12,
+      "clock_before_s": 76.43,
+      "stockfish_best_cp_stm": 358,
+      "stockfish_played_cp_stm": -569,
+      "refutation": [
+        "Qc4",
+        "dxc4",
+        "Rad1",
+        "Qc8",
+        "Rxd8+",
+        "Qxd8"
+      ],
+      "better_move": "Nd4"
+    }
+  ]
+}

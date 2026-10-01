@@ -1,0 +1,118 @@
+{
+  "game": "U0E0YGi4",
+  "ply": 61,
+  "fen": "r6k/1r3p1p/1q2bPn1/4p3/4P3/1NQ5/PP1R3P/1K1B3R w - - 13 31",
+  "stockfish_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+  "node_budget": 2000000,
+  "moves": {
+    "c3h3": {
+      "san": "Qh3",
+      "cp_stm": -684,
+      "mate": null,
+      "depth": 20,
+      "nodes": 2000586,
+      "pv_uci": [
+        "c3h3",
+        "e6h3",
+        "d2d5",
+        "h3e6",
+        "d1c2",
+        "b6a7",
+        "a2a3",
+        "a8c8",
+        "h1d1",
+        "a7b8",
+        "d1d2",
+        "b7b5",
+        "d5b5",
+        "b8b5",
+        "d2d6"
+      ],
+      "cp_loss": 889
+    },
+    "h2h4": {
+      "san": "h4",
+      "cp_stm": 212,
+      "mate": null,
+      "depth": 21,
+      "nodes": 2000304,
+      "pv_uci": [
+        "h2h4"
+      ],
+      "cp_loss": 0
+    },
+    "d1c2": {
+      "san": "Bc2",
+      "cp_stm": 112,
+      "mate": null,
+      "depth": 23,
+      "nodes": 2000029,
+      "pv_uci": [
+        "d1c2",
+        "h7h6",
+        "h1d1",
+        "h8h7",
+        "d2d5",
+        "b6f2",
+        "d5d8",
+        "b7a7",
+        "d8a8",
+        "a7a8",
+        "c3d2",
+        "f2f6",
+        "a2a3",
+        "a8c8",
+        "b3c1",
+        "g6h4"
+      ],
+      "cp_loss": 93
+    },
+    "h1e1": {
+      "san": "Re1",
+      "cp_stm": 202,
+      "mate": null,
+      "depth": 24,
+      "nodes": 2000306,
+      "pv_uci": [
+        "h1e1",
+        "h7h6",
+        "c3e3",
+        "g6f4",
+        "e3b6",
+        "b7b6",
+        "e1e3",
+        "a8c8",
+        "b3c1",
+        "h8h7",
+        "a2a3",
+        "h7g6",
+        "b2b4",
+        "h6h5",
+        "d1b3",
+        "g6f6"
+      ],
+      "cp_loss": 3
+    }
+  },
+  "best": {
+    "cp_stm": 205,
+    "mate": null,
+    "depth": 23,
+    "nodes": 2000451,
+    "pv_uci": [
+      "h1e1",
+      "h7h6",
+      "c3e3",
+      "g6f4",
+      "e3b6",
+      "b7b6",
+      "b3c1",
+      "e6h3",
+      "a2a4",
+      "h3e6",
+      "d1c2",
+      "b6b4",
+      "e1d1"
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "account": "PieBot",
+  "since_utc": "2026-09-29T22:13:40+00:00",
+  "until_utc": "2026-10-01T22:13:40+00:00",
+  "filter": "game creation time",
+  "endpoint": "https://lichess.org/api/games/user/PieBot",
+  "params": {
+    "since": 1790720020000,
+    "until": 1790892820000,
+    "moves": "true",
+    "clocks": "true",
+    "evals": "true",
+    "opening": "true",
+    "pgnInJson": "true",
+    "sort": "dateAsc"
+  },
+  "downloaded_at": "2026-10-01T22:16:29.810510+00:00",
+  "games": 186,
+  "pgn_games": 186,
+  "sha256": {
+    "games.ndjson": "107e3d9c42b8999e9b0137145e5a4010c961905f0eb977db330a0f2d5891b702",
+    "games.pgn": "ab84e4d68b6688fb15e3d2ebf409177598231a737c9f38e9c9c632666b39b431"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "id": "piebot",
+  "username": "PieBot",
+  "perfs": {
+    "bullet": {
+      "games": 901,
+      "rating": 2346,
+      "rd": 45,
+      "prog": 0
+    },
+    "blitz": {
+      "games": 626,
+      "rating": 2291,
+      "rd": 45,
+      "prog": 31
+    },
+    "rapid": {
+      "games": 396,
+      "rating": 2420,
+      "rd": 149,
+      "prog": 67,
+      "prov": true
+    },
+    "classical": {
+      "games": 22,
+      "rating": 2210,
+      "rd": 170,
+      "prog": 16,
+      "prov": true
+    },
+    "correspondence": {
+      "games": 0,
+      "rating": 2000,
+      "rd": 500,
+      "prog": 0,
+      "prov": true
+    }
+  },
+  "title": "BOT",
+  "flair": "smileys.robot",
+  "createdAt": 1753319007587,
+  "profile": {
+    "flag": "US",
+    "location": "San Francisco",
+    "bio": "This bot is running PieBot as of Sept 28, 2026.\n\nhttps://github.com/grunsab/PieBot\n\nIt was previously running Stockfish, as well as a previous version of PieBot, as well as possibly some other things that I don't recall.\n\n\nOpening book: lichess cloud analysis\nEndgame tablebase: 7 piece lichess\nThreads: 1\nHash: 512MB",
+    "realName": "Rishi Sachdev",
+    "links": "https://github.com/grunsab/PieBot"
+  },
+  "seenAt": 1790892743836,
+  "playTime": {
+    "total": 1554790,
+    "tv": 31617,
+    "human": 3575
+  },
+  "url": "https://lichess.org/@/PieBot",
+  "count": {
+    "all": 2304,
+    "rated": 2115,
+    "draw": 911,
+    "loss": 552,
+    "win": 841,
+    "bookmark": 0,
+    "playing": 0,
+    "import": 0,
+    "me": 0
+  }
+}
