@@ -301,6 +301,104 @@ class LC0CampaignTests(unittest.TestCase):
                     self.run_campaign()
                 self.assertFalse((self.out / 'lc0_state.json').exists())
 
+    def test_learning_rate_decays_with_positions_trained_and_is_recorded(self):
+        self.args.learning_rate = 0.001
+        self.args.lr_gamma = 0.5
+        self.args.lr_epoch_positions = 1
+        self.args.max_chunks = 2
+        self.run_campaign()
+        # A restart must continue the schedule from committed history, not reset it.
+        self.args.max_chunks = 1
+        self.run_campaign()
+        rates = [call["learning_rate"] for call in self.calls]
+        self.assertEqual(len(rates), 3)
+        for observed, expected in zip(rates, (0.001, 0.0005, 0.00025)):
+            self.assertAlmostEqual(observed, expected, places=12)
+        recorded = [item["learning_rate"] for item in self.state()["history"]]
+        self.assertEqual(recorded, rates)
+
+    def test_default_schedule_is_constant_and_keeps_the_founding_identity_shape(self):
+        self.assertEqual(self.args.lr_gamma, 1.0)
+        self.assertEqual(self.args.gate_movetime_ms, 150)
+        self.args.max_chunks = 2
+        self.run_campaign()
+        self.assertEqual([call["learning_rate"] for call in self.calls], [0.001, 0.001])
+        identity = self.state()["identity"]
+        for key in ("lr_schedule", "gate_movetime_ms", "extra_corpora"):
+            self.assertNotIn(key, identity)
+
+    def test_changed_schedule_or_gate_time_refuses_resume(self):
+        self.args.lr_gamma = 0.995
+        self.run_campaign()
+        self.assertEqual(self.state()["identity"]["lr_schedule"],
+                         {"gamma": 0.995, "epoch_positions": 100_000_000})
+        self.args.lr_gamma = 0.99
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.run_campaign()
+        self.args.lr_gamma = 0.995
+        self.args.gate_movetime_ms = 1000
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.run_campaign()
+
+    def test_invalid_schedule_rejected_before_state_creation(self):
+        for gamma, epoch in ((0.0, 100), (1.5, 100), (float("nan"), 100), (0.9, 0)):
+            self.args.lr_gamma, self.args.lr_epoch_positions = gamma, epoch
+            with self.assertRaisesRegex(ValueError, "schedule"):
+                self.run_campaign()
+        self.assertFalse((self.out / "lc0_state.json").exists())
+
+    def test_gate_movetime_is_configurable(self):
+        self.args.max_chunks = 3
+        self.args.gate_games = 400
+        self.args.gate_movetime_ms = 1000
+        rejected = {"accepted": False, "reason": "screen-rejected"}
+        with mock.patch.object(lc0_autopilot.autopilot, "_run_confirmed_gate_attempt", return_value=rejected) as gate:
+            self.run_campaign()
+        self.assertEqual(gate.call_args.kwargs["movetime_ms"], 1000)
+        self.assertEqual(self.state()["identity"]["gate_movetime_ms"], 1000)
+
+    def extra_corpus(self, *, since="2026-03-07T00:00:00+00:00", until="2026-07-07T00:00:00+00:00"):
+        extra = self.root / "extra"
+        extra.mkdir()
+        chunks = []
+        for i in range(2):
+            path = extra / f"chunk-{i}.jsonl.gz"
+            with gzip.open(path, "wt") as handle:
+                handle.write(json.dumps({"game_id": f"extra-{i}"}) + "\n")
+            chunks.append({"path": str(path), "sha256": self.sha(path), "positions": 1})
+        val = extra / "validation.jsonl"
+        val.write_text('{"game_id":"extra-holdout"}\n')
+        manifest = extra / "manifest.json"
+        manifest.write_text(json.dumps({
+            "schema": "piebot-lc0-corpus-v1", "complete": True, "corpus_id": "extra-corpus",
+            "since": since, "until": until, "seed": 42, "chunks": chunks,
+            "validation": {"path": str(val), "sha256": self.sha(val), "positions": 1},
+        }))
+        return manifest
+
+    def test_extra_corpus_joins_traversal_and_primary_validation_stays_fixed(self):
+        extra = self.extra_corpus()
+        self.args.extra_corpus_manifest = [extra]
+        self.args.max_chunks = 5
+        self.run_campaign()
+        state = self.state()
+        self.assertEqual(sorted(item["chunk_index"] for item in state["history"]), [0, 1, 2, 3, 4])
+        self.assertEqual(state["pass_number"], 1)
+        self.assertEqual(state["identity"]["extra_corpora"],
+                         [{"corpus_id": "extra-corpus", "manifest_sha256": self.sha(extra)}])
+        primary_validation = json.loads(self.manifest.read_text())["validation"]["sha256"]
+        self.assertEqual(state["identity"]["validation_sha256"], primary_validation)
+        copied = self.calls[0]["validation_jsonl_dir"] / "validation.jsonl"
+        self.assertEqual(self.sha(copied), primary_validation)
+
+    def test_extra_corpus_overlapping_the_primary_window_is_rejected(self):
+        # The fixed validation games are held out of the primary window only;
+        # an overlapping extra window could train on them.
+        self.args.extra_corpus_manifest = [self.extra_corpus(until="2026-07-08T00:00:00+00:00")]
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            self.run_campaign()
+        self.assertFalse((self.out / "lc0_state.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

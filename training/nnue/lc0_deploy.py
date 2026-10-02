@@ -69,7 +69,55 @@ def wait_for_training(command: list[str], **kwargs):
         signal.signal(signal.SIGTERM, previous)
 
 
-def main(argv=None) -> int:
+def resolve_bootstrap(args) -> tuple[Path, str]:
+    """Learner starting weights: the preserved self-play checkpoint unless one is named."""
+    if args.initial_checkpoint is None and args.initial_checkpoint_sha256 is None:
+        return args.selfplay_root / 'cycles/cycle_000206/train/checkpoint.json', CHECKPOINT_SHA
+    sha = args.initial_checkpoint_sha256
+    if args.initial_checkpoint is None or sha is None:
+        raise ValueError('--initial-checkpoint and --initial-checkpoint-sha256 must be given together')
+    if len(sha) != 64 or any(c not in '0123456789abcdef' for c in sha):
+        raise ValueError('initial checkpoint SHA-256 must be 64 lowercase hex characters')
+    return args.initial_checkpoint, sha
+
+
+def corpus_windows(args, output: Path) -> list[tuple[str, str, Path, Path]]:
+    """(since, until, raw root, corpus root) per collection window, in acquisition order."""
+    windows = [(args.since, args.until, output / 'data/raw', output / 'data/corpus')]
+    for number, window in enumerate(args.extra_window, 1):
+        bounds = window.split(',')
+        if len(bounds) != 2 or not all(bounds):
+            raise ValueError('--extra-window must be SINCE,UNTIL')
+        root = output / f'data/window_{number:02}'
+        windows.append((bounds[0], bounds[1], root / 'raw', root / 'corpus'))
+    return windows
+
+
+def training_command(args, *, python: str, repo: Path, output: Path, corpora: list[Path],
+                     checkpoint: Path, active: Path, commit: str) -> list[str]:
+    # A named primary corpus keeps its fixed validation set, so the loss scale
+    # stays comparable; the corpora prepared by this launch only add chunks.
+    primary, extras = corpora[0], list(corpora[1:])
+    if args.primary_corpus_manifest is not None:
+        primary, extras = args.primary_corpus_manifest, list(corpora)
+    command = [python, '-m', 'training.nnue.lc0_autopilot',
+               '--corpus-manifest', str(primary), '--out-root', str(output / 'training'),
+               '--initial-checkpoint', str(checkpoint), '--initial-active-model', str(active),
+               '--source-commit', commit, '--piebot-dir', str(repo / 'PieBot'),
+               '--hours', str(args.hours), '--device', 'cuda',
+               '--disk-reserve-gib', str(args.min_free_gib),
+               '--disk-capacity-gb', str(args.disk_capacity_gb)]
+    for extra in extras:
+        command += ['--extra-corpus-manifest', str(extra)]
+    for flag, value in (('--learning-rate', args.learning_rate), ('--lr-gamma', args.lr_gamma),
+                        ('--lr-epoch-positions', args.lr_epoch_positions),
+                        ('--gate-movetime-ms', args.gate_movetime_ms)):
+        if value is not None:
+            command += [flag, str(value)]
+    return command
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--out-root', type=Path, default=Path('/workspace/piebot_lc0_20260907'))
@@ -77,6 +125,9 @@ def main(argv=None) -> int:
     parser.add_argument('--hours', type=float, default=720)
     parser.add_argument('--since', default='2026-07-07')
     parser.add_argument('--until', default='2026-09-07')
+    parser.add_argument('--extra-window', action='append', default=[], metavar='SINCE,UNTIL',
+                        help='Further collection window, acquired and prepared after the first; '
+                             'each whole window is downloaded before conversion evicts it')
     parser.add_argument('--min-free-gib', type=float, default=50)
     parser.add_argument('--download-concurrency', type=int, default=4,
                         help='Concurrent archive downloads (1-16); independent of preparation workers')
@@ -85,15 +136,32 @@ def main(argv=None) -> int:
     parser.add_argument('--disk-capacity-gb', type=float, default=0,
                         help='Decimal disk capacity ceiling; 0 uses filesystem free space')
     parser.add_argument('--preflight-only', action='store_true')
-    args = parser.parse_args(argv)
+    parser.add_argument('--prepare-only', action='store_true',
+                        help='Acquire and prepare the corpus, then exit before training')
+    parser.add_argument('--initial-checkpoint', type=Path, default=None)
+    parser.add_argument('--initial-checkpoint-sha256', default=None)
+    parser.add_argument('--primary-corpus-manifest', type=Path, default=None,
+                        help='Existing frozen corpus that stays primary (and supplies validation)')
+    parser.add_argument('--learning-rate', type=float, default=None)
+    parser.add_argument('--lr-gamma', type=float, default=None)
+    parser.add_argument('--lr-epoch-positions', type=int, default=None)
+    parser.add_argument('--gate-movetime-ms', type=int, default=None)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     capacity = decimal_gb_bytes(args.disk_capacity_gb)
     validate_download_concurrency(args.download_concurrency)
+    corpus_windows(args, args.out_root)  # Reject malformed windows before any side effect.
     repo = args.repo.resolve()
     output = args.out_root.resolve()
     assert_separate_root(output, args.selfplay_root)
-    checkpoint = args.selfplay_root / 'cycles/cycle_000206/train/checkpoint.json'
+    checkpoint, checkpoint_sha = resolve_bootstrap(args)
     active = args.selfplay_root / 'cycles/cycle_000168/nnue_quant.nnue'
-    validate_bootstrap(checkpoint, CHECKPOINT_SHA, active, ACTIVE_SHA)
+    validate_bootstrap(checkpoint, checkpoint_sha, active, ACTIVE_SHA)
+    if args.primary_corpus_manifest is not None and not args.primary_corpus_manifest.is_file():
+        raise ValueError('primary corpus manifest is missing')
     commit = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
     for command in (['git', '-C', str(repo), 'diff', '--quiet'],
                     ['git', '-C', str(repo), 'diff', '--cached', '--quiet']):
@@ -116,38 +184,37 @@ def main(argv=None) -> int:
     if available_bytes(ancestor, capacity_bytes=capacity) < minimum:
         raise ValueError('insufficient free disk reserve')
     print(json.dumps({'preflight': 'passed', 'source_commit': commit,
-                      'checkpoint_sha256': CHECKPOINT_SHA, 'active_sha256': ACTIVE_SHA}), flush=True)
+                      'checkpoint_sha256': checkpoint_sha, 'active_sha256': ACTIVE_SHA}), flush=True)
     if args.preflight_only:
         return 0
     # Nothing writes a source pin until bootstrap, binaries, CUDA and disk pass.
     pin_source(output, commit)
     from .autopilot import _single_instance_lock
     with _single_instance_lock(output / 'launcher.lock'):
-        raw = output / 'data/raw'
-        manifest = raw / 'manifest.json'
-        fetch_command = [
-            sys.executable, '-m', 'training.nnue.fetch_lc0_bins', '--out', str(raw),
-            '--manifest', str(manifest), '--since', args.since, '--until', args.until,
-            '--suites', 'test91', '--limit-per-suite', '0', '--backend', 'curl',
-            '--skip-existing', '--min-free-gib', str(args.min_free_gib),
-            '--disk-capacity-gb', str(args.disk_capacity_gb),
-            '--concurrency', str(args.download_concurrency)]
-        if args.evict_raw:
-            fetch_command += ['--eviction-corpus', str(output / 'data/corpus')]
-        subprocess.run(fetch_command, cwd=repo, check=True)
         from .lc0_corpus import prepare_corpus
-        corpus_options = dict(since=args.since, until=args.until, min_free_bytes=min_free,
-                              workers=16, capacity_bytes=capacity)
-        if args.evict_raw:
-            corpus_options.update(evict_raw=True, raw_root=raw)
-        corpus = prepare_corpus(manifest, output / 'data/corpus', **corpus_options)
-        command = [sys.executable, '-m', 'training.nnue.lc0_autopilot',
-                   '--corpus-manifest', str(corpus), '--out-root', str(output / 'training'),
-                   '--initial-checkpoint', str(checkpoint), '--initial-active-model', str(active),
-                   '--source-commit', commit, '--piebot-dir', str(repo / 'PieBot'),
-                   '--hours', str(args.hours), '--device', 'cuda',
-                   '--disk-reserve-gib', str(args.min_free_gib),
-                   '--disk-capacity-gb', str(args.disk_capacity_gb)]
+        corpora = []
+        for since, until, raw, corpus_root in corpus_windows(args, output):
+            manifest = raw / 'manifest.json'
+            fetch_command = [
+                sys.executable, '-m', 'training.nnue.fetch_lc0_bins', '--out', str(raw),
+                '--manifest', str(manifest), '--since', since, '--until', until,
+                '--suites', 'test91', '--limit-per-suite', '0', '--backend', 'curl',
+                '--skip-existing', '--min-free-gib', str(args.min_free_gib),
+                '--disk-capacity-gb', str(args.disk_capacity_gb),
+                '--concurrency', str(args.download_concurrency)]
+            if args.evict_raw:
+                fetch_command += ['--eviction-corpus', str(corpus_root)]
+            subprocess.run(fetch_command, cwd=repo, check=True)
+            corpus_options = dict(since=since, until=until, min_free_bytes=min_free,
+                                  workers=16, capacity_bytes=capacity)
+            if args.evict_raw:
+                corpus_options.update(evict_raw=True, raw_root=raw)
+            corpora.append(prepare_corpus(manifest, corpus_root, **corpus_options))
+        if args.prepare_only:
+            print(json.dumps({'prepared': [str(corpus) for corpus in corpora]}), flush=True)
+            return 0
+        command = training_command(args, python=sys.executable, repo=repo, output=output, corpora=corpora,
+                                   checkpoint=checkpoint, active=active, commit=commit)
         # Stay in the supervisor process group through every data/training stage.
         wait_for_training(command, cwd=repo, check=True)
     return 0

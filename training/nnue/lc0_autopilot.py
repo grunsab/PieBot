@@ -10,6 +10,7 @@ only the established paired gameplay gate advances the accepted model.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import gzip
 import hashlib
 import json
@@ -50,6 +51,13 @@ def _parse_args(argv=None):
     parser.add_argument("--seed", type=int, default=20260907)
     parser.add_argument("--batch-size", type=int, default=16_384)
     parser.add_argument("--learning-rate", type=float, default=0.001)
+    parser.add_argument("--lr-gamma", type=float, default=1.0,
+                        help="Multiply the learning rate by this per --lr-epoch-positions trained; 1 is constant")
+    parser.add_argument("--lr-epoch-positions", type=int, default=100_000_000)
+    parser.add_argument("--gate-movetime-ms", type=int, default=150)
+    parser.add_argument("--extra-corpus-manifest", type=Path, action="append", default=[],
+                        help="Additional frozen corpus whose chunks join the traversal; "
+                             "validation stays the primary corpus's fixed set")
     parser.add_argument("--gate-games", type=int, default=400, choices=(0, 400),
                         help="0 is a promotion-ineligible smoke run")
     parser.add_argument("--gate-parallel-games", type=int, default=8)
@@ -90,6 +98,42 @@ def load_corpus(manifest_path: Path, *, verify_chunks: bool = True) -> dict[str,
     return manifest
 
 
+def _window(manifest: dict[str, Any]) -> tuple[_dt.datetime, _dt.datetime]:
+    bounds = []
+    for key in ("since", "until"):
+        parsed = _dt.datetime.fromisoformat(str(manifest[key]).replace("Z", "+00:00"))
+        bounds.append(parsed if parsed.tzinfo else parsed.replace(tzinfo=_dt.timezone.utc))
+    return bounds[0], bounds[1]
+
+
+def load_corpora(manifest_path: Path, extra_paths: list[Path], *,
+                 verify_chunks: bool = True) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Primary corpus with every extra corpus's chunks appended, plus extra identities."""
+    corpus = load_corpus(manifest_path, verify_chunks=verify_chunks)
+    windows = [_window(corpus)] if extra_paths else []
+    seen = {row["path"] for row in corpus["chunks"]} | {corpus["validation"]["path"]}
+    extras = []
+    for extra_path in extra_paths:
+        extra = load_corpus(extra_path, verify_chunks=verify_chunks)
+        lower, upper = _window(extra)
+        # The fixed validation games are held out of the primary window only.
+        if any(lower < other_upper and other_lower < upper for other_lower, other_upper in windows):
+            raise ValueError(f"corpus collection windows overlap: {extra_path}")
+        windows.append((lower, upper))
+        for row in extra["chunks"]:
+            if row["path"] in seen:
+                raise ValueError("corpus training and validation paths must be disjoint and unique")
+            seen.add(row["path"])
+        corpus["chunks"].extend(extra["chunks"])
+        extras.append({"corpus_id": extra["corpus_id"], "manifest_sha256": _sha(extra_path)})
+    return corpus, extras
+
+
+def _learning_rate(args, state: dict[str, Any]) -> float:
+    trained = sum(int(item["positions"]) for item in state["history"])
+    return args.learning_rate * args.lr_gamma ** (trained / args.lr_epoch_positions)
+
+
 def _source_identity(commit: str) -> dict[str, Any]:
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("source commit must be an explicit 40-character SHA")
@@ -107,8 +151,8 @@ def _source_identity(commit: str) -> dict[str, Any]:
     return {"commit": commit, "digest": digest.hexdigest()}
 
 
-def _identity(args, corpus: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _identity(args, corpus: dict[str, Any], extras: list[dict[str, Any]] = ()) -> dict[str, Any]:
+    identity = {
         "source": _source_identity(args.source_commit),
         "corpus_id": corpus["corpus_id"],
         "manifest_sha256": _sha(args.corpus_manifest),
@@ -124,6 +168,15 @@ def _identity(args, corpus: dict[str, Any]) -> dict[str, Any]:
         "gate_confirmation_games": 1000, "blend_percent": 75,
         "validation_sha256": corpus["validation"]["sha256"],
     }
+    # Founding options added after the first lineage appear only when used, so
+    # lineages founded without them keep resuming under their original identity.
+    if args.lr_gamma != 1.0:
+        identity["lr_schedule"] = {"gamma": args.lr_gamma, "epoch_positions": args.lr_epoch_positions}
+    if args.gate_movetime_ms != 150:
+        identity["gate_movetime_ms"] = args.gate_movetime_ms
+    if extras:
+        identity["extra_corpora"] = list(extras)
+    return identity
 
 
 def _order(count: int, seed: int, pass_number: int) -> list[int]:
@@ -230,7 +283,7 @@ def _evaluate_candidate(args, root: Path, state: dict[str, Any], *, stamp: float
         piebot_dir=args.piebot_dir.resolve(), screen_json=gate_dir / "screen.json",
         confirmation_json=gate_dir / "confirmation.json",
         base_quant=Path(state["active_model_path"]), candidate_quant=candidate,
-        screen_games=400, confirmation_games=1000, movetime_ms=150,
+        screen_games=400, confirmation_games=1000, movetime_ms=args.gate_movetime_ms,
         noise_plies=12, noise_topk=5, threads=1, seed=args.seed + state["completed_chunks"],
         screen_min_score_delta=0.0, confirmation_min_score_delta=0.0,
         base_blend_percent=75, candidate_blend_percent=75, paired_openings=True,
@@ -262,7 +315,12 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
         raise ValueError("positive batch size and learning rate required")
     if not math.isfinite(args.disk_reserve_gib) or args.disk_reserve_gib < 0 or args.gate_parallel_games < 1:
         raise ValueError("invalid disk reserve or gate parallelism")
-    for protected in (args.initial_checkpoint.resolve(), args.initial_active_model.resolve(), args.corpus_manifest.resolve()):
+    if not math.isfinite(args.lr_gamma) or not 0 < args.lr_gamma <= 1 or args.lr_epoch_positions < 1:
+        raise ValueError("invalid learning-rate schedule")
+    if args.gate_movetime_ms < 1:
+        raise ValueError("gate movetime must be positive")
+    for protected in (args.initial_checkpoint.resolve(), args.initial_active_model.resolve(), args.corpus_manifest.resolve(),
+                      *(path.resolve() for path in args.extra_corpus_manifest)):
         if protected == root or root in protected.parents:
             raise ValueError("LC0 output root must be separate from bootstrap and corpus artifacts")
     root.mkdir(parents=True, exist_ok=True)
@@ -271,8 +329,9 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
     with autopilot._single_instance_lock(root / "lc0.lock"):
         state_path = root / "lc0_state.json"
         state = autopilot._load_state(state_path)
-        corpus = load_corpus(args.corpus_manifest, verify_chunks=state is None)
-        identity = _identity(args, corpus)
+        corpus, extras = load_corpora(args.corpus_manifest, args.extra_corpus_manifest,
+                                      verify_chunks=state is None)
+        identity = _identity(args, corpus, extras)
         if state is not None and (state.get("schema") != SCHEMA or state.get("identity") != identity):
             raise ValueError("LC0 resume identity mismatch; create a new output root for changed source/corpus/objective/bootstrap")
         if state is None:
@@ -342,7 +401,8 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                     raise ValueError("pending chunk identity does not match persisted traversal cursor")
                 state["in_progress"] = pending
                 autopilot._atomic_write_json(state_path, state)
-                print(json.dumps({"event": "lc0-chunk-start", **pending}), flush=True)
+                learning_rate = _learning_rate(args, state)
+                print(json.dumps({"event": "lc0-chunk-start", **pending, "learning_rate": learning_rate}), flush=True)
                 train_jsonl = root / "cache" / "training"
                 first = state["training_checkpoint_path"] is None
                 checkpoint_path = output / "train" / "checkpoint.json"
@@ -366,7 +426,7 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                         metrics = _train(
                             jsonl_dir=train_jsonl, out_dir=output / "train", arch="v2", hidden_dim=1024,
                             batch_size=args.batch_size, max_samples=CHUNK_LIMIT, epochs=1, val_split=0.0,
-                            learning_rate=args.learning_rate, target_cp=250.0, cp_loss_weight=0.0,
+                            learning_rate=learning_rate, target_cp=250.0, cp_loss_weight=0.0,
                             teacher_mix=0.8, min_teacher_depth=0, loss_kind="wdl", wdl_scale_cp=400.0,
                             primary_sample_fraction=1.0, teacher_sample_fraction=0.0,
                             validation_jsonl_dir=validation_dir, max_validation_samples=VALIDATION_LIMIT,
@@ -399,7 +459,8 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                     completed = {**pending, "directory": str(output), "positions": chunk["positions"],
                         "checkpoint_sha256": _sha(checkpoint_path), "optimizer_sha256": _sha(optimizer_path),
                         "quant_sha256": _sha(candidate), "validation_loss": val_loss,
-                        "initial_validation_loss": initial_loss, "finished_at": now()}
+                        "initial_validation_loss": initial_loss, "learning_rate": learning_rate,
+                        "finished_at": now()}
                     autopilot._atomic_write_json(output / "complete.json", completed)
                 candidate_sha = completed["quant_sha256"]
                 val_loss = completed["validation_loss"]
