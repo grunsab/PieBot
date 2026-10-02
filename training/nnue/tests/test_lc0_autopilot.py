@@ -399,6 +399,81 @@ class LC0CampaignTests(unittest.TestCase):
             self.run_campaign()
         self.assertFalse((self.out / "lc0_state.json").exists())
 
+    def write_game_corpus(self):
+        """Replace chunk 0..2 with one chunk holding a short real game."""
+        import chess
+        board = chess.Board()
+        fens = [board.fen()]
+        for san in ("e4", "f5", "Qh5+", "g6", "Qxg6+"):
+            board.push_san(san)
+            fens.append(board.fen())
+        path = self.corpus / "game.jsonl.gz"
+        with gzip.open(path, "wt") as handle:
+            for ply, fen in enumerate(fens):
+                handle.write(json.dumps({"game_id": "g", "ply": ply, "fen": fen}) + "\n")
+        manifest = json.loads(self.manifest.read_text())
+        manifest["chunks"] = [{"path": str(path), "sha256": self.sha(path), "positions": len(fens)}]
+        self.manifest.write_text(json.dumps(manifest))
+
+    def test_position_filters_drop_rows_before_training_and_are_recorded(self):
+        self.write_game_corpus()
+        self.args.skip_early_plies = 1
+        self.args.skip_in_check = True
+        self.args.skip_before_capture = True
+        seen = []
+        def trainer(**kwargs):
+            seen.append([json.loads(line)["ply"]
+                         for line in (kwargs["jsonl_dir"] / "train.jsonl").read_text().splitlines()])
+            return self.trainer(**kwargs)
+        self.run_campaign(trainer=trainer)
+        # ply 0 is early, ply 3 and 5 are in check, ply 4 precedes a capture.
+        self.assertEqual(seen, [[1, 2]])
+        state = self.state()
+        self.assertEqual(state["identity"]["position_filter"],
+                         {"skip_early_plies": 1, "skip_in_check": True, "skip_before_capture": True})
+        self.assertEqual(state["history"][0]["positions"], 6)
+        self.assertEqual(state["history"][0]["positions_trained"], 2)
+
+    def test_learning_rate_schedule_counts_positions_actually_trained(self):
+        self.write_game_corpus()
+        self.args.skip_early_plies = 4
+        self.args.lr_gamma = 0.5
+        self.args.lr_epoch_positions = 2
+        self.args.max_chunks = 2
+        self.run_campaign()
+        # Two of six rows survive the filter, so the second chunk is one epoch on.
+        self.assertEqual([call["learning_rate"] for call in self.calls], [0.001, 0.0005])
+
+    def test_unfiltered_lineage_keeps_identity_and_teacher_mix_is_a_founding_option(self):
+        self.run_campaign()
+        identity = self.state()["identity"]
+        self.assertNotIn("position_filter", identity)
+        self.assertEqual(identity["teacher_mix"], 0.8)
+        self.assertEqual(self.calls[0]["teacher_mix"], 0.8)
+        self.assertNotIn("positions_trained", self.state()["history"][0])
+        self.args.teacher_mix = 0.7
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.run_campaign()
+
+    def test_teacher_mix_is_forwarded_and_validated(self):
+        self.args.teacher_mix = 0.7
+        self.run_campaign()
+        self.assertEqual(self.calls[0]["teacher_mix"], 0.7)
+        self.assertEqual(self.state()["identity"]["teacher_mix"], 0.7)
+
+    def test_invalid_teacher_mix_or_filter_rejected_before_state_creation(self):
+        for name, value in (("teacher_mix", 1.5), ("teacher_mix", float("nan")), ("skip_early_plies", -1)):
+            args = lc0_autopilot._parse_args([
+                "--corpus-manifest", str(self.manifest), "--out-root", str(self.out),
+                "--initial-checkpoint", str(self.initial), "--initial-active-model", str(self.incumbent),
+                "--source-commit", "a" * 40, "--max-chunks", "1", "--gate-games", "0",
+                "--disk-reserve-gib", "0", "--device", "cpu"])
+            setattr(args, name, value)
+            self.args = args
+            with self.assertRaises(ValueError):
+                self.run_campaign()
+        self.assertFalse((self.out / "lc0_state.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

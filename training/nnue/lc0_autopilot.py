@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import autopilot, run_pipeline
+from . import autopilot, lc0_filter, run_pipeline
 from .disk_budget import available_bytes, decimal_gb_bytes
 
 SCHEMA = "piebot-lc0-autopilot-v1"
@@ -55,6 +55,14 @@ def _parse_args(argv=None):
                         help="Multiply the learning rate by this per --lr-epoch-positions trained; 1 is constant")
     parser.add_argument("--lr-epoch-positions", type=int, default=100_000_000)
     parser.add_argument("--gate-movetime-ms", type=int, default=150)
+    parser.add_argument("--teacher-mix", type=float, default=0.8,
+                        help="Weight on LCZero search Q; the rest is the game outcome")
+    parser.add_argument("--skip-early-plies", type=int, default=0,
+                        help="Do not train on rows before this ply")
+    parser.add_argument("--skip-in-check", action="store_true",
+                        help="Do not train on positions where the side to move is in check")
+    parser.add_argument("--skip-before-capture", action="store_true",
+                        help="Do not train on positions where the move played was a capture")
     parser.add_argument("--extra-corpus-manifest", type=Path, action="append", default=[],
                         help="Additional frozen corpus whose chunks join the traversal; "
                              "validation stays the primary corpus's fixed set")
@@ -129,8 +137,16 @@ def load_corpora(manifest_path: Path, extra_paths: list[Path], *,
     return corpus, extras
 
 
+def _position_filter(args) -> dict[str, Any]:
+    """Filter options in force, or an empty dict when every row is trained on."""
+    if not (args.skip_early_plies or args.skip_in_check or args.skip_before_capture):
+        return {}
+    return {"skip_early_plies": args.skip_early_plies, "skip_in_check": args.skip_in_check,
+            "skip_before_capture": args.skip_before_capture}
+
+
 def _learning_rate(args, state: dict[str, Any]) -> float:
-    trained = sum(int(item["positions"]) for item in state["history"])
+    trained = sum(int(item.get("positions_trained", item["positions"])) for item in state["history"])
     return args.learning_rate * args.lr_gamma ** (trained / args.lr_epoch_positions)
 
 
@@ -159,7 +175,7 @@ def _identity(args, corpus: dict[str, Any], extras: list[dict[str, Any]] = ()) -
         "initial_checkpoint": {"path": str(args.initial_checkpoint.resolve()), "sha256": _sha(args.initial_checkpoint)},
         "initial_active_model": {"path": str(args.initial_active_model.resolve()), "sha256": _sha(args.initial_active_model)},
         "arch": "v2", "hidden_dim": 1024, "target_mode": "lc0-q-outcome",
-        "teacher_mix": 0.8, "cp_loss_weight": 0.0, "wdl_scale_cp": 400,
+        "teacher_mix": args.teacher_mix, "cp_loss_weight": 0.0, "wdl_scale_cp": 400,
         "checkpoint_selection": "latest", "batch_size": args.batch_size,
         "learning_rate": args.learning_rate, "seed": args.seed,
         "hours": args.hours, "gate_games": args.gate_games,
@@ -176,6 +192,8 @@ def _identity(args, corpus: dict[str, Any], extras: list[dict[str, Any]] = ()) -
         identity["gate_movetime_ms"] = args.gate_movetime_ms
     if extras:
         identity["extra_corpora"] = list(extras)
+    if _position_filter(args):
+        identity["position_filter"] = _position_filter(args)
     return identity
 
 
@@ -194,25 +212,36 @@ def _check_disk(root: Path, reserve_gib: float, capacity_bytes: int | None = Non
             raise RuntimeError(f"disk reserve below {reserve_gib:g} GiB; protected corpus/checkpoints retained")
 
 
-def _expand_chunk(chunk: dict[str, Any], destination: Path) -> Path:
+def _expand_chunk(chunk: dict[str, Any], destination: Path,
+                  position_filter: dict[str, Any] | None = None) -> int:
+    """Write the chunk's training rows to destination/train.jsonl; return how many."""
     source = Path(chunk["path"])
     if _sha(source) != chunk["sha256"]:
         raise ValueError(f"corpus checksum mismatch: {source}")
     shutil.rmtree(destination, ignore_errors=True)
     destination.mkdir(parents=True)
     output = destination / "train.jsonl"
-    count = 0
-    with gzip.open(source, "rb") as src, output.open("wb") as dst:
+    count = kept = 0
+
+    def rows(src):
+        nonlocal count
         for line in src:
             if not line.strip():
                 continue
             count += 1
             if count > CHUNK_LIMIT:
                 raise ValueError("expanded training chunk exceeds bounded position limit")
+            yield line
+
+    with gzip.open(source, "rb") as src, output.open("wb") as dst:
+        for line in lc0_filter.keep_rows(rows(src), **(position_filter or {})):
             dst.write(line)
+            kept += 1
     if count != chunk["positions"]:
         raise ValueError(f"expanded corpus position count mismatch: {count} != {chunk['positions']}")
-    return destination
+    if kept == 0:
+        raise ValueError(f"position filter left no rows to train on: {source}")
+    return kept
 
 
 def _train(**kwargs):
@@ -319,6 +348,10 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
         raise ValueError("invalid learning-rate schedule")
     if args.gate_movetime_ms < 1:
         raise ValueError("gate movetime must be positive")
+    if not math.isfinite(args.teacher_mix) or not 0 <= args.teacher_mix <= 1:
+        raise ValueError("teacher mix must be in [0, 1]")
+    if args.skip_early_plies < 0:
+        raise ValueError("skip-early-plies must be nonnegative")
     for protected in (args.initial_checkpoint.resolve(), args.initial_active_model.resolve(), args.corpus_manifest.resolve(),
                       *(path.resolve() for path in args.extra_corpus_manifest)):
         if protected == root or root in protected.parents:
@@ -410,7 +443,8 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                 candidate = output / "candidate.nnue"
                 completed = _completed_chunk(output, pending)
                 if completed is None:
-                    _expand_chunk(chunk, train_jsonl)
+                    position_filter = _position_filter(args)
+                    trained = _expand_chunk(chunk, train_jsonl, position_filter)
                     minimum = max(args.disk_reserve_gib * (1024 ** 3),
                                   1 if capacity_bytes is not None else 0)
                     if available_bytes(root, capacity_bytes=capacity_bytes) < minimum:
@@ -427,7 +461,7 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                             jsonl_dir=train_jsonl, out_dir=output / "train", arch="v2", hidden_dim=1024,
                             batch_size=args.batch_size, max_samples=CHUNK_LIMIT, epochs=1, val_split=0.0,
                             learning_rate=learning_rate, target_cp=250.0, cp_loss_weight=0.0,
-                            teacher_mix=0.8, min_teacher_depth=0, loss_kind="wdl", wdl_scale_cp=400.0,
+                            teacher_mix=args.teacher_mix, min_teacher_depth=0, loss_kind="wdl", wdl_scale_cp=400.0,
                             primary_sample_fraction=1.0, teacher_sample_fraction=0.0,
                             validation_jsonl_dir=validation_dir, max_validation_samples=VALIDATION_LIMIT,
                             validation_seed=args.seed, validation_require_teacher=False,
@@ -461,6 +495,8 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                         "quant_sha256": _sha(candidate), "validation_loss": val_loss,
                         "initial_validation_loss": initial_loss, "learning_rate": learning_rate,
                         "finished_at": now()}
+                    if position_filter:
+                        completed["positions_trained"] = trained
                     autopilot._atomic_write_json(output / "complete.json", completed)
                 candidate_sha = completed["quant_sha256"]
                 val_loss = completed["validation_loss"]

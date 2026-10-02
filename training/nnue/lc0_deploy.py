@@ -111,9 +111,15 @@ def training_command(args, *, python: str, repo: Path, output: Path, corpora: li
         command += ['--extra-corpus-manifest', str(extra)]
     for flag, value in (('--learning-rate', args.learning_rate), ('--lr-gamma', args.lr_gamma),
                         ('--lr-epoch-positions', args.lr_epoch_positions),
-                        ('--gate-movetime-ms', args.gate_movetime_ms)):
+                        ('--gate-movetime-ms', args.gate_movetime_ms),
+                        ('--teacher-mix', args.teacher_mix),
+                        ('--skip-early-plies', args.skip_early_plies)):
         if value is not None:
             command += [flag, str(value)]
+    for flag, enabled in (('--skip-in-check', args.skip_in_check),
+                          ('--skip-before-capture', args.skip_before_capture)):
+        if enabled:
+            command.append(flag)
     return command
 
 
@@ -146,6 +152,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--lr-gamma', type=float, default=None)
     parser.add_argument('--lr-epoch-positions', type=int, default=None)
     parser.add_argument('--gate-movetime-ms', type=int, default=None)
+    parser.add_argument('--teacher-mix', type=float, default=None)
+    parser.add_argument('--skip-early-plies', type=int, default=None)
+    parser.add_argument('--skip-in-check', action='store_true')
+    parser.add_argument('--skip-before-capture', action='store_true')
     return parser
 
 

@@ -176,6 +176,17 @@ class Lc0DeploymentTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 lc0_deploy.corpus_windows(self.parse(['--extra-window', bad]), Path('/out'))
 
+    def test_filter_and_result_weight_options_are_forwarded_only_when_given(self):
+        default = self.command([])
+        for flag in ('--teacher-mix', '--skip-early-plies', '--skip-in-check', '--skip-before-capture'):
+            self.assertNotIn(flag, default)
+        command = self.command(['--teacher-mix', '0.7', '--skip-early-plies', '16',
+                                '--skip-in-check', '--skip-before-capture'])
+        self.assertEqual(float(command[command.index('--teacher-mix') + 1]), 0.7)
+        self.assertEqual(int(command[command.index('--skip-early-plies') + 1]), 16)
+        self.assertIn('--skip-in-check', command)
+        self.assertIn('--skip-before-capture', command)
+
     def test_prepare_only_is_off_by_default(self):
         self.assertFalse(self.parse([]).prepare_only)
         self.assertTrue(self.parse(['--prepare-only']).prepare_only)
