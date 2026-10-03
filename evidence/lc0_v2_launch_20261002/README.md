@@ -96,3 +96,18 @@ measure v2 candidates.
 To abandon v2: `supervisorctl stop piebot_lc0v2`, remove its conf,
 `supervisorctl reread && supervisorctl update piebot_lc0v2`, and delete
 `/workspace/piebot_lc0v2_20261002` to return the disk.
+
+## Result: local 1000 ms head-to-head (2026-10-02, M4 Pro, 6 parallel games)
+
+LCZero chunk-34965 net vs v8 cycle 168, same search, blend 75, paired noisy
+openings, 200 games: **LCZero 70 W / 50 D / 80 L, score 0.475, -17 Elo,
+paired 95% CI [-42, +7]**. LCZero searched deeper (15.2 vs 14.2 plies) at
+slightly higher NPS. The first ~10 minutes overlapped a local Rust test run,
+which slowed both sides equally.
+
+Reading: the head-to-head deficit shrinks from about -40 Elo at 150 ms to
+-17 at 1000 ms, but does not turn positive. So the 1000 ms gate will most
+likely still reject candidates near this strength, even though the same net
+scores 174/1200 against the external cohort at 120+1 where cycle 168 scores
+63/1200. Head-to-head between two PieBot nets and play against other engines
+disagree; the gate measures the former. Raw data: `h2h_1000ms.json`.
