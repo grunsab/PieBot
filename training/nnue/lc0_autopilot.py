@@ -47,6 +47,8 @@ def _parse_args(argv=None):
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--piebot-dir", type=Path, default=Path("PieBot"))
     parser.add_argument("--hours", type=float, default=720)
+    parser.add_argument("--deadline-utc", default=None,
+                        help="End the campaign at this ISO timestamp (with zone) instead of after --hours")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--seed", type=int, default=20260907)
     parser.add_argument("--batch-size", type=int, default=16_384)
@@ -137,6 +139,19 @@ def load_corpora(manifest_path: Path, extra_paths: list[Path], *,
     return corpus, extras
 
 
+def _deadline(args) -> float | None:
+    """The absolute deadline as a POSIX timestamp, or None for an hour budget."""
+    if args.deadline_utc is None:
+        return None
+    try:
+        parsed = _dt.datetime.fromisoformat(str(args.deadline_utc).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"invalid deadline timestamp: {args.deadline_utc}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("deadline timestamp must name its time zone")
+    return parsed.timestamp()
+
+
 def _position_filter(args) -> dict[str, Any]:
     """Filter options in force, or an empty dict when every row is trained on."""
     if not (args.skip_early_plies or args.skip_in_check or args.skip_before_capture):
@@ -194,6 +209,8 @@ def _identity(args, corpus: dict[str, Any], extras: list[dict[str, Any]] = ()) -
         identity["extra_corpora"] = list(extras)
     if _position_filter(args):
         identity["position_filter"] = _position_filter(args)
+    if args.deadline_utc is not None:
+        identity["deadline_utc"] = args.deadline_utc
     return identity
 
 
@@ -352,6 +369,7 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
         raise ValueError("teacher mix must be in [0, 1]")
     if args.skip_early_plies < 0:
         raise ValueError("skip-early-plies must be nonnegative")
+    deadline = _deadline(args)
     for protected in (args.initial_checkpoint.resolve(), args.initial_active_model.resolve(), args.corpus_manifest.resolve(),
                       *(path.resolve() for path in args.extra_corpus_manifest)):
         if protected == root or root in protected.parents:
@@ -376,9 +394,12 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                     raise ValueError("initial accepted model has invalid NNUE magic")
             del checkpoint
             started = now()
+            if deadline is not None and deadline <= started:
+                raise ValueError("deadline timestamp is not in the future")
             state = {
                 "schema": SCHEMA, "identity": identity, "status": "running", "started_at": started,
-                "deadline_at": started + args.hours * 3600, "completed_chunks": 0,
+                "deadline_at": deadline if deadline is not None else started + args.hours * 3600,
+                "completed_chunks": 0,
                 "pass_number": 0, "cursor": 0, "in_progress": None, "history": [],
                 "training_checkpoint_path": None, "training_optimizer_path": None,
                 "active_model_path": str(args.initial_active_model.resolve()),

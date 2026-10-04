@@ -187,6 +187,27 @@ class Lc0DeploymentTests(unittest.TestCase):
         self.assertIn('--skip-in-check', command)
         self.assertIn('--skip-before-capture', command)
 
+    def test_prepare_workers_bound_conversion_processes(self):
+        # Conversion runs one process per worker; the default must stay modest
+        # because the container's memory is capped well below the host's.
+        self.assertEqual(self.parse([]).prepare_workers, 8)
+        options = lc0_deploy.prepare_options(
+            self.parse(['--prepare-workers', '4', '--evict-raw']), since='a', until='b',
+            raw=Path('/out/data/raw'), min_free=7, capacity=9)
+        self.assertEqual(options, {'since': 'a', 'until': 'b', 'min_free_bytes': 7, 'workers': 4,
+                                   'capacity_bytes': 9, 'evict_raw': True, 'raw_root': Path('/out/data/raw')})
+        self.assertNotIn('evict_raw', lc0_deploy.prepare_options(
+            self.parse([]), since='a', until='b', raw=Path('/r'), min_free=7, capacity=None))
+        for bad in ('0', '33'):
+            with self.assertRaises(ValueError):
+                lc0_deploy.prepare_options(self.parse(['--prepare-workers', bad]), since='a', until='b',
+                                           raw=Path('/r'), min_free=7, capacity=None)
+
+    def test_deadline_is_forwarded_only_when_given(self):
+        self.assertNotIn('--deadline-utc', self.command([]))
+        command = self.command(['--deadline-utc', '2026-12-07T18:57:28+00:00'])
+        self.assertEqual(command[command.index('--deadline-utc') + 1], '2026-12-07T18:57:28+00:00')
+
     def test_prepare_only_is_off_by_default(self):
         self.assertFalse(self.parse([]).prepare_only)
         self.assertTrue(self.parse(['--prepare-only']).prepare_only)

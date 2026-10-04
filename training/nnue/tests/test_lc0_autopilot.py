@@ -474,6 +474,32 @@ class LC0CampaignTests(unittest.TestCase):
                 self.run_campaign()
         self.assertFalse((self.out / "lc0_state.json").exists())
 
+    def test_absolute_deadline_overrides_hours_and_is_part_of_the_identity(self):
+        # Acquisition time is unknown at launch, so a lineage that must end at a
+        # fixed instant names it instead of guessing an hour budget.
+        self.args.deadline_utc = "2026-12-07T18:57:28+00:00"
+        expected = 1796669848.0
+        self.run_campaign(now=lambda: 1791000000.0)
+        self.assertEqual(self.state()["deadline_at"], expected)
+        self.assertEqual(self.state()["identity"]["deadline_utc"], "2026-12-07T18:57:28+00:00")
+        self.run_campaign(now=lambda: 1791000500.0)
+        self.assertEqual(self.state()["deadline_at"], expected)
+        self.args.deadline_utc = "2026-12-08T18:57:28+00:00"
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.run_campaign(now=lambda: 1791001000.0)
+
+    def test_deadline_must_be_a_future_timestamp_with_a_zone(self):
+        for value in ("2026-12-07T18:57:28", "not a time", "2020-01-01T00:00:00+00:00"):
+            self.args.deadline_utc = value
+            with self.assertRaisesRegex(ValueError, "deadline"):
+                self.run_campaign(now=lambda: 1791000000.0)
+        self.assertFalse((self.out / "lc0_state.json").exists())
+
+    def test_no_deadline_option_keeps_the_hour_budget_identity(self):
+        self.run_campaign(now=lambda: 100.0)
+        self.assertNotIn("deadline_utc", self.state()["identity"])
+        self.assertEqual(self.state()["deadline_at"], 100.0 + 720 * 3600)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -93,6 +93,18 @@ def corpus_windows(args, output: Path) -> list[tuple[str, str, Path, Path]]:
     return windows
 
 
+def prepare_options(args, *, since: str, until: str, raw: Path, min_free: int,
+                    capacity: int | None) -> dict:
+    """Keyword arguments for one window's corpus conversion."""
+    if not 1 <= args.prepare_workers <= 32:
+        raise ValueError('prepare workers must be from 1 to 32')
+    options = dict(since=since, until=until, min_free_bytes=min_free,
+                   workers=args.prepare_workers, capacity_bytes=capacity)
+    if args.evict_raw:
+        options.update(evict_raw=True, raw_root=raw)
+    return options
+
+
 def training_command(args, *, python: str, repo: Path, output: Path, corpora: list[Path],
                      checkpoint: Path, active: Path, commit: str) -> list[str]:
     # A named primary corpus keeps its fixed validation set, so the loss scale
@@ -113,6 +125,7 @@ def training_command(args, *, python: str, repo: Path, output: Path, corpora: li
                         ('--lr-epoch-positions', args.lr_epoch_positions),
                         ('--gate-movetime-ms', args.gate_movetime_ms),
                         ('--teacher-mix', args.teacher_mix),
+                        ('--deadline-utc', args.deadline_utc),
                         ('--skip-early-plies', args.skip_early_plies)):
         if value is not None:
             command += [flag, str(value)]
@@ -153,6 +166,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--lr-epoch-positions', type=int, default=None)
     parser.add_argument('--gate-movetime-ms', type=int, default=None)
     parser.add_argument('--teacher-mix', type=float, default=None)
+    parser.add_argument('--deadline-utc', default=None)
+    parser.add_argument('--prepare-workers', type=int, default=8,
+                        help='Corpus conversion processes (1-32); each holds decoded games in memory')
     parser.add_argument('--skip-early-plies', type=int, default=None)
     parser.add_argument('--skip-in-check', action='store_true')
     parser.add_argument('--skip-before-capture', action='store_true')
@@ -164,6 +180,7 @@ def main(argv=None) -> int:
     capacity = decimal_gb_bytes(args.disk_capacity_gb)
     validate_download_concurrency(args.download_concurrency)
     corpus_windows(args, args.out_root)  # Reject malformed windows before any side effect.
+    prepare_options(args, since=args.since, until=args.until, raw=args.out_root, min_free=0, capacity=None)
     repo = args.repo.resolve()
     output = args.out_root.resolve()
     assert_separate_root(output, args.selfplay_root)
@@ -215,11 +232,8 @@ def main(argv=None) -> int:
             if args.evict_raw:
                 fetch_command += ['--eviction-corpus', str(corpus_root)]
             subprocess.run(fetch_command, cwd=repo, check=True)
-            corpus_options = dict(since=since, until=until, min_free_bytes=min_free,
-                                  workers=16, capacity_bytes=capacity)
-            if args.evict_raw:
-                corpus_options.update(evict_raw=True, raw_root=raw)
-            corpora.append(prepare_corpus(manifest, corpus_root, **corpus_options))
+            corpora.append(prepare_corpus(manifest, corpus_root, **prepare_options(
+                args, since=since, until=until, raw=raw, min_free=min_free, capacity=capacity)))
         if args.prepare_only:
             print(json.dumps({'prepared': [str(corpus) for corpus in corpora]}), flush=True)
             return 0
