@@ -111,3 +111,44 @@ likely still reject candidates near this strength, even though the same net
 scores 174/1200 against the external cohort at 120+1 where cycle 168 scores
 63/1200. Head-to-head between two PieBot nets and play against other engines
 disagree; the gate measures the former. Raw data: `h2h_1000ms.json`.
+
+## 2026-10-04: container wiped, lineage v2 rebuilt from scratch
+
+The host's Docker daemon failed on 2026-10-03. After a restart the instance
+came back as a new container (created 2026-10-04T01:26:24Z) with an empty disk
+and a new SSH port (`ssh -p 40436 root@104.8.120.185`). Everything described
+above that lived on the box is gone: both corpora, the old lineage's state and
+float checkpoints, the v2 roots, the self-play campaign directory, the ranked
+engines and all measurement outputs. Lineage v2 had not started training.
+
+Rebuilt the same day at source commit
+`5ec8912095815b33444885facca73e558cd00ca8`:
+
+- Checkout `/workspace/piebot_repo`, output root
+  `/workspace/piebot_lc0v2_20261004`, supervisor programs `piebot_lc0v2` and
+  `piebot_memguard` (confs checked in under `deploy/vast/`).
+- Binaries rebuilt; matein3 depth-7 signatures match the earlier build
+  (`accept` 5030782, `accept_temp` 5030776).
+- **Starting weights** are recovered from the quantised best net
+  `models/lc0_chunk_00034965.nnue` with `training/nnue/quant_to_checkpoint.py`.
+  Re-exporting the recovered checkpoint reproduces that net byte for byte
+  (sha `56434c1b...`). Checkpoint sha `f38a6ec2...`, identical on the Mac and
+  the box. Its weights sit on the quantisation grid (w1/b1 steps of 1/255,
+  w2 steps of 1/64) and there is no optimizer state, which v2 never planned to
+  carry over anyway.
+- **Corpus** is re-acquired in five windows. The first is the original
+  2026-07-07..2026-09-07T19:39:28.530592Z window so that it stays primary;
+  its inventory again lists 1,433 archives. Check when it completes: corpus id
+  should be `a1920eac...` and the validation file sha `f2c3fdde...`. If they
+  match, losses are comparable with the old lineage's 0.6201; if not, they are
+  not, and that must be said.
+- **Deadline** is now absolute: `--deadline-utc 2026-12-07T18:57:28+00:00`.
+- **Memory**: conversion runs 8 worker processes (was 16).
+  `scripts/vast_memory_guard.sh` logs non-reclaimable memory every minute to
+  `/workspace/memory_guard.log` and stops `piebot_lc0v2` if it stays at 80% of
+  the container limit (about 42.5 GiB) for three samples. Whether memory had
+  anything to do with the host failure is not known.
+
+Founding parameters are otherwise unchanged from the table above. Still not
+done: outside-engine and Stockfish-ladder monitors (their binaries were lost),
+and off-box backups of training checkpoints.
