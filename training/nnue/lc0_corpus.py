@@ -26,6 +26,7 @@ import shutil
 import sqlite3
 import struct
 import tarfile
+import zlib
 from typing import BinaryIO, Iterator
 
 from . import lc0_bin
@@ -143,22 +144,29 @@ def _archive_entries(raw: dict) -> list[dict]:
     return entries
 
 
-def _decode_game_payload(payload: bytes, compressed: bool) -> tuple[list[tuple[int, dict]], int, str]:
-    """Bound one chess game's expansion before sending rows back to the writer."""
+def _decode_game_payload(payload: bytes, compressed: bool) -> tuple[list[tuple[int, dict]], int, str | None]:
+    """Bound one chess game's expansion before sending rows back to the writer.
+
+    A game whose compressed stream cannot be read returns no samples and a None
+    digest; the caller counts it. The official storage holds a few such files.
+    """
     samples, rejected = [], 0
     digest = hashlib.sha256()
-    with contextlib.ExitStack() as stack:
-        source = io.BytesIO(payload)
-        stream = stack.enter_context(gzip.GzipFile(fileobj=source)) if compressed else source
-        for ply, record in enumerate(iter_value_records(stream, digest=digest)):
-            # Even theoretical maximum-length standard games fit below this bound.
-            if ply >= 32768:
-                raise ValueError('LCZero game exceeds maximum supported chess game length')
-            sample = _sample(record)
-            if sample is None:
-                rejected += 1
-            else:
-                samples.append((ply, sample))
+    try:
+        with contextlib.ExitStack() as stack:
+            source = io.BytesIO(payload)
+            stream = stack.enter_context(gzip.GzipFile(fileobj=source)) if compressed else source
+            for ply, record in enumerate(iter_value_records(stream, digest=digest)):
+                # Even theoretical maximum-length standard games fit below this bound.
+                if ply >= 32768:
+                    raise ValueError('LCZero game exceeds maximum supported chess game length')
+                sample = _sample(record)
+                if sample is None:
+                    rejected += 1
+                else:
+                    samples.append((ply, sample))
+    except (EOFError, gzip.BadGzipFile, zlib.error):
+        return [], 0, None
     return samples, rejected, digest.hexdigest()
 
 
@@ -177,6 +185,11 @@ def _convert_archive(entry: dict, stage: Path, conn: sqlite3.Connection, config:
 
     def emit(source_game: str, collected: str, decoded: tuple) -> None:
         samples, rejected, game = decoded
+        if game is None:
+            # Absent from clean archives, so earlier corpora keep their statistics.
+            stats['corrupt_games'] = stats.get('corrupt_games', 0) + 1
+            print(f"skipped undecompressible game {entry.get('name', entry.get('url'))}:{source_game}", flush=True)
+            return
         # Archive writers may rename or recompress the same game. The raw game
         # digest anchors both deduplication and split assignment independently of
         # every transport filename and gzip timestamp.

@@ -140,6 +140,51 @@ class CorpusTests(unittest.TestCase):
             self.prepare([a])
         self.assertFalse((self.root/'corpus'/'corpus_manifest.json').exists())
 
+    def raw_archive(self, path, members):
+        """Like archive(), but members are stored exactly as given (already compressed)."""
+        with tarfile.open(path, 'w') as tf:
+            for name, date, stored in members:
+                info = tarfile.TarInfo(name)
+                info.mtime = dt.datetime.fromisoformat(date).replace(tzinfo=dt.timezone.utc).timestamp()
+                info.size = len(stored)
+                tf.addfile(info, io.BytesIO(stored))
+        return {'dest': str(path), 'url': 'https://example.com/test91/' + path.name,
+                'suite': 'test91/', 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                'size': path.stat().st_size, 'status': 'downloaded'}
+
+    def test_undecompressible_game_is_skipped_and_counted_not_fatal(self):
+        # storage.lczero.org holds a few game files cut off mid-stream (seen:
+        # training-run2-test91-20260517-1317, one of 6,830 members). One such
+        # file must not block a whole corpus, and must not vanish silently.
+        good = gzip.compress(good_record(), mtime=0)
+        for workers in (1, 2):
+            with self.subTest(workers=workers):
+                root = self.root / f'w{workers}'
+                root.mkdir()
+                self.root, saved = root, self.root
+                try:
+                    a = self.raw_archive(root / 'a.tar', [
+                        ('training.1.gz', '2026-08-01T00:00:00', good),
+                        ('training.2.gz', '2026-08-01T00:00:00', good[:-12]),
+                        ('training.3.gz', '2026-08-01T00:00:00', b'not gzip at all'),
+                        ('training.4.gz', '2026-08-01T00:00:00',
+                         gzip.compress(good_record() + good_record(), mtime=0))])
+                    manifest = self.prepare([a], workers=workers)
+                    rows = self.training_rows(manifest)
+                    self.assertEqual(sorted({r['source_game_id'] for r in rows}), ['training.1.gz', 'training.4.gz'])
+                    self.assertEqual(len(rows), 3)
+                    stats = json.loads(manifest.read_text())['stats']
+                    self.assertEqual(stats['corrupt_games'], 2)
+                    self.assertEqual(stats['games'], 2)
+                    self.assertEqual(stats['game_members'], 4)
+                finally:
+                    self.root = saved
+
+    def test_clean_archives_report_no_corrupt_game_statistic(self):
+        # Corpora built before this accounting existed must keep the same manifest.
+        a = archive(self.root/'a.tar', [('training.1.gz','2026-08-01T00:00:00',good_record())])
+        self.assertNotIn('corrupt_games', json.loads(self.prepare([a]).read_text())['stats'])
+
     def test_resume_rejects_changed_training_cache(self):
         a = archive(self.root/'a.tar', [('training.1.gz','2026-08-01T00:00:00',good_record())])
         path = self.prepare([a])
