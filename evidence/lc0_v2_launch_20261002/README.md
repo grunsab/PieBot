@@ -152,3 +152,26 @@ Rebuilt the same day at source commit
 Founding parameters are otherwise unchanged from the table above. Still not
 done: outside-engine and Stockfish-ladder monitors (their binaries were lost),
 and off-box backups of training checkpoints.
+
+## 2026-10-05/06: 18-hour crash loop on one corrupt upstream game, fixed
+
+Conversion of the May window stopped at archive 254 of 744
+(`training-run2-test91-20260517-1317.tar`): one of its 6,830 game files,
+`training.207753962.gz`, is cut off mid-stream on storage.lczero.org. The
+converter raised `EOFError`; `autorestart=unexpected` restarted it 128 times
+between 2026-10-05T12:46Z and 2026-10-06T06:51Z with no progress.
+
+Fix: commit `4e4a79c` skips, logs and counts (`corrupt_games`) a game whose
+compressed stream cannot be read. Deployed 2026-10-06 ~07:05Z with the owner's
+authorisation, using `scripts/migrate_vast_source_commit.py --mode
+lc0-pretraining` to move the source pin `5ec8912` -> `4e4a79c` (audit record
+under the campaign root's `source_commit_migrations/`). Engine sources are
+identical between the two commits; no training state existed yet.
+
+Verified at that point: the primary corpus rebuilt identically (corpus id
+`a1920eac...`, validation sha `f2c3fdde...`), so validation losses are
+comparable with the first lineage. Memory guard peak: 2 GB held (5%).
+
+Cycle-168 baselines on the current engine build, measured while conversion was
+running: Stockfish 16 ladder 2886 [2827, 2942] (27.5% vs 3000, 21.5% vs 3190);
+cohort 42/1200 (Carp 0W 14D, Lambergar 0W 17D, Schoenemann 0W 53D).
