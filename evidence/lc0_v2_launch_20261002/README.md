@@ -175,3 +175,35 @@ comparable with the first lineage. Memory guard peak: 2 GB held (5%).
 Cycle-168 baselines on the current engine build, measured while conversion was
 running: Stockfish 16 ladder 2886 [2827, 2942] (27.5% vs 3000, 21.5% vs 3190);
 cohort 42/1200 (Carp 0W 14D, Lambergar 0W 17D, Schoenemann 0W 53D).
+
+## 2026-10-08: measurement engine changed; trainer unchanged
+
+The engine built from main had lost more than half of its draws against the
+ranked cohort because of search arm S76 (see
+`evidence/search_arms/s76_check_extension_unguarded_20261008/`). The fix is
+commit `9d316d5`.
+
+The trainer could not adopt it: `migrate_vast_source_commit.py --mode
+lc0-pretraining` refuses once training state exists, and the lineage identity
+digests `PieBot/src/**/*.rs`. So the trainer stays pinned at `4e4a79c`, and its
+promotion gate keeps using the S76 engine on both sides.
+
+The two monitors were switched at 17:27Z to a separate checkout,
+`/workspace/piebot_engine_repo` at `cd927b7` (`uci` sha `eed3db2f...`,
+matein3 `accept` 7040853), with fresh output roots:
+
+- Stockfish ladder: `/workspace/piebot_anchor_unguard_20261008`
+- Ranked cohort: `/workspace/piebot_ranked_unguard_20261008`
+
+Both start by re-measuring cycle 168. Numbers from the old roots are not
+comparable with the new ones. Last results on the S76 engine:
+
+| Net | Ladder | Cohort |
+| --- | --- | --- |
+| cycle 168 | 2886 [2827, 2942] | 42 / 1200 |
+| chunk 0 (`85ed2799`) | 2926 [2866, 2980] | |
+| chunk 1 (`c27f1052`) | | 72 / 1200 |
+| chunk 2012 (`febdb22e`) | 2928 [2866, 2984] | |
+| chunk 2471 (`2c5c2c36`) | | 46.5 / 618, abandoned part-way |
+
+Conf backups: `/workspace/piebot_lc0v2_{anchor,ranked}.conf.bak.preunguard.*`.
