@@ -58,7 +58,7 @@ option name Hash type spin default 64 min 1 max 16384
 option name UseNNUE type check default true
 option name NNUEFile type string default 
 option name NNUEQuantFile type string default models/lc0_chunk_00034965.nnue
-option name EvalBlend type spin default 75 min 0 max 100
+option name EvalBlend type spin default 100 min 0 max 100
 uciok
 
 isready
@@ -116,13 +116,13 @@ PieBot works out-of-the-box with any standard UCI-compliant chess graphical inte
 | `UseNNUE` | `check` | `true` | `true / false` | Enables neural network evaluation. Defaults to `true` when a valid model is found. |
 | `NNUEQuantFile` | `string` | *(auto)* | Valid file path | Path to quantized int8 NNUE model (`PIENNQ02`). Auto-detects `models/lc0_chunk_00034965.nnue`. |
 | `NNUEFile` | `string` | `""` | Valid file path | Path to dense f32 NNUE model (`PIENNUE1`, for training/research development). |
-| `EvalBlend` | `spin` | `75` | `0 .. 100` | Percentage weight of NNUE evaluation vs classical evaluation ($0 = 100\%$ classical, $100 = 100\%$ NNUE, $75$ is tournament optimal). |
+| `EvalBlend` | `spin` | `100` | `0 .. 100` | Percentage weight of NNUE evaluation vs classical evaluation ($0 = 100\%$ classical, $100 = 100\%$ NNUE). The engine plays on the network alone by default; lower values mix in the piece-square score. |
 
 To set options in UCI:
 ```text
 setoption name Threads value 8
 setoption name Hash value 256
-setoption name EvalBlend value 75
+setoption name EvalBlend value 100
 ```
 
 The NNUE engine sizes its own search pool from `Threads`; no `RAYON_NUM_THREADS`
@@ -228,8 +228,8 @@ Per `AGENTS.md`, all search changes undergo empirical A/B evaluation against the
 # Paired opening A/B match runner
 cargo run --locked --release --bin compare_play --manifest-path PieBot/Cargo.toml -- \
   --games 400 --movetime 1000 --paired-openings --openings-file books/openings_v1.fen \
-  --base-eval nnue --base-blend 75 --base-nnue-quant-file models/lc0_chunk_00034965.nnue \
-  --exp-eval nnue --exp-blend 75 --exp-nnue-quant-file models/lc0_chunk_00034965.nnue \
+  --base-eval nnue --base-blend 100 --base-nnue-quant-file models/lc0_chunk_00034965.nnue \
+  --exp-eval nnue --exp-blend 100 --exp-nnue-quant-file models/lc0_chunk_00034965.nnue \
   --parallel-games 8 --threads 1 --json-out /tmp/ab_screen.json
 ```
 
