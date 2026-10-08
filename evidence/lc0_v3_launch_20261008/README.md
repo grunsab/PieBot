@@ -115,3 +115,10 @@ Output root `/workspace/piebot_lc0v3_20261008`; state file
 To return to v2 instead: stop and remove `piebot_lc0v3` and its monitors,
 restore the `*.bak.prev3.*` confs, `supervisorctl reread`, `update`. v2 would
 first rerun the gate it was interrupted in.
+
+## 2026-10-08 23:40Z: lineage v3 paused, replaced by v4
+
+Paused cleanly at 390 chunks (pass 0, cursor 4260), best validation loss
+0.617715, before its first gate, so that the gate and the monitors can use
+the engine on the network alone. See
+`evidence/lc0_v4_launch_20261008/README.md`.
