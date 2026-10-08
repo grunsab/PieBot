@@ -2442,22 +2442,12 @@ impl Searcher {
     fn eval_current(&self, board: &Board) -> i32 {
         match self.eval_mode {
             EvalMode::Material => material_eval_cp(board),
-            EvalMode::Pst => {
-                let pst = eval_cp(board);
-                if let Some(nnue) = self.nnue_eval_cp(board) {
-                    self.blend_pst_nnue(pst, nnue)
-                } else {
-                    pst
-                }
-            }
-            EvalMode::Nnue => {
-                let pst = eval_cp(board);
-                if let Some(nnue) = self.nnue_eval_cp(board) {
-                    self.blend_pst_nnue(pst, nnue)
-                } else {
-                    pst
-                }
-            }
+            EvalMode::Pst | EvalMode::Nnue => match self.nnue_eval_cp(board) {
+                // The piece-square score has no weight at 100; do not compute it.
+                Some(nnue) if self.eval_blend_percent == 100 => nnue,
+                Some(nnue) => self.blend_pst_nnue(eval_cp(board), nnue),
+                None => eval_cp(board),
+            },
         }
     }
 }
