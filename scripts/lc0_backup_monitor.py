@@ -64,6 +64,7 @@ class BackupConfig:
     helper: str = '/workspace/piebot_lc0_backup_tools/lc0_snapshot_export.py'
     campaign_root: str = '/workspace/piebot_lc0_20260907'
     bootstrap_root: str = '/workspace/piebot_campaign_v8'
+    corpus_root: str | None = None
     cadence_seconds: float = 86400.
     poll_seconds: float = 60.
     probe_timeout: float = 30.
@@ -79,8 +80,10 @@ def _validate(config):
             or not re.fullmatch(r'[A-Za-z0-9_@.:[\]-]+', config.host)
             or config.host.startswith('-') or not 1 <= config.port <= 65535):
         raise BackupError('invalid SSH destination, port or helper SHA-256')
-    for name in ('helper', 'campaign_root', 'bootstrap_root'):
+    for name in ('helper', 'campaign_root', 'bootstrap_root', 'corpus_root'):
         value = getattr(config, name)
+        if name == 'corpus_root' and value is None:
+            continue
         if not isinstance(value, str) or not value.startswith('/') or '\0' in value:
             raise BackupError(f'{name} must be an absolute remote path')
     for name, maximum in (('cadence_seconds', None), ('poll_seconds', 60),
@@ -107,6 +110,8 @@ def ssh_command(config, *, probe):
     else:
         remote += ['--bootstrap-root', config.bootstrap_root,
                    '--max-bytes', str(config.max_snapshot_bytes)]
+        if config.corpus_root is not None:
+            remote += ['--corpus-root', config.corpus_root]
     return ['ssh', '-T', '-p', str(config.port), '-o', 'BatchMode=yes',
             '-o', 'ConnectTimeout=15', config.host, shlex.join(remote)]
 
@@ -319,9 +324,13 @@ def _reject_symlink_components(path):
 
 
 def _identity(config):
-    return dict(host=config.host, port=config.port, helper=config.helper,
-                helper_sha256=config.helper_sha256, campaign_root=config.campaign_root,
-                bootstrap_root=config.bootstrap_root, pool=str(Path(config.pool).resolve()))
+    identity = dict(host=config.host, port=config.port, helper=config.helper,
+                    helper_sha256=config.helper_sha256, campaign_root=config.campaign_root,
+                    bootstrap_root=config.bootstrap_root, pool=str(Path(config.pool).resolve()))
+    # Named only when set, so journals written before the option existed stay valid.
+    if config.corpus_root is not None:
+        identity['corpus_root'] = config.corpus_root
+    return identity
 
 
 def _load_state(config):
@@ -451,6 +460,8 @@ def main(argv=None):
     for name, default in [('host', 'root@104.8.120.185'), ('helper', '/workspace/piebot_lc0_backup_tools/lc0_snapshot_export.py'),
                           ('campaign-root', '/workspace/piebot_lc0_20260907'), ('bootstrap-root', '/workspace/piebot_campaign_v8')]:
         parser.add_argument('--' + name, default=default)
+    parser.add_argument('--corpus-root', default=None,
+                        help='Remote root whose data/ holds the corpus, when it is not the campaign')
     parser.add_argument('--port', type=int, default=40728)
     for name, default in [('cadence-seconds', 86400.), ('poll-seconds', 60.),
                           ('probe-timeout', 30.), ('transfer-timeout', 900.)]:

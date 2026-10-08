@@ -223,15 +223,19 @@ class CapturePlan:
 
 
 def capture_plan(*, campaign_root: Path, bootstrap_root: Path, max_bytes: int,
-                 max_files: int = 128, after_state_read: Callable | None = None,
+                 max_files: int = 128, corpus_root: Path | None = None,
+                 after_state_read: Callable | None = None,
                  after_open: Callable | None = None) -> CapturePlan:
     """Pin and verify one state's committed model/Adam recovery references.
 
+    corpus_root is the root whose data/ directory holds the frozen corpus; it
+    defaults to the campaign, and differs for a lineage that reuses another's.
     Hooks support deterministic race tests. A failed attempt closes all retained
     descriptors. The caller must close successful plans, preferably using with.
     """
     plan = CapturePlan(campaign_root, bootstrap_root, max_bytes, max_files)
     campaign, bootstrap = plan.campaign_root, plan.bootstrap_root
+    corpus_home = campaign if corpus_root is None else _root(corpus_root, "corpus root")
     try:
         state_file = plan.add(campaign / "training/lc0_state.json", "state")
         if state_file.initial_stat.st_size > STATE_LIMIT:
@@ -287,18 +291,18 @@ def capture_plan(*, campaign_root: Path, bootstrap_root: Path, max_bytes: int,
         # All retention-sensitive model files are now open. Metadata reads and
         # payload hashing happen afterwards, without consulting a newer state.
         pin = plan.add(campaign / "source_git_commit", "source_pin")
-        corpus_file = plan.add(campaign / "data/corpus/corpus_manifest.json", "corpus_manifest",
-                               identity["manifest_sha256"], campaign)
+        corpus_file = plan.add(corpus_home / "data/corpus/corpus_manifest.json", "corpus_manifest",
+                               identity["manifest_sha256"], corpus_home)
         corpus = _json(plan.metadata(corpus_file), "corpus manifest")
         if (corpus.get("schema") != "piebot-lc0-corpus-v1" or corpus.get("complete") is not True
                 or corpus.get("corpus_id") != identity["corpus_id"]):
             raise SnapshotError("corpus identity does not match state")
-        raw = plan.add(campaign / "data/raw/manifest.json", "raw_manifest", corpus["raw_manifest_sha256"], campaign)
-        corpus_identity = plan.add(campaign / "data/corpus/identity.json", "corpus_identity", approved_root=campaign)
+        raw = plan.add(corpus_home / "data/raw/manifest.json", "raw_manifest", corpus["raw_manifest_sha256"], corpus_home)
+        corpus_identity = plan.add(corpus_home / "data/corpus/identity.json", "corpus_identity", approved_root=corpus_home)
         validation = corpus["validation"]
         if validation["sha256"] != identity["validation_sha256"]:
             raise SnapshotError("fixed validation checksum does not match state")
-        plan.add(validation["path"], "fixed_validation", validation["sha256"], campaign)
+        plan.add(validation["path"], "fixed_validation", validation["sha256"], corpus_home)
         for directory, (record, roles) in records.items():
             for role in roles:
                 plan.add(Path(directory) / "complete.json", role + "_completion", approved_root=campaign)
@@ -341,6 +345,8 @@ def capture_plan(*, campaign_root: Path, bootstrap_root: Path, max_bytes: int,
             "completed_chunks": state["completed_chunks"], "deadline_at": state.get("deadline_at"),
             "source": identity["source"], "campaign_root": str(campaign), "bootstrap_root": str(bootstrap),
             "files": [blobs[key] for key in sorted(blobs)]}
+        if corpus_root is not None:
+            plan.manifest["corpus_root"] = str(corpus_home)
         summary = _state_summary(plan.state_bytes)
         plan.manifest.update(status=summary["status"], model_identity_key=summary["model_identity_key"])
         return plan
@@ -479,6 +485,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign-root", type=Path, required=True)
     parser.add_argument("--bootstrap-root", type=Path)
+    parser.add_argument("--corpus-root", type=Path,
+                        help="Root whose data/ holds the frozen corpus, when it is not the campaign")
     parser.add_argument("--max-bytes", type=int, default=5 * 1024**3)
     parser.add_argument("--max-files", type=int, default=128)
     parser.add_argument("--probe", action="store_true")
@@ -490,7 +498,8 @@ def main(argv=None) -> int:
             print(json.dumps(probe(args.campaign_root), sort_keys=True))
         else:
             with capture_plan(campaign_root=args.campaign_root, bootstrap_root=args.bootstrap_root,
-                              max_bytes=args.max_bytes, max_files=args.max_files) as plan:
+                              max_bytes=args.max_bytes, max_files=args.max_files,
+                              corpus_root=args.corpus_root) as plan:
                 write_tar(plan, sys.stdout.buffer)
                 sys.stdout.buffer.flush()
         return 0

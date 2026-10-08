@@ -74,6 +74,19 @@ class BackupMonitorTests(unittest.TestCase):
             transfer.assert_not_called()
             self.assertFalse(self.config().state_path.exists())
 
+    def test_corpus_root_reaches_the_capture_command_and_the_journal_identity_only_when_set(self):
+        m = self.module()
+        plain = self.config()
+        self.assertNotIn('--corpus-root', shlex.split(m.ssh_command(plain, probe=False)[-1]))
+        self.assertNotIn('corpus_root', m._identity(plain))
+        reused = self.config(corpus_root='/workspace/older_lineage')
+        capture = shlex.split(m.ssh_command(reused, probe=False)[-1])
+        self.assertEqual(capture[capture.index('--corpus-root') + 1], '/workspace/older_lineage')
+        self.assertNotIn('--corpus-root', shlex.split(m.ssh_command(reused, probe=True)[-1]))
+        self.assertEqual(m._identity(reused)['corpus_root'], '/workspace/older_lineage')
+        with self.assertRaises(m.BackupError):
+            m.ssh_command(self.config(corpus_root='relative/path'), probe=False)
+
     def test_daily_changed_key_and_final_capture_use_actual_captured_identity(self):
         m = self.module()
         config = self.config()

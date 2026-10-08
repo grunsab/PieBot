@@ -110,6 +110,45 @@ class SnapshotFixture(unittest.TestCase):
                 plan.copy_file(entry['sources'][0]['path'], output)
                 self.assertEqual(digest(output.getvalue()), entry['sha256'])
 
+    def reuse_another_lineages_corpus(self):
+        """Move the corpus out of the campaign, as a lineage founded on reused corpora has it."""
+        donor = self.root / 'donor'
+        donor.mkdir()
+        (self.campaign / 'data').rename(donor / 'data')
+        validation = donor / 'data/corpus/validation.jsonl'
+        manifest = json.loads((donor / 'data/corpus/corpus_manifest.json').read_text())
+        manifest['validation']['path'] = str(validation)
+        self.corpus = self.write(donor / 'data/corpus/corpus_manifest.json', manifest)
+        self.state['identity']['manifest_sha256'] = self.sha(self.corpus)
+        self.write(self.state_path, self.state)
+        return donor
+
+    def test_corpus_may_live_in_a_separately_approved_root(self):
+        donor = self.reuse_another_lineages_corpus()
+        with self.assertRaises(self.exporter().SnapshotError):
+            self.capture()
+        with self.capture(corpus_root=donor) as plan:
+            by_role = {source['role']: source['path'] for entry in plan.manifest['files']
+                       for source in entry['sources']}
+            self.assertEqual(plan.manifest['corpus_root'], str(donor))
+        self.assertEqual(by_role['corpus_manifest'], str(donor / 'data/corpus/corpus_manifest.json'))
+        self.assertEqual(by_role['raw_manifest'], str(donor / 'data/raw/manifest.json'))
+        self.assertEqual(by_role['corpus_identity'], str(donor / 'data/corpus/identity.json'))
+        self.assertEqual(by_role['fixed_validation'], str(donor / 'data/corpus/validation.jsonl'))
+        self.assertTrue(by_role['latest_checkpoint'].startswith(str(self.campaign)))
+
+    def test_default_capture_names_no_corpus_root_and_cli_forwards_one(self):
+        with self.capture() as plan:
+            self.assertNotIn('corpus_root', plan.manifest)
+        donor = self.reuse_another_lineages_corpus()
+        script = Path(self.exporter().__file__)
+        result = subprocess.run([sys.executable, str(script), '--campaign-root', str(self.campaign),
+                                 '--bootstrap-root', str(self.bootstrap), '--corpus-root', str(donor)],
+                                cwd=self.root, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode='r:') as archive:
+            self.assertEqual(archive.getnames()[-1], 'complete.json')
+
     def test_open_descriptors_survive_retention_and_state_advance(self):
         state_a = self.state_path.read_bytes()
         expected = self.path(self.best, 'train/checkpoint.json').read_bytes()
