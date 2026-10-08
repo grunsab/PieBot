@@ -91,6 +91,13 @@ Output root `/workspace/piebot_lc0v3_20261008`; state file
   holds the 49 games played before the switch.
 - Off-box backups: the Mac watcher was restarted against the v3 root, state
   in `out/lc0_backup_monitor_v3/`. v2's last off-box snapshot is chunk 3848.
+  The exporter first refused v3 because it looked for the corpus under the
+  campaign root. It now takes `--corpus-root` (here
+  `/workspace/piebot_lc0v2_20261004`); the new helper is
+  `/workspace/piebot_lc0_backup_tools/054e1c0555ee/lc0_snapshot_export.py`,
+  sha256 `054e1c0555eec6affc138b9b65456a6ac6832e2552e10967836f3e1b0334b817`.
+  The backup tools (exporter, store, monitor) are on main as of this change;
+  before, they existed only on `campaign/lc0-20260907`.
 
 ## What to expect
 
