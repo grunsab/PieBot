@@ -207,3 +207,10 @@ comparable with the new ones. Last results on the S76 engine:
 | chunk 2471 (`2c5c2c36`) | | 46.5 / 618, abandoned part-way |
 
 Conf backups: `/workspace/piebot_lc0v2_{anchor,ranked}.conf.bak.preunguard.*`.
+
+## 2026-10-08 18:52Z: lineage v2 stopped, replaced by v3
+
+Stopped at 3,870 chunks (pass 0, cursor 3870), best validation loss 0.61768,
+so that the trainer's gate can use the fixed engine. Its corpora under
+`/workspace/piebot_lc0v2_20261004/data` are now lineage v3's corpora and must
+not be deleted. See `evidence/lc0_v3_launch_20261008/README.md`.
