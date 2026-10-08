@@ -47,19 +47,38 @@ def ladder_command(repo: Path, model: Path, anchor: Path, output: Path, seed: in
             '--seed', str(seed), '--out-dir', str(output)]
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--campaign-root', type=Path, default=Path('/workspace/piebot_lc0_20260907'))
+    parser.add_argument('--out-root', type=Path,
+                        help='measurement directory; defaults to <campaign-root>/anchor. '
+                             'Use a new one when the engine binary changes.')
     parser.add_argument('--anchor', type=Path, default=Path('/workspace/stockfish16'))
     parser.add_argument('--baseline', type=Path, default=Path('/workspace/piebot_campaign_v8/cycles/cycle_000168/nnue_quant.nnue'))
-    args = parser.parse_args(argv)
+    return parser
+
+
+def output_root(args) -> Path:
+    return args.out_root if args.out_root is not None else args.campaign_root / 'anchor'
+
+
+def measurement_identity(model_sha: str, piebot: Path, now: float) -> dict:
+    return {'model_sha256': model_sha, 'anchor_sha256': ANCHOR_SHA,
+            'piebot_sha256': sha256(piebot),
+            'blend_percent': 75, 'rungs': [3000, 3190],
+            'time_control': '60+0.5', 'games_per_rung': 100,
+            'concurrent_training': True, 'started_at': now}
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     repo = args.repo.resolve()
     sys.path.insert(0, str(repo))
     from training.nnue.autopilot import _atomic_write_json, _single_instance_lock
     if sha256(args.anchor) != ANCHOR_SHA:
         raise ValueError('canonical SF16 anchor SHA mismatch')
-    output = args.campaign_root / 'anchor'
+    output = output_root(args)
     output.mkdir(parents=True, exist_ok=True)
     journal = output / 'monitor_state.json'
     campaign_path = args.campaign_root / 'training/lc0_state.json'
@@ -84,10 +103,7 @@ def main(argv=None) -> int:
                     time.sleep(60)
                     continue
                 report = directory / 'ladder_report.json'
-                identity = {'model_sha256': expected, 'anchor_sha256': ANCHOR_SHA,
-                            'blend_percent': 75, 'rungs': [3000, 3190],
-                            'time_control': '60+0.5', 'games_per_rung': 100,
-                            'concurrent_training': True, 'started_at': now}
+                identity = measurement_identity(expected, repo / 'PieBot/target/release/uci', now)
                 _atomic_write_json(directory / 'measurement_identity.json', identity)
                 print(json.dumps({'event': 'anchor-start', **identity}), flush=True)
                 if not report.exists():

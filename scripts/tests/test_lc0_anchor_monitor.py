@@ -33,6 +33,23 @@ class AnchorMonitorTests(unittest.TestCase):
                               ('--time-control', '60+0.5'), ('--piebot-blend', '75')):
             self.assertEqual(command[command.index(option) + 1], value)
 
+    def test_output_defaults_to_the_campaign_and_can_be_separated(self):
+        parser = monitor.build_parser()
+        default = parser.parse_args(['--campaign-root', '/campaign'])
+        self.assertEqual(monitor.output_root(default), Path('/campaign/anchor'))
+        separate = parser.parse_args(['--campaign-root', '/campaign', '--out-root', '/other'])
+        self.assertEqual(monitor.output_root(separate), Path('/other'))
+
+    def test_measurement_identity_records_the_engine_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            binary = Path(td) / 'uci'
+            binary.write_bytes(b'engine')
+            identity = monitor.measurement_identity('model-sha', binary, 123.)
+        self.assertEqual(identity['piebot_sha256'], hashlib.sha256(b'engine').hexdigest())
+        self.assertEqual(identity['model_sha256'], 'model-sha')
+        self.assertEqual(identity['rungs'], [3000, 3190])
+        self.assertEqual(identity['started_at'], 123.)
+
 
 if __name__ == '__main__':
     unittest.main()
