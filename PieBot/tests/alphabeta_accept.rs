@@ -85,3 +85,20 @@ fn temp_search_keeps_forcing_checking_sacrifice_at_root() {
         result.nodes
     );
 }
+
+#[test]
+fn alphabeta_extends_a_sacrificial_check() {
+    // Nh6+ Kh8, Qg8+ Rxg8, Nf7#. The queen check loses the queen by static
+    // exchange; without an extension on it the mate is seen a ply later.
+    let board = Board::from_fen("r5k1/5Npp/8/8/2Q5/8/8/7K w - - 0 1", false).expect("valid FEN");
+    let mut searcher = piebot::search::alphabeta::Searcher::default();
+
+    let res = searcher.search_depth(&board, 3);
+
+    assert_eq!(res.bestmove.as_deref(), Some("f7h6"));
+    assert!(
+        res.score_cp >= piebot::search::eval::MATE_SCORE - 5,
+        "smothered mate in three must be found at depth 3: {}",
+        res.score_cp
+    );
+}

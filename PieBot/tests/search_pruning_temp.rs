@@ -1,5 +1,6 @@
 use cozy_chess::Board;
 use piebot::search::alphabeta_temp::Searcher;
+use piebot::search::eval::MATE_SCORE;
 
 #[test]
 fn test_see_pruning_and_lmp_deterministic_depth() {
@@ -55,17 +56,18 @@ fn test_internal_iterative_reduction() {
 }
 
 #[test]
-fn test_see_guarded_check_extension_temp() {
+fn sacrificial_check_is_extended_temp() {
+    // Nh6+ Kh8, Qg8+ Rxg8, Nf7#. The queen check loses the queen by static
+    // exchange; without an extension on it the mate is seen a ply later.
+    let board: Board = "r5k1/5Npp/8/8/2Q5/8/8/7K w - - 0 1".parse().unwrap();
     let mut searcher = Searcher::default();
-    searcher.set_use_lmr(true);
-    searcher.set_use_nullmove(true);
-    searcher.set_use_history(true);
-
-    // Position with a checking move
-    let board: Board = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3".parse().unwrap();
-    let res = searcher.search_depth(&board, 5);
-    assert!(res.bestmove.is_some());
-    assert!(res.nodes > 0);
+    let res = searcher.search_depth(&board, 3);
+    assert_eq!(res.bestmove.as_deref(), Some("f7h6"));
+    assert!(
+        res.score_cp >= MATE_SCORE - 5,
+        "smothered mate in three must be found at depth 3: {}",
+        res.score_cp
+    );
 }
 
 #[test]
@@ -93,8 +95,3 @@ fn test_killer_exempt_from_quiet_see_pruning_temp() {
     assert!(res.bestmove.is_some());
     assert!(res.nodes > 0);
 }
-
-
-
-
-
