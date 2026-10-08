@@ -214,7 +214,12 @@ class LC0CampaignTests(unittest.TestCase):
             self.run_campaign()
         kw = gate.call_args.kwargs
         self.assertEqual((kw["screen_games"], kw["confirmation_games"]), (400, 1000))
-        self.assertEqual((kw["base_blend_percent"], kw["candidate_blend_percent"]), (75, 75))
+        # Both nets are judged the way the engine plays them: on the network alone.
+        self.assertEqual((kw["base_blend_percent"], kw["candidate_blend_percent"]), (100, 100))
+        state = self.state()
+        self.assertEqual(state["identity"]["blend_percent"], 100)
+        self.assertEqual(state["active_model_blend_percent"], 100)
+        self.assertEqual(state["accepted_models"][-1]["blend_percent"], 100)
         self.assertTrue(kw["paired_openings"])
         self.assertEqual(kw["threads"], 1)
         self.assertEqual(kw["confidence_level"], 0.95)

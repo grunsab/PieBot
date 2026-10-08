@@ -29,6 +29,9 @@ from . import autopilot, lc0_filter, run_pipeline
 from .disk_budget import available_bytes, decimal_gb_bytes
 
 SCHEMA = "piebot-lc0-autopilot-v1"
+# Share of the network in the engine's static evaluation during the gate, for
+# incumbent and candidate alike. The engine plays on the network alone.
+GATE_BLEND_PERCENT = 100
 CHUNK_LIMIT = 700_000
 VALIDATION_LIMIT = 100_000
 DAY = 86_400
@@ -199,7 +202,7 @@ def _identity(args, corpus: dict[str, Any], extras: list[dict[str, Any]] = ()) -
         "hours": args.hours, "gate_games": args.gate_games,
         "gate_parallel_games": args.gate_parallel_games,
         "disk_capacity_bytes": decimal_gb_bytes(args.disk_capacity_gb),
-        "gate_confirmation_games": 1000, "blend_percent": 75,
+        "gate_confirmation_games": 1000, "blend_percent": GATE_BLEND_PERCENT,
         "validation_sha256": corpus["validation"]["sha256"],
     }
     # Founding options added after the first lineage appear only when used, so
@@ -337,7 +340,7 @@ def _evaluate_candidate(args, root: Path, state: dict[str, Any], *, stamp: float
         screen_games=400, confirmation_games=1000, movetime_ms=args.gate_movetime_ms,
         noise_plies=12, noise_topk=5, threads=1, seed=args.seed + state["completed_chunks"],
         screen_min_score_delta=0.0, confirmation_min_score_delta=0.0,
-        base_blend_percent=75, candidate_blend_percent=75, paired_openings=True,
+        base_blend_percent=GATE_BLEND_PERCENT, candidate_blend_percent=GATE_BLEND_PERCENT, paired_openings=True,
         incremental_pst_policy="strict-superiority", confidence_level=0.95,
         bootstrap_samples=20_000, parallel_games=args.gate_parallel_games,
     )
@@ -352,7 +355,7 @@ def _evaluate_candidate(args, root: Path, state: dict[str, Any], *, stamp: float
         state["active_model_path"] = str(accepted)
         state["active_model_sha256"] = sha
         state["accepted_models"].append({"path": str(accepted), "sha256": sha,
-            "blend_percent": 75, "completed_chunks": state["completed_chunks"], "gate": str(gate_dir / "decision.json")})
+            "blend_percent": GATE_BLEND_PERCENT, "completed_chunks": state["completed_chunks"], "gate": str(gate_dir / "decision.json")})
     state["last_gate"] = gate
     state["last_gate_identity"] = gate_identity
 
@@ -413,7 +416,7 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                 "training_checkpoint_path": None, "training_optimizer_path": None,
                 "active_model_path": str(args.initial_active_model.resolve()),
                 "active_model_sha256": identity["initial_active_model"]["sha256"],
-                "active_model_blend_percent": 75, "accepted_models": [], "last_gate": None,
+                "active_model_blend_percent": GATE_BLEND_PERCENT, "accepted_models": [], "last_gate": None,
                 "last_evaluation_at": started, "evaluation_pending": False,
                 "baseline_validation": None, "best_validation_loss": None,
             }

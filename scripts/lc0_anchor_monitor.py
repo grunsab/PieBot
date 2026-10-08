@@ -12,6 +12,8 @@ import sys
 import time
 
 ANCHOR_SHA = '8f60a016dc767e0d648a8665b8ede3e6e4d28c086ad90517ad26f55b9960bd84'
+# The engine is measured the way it plays: on the network alone.
+BLEND_PERCENT = 100
 ACTIVE_SHA = '271a5a108ee03e20a0036b683e108f76dd44fc2e6d289cc3d3f8c839082c519c'
 
 
@@ -41,7 +43,7 @@ def ladder_command(repo: Path, model: Path, anchor: Path, output: Path, seed: in
     # The later August rung-dependence study supersedes the early 1500/1800 scale.
     return [sys.executable, str(repo / 'scripts/uci_elo_ladder.py'),
             '--piebot-command', str(repo / 'PieBot/target/release/uci'),
-            '--piebot-nnue', str(model), '--piebot-blend', '75',
+            '--piebot-nnue', str(model), '--piebot-blend', str(BLEND_PERCENT),
             '--stockfish-command', str(anchor), '--rungs', '3000,3190',
             '--games', '100', '--time-control', '60+0.5',
             '--seed', str(seed), '--out-dir', str(output)]
@@ -66,7 +68,7 @@ def output_root(args) -> Path:
 def measurement_identity(model_sha: str, piebot: Path, now: float) -> dict:
     return {'model_sha256': model_sha, 'anchor_sha256': ANCHOR_SHA,
             'piebot_sha256': sha256(piebot),
-            'blend_percent': 75, 'rungs': [3000, 3190],
+            'blend_percent': BLEND_PERCENT, 'rungs': [3000, 3190],
             'time_control': '60+0.5', 'games_per_rung': 100,
             'concurrent_training': True, 'started_at': now}
 

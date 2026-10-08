@@ -30,7 +30,7 @@ class AnchorMonitorTests(unittest.TestCase):
         command = monitor.ladder_command(Path('/repo'), Path('/model.nnue'),
                                          Path('/stockfish16'), Path('/job'), 20260907)
         for option, value in (('--rungs', '3000,3190'), ('--games', '100'),
-                              ('--time-control', '60+0.5'), ('--piebot-blend', '75')):
+                              ('--time-control', '60+0.5'), ('--piebot-blend', '100')):
             self.assertEqual(command[command.index(option) + 1], value)
 
     def test_output_defaults_to_the_campaign_and_can_be_separated(self):
@@ -48,6 +48,7 @@ class AnchorMonitorTests(unittest.TestCase):
         self.assertEqual(identity['piebot_sha256'], hashlib.sha256(b'engine').hexdigest())
         self.assertEqual(identity['model_sha256'], 'model-sha')
         self.assertEqual(identity['rungs'], [3000, 3190])
+        self.assertEqual(identity['blend_percent'], 100)
         self.assertEqual(identity['started_at'], 123.)
 
 
