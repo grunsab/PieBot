@@ -212,6 +212,40 @@ class Lc0DeploymentTests(unittest.TestCase):
         self.assertFalse(self.parse([]).prepare_only)
         self.assertTrue(self.parse(['--prepare-only']).prepare_only)
 
+    def test_reused_corpora_skip_acquisition_and_keep_their_order(self):
+        with tempfile.TemporaryDirectory() as td:
+            first, second = Path(td) / 'a.json', Path(td) / 'b.json'
+            first.write_text('{}')
+            second.write_text('{}')
+            args = self.parse(['--reuse-corpus-manifest', str(first),
+                               '--reuse-corpus-manifest', str(second)])
+            corpora = lc0_deploy.reused_corpora(args)
+            self.assertEqual(corpora, [first, second])
+            command = lc0_deploy.training_command(
+                args, python='python3', repo=Path('/repo'), output=Path('/out'), corpora=corpora,
+                checkpoint=Path('/boot/checkpoint.json'), active=Path('/boot/active.nnue'), commit='a' * 40)
+            self.assertEqual(command[command.index('--corpus-manifest') + 1], str(first))
+            self.assertEqual(command[command.index('--extra-corpus-manifest') + 1], str(second))
+            second.unlink()
+            with self.assertRaisesRegex(ValueError, 'missing'):
+                lc0_deploy.reused_corpora(args)
+        self.assertIsNone(lc0_deploy.reused_corpora(self.parse([])))
+
+    def test_reused_corpora_cannot_be_combined_with_acquisition_options(self):
+        with tempfile.TemporaryDirectory() as td:
+            manifest = Path(td) / 'a.json'
+            manifest.write_text('{}')
+            for extra in (['--extra-window', '2026-03-07,2026-04-07'],
+                          ['--primary-corpus-manifest', str(manifest)], ['--prepare-only']):
+                with self.assertRaisesRegex(ValueError, 'reuse'):
+                    lc0_deploy.reused_corpora(
+                        self.parse(['--reuse-corpus-manifest', str(manifest), *extra]))
+
+    def test_initial_cursor_is_forwarded_only_when_given(self):
+        self.assertNotIn('--initial-cursor', self.command([]))
+        command = self.command(['--initial-cursor', '3790'])
+        self.assertEqual(command[command.index('--initial-cursor') + 1], '3790')
+
 
 if __name__ == '__main__':
     unittest.main()

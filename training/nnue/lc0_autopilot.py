@@ -49,6 +49,9 @@ def _parse_args(argv=None):
     parser.add_argument("--hours", type=float, default=720)
     parser.add_argument("--deadline-utc", default=None,
                         help="End the campaign at this ISO timestamp (with zone) instead of after --hours")
+    parser.add_argument("--initial-cursor", type=int, default=0,
+                        help="Position in the first pass's chunk order to start from; a lineage that "
+                             "replaces a stopped one on the same corpus and seed continues where it stopped")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--seed", type=int, default=20260907)
     parser.add_argument("--batch-size", type=int, default=16_384)
@@ -211,6 +214,8 @@ def _identity(args, corpus: dict[str, Any], extras: list[dict[str, Any]] = ()) -
         identity["position_filter"] = _position_filter(args)
     if args.deadline_utc is not None:
         identity["deadline_utc"] = args.deadline_utc
+    if args.initial_cursor:
+        identity["initial_cursor"] = args.initial_cursor
     return identity
 
 
@@ -365,6 +370,8 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
         raise ValueError("invalid learning-rate schedule")
     if args.gate_movetime_ms < 1:
         raise ValueError("gate movetime must be positive")
+    if args.initial_cursor < 0:
+        raise ValueError("initial cursor must be nonnegative")
     if not math.isfinite(args.teacher_mix) or not 0 <= args.teacher_mix <= 1:
         raise ValueError("teacher mix must be in [0, 1]")
     if args.skip_early_plies < 0:
@@ -382,6 +389,8 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
         state = autopilot._load_state(state_path)
         corpus, extras = load_corpora(args.corpus_manifest, args.extra_corpus_manifest,
                                       verify_chunks=state is None)
+        if args.initial_cursor >= len(corpus["chunks"]):
+            raise ValueError("initial cursor is beyond the last chunk of the corpus")
         identity = _identity(args, corpus, extras)
         if state is not None and (state.get("schema") != SCHEMA or state.get("identity") != identity):
             raise ValueError("LC0 resume identity mismatch; create a new output root for changed source/corpus/objective/bootstrap")
@@ -400,7 +409,7 @@ def run(args, *, now: Callable[[], float] = time.time, stop_requested: Callable[
                 "schema": SCHEMA, "identity": identity, "status": "running", "started_at": started,
                 "deadline_at": deadline if deadline is not None else started + args.hours * 3600,
                 "completed_chunks": 0,
-                "pass_number": 0, "cursor": 0, "in_progress": None, "history": [],
+                "pass_number": 0, "cursor": args.initial_cursor, "in_progress": None, "history": [],
                 "training_checkpoint_path": None, "training_optimizer_path": None,
                 "active_model_path": str(args.initial_active_model.resolve()),
                 "active_model_sha256": identity["initial_active_model"]["sha256"],

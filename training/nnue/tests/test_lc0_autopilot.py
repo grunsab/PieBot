@@ -500,6 +500,33 @@ class LC0CampaignTests(unittest.TestCase):
         self.assertNotIn("deadline_utc", self.state()["identity"])
         self.assertEqual(self.state()["deadline_at"], 100.0 + 720 * 3600)
 
+    def test_initial_cursor_continues_another_lineages_traversal(self):
+        # A lineage founded to replace a stopped one (same corpus, same seed)
+        # starts in the shared chunk order where that one stopped.
+        order = lc0_autopilot._order(3, self.args.seed, 0)
+        self.args.initial_cursor = 2
+        self.args.max_chunks = 2
+        self.run_campaign()
+        history = self.state()["history"]
+        self.assertEqual((history[0]["pass_number"], history[0]["cursor"]), (0, 2))
+        self.assertEqual(history[0]["chunk_index"], order[2])
+        self.assertEqual((history[1]["pass_number"], history[1]["cursor"]), (1, 0))
+        self.assertEqual(self.state()["identity"]["initial_cursor"], 2)
+        self.args.initial_cursor = 1
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.run_campaign()
+
+    def test_default_start_keeps_the_founding_identity_and_bad_cursor_is_rejected(self):
+        for bad in (-1, 3):
+            self.args.initial_cursor = bad
+            with self.assertRaisesRegex(ValueError, "initial cursor"):
+                self.run_campaign()
+            self.assertFalse((self.out / "lc0_state.json").exists())
+        self.args.initial_cursor = 0
+        self.run_campaign()
+        self.assertNotIn("initial_cursor", self.state()["identity"])
+        self.assertEqual(self.state()["history"][0]["cursor"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

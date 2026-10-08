@@ -93,6 +93,18 @@ def corpus_windows(args, output: Path) -> list[tuple[str, str, Path, Path]]:
     return windows
 
 
+def reused_corpora(args) -> list[Path] | None:
+    """Existing frozen corpora to train on as they are, primary first; None to acquire."""
+    if not args.reuse_corpus_manifest:
+        return None
+    if args.extra_window or args.primary_corpus_manifest is not None or args.prepare_only:
+        raise ValueError('--reuse-corpus-manifest cannot be combined with acquisition options')
+    for manifest in args.reuse_corpus_manifest:
+        if not manifest.is_file():
+            raise ValueError(f'reused corpus manifest is missing: {manifest}')
+    return list(args.reuse_corpus_manifest)
+
+
 def prepare_options(args, *, since: str, until: str, raw: Path, min_free: int,
                     capacity: int | None) -> dict:
     """Keyword arguments for one window's corpus conversion."""
@@ -126,6 +138,7 @@ def training_command(args, *, python: str, repo: Path, output: Path, corpora: li
                         ('--gate-movetime-ms', args.gate_movetime_ms),
                         ('--teacher-mix', args.teacher_mix),
                         ('--deadline-utc', args.deadline_utc),
+                        ('--initial-cursor', args.initial_cursor),
                         ('--skip-early-plies', args.skip_early_plies)):
         if value is not None:
             command += [flag, str(value)]
@@ -161,6 +174,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--initial-checkpoint-sha256', default=None)
     parser.add_argument('--primary-corpus-manifest', type=Path, default=None,
                         help='Existing frozen corpus that stays primary (and supplies validation)')
+    parser.add_argument('--reuse-corpus-manifest', type=Path, action='append', default=[],
+                        help='Train on this existing frozen corpus instead of acquiring one; '
+                             'repeatable, the first is primary and supplies validation')
+    parser.add_argument('--initial-cursor', type=int, default=None)
     parser.add_argument('--learning-rate', type=float, default=None)
     parser.add_argument('--lr-gamma', type=float, default=None)
     parser.add_argument('--lr-epoch-positions', type=int, default=None)
@@ -187,6 +204,7 @@ def main(argv=None) -> int:
     checkpoint, checkpoint_sha = resolve_bootstrap(args)
     active = args.selfplay_root / 'cycles/cycle_000168/nnue_quant.nnue'
     validate_bootstrap(checkpoint, checkpoint_sha, active, ACTIVE_SHA)
+    reused = reused_corpora(args)
     if args.primary_corpus_manifest is not None and not args.primary_corpus_manifest.is_file():
         raise ValueError('primary corpus manifest is missing')
     commit = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
@@ -219,8 +237,8 @@ def main(argv=None) -> int:
     from .autopilot import _single_instance_lock
     with _single_instance_lock(output / 'launcher.lock'):
         from .lc0_corpus import prepare_corpus
-        corpora = []
-        for since, until, raw, corpus_root in corpus_windows(args, output):
+        corpora = list(reused or [])
+        for since, until, raw, corpus_root in ([] if reused else corpus_windows(args, output)):
             manifest = raw / 'manifest.json'
             fetch_command = [
                 sys.executable, '-m', 'training.nnue.fetch_lc0_bins', '--out', str(raw),
