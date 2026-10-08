@@ -87,7 +87,7 @@ class RankedEngineMonitorTests(unittest.TestCase):
                                         Path('/model.nnue'), engine, Path('/book.fen'),
                                         Path('/job/result.json'), games=400, seed=42)
         for key, expected in (('--games', '400'), ('--time-control', '120+1'),
-                              ('--piebot-blend', '75'), ('--opponent-sha256', 'a' * 64),
+                              ('--piebot-blend', '100'), ('--opponent-sha256', 'a' * 64),
                               ('--opponent-asset', '/engines/net.nnue'),
                               ('--opponent-asset-sha256', 'b' * 64),
                               ('--openings-file', '/book.fen')):

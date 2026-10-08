@@ -23,6 +23,8 @@ import time
 
 BASELINE_SHA = '271a5a108ee03e20a0036b683e108f76dd44fc2e6d289cc3d3f8c839082c519c'
 COHORT = ('carp-3.0.1', 'lambergar-1.5', 'schoenemann-0.5.0')
+# The engine is measured the way it plays: on the network alone.
+BLEND_PERCENT = 100
 
 
 def sha256(path: Path) -> str:
@@ -98,7 +100,7 @@ def arena_command(repo: Path, piebot: Path, model: Path, engine: dict, book: Pat
                   results: Path, *, games: int, seed: int) -> list[str]:
     command = [sys.executable, str(repo / 'scripts/uci_elo_arena.py'),
                '--piebot-command', shlex.join([str(piebot)]), '--piebot-nnue', str(model),
-               '--piebot-blend', '75', '--piebot-hash', '64',
+               '--piebot-blend', str(BLEND_PERCENT), '--piebot-hash', '64',
                '--opponent-command', shlex.join([engine['executable']]),
                '--opponent-sha256', engine['executable_sha256'],
                '--opponent-name', engine['name'], '--opponent-rating', str(engine['rating']),
@@ -164,7 +166,7 @@ def main(argv=None) -> int:
     directories = {key: (args.engine_root / key).resolve(strict=True) for key in ids}
     engines = {key: verify_engine(path) for key, path in directories.items()}
     config = {'schema': 'piebot-ranked-monitor-v1', 'games': args.games,
-              'seed': args.seed, 'time_control': '120+1', 'blend': 75,
+              'seed': args.seed, 'time_control': '120+1', 'blend': BLEND_PERCENT,
               'piebot_path': str(piebot), 'piebot_sha256': sha256(piebot),
               'book_path': str(book), 'book_sha256': sha256(book),
               'baseline_path': str(args.baseline.resolve()),
