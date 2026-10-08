@@ -2401,6 +2401,9 @@ impl Searcher {
     pub fn set_eval_blend_percent(&mut self, p: u8) {
         self.eval_blend_percent = p.min(100);
     }
+    pub fn eval_blend_percent(&self) -> u8 {
+        self.eval_blend_percent
+    }
     pub fn search_movetime_lazy_smp(
         &mut self,
         board: &Board,

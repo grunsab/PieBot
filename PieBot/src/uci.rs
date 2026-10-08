@@ -26,6 +26,10 @@ const ENGINE_NAME: &str = "PieBot NNUE";
 const DEFAULT_HASH_MB: usize = 64;
 #[cfg(not(feature = "board-pleco"))]
 const DEFAULT_GO_MOVETIME_MS: u64 = 1_000;
+/// Share of the network in the static evaluation; the rest is the piece-square
+/// score. 100 plays on the network alone.
+#[cfg(not(feature = "board-pleco"))]
+const DEFAULT_EVAL_BLEND: u8 = 100;
 #[cfg(not(feature = "board-pleco"))]
 const MOVE_OVERHEAD_MS: u64 = 10;
 
@@ -451,6 +455,11 @@ impl Default for UciEngine {
 }
 
 #[cfg(not(feature = "board-pleco"))]
+fn eval_blend_option_line() -> String {
+    format!("option name EvalBlend type spin default {DEFAULT_EVAL_BLEND} min 0 max 100")
+}
+
+#[cfg(not(feature = "board-pleco"))]
 struct SearchOutcome {
     searcher: Searcher,
     position: Position,
@@ -496,7 +505,7 @@ impl UciEngine {
                 if self.apply_setoption("NNUEQuantFile", &env_path).is_none() {
                     self.use_nnue = true;
                     self.searcher.set_use_nnue(true);
-                    self.searcher.set_eval_blend_percent(75);
+                    self.searcher.set_eval_blend_percent(DEFAULT_EVAL_BLEND);
                     self.default_model_path = Some(env_path);
                     return true;
                 }
@@ -522,7 +531,7 @@ impl UciEngine {
                 if self.apply_setoption("NNUEQuantFile", &path_str).is_none() {
                     self.use_nnue = true;
                     self.searcher.set_use_nnue(true);
-                    self.searcher.set_eval_blend_percent(75);
+                    self.searcher.set_eval_blend_percent(DEFAULT_EVAL_BLEND);
                     self.default_model_path = Some(path_str);
                     return true;
                 }
@@ -543,7 +552,7 @@ impl UciEngine {
             "option name NNUEQuantFile type string default {}",
             self.default_model_path.as_deref().unwrap_or("")
         );
-        println!("option name EvalBlend type spin default 75 min 0 max 100");
+        println!("{}", eval_blend_option_line());
         println!("uciok");
     }
 
@@ -1134,6 +1143,23 @@ mod tests {
             .expect("standard UCI castling move should apply");
         assert_eq!(castled.board().piece_on(Square::G1), Some(Piece::King));
         assert_eq!(castled.board().piece_on(Square::F1), Some(Piece::Rook));
+    }
+
+    #[test]
+    fn default_evaluation_is_the_network_alone() {
+        assert_eq!(DEFAULT_EVAL_BLEND, 100);
+        assert_eq!(
+            eval_blend_option_line(),
+            "option name EvalBlend type spin default 100 min 0 max 100"
+        );
+        let mut engine = UciEngine::new();
+        assert_eq!(engine.searcher.eval_blend_percent(), 100);
+        // The repository ships a default model, so this exercises the auto-load path.
+        if engine.auto_load_default_model() {
+            assert_eq!(engine.searcher.eval_blend_percent(), 100);
+        }
+        assert!(engine.apply_setoption("EvalBlend", "60").is_none());
+        assert_eq!(engine.searcher.eval_blend_percent(), 60);
     }
 
     #[test]
