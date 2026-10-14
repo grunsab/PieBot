@@ -86,7 +86,8 @@ that limited Stockfish "repeats instead of mating", should be revisited with it.
 
 ## Not shown
 
-- Nothing here is a Lichess rating change; the deployed bot still runs
-  `7bd8cb7`.
+- Nothing here is a Lichess rating change. The bot was moved to `67081c6`
+  (this change) on 2026-10-14 at 22:19:49 UTC; see
+  `evidence/lichess_deploy_67081c6_20261014/`.
 - The Stockfish comparison is 102 games per build and does not resolve a
   difference of this size.

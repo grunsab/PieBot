@@ -1,0 +1,57 @@
+{"event": "staged", "at": "2026-10-14T22:03:19.434560+00:00", "stage": "/home/ubuntu/lichess-bot/engines/PieBot-67081c6", "files": 49}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:03:19.806889+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:03:35.090002+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:03:50.356099+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:04:05.631658+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:04:20.927332+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:04:36.199318+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:04:51.481043+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:05:06.813210+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:05:22.104783+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:05:37.367641+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:05:52.640837+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:06:07.904086+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:06:23.238268+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:06:38.505276+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:06:53.790518+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:07:09.059858+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:07:24.334895+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:07:39.622967+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:07:54.897170+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:08:10.169264+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:08:25.446743+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:08:40.709650+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:08:56.002857+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:09:11.271102+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:09:26.545129+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:09:41.808607+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:09:57.112012+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:10:12.378401+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:10:27.649577+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:10:42.912398+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:10:58.176124+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:11:13.445046+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:11:28.711309+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:11:44.007950+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:11:59.286717+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:12:14.553900+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:12:29.830435+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:12:45.109109+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:13:00.400380+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:13:15.669207+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:13:30.948588+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:13:46.249052+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:14:01.600759+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:14:16.876254+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "waiting_for_game_to_finish", "at": "2026-10-14T22:14:32.143276+00:00", "engine_pids": [1773778], "games": ["2zwEfkZB"]}
+{"event": "runner_stopped", "at": "2026-10-14T22:14:49.527432+00:00", "pids": [757227]}
+{"event": "step", "at": "2026-10-14T22:16:01.625888+00:00", "name": "build", "returncode": 0, "seconds": 72.1, "log": "/home/ubuntu/lichess-bot/deployment_67081c6/build.log"}
+{"event": "step", "at": "2026-10-14T22:17:16.119780+00:00", "name": "test_lib", "returncode": 0, "seconds": 74.5, "log": "/home/ubuntu/lichess-bot/deployment_67081c6/test_lib.log"}
+{"event": "step", "at": "2026-10-14T22:19:28.640255+00:00", "name": "test_regressions", "returncode": 0, "seconds": 132.5, "log": "/home/ubuntu/lichess-bot/deployment_67081c6/test_regressions.log"}
+{"event": "step", "at": "2026-10-14T22:19:38.344501+00:00", "name": "matein3_1t", "returncode": 0, "seconds": 9.7, "log": "/home/ubuntu/lichess-bot/deployment_67081c6/matein3_1t.log"}
+{"event": "step", "at": "2026-10-14T22:19:46.916620+00:00", "name": "matein3_2t", "returncode": 0, "seconds": 8.6, "log": "/home/ubuntu/lichess-bot/deployment_67081c6/matein3_2t.log"}
+info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
+{"event": "verified", "at": "2026-10-14T22:19:47.292560+00:00", "binary": "/home/ubuntu/lichess-bot/engines/PieBot-67081c6/PieBot/target/release/uci", "binary_sha256": "341126652c7105316f4c0eafdcbfd963eabdcfa4e3d650260df350be2eb74d07", "perpetual": "info depth 10 seldepth 8 score cp 0 nodes 2151"}
+{"event": "config_switched", "at": "2026-10-14T22:19:47.346012+00:00", "backup": "/home/ubuntu/lichess-bot/deployment_67081c6/config.before_67081c6.20261014T221947Z.yml", "engine_dir": "/home/ubuntu/lichess-bot/engines/PieBot-67081c6/PieBot/target/release/", "uci_options": {"NNUEQuantFile": "/home/ubuntu/lichess-bot/engines/PieBot/models/lc0_chunk_00034965.nnue", "UseNNUE": true, "EvalBlend": 100, "Threads": 3, "Hash": 1024}}
+{"event": "runner_started", "at": "2026-10-14T22:19:49.378576+00:00", "pid": 1859264, "log": "/home/ubuntu/lichess-bot/nohup.67081c6.3t.20261014T221947Z.log", "threads": 3}
+{"event": "done", "at": "2026-10-14T22:19:49.378917+00:00", "commit": "67081c6", "rehearse": false, "stopped_pids": [757227], "binary_sha256": "341126652c7105316f4c0eafdcbfd963eabdcfa4e3d650260df350be2eb74d07", "backup": "/home/ubuntu/lichess-bot/deployment_67081c6/config.before_67081c6.20261014T221947Z.yml", "runner": {"pid": 1859264, "log": "/home/ubuntu/lichess-bot/nohup.67081c6.3t.20261014T221947Z.log"}, "finished_at": "2026-10-14T22:19:49.378692+00:00"}

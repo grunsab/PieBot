@@ -1,0 +1,15 @@
+{
+  "commit": "67081c6",
+  "started_at": "2026-10-14T22:03:19.071577+00:00",
+  "rehearse": false,
+  "stopped_pids": [
+    757227
+  ],
+  "binary_sha256": "341126652c7105316f4c0eafdcbfd963eabdcfa4e3d650260df350be2eb74d07",
+  "backup": "/home/ubuntu/lichess-bot/deployment_67081c6/config.before_67081c6.20261014T221947Z.yml",
+  "runner": {
+    "pid": 1859264,
+    "log": "/home/ubuntu/lichess-bot/nohup.67081c6.3t.20261014T221947Z.log"
+  },
+  "finished_at": "2026-10-14T22:19:49.378692+00:00"
+}
