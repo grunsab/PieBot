@@ -126,6 +126,8 @@ def build_rung_commands(args: argparse.Namespace) -> List[List[str]]:
                 str(results),
             ]
         )
+        draw_rule = getattr(args, "draw_rule", "occurred")
+        commands[-1][-2:-2] = ["--draw-rule", str(draw_rule)]
     return commands
 
 
@@ -144,6 +146,13 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--games", type=int, default=100)
     parser.add_argument("--time-control", default="60+0.5")
     parser.add_argument("--seed", type=int, default=20260806)
+    parser.add_argument(
+        "--draw-rule",
+        choices=("claimable", "occurred"),
+        default="occurred",
+        help="passed to uci_elo_arena.py; 'occurred' (default) draws only on a real threefold, "
+        "'claimable' reproduces runs before 2026-10-15",
+    )
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)

@@ -89,6 +89,15 @@ class RungCommandTests(unittest.TestCase):
             results_paths.add(command[index + 1])
         self.assertEqual(2, len(results_paths))
 
+    def test_draw_rule_is_passed_explicitly_to_every_rung(self) -> None:
+        for rule in ("occurred", "claimable"):
+            for command in ladder.build_rung_commands(self._args(draw_rule=rule)):
+                index = command.index("--draw-rule")
+                self.assertEqual(rule, command[index + 1])
+        # Callers that build arguments without the field get the new default.
+        for command in ladder.build_rung_commands(self._args()):
+            self.assertEqual("occurred", command[command.index("--draw-rule") + 1])
+
     def test_rung_seeds_differ_so_openings_are_independent(self) -> None:
         commands = ladder.build_rung_commands(self._args())
         seeds = set()

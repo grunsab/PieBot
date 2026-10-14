@@ -39,6 +39,21 @@ class _FirstLegalEngine:
         self.closed = True
 
 
+class _KnightShuffleEngine:
+    """Both sides shuffle a knight out and back, repeating the start position."""
+
+    CYCLE = ("g1f3", "g8f6", "f3g1", "f6g8")
+
+    def play(self, board, _limit, *, game=None):
+        del game
+        import chess
+
+        return SimpleNamespace(move=chess.Move.from_uci(self.CYCLE[board.ply() % 4]))
+
+    def close(self) -> None:
+        pass
+
+
 class ArenaPlanningTests(unittest.TestCase):
     def test_game_plans_are_deterministic_and_reverse_colors_per_opening(self) -> None:
         first = arena.build_game_plans([START_FEN, E4_FEN], games=6, seed=73)
@@ -357,6 +372,45 @@ class ArenaGameTests(unittest.TestCase):
         self.assertEqual(record["termination"], "max_plies")
         self.assertEqual(record["piebot_score"], 0.5)
         self.assertEqual(record["plies"], 2)
+
+    def _shuffle_game(self, **settings_overrides):
+        plan = arena.build_game_plans([START_FEN], games=2, seed=3)[0]
+        settings = arena.GameSettings(
+            initial_time_s=5.0,
+            increment_s=0.0,
+            game_wall_time_s=10.0,
+            timeout_grace_s=0.5,
+            **settings_overrides,
+        )
+        engine = _KnightShuffleEngine()
+        return arena.play_game(plan, settings, piebot_engine=engine, stockfish_engine=engine)
+
+    def test_claimable_rule_ends_the_game_before_the_third_occurrence(self) -> None:
+        # The rule used before 2026-10-15: a threefold the side to move could
+        # claim with its next move already ends the game, although nobody
+        # repeated yet.
+        record = self._shuffle_game(draw_rule="claimable")
+        self.assertEqual(record["termination"], "chess_threefold_repetition")
+        self.assertEqual(record["played_plies"], 7)
+
+    def test_occurred_rule_waits_for_the_position_to_occur_three_times(self) -> None:
+        # Lichess and the engines themselves only draw once the position has
+        # really occurred three times; an opponent that could repeat may not.
+        record = self._shuffle_game(draw_rule="occurred")
+        self.assertEqual(record["termination"], "chess_threefold_repetition")
+        self.assertEqual(record["played_plies"], 8)
+
+    def test_default_draw_rule_waits_for_a_real_threefold(self) -> None:
+        self.assertEqual(arena.GameSettings().draw_rule, "occurred")
+        self.assertEqual(arena.build_parser().get_default("draw_rule"), "occurred")
+        record = self._shuffle_game()
+        self.assertEqual(record["termination"], "chess_threefold_repetition")
+        self.assertEqual(record["played_plies"], 8)
+        self.assertEqual(record["piebot_score"], 0.5)
+
+    def test_unknown_draw_rule_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            arena.GameSettings(draw_rule="whenever")
 
     def test_engine_crash_and_hang_are_recorded_as_forfeits(self) -> None:
         plan = arena.build_game_plans([START_FEN], games=2, seed=3)[0]

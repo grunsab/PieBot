@@ -100,6 +100,23 @@ wrong in ways that cost real time (see "Corrections" below).
   search selectivity as a co-tuned system (~400-500) and eval/datagen
   (~400-500, the harder half).
 
+### CORRECTION 2026-10-15: arena "threefold" draws before this date never happened
+`scripts/uci_elo_arena.py` (and so `uci_elo_ladder.py` and the anchor
+monitor) ended every game with `board.outcome(claim_draw=True)` from its first
+version on 2026-08-03: a game was drawn as soon as the side to move COULD claim
+a threefold, whether or not it would repeat. All 452 arena threefolds checked
+locally were claim-only, 244 of them with Stockfish to move. The "draw floor"
+and "Stockfish repeats instead of mating" readings below were drawn from games
+adjudicated this way and should be re-measured. The default is now
+`--draw-rule occurred` (a real third occurrence, as on Lichess); old result
+files resume only with `--draw-rule claimable`. Against Stockfish 18 at
+UCI_Elo 3000 the old rule added about 7 points of score to the old search.
+See `evidence/search_arms/s110_in_search_repetition_20261014/README.md`.
+
+PieBot's own search had the matching defect until S110 (same date): it drew
+only on a third occurrence and answered the second from the transposition
+table, so it could not see perpetual checks (+29.3 Elo over 1000 games).
+
 ### MEASUREMENT: the two instruments are biased in OPPOSITE directions — read this first
 (The ladder reads HIGH; the 150 ms A/B harness reads LOW. They measure
 different things and must never be netted against each other.)

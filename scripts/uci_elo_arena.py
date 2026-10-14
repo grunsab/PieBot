@@ -104,6 +104,9 @@ class GamePlan:
         return dataclasses.asdict(self)
 
 
+DRAW_RULES = ("claimable", "occurred")
+
+
 @dataclasses.dataclass(frozen=True)
 class GameSettings:
     initial_time_s: float = 60.0
@@ -111,6 +114,14 @@ class GameSettings:
     max_plies: int = DEFAULT_MAX_PLIES
     game_wall_time_s: float = DEFAULT_GAME_WALL_TIME_S
     timeout_grace_s: float = 1.0
+    # "occurred" (default since 2026-10-15): end only when the position has
+    # really occurred three times or the fifty-move count is reached, as
+    # Lichess does; an engine that could repeat is not assumed to want to.
+    # "claimable": end as soon as the side to move could claim a threefold or
+    # fifty-move draw (python-chess claim_draw=True). Every arena and ladder
+    # result before 2026-10-15 used this rule, which declared draws nobody
+    # had chosen; keep it only to resume or reproduce those runs.
+    draw_rule: str = "occurred"
 
     def __post_init__(self) -> None:
         if self.initial_time_s <= 0:
@@ -123,6 +134,8 @@ class GameSettings:
             raise ValueError("game wall-time cap must be positive")
         if self.timeout_grace_s < 0:
             raise ValueError("timeout grace must be non-negative")
+        if self.draw_rule not in DRAW_RULES:
+            raise ValueError(f"draw rule must be one of {', '.join(DRAW_RULES)}")
 
 
 class MoveDeadlineExceeded(TimeoutError):
@@ -826,12 +839,17 @@ def play_game(
 
     game_token = f"piebot-arena-{plan.game_index}"
     while True:
-        outcome = board.outcome(claim_draw=True)
+        outcome = board.outcome(claim_draw=settings.draw_rule == "claimable")
         if outcome is not None:
             return finish(
                 _piebot_score_for_winner(outcome.winner, plan.piebot_color, chess),
                 f"chess_{outcome.termination.name.lower()}",
             )
+        if settings.draw_rule == "occurred":
+            if board.is_repetition(3):
+                return finish(0.5, "chess_threefold_repetition")
+            if board.halfmove_clock >= 100:
+                return finish(0.5, "chess_fifty_moves")
         if opening_ply + len(moves) >= settings.max_plies:
             return finish(0.5, "max_plies")
         wall_remaining = wall_deadline - time.monotonic()
@@ -1061,6 +1079,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=8,
         help="plies retained from each built-in opening when no file is supplied",
     )
+    parser.add_argument(
+        "--draw-rule",
+        choices=DRAW_RULES,
+        default="occurred",
+        help="occurred (default): end only when the position has occurred three times or the "
+        "fifty-move count is reached; claimable: end when such a draw could be claimed, the rule "
+        "of every run before 2026-10-15 (use it to resume those result files)",
+    )
     parser.add_argument("--results", type=Path, required=True, help="atomic resumable JSON state")
     return parser
 
@@ -1075,6 +1101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_plies=args.max_plies,
             game_wall_time_s=args.game_wall_time,
             timeout_grace_s=args.timeout_grace,
+            draw_rule=args.draw_rule,
         )
         if args.bootstrap_samples <= 0:
             raise ValueError("bootstrap samples must be positive")
@@ -1149,6 +1176,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "openings_count": len(openings),
             "pairing": "same-position-colors-reversed-v1",
         }
+        # Result files written before the draw rule existed used "claimable"
+        # and carry no key, so that rule is recorded by omission: those files
+        # resume only with an explicit --draw-rule claimable, and a run with
+        # the new default can never be appended to one of them.
+        if args.draw_rule != "claimable":
+            config["draw_rule"] = args.draw_rule
         state = load_or_create_state(args.results, config, plans)
         remaining = pending_plans(state, plans)
         print(
