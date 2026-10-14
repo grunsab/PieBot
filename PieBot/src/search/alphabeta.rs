@@ -241,6 +241,9 @@ pub struct Searcher {
     max_seldepth: u32,
     root_history: Vec<Board>,
     search_history: Vec<Board>,
+    // First index of `search_history` that the in-search repetition test may
+    // match: the root position, or the first position after a null move.
+    repetition_floor: usize,
 }
 
 impl Default for Searcher {
@@ -282,6 +285,7 @@ impl Default for Searcher {
             max_seldepth: 0,
             root_history: Vec::new(),
             search_history: Vec::new(),
+            repetition_floor: 0,
         }
     }
 }
@@ -333,6 +337,7 @@ impl Searcher {
         if self.search_history.last() != Some(board) {
             self.search_history.push(board.clone());
         }
+        self.repetition_floor = self.search_history.len() - 1;
         self.eval_stack.fill(None);
         if self.use_nnue {
             if let Some(qn) = self.nnue_quant.as_mut() {
@@ -343,8 +348,18 @@ impl Searcher {
 
     #[inline]
     fn rule_draw(&self, board: &Board) -> bool {
+        // A line that returns to a position it has already passed through
+        // since the root is scored as a draw at once. Waiting for the third
+        // occurrence lets the transposition table answer the second one with
+        // that position's own earlier score, which freezes the line's value
+        // at every depth and hides perpetual checks completely.
         crate::search::draw::is_fifty_move_draw(board)
             || crate::search::draw::is_insufficient_material(board)
+            || crate::search::draw::is_repetition_since(
+                board,
+                &self.search_history,
+                self.repetition_floor,
+            )
             || crate::search::draw::is_threefold(board, &self.search_history)
     }
 
@@ -1238,7 +1253,12 @@ impl Searcher {
                 // parent's perspective. Reverted on every exit path, including
                 // aborts, so the accumulator state cannot leak upward.
                 let null_change = self.nnue_apply_null_move(&nb);
+                // Passing is not a move a game can contain, so a position
+                // from before the pass cannot be repeated by what follows it.
+                let floor_before_null = self.repetition_floor;
+                self.repetition_floor = self.search_history.len();
                 let outcome = self.null_move_probe(&nb, depth, r, beta, ply);
+                self.repetition_floor = floor_before_null;
                 self.nnue_revert_change(null_change);
                 if let Some(score) = outcome? {
                     return Ok(score);
@@ -2462,6 +2482,40 @@ pub enum EvalMode {
 #[cfg(test)]
 mod draw_policy_regressions {
     use super::*;
+
+    #[test]
+    fn a_second_occurrence_inside_the_search_is_a_draw_but_not_across_a_null_move() {
+        let repeated = Board::from_fen("4k3/8/8/8/8/8/7Q/4K3 w - - 8 5", false).unwrap();
+        let between = Board::from_fen("4k3/8/8/8/8/8/6Q1/4K3 b - - 7 4", false).unwrap();
+        let mut searcher = Searcher::default();
+        searcher.prepare_root_state(&repeated);
+        assert!(!searcher.rule_draw(&repeated), "the root alone repeats nothing");
+
+        searcher.search_history.push(between.clone());
+        searcher.search_history.push(repeated.clone());
+        assert!(searcher.rule_draw(&repeated), "the line returned to the root position");
+
+        // While searching below a null move made after `between`, only
+        // positions pushed from then on may match.
+        searcher.repetition_floor = 2;
+        assert!(!searcher.rule_draw(&repeated));
+    }
+
+    #[test]
+    fn a_position_from_the_game_before_the_root_still_needs_three_occurrences() {
+        let earlier = Board::from_fen("4k3/8/8/8/8/8/7Q/4K3 w - - 6 4", false).unwrap();
+        let root = Board::from_fen("4k3/8/8/8/8/8/6Q1/4K3 b - - 7 4", false).unwrap();
+        let again = Board::from_fen("4k3/8/8/8/8/8/7Q/4K3 w - - 8 5", false).unwrap();
+        let mut searcher = Searcher::default();
+        searcher.set_position_history(&[earlier.clone(), root.clone()]);
+        searcher.prepare_root_state(&root);
+
+        searcher.search_history.push(again.clone());
+        assert!(
+            !searcher.rule_draw(&again),
+            "one earlier occurrence before the root is not yet a draw"
+        );
+    }
 
     #[test]
     fn real_children_of_a_synthetic_null_node_restore_draw_checks() {

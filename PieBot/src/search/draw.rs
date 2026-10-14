@@ -29,6 +29,26 @@ pub fn is_threefold(board: &Board, history: &[Board]) -> bool {
         >= 3
 }
 
+/// `board` has occurred before at or after index `floor` of `history`, which
+/// INCLUDES `board` itself as its last entry.
+///
+/// With `floor` at the search root this is a repetition inside the line being
+/// searched: both sides have already had the chance to leave the cycle, so
+/// the line is worth a draw without waiting for the third occurrence. Like
+/// `is_threefold`, only the plies since the last irreversible move can match.
+pub fn is_repetition_since(board: &Board, history: &[Board], floor: usize) -> bool {
+    let window = usize::from(board.halfmove_clock()).saturating_add(1);
+    let start = history.len().saturating_sub(window).max(floor);
+    history.get(start..).is_some_and(|tail| {
+        tail.iter()
+            .rev()
+            .filter(|previous| previous.same_position(board))
+            .take(2)
+            .count()
+            >= 2
+    })
+}
+
 pub fn is_insufficient_material(board: &Board) -> bool {
     if !(board.pieces(Piece::Pawn) | board.pieces(Piece::Rook) | board.pieces(Piece::Queen))
         .is_empty()
