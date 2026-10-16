@@ -115,6 +115,7 @@ tunables! {
     QsChecks = 0, 0, 1;
     CheckExt = 0, 0, 2;
     ContSplit = 0, 0, 1;
+    UpcomingRep = 0, 0, 1;
     ThreatEnter = 0, 0, 120;
     TmSoft = 47, 20, 80;
 }
@@ -1650,6 +1651,30 @@ impl Searcher {
         false
     }
 
+    /// Can the side to move return to a position already on the current line
+    /// (strictly inside the tree) with one reversible move? Then the node is
+    /// worth at least a draw.
+    fn upcoming_repetition(&self, board: &Board, ply: i32) -> bool {
+        let n = self.hash_hist.len();
+        let cur = n - 1;
+        let end = (board.halfmove_clock() as usize).min(cur.saturating_sub(self.null_floor));
+        if end < 3 {
+            return false;
+        }
+        let key = self.hash_hist[cur];
+        let occ = board.occupied();
+        let mut i = 3;
+        while i <= end {
+            if let Some((a, b)) = crate::search::cuckoo::lookup(key ^ self.hash_hist[cur - i]) {
+                if (cozy_chess::get_between_rays(a, b) & occ).is_empty() && ply as usize > i {
+                    return true;
+                }
+            }
+            i += 2;
+        }
+        false
+    }
+
     // ---------------- abort / bookkeeping --------------------------------
 
     #[inline]
@@ -1833,6 +1858,15 @@ impl Searcher {
         }
         if ply > 0 && self.is_draw(board) {
             return Ok(self.draw_value(ply));
+        }
+        if ply > 0 && tp(T::UpcomingRep) != 0 {
+            let dv = self.draw_value(ply);
+            if alpha < dv && self.upcoming_repetition(board, ply) {
+                alpha = dv;
+                if alpha >= beta {
+                    return Ok(alpha);
+                }
+            }
         }
         let in_check = !board.checkers().is_empty();
         if ply as usize >= MAX_PLY - 1 {
@@ -2032,6 +2066,15 @@ impl Searcher {
         if !root {
             if self.is_draw(board) {
                 return Ok(self.draw_value(ply));
+            }
+            if tp(T::UpcomingRep) != 0 {
+                let dv = self.draw_value(ply);
+                if alpha < dv && self.upcoming_repetition(board, ply) {
+                    alpha = dv;
+                    if alpha >= beta {
+                        return Ok(alpha);
+                    }
+                }
             }
             if ply as usize >= MAX_PLY - 1 {
                 return Ok(if in_check { DRAW_SCORE } else { self.raw_eval(board) });
@@ -2961,6 +3004,35 @@ mod tests {
         assert_eq!(e.bound, Some(Bound::Lower));
         assert!(e.pv);
         assert!(tt.probe(b.hash() ^ 1).is_none());
+    }
+
+    #[test]
+    fn upcoming_repetition_sees_a_move_back_to_a_position_on_the_line() {
+        let mut b = Board::default();
+        let mut hashes = vec![b.hash()];
+        for u in ["g1f3", "g8f6", "f3g1"] {
+            let m = mv(&b, u);
+            b.play(m);
+            hashes.push(b.hash());
+        }
+        // Black to move can play Ng8, back to the start position, three
+        // plies up the line.
+        let mut s = Searcher::default();
+        s.hash_hist = hashes;
+        s.null_floor = 0;
+        assert!(s.upcoming_repetition(&b, 4), "start position is inside the tree");
+        assert!(!s.upcoming_repetition(&b, 3), "start position is the root or before it");
+        // A pawn move in between makes it unreachable.
+        let mut s2 = Searcher::default();
+        let mut b2 = Board::default();
+        let mut h2 = vec![b2.hash()];
+        for u in ["g1f3", "e7e6", "f3g1"] {
+            let m = mv(&b2, u);
+            b2.play(m);
+            h2.push(b2.hash());
+        }
+        s2.hash_hist = h2;
+        assert!(!s2.upcoming_repetition(&b2, 10));
     }
 
     #[test]
