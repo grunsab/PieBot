@@ -118,6 +118,7 @@ tunables! {
     UpcomingRep = 1, 0, 1;
     Hindsight = 0, 0, 1;
     HindsightMargin = 175, 0, 500;
+    EvalScaleBase = 0, 0, 400;
     ThreatEnter = 0, 0, 120;
     TmSoft = 47, 20, 80;
 }
@@ -1569,6 +1570,17 @@ impl Searcher {
     #[inline]
     fn adjust_eval(&self, board: &Board, raw: i32, ply: usize) -> i32 {
         let mut v = raw + self.correction(board, ply);
+        // Optional material scaling (as Stockfish does after NNUE): leave a
+        // full middlegame (58 points of material) unchanged and shrink the
+        // score as material comes off.
+        let base = tp(T::EvalScaleBase);
+        if base > 0 {
+            let m = 3 * (board.pieces(Piece::Knight).len() + board.pieces(Piece::Bishop).len()) as i32
+                + 5 * board.pieces(Piece::Rook).len() as i32
+                + 9 * board.pieces(Piece::Queen).len() as i32
+                + board.pieces(Piece::Pawn).len() as i32;
+            v = v * (base + m) / (base + 58);
+        }
         // Drift toward a draw as the fifty-move counter runs.
         let hm = board.halfmove_clock() as i32;
         if hm > 16 {
