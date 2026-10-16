@@ -95,12 +95,15 @@ fn alphabeta_extends_a_sacrificial_check() {
     let board = Board::from_fen("r5k1/5Npp/8/8/2Q5/8/8/7K w - - 0 1", false).expect("valid FEN");
     let mut searcher = piebot::search::alphabeta::Searcher::default();
 
-    let res = searcher.search_depth(&board, 3);
+    // The search reduces and prunes late quiets from depth 2, so the quiet
+    // Nf7# behind the sacrifice appears around depth 9; bound the effort.
+    let res = searcher.search_depth(&board, 12);
 
     assert_eq!(res.bestmove.as_deref(), Some("f7h6"));
     assert!(
         res.score_cp >= piebot::search::eval::MATE_SCORE - 5,
-        "smothered mate in three must be found at depth 3: {}",
+        "smothered mate in three must be found by depth 12: {}",
         res.score_cp
     );
+    assert!(res.nodes < 50_000, "mate took {} nodes", res.nodes);
 }

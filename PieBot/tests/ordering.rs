@@ -23,10 +23,9 @@ fn captures_first_reduces_nodes() {
     p2.order_captures = true;
     let r2 = s2.search_with_params(&b, p2);
 
-    assert!(
-        r2.nodes < r1.nodes,
-        "captures-first should reduce nodes: {} vs {}",
-        r2.nodes,
-        r1.nodes
-    );
+    // The search always orders captures first now (the flag is kept for
+    // API compatibility), so both runs must simply win the queen.
+    assert_eq!(r1.bestmove.as_deref(), Some("c1f4"));
+    assert_eq!(r2.bestmove.as_deref(), Some("c1f4"));
+    assert!(r2.nodes <= r1.nodes, "{} vs {}", r2.nodes, r1.nodes);
 }
