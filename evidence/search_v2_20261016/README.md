@@ -24,6 +24,7 @@ not committed).
 | CheckExt = 0 (no check extension) | 600 | 101 / 426 / 73 | +16.2 [+2.1, +30.4] | `abq_checkext0.json` |
 | CheckExt = 0, confirmation | 1000 | 180 / 655 / 165 | +5.2 [-6.4, +16.9] | `abq_checkext0_confirm.json` |
 | CheckExt = 0, both runs pooled | 1600 | | +9.3 [+0.3, +18.4] | adopted as default |
+| UpcomingRep = 1 (cuckoo repetition detection) | 1000 | 188 / 655 / 157 | +10.8 [-1.5, +23.1] | `abq_upcomingrep.json`; adopted |
 
 The toggle experiments ran on the tuned build (`999cc11`) against itself with
 default options. SPSA: 6000 game pairs at 6+0.06 over 55 constants;

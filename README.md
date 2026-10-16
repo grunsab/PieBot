@@ -241,7 +241,10 @@ Stockfish lines (promoted from the experimental `alphabeta_temp.rs` on 2026-10-1
 - **Quiescence**: TT probes and stores, stand-pat from the corrected eval,
   futility and SEE filters, evasions in check.
 - **Draws**: a position that repeats inside the search tree is a draw at once; one
-  from the game before the root needs a real threefold. `Contempt` sets the score.
+  from the game before the root needs a real threefold. Upcoming repetitions are
+  seen one move early through Stockfish-style cuckoo tables (`search/cuckoo.rs`,
+  rebuilt from cozy-chess's Zobrist constants; +10.8 Elo [-1.5, +23.1]).
+  `Contempt` sets the draw score.
 - **Endgames**: optional Syzygy probing (`SyzygyPath`).
 - **Tuning**: 55 constants are runtime tunables (`T::*` in `alphabeta.rs`); the
   defaults are SPSA-tuned (6000 game pairs, +95.8 Elo [+82, +110] validated).
@@ -254,7 +257,7 @@ split by check/capture (`ContSplit`, neutral), SEE-guarded check extension
 
 The mate suite is now read with depth escalation: the search is selective enough
 that some mates at fixed depth 7 come a few plies later (**91/91 by depth 14 with
-220,539 nodes**, against 91/91 at depth 7 with about 7.1M nodes for the previous
+188,740 nodes**, against 91/91 at depth 7 with about 7.1M nodes for the previous
 search).
 
 ## Testing & Quality Assurance
@@ -283,7 +286,7 @@ PIEBOT_SUITE_FILE=src/suites/matein3.txt PIEBOT_TEST_THREADS=1 \
   PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=14 \
   cargo run --locked --release --bin accept
 ```
-Expected: `cases=91 ... nodes=220539` (91/91 by depth 14); that node count is
+Expected: `cases=91 ... nodes=188740` (91/91 by depth 14); that node count is
 the deterministic signature for proving a rebuild matches.
 
 ---

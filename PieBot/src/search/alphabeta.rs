@@ -115,7 +115,7 @@ tunables! {
     QsChecks = 0, 0, 1;
     CheckExt = 0, 0, 2;
     ContSplit = 0, 0, 1;
-    UpcomingRep = 0, 0, 1;
+    UpcomingRep = 1, 0, 1;
     ThreatEnter = 0, 0, 120;
     TmSoft = 47, 20, 80;
 }

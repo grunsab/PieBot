@@ -49,7 +49,7 @@ What changed in the workflow:
   ContSplit, CheckExt) are tunables too; their defaults are the measured best.
 - Mate-suite gate: the search is selective, so read matein3 with escalation:
   `PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=14` must solve 91/91
-  (220,539 nodes with CheckExt=0, 2026-10-16); the node count is the rebuild
+  (188,740 nodes with CheckExt=0 and UpcomingRep=1, 2026-10-16); the node count is the rebuild
   signature, identical for `accept` and `accept_temp` while temp is the stub.
 - Always pass `UseNNUE=true` and an absolute `NNUEQuantFile` from scripts: the
   default net path is relative to the working directory, and a miss silently
