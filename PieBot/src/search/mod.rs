@@ -6,6 +6,7 @@ pub mod draw;
 pub mod eval;
 pub mod safety;
 pub mod see;
+pub mod syzygy;
 pub mod tt;
 #[cfg(feature = "board-pleco")]
 pub mod tt_pleco;

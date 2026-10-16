@@ -32,6 +32,8 @@ pub fn print_stats() {
 }
 const INF: i32 = MATE_SCORE + 1;
 const MATE_IN_MAX: i32 = MATE_SCORE - 2 * MAX_PLY as i32;
+/// Tablebase win score (minus ply): above any evaluation, below mates.
+const TB_WIN: i32 = 20_000;
 const FIFTY_MOVE_CLAIM_PLIES: u32 = 100;
 const STACK_OFFSET: usize = 8;
 
@@ -111,6 +113,12 @@ tunables! {
     CorrPawn = 2, 0, 4;
     TmSoft = 45, 20, 80;
 }
+
+/// Draw bias in centipawns for the side that started the search: a drawn
+/// line scores +CONTEMPT for it (and -CONTEMPT for the opponent). Positive
+/// values make the engine seek draws, which is right against a much stronger
+/// opponent. Not a tunable: self-play cannot measure it.
+pub static CONTEMPT: AtomicI32 = AtomicI32::new(0);
 
 #[inline(always)]
 fn tp(t: T) -> i32 {
@@ -1477,6 +1485,18 @@ impl Searcher {
 
     // ---------------- draws -----------------------------------------------
 
+    /// Score of a drawn position `ply` plies below the root, for the side to
+    /// move there.
+    #[inline]
+    fn draw_value(&self, ply: i32) -> i32 {
+        let c = CONTEMPT.load(Ordering::Relaxed);
+        if ply % 2 == 0 {
+            c
+        } else {
+            -c
+        }
+    }
+
     #[inline]
     fn is_draw(&self, board: &Board) -> bool {
         let hm = board.halfmove_clock() as usize;
@@ -1690,7 +1710,7 @@ impl Searcher {
             self.sel_depth = self.sel_depth.max(ply as u32);
         }
         if ply > 0 && self.is_draw(board) {
-            return Ok(DRAW_SCORE);
+            return Ok(self.draw_value(ply));
         }
         let in_check = !board.checkers().is_empty();
         if ply as usize >= MAX_PLY - 1 {
@@ -1762,7 +1782,7 @@ impl Searcher {
             gen_tactical(board, &mut list);
         }
         if list.len == 0 && !in_check && !has_legal_move(board) {
-            return Ok(DRAW_SCORE);
+            return Ok(self.draw_value(ply));
         }
         let tt_move = tte.and_then(|e| e.mv).filter(|m| list.contains(*m));
         for i in 0..list.len {
@@ -1886,7 +1906,7 @@ impl Searcher {
 
         if !root {
             if self.is_draw(board) {
-                return Ok(DRAW_SCORE);
+                return Ok(self.draw_value(ply));
             }
             if ply as usize >= MAX_PLY - 1 {
                 return Ok(if in_check { DRAW_SCORE } else { self.raw_eval(board) });
@@ -1943,6 +1963,26 @@ impl Searcher {
                         }
                     }
                     return Ok(ts);
+                }
+            }
+        }
+
+        // Tablebase probe, right after a capture or pawn move.
+        if !root && excluded.is_none() && halfmove == 0 {
+            let tb_max = crate::search::syzygy::max_pieces();
+            if tb_max > 0 && board.occupied().len() as usize <= tb_max {
+                if let Some(w) = crate::search::syzygy::probe_wdl(board) {
+                    let v = match w {
+                        2 => TB_WIN - ply,
+                        -2 => -TB_WIN + ply,
+                        1 => self.draw_value(ply) + 1,
+                        -1 => self.draw_value(ply) - 1,
+                        _ => self.draw_value(ply),
+                    };
+                    if self.use_tt {
+                        self.tt.store(key, None, v, -32_001, (depth + 6).min(MAX_PLY as i32 - 1), Some(Bound::Exact), tt_pv);
+                    }
+                    return Ok(v);
                 }
             }
         }
@@ -2371,7 +2411,7 @@ impl Searcher {
             } else if in_check {
                 mated_in(ply)
             } else {
-                DRAW_SCORE
+                self.draw_value(ply)
             });
         }
 
@@ -2487,6 +2527,12 @@ impl Searcher {
             nodes: 0,
             depth: 0,
         };
+        if let Some(tb_move) = crate::search::syzygy::root_move(board) {
+            if let Some(rm) = self.root_moves.iter().copied().find(|r| format!("{}", r.mv) == tb_move) {
+                self.root_moves = vec![rm];
+                best.bestmove = Some(tb_move);
+            }
+        }
         let root_key = board.hash();
         if board.halfmove_clock() >= 100
             || crate::search::draw::is_insufficient_material(board)
@@ -2832,5 +2878,21 @@ mod tests {
         s.hash_hist = vec![k, 1, 2, 3, k, 4, 5, 6, 99, 7, 8, 9, k];
         s.root_index = 8;
         assert!(s.is_draw(&b));
+    }
+}
+
+#[cfg(test)]
+mod contempt_tests {
+    use super::*;
+
+    #[test]
+    fn contempt_favours_the_root_side_at_even_plies() {
+        let s = Searcher::default();
+        CONTEMPT.store(30, Ordering::Relaxed);
+        assert_eq!(s.draw_value(0), 30);
+        assert_eq!(s.draw_value(1), -30);
+        assert_eq!(s.draw_value(4), 30);
+        CONTEMPT.store(0, Ordering::Relaxed);
+        assert_eq!(s.draw_value(3), 0);
     }
 }

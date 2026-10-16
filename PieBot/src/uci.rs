@@ -561,6 +561,10 @@ impl UciEngine {
         );
         println!("{}", eval_blend_option_line());
         #[cfg(feature = "exp-search")]
+        println!("option name Contempt type spin default 0 min -200 max 200");
+        #[cfg(feature = "exp-search")]
+        println!("option name SyzygyPath type string default <empty>");
+        #[cfg(feature = "exp-search")]
         if std::env::var_os("PIEBOT_TUNE").is_some() {
             use crate::search::alphabeta_temp::{TUNABLE_DEFAULTS, TUNABLE_NAMES, TUNABLE_RANGES};
             for (i, name) in TUNABLE_NAMES.iter().enumerate() {
@@ -655,6 +659,19 @@ impl UciEngine {
             "evalblend" => {
                 if let Ok(p) = value.parse::<u8>() {
                     self.searcher.set_eval_blend_percent(p);
+                }
+                None
+            }
+            #[cfg(feature = "exp-search")]
+            "syzygypath" => match crate::search::syzygy::set_path(value) {
+                Ok(n) => Some(format!("info string syzygy: {n} tables, up to {} pieces", crate::search::syzygy::max_pieces())),
+                Err(e) => Some(format!("info string syzygy load failed: {e}")),
+            },
+            #[cfg(feature = "exp-search")]
+            "contempt" => {
+                if let Ok(v) = value.trim().parse::<i32>() {
+                    crate::search::alphabeta_temp::CONTEMPT
+                        .store(v.clamp(-200, 200), std::sync::atomic::Ordering::Relaxed);
                 }
                 None
             }
