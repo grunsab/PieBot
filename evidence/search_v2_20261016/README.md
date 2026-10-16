@@ -16,6 +16,7 @@ not committed).
 | v1: search rewrite vs main `5860faf` | 400 | 191 / 152 / 57 | +121.1 [+95.3, +148.2] | `ab_v1_match_10s.json` |
 | v2: v1 + NNUE speedups vs main | 400 | 335 / 58 / 7 | +401.9 [+363.8, +448.5] | `ab_v2_match_10s.json` |
 | SPSA round 1 values vs previous defaults | 1000 | 350 / 569 / 81 | +95.8 [+82.4, +109.6] | `abq_spsa1.json` |
+| SPSA round 2 values (8000 pairs at 8+0.08, on CheckExt=0 + UpcomingRep) | 1000 | 186 / 676 / 138 | +16.7 [+5.0, +28.4] | `abq_spsa2.json`, `spsa2_tuned.json` |
 | ThreatEscape/Enter = 50 | 600 | 76 / 412 / 112 | -20.9 [-36.1, -5.7] | `abq_threat50.json` |
 | ThreatEscape/Enter = 10 | 600 | 103 / 401 / 96 | +4.1 [-11.2, +19.3] | `abq_threat10.json` |
 | QsChecks = 1 | 600 | 114 / 373 / 113 | +0.6 [-15.5, +16.6] | `abq_qschecks.json` |
