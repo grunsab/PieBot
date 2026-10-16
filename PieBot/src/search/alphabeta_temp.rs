@@ -113,6 +113,8 @@ tunables! {
     CorrPawn = 2, 0, 4;
     ThreatEscape = 0, 0, 120;
     QsChecks = 0, 0, 1;
+    CheckExt = 1, 0, 2;
+    ContSplit = 0, 0, 1;
     ThreatEnter = 0, 0, 120;
     TmSoft = 45, 20, 80;
 }
@@ -1209,10 +1211,10 @@ impl Default for Searcher {
             eval_blend_percent: 100,
             eval_mode: EvalMode::Pst,
             main_hist: vec![0; 2 * 4096],
-            cont_hist: vec![0; 768 * 768],
+            cont_hist: vec![0; 4 * 768 * 768],
             capt_hist: vec![0; 12 * 64 * 6],
             pawn_hist: vec![0; PAWN_HIST_SIZE * 768],
-            counter_moves: vec![0; 768],
+            counter_moves: vec![0; 4 * 768],
             pawn_corr: vec![0; 2 * CORR_SIZE],
             nonpawn_corr: vec![0; 2 * 2 * CORR_SIZE],
             minor_corr: vec![0; 2 * CORR_SIZE],
@@ -1229,6 +1231,17 @@ impl Default for Searcher {
             root_moves: Vec::new(),
             lmr: lmr_table(),
         }
+    }
+}
+
+/// Continuation-history row for a move: its piece-square, optionally split
+/// by whether the side moving was in check and whether the move captured.
+#[inline]
+fn cont_index(in_check: bool, capture: bool, ps: usize) -> usize {
+    if tp(T::ContSplit) != 0 {
+        ((in_check as usize) * 2 + capture as usize) * 768 + ps
+    } else {
+        ps
     }
 }
 
@@ -1481,7 +1494,7 @@ impl Searcher {
             [(stm * 2 + 1) * CORR_SIZE + (non_pawn_key(board, Color::Black) as usize % CORR_SIZE)];
         let mi = self.minor_corr[stm * CORR_SIZE + (minor_key(board) as usize % CORR_SIZE)];
         let cc = match (self.stack[ply - 1].cont, self.stack[ply - 2].cont) {
-            (Some(a), Some(b)) => self.cont_corr[b * 768 + a],
+            (Some(a), Some(b)) => self.cont_corr[(b % 768) * 768 + a % 768],
             _ => 0,
         };
         (tp(T::CorrPawn) * p + nw + nb + mi + cc) / (2 * CORR_GRAIN)
@@ -1498,7 +1511,7 @@ impl Searcher {
         let mk = minor_key(board) as usize % CORR_SIZE;
         corr_update(&mut self.minor_corr[stm * CORR_SIZE + mk], diff, depth);
         if let (Some(a), Some(b)) = (self.stack[ply - 1].cont, self.stack[ply - 2].cont) {
-            corr_update(&mut self.cont_corr[b * 768 + a], diff, depth);
+            corr_update(&mut self.cont_corr[(b % 768) * 768 + a % 768], diff, depth);
         }
     }
 
@@ -1903,7 +1916,7 @@ impl Searcher {
             let stm = board.side_to_move();
             let piece = board.piece_on(m.from).unwrap_or(Piece::Pawn);
             self.stack[sp].mv = Some(m);
-            self.stack[sp].cont = Some(pc_index(stm, piece) * 64 + m.to as usize);
+            self.stack[sp].cont = Some(cont_index(in_check, is_capture(board, m), pc_index(stm, piece) * 64 + m.to as usize));
             self.hash_hist.push(child.hash());
             let r = self.qsearch_q(&child, -beta, -alpha, ply + 1, pv, qply + 1);
             self.hash_hist.pop();
@@ -2195,7 +2208,7 @@ impl Searcher {
                     let stm = board.side_to_move();
                     let piece = board.piece_on(m.from).unwrap_or(Piece::Pawn);
                     self.stack[sp].mv = Some(m);
-                    self.stack[sp].cont = Some(pc_index(stm, piece) * 64 + m.to as usize);
+                    self.stack[sp].cont = Some(cont_index(false, true, pc_index(stm, piece) * 64 + m.to as usize));
                     self.hash_hist.push(child.hash());
                     let mut r = self.qsearch(&child, -pc_beta, -pc_beta + 1, ply + 1, false).map(|v| -v);
                     if matches!(r, Ok(v) if v >= pc_beta) && pc_depth > 0 {
@@ -2357,7 +2370,12 @@ impl Searcher {
                     }
                 }
             }
-            if extension == 0 && gives_check && ply < 2 * self.root_depth {
+            let check_ext = match tp(T::CheckExt) {
+                0 => false,
+                2 => see_ge(board, m, 0),
+                _ => true,
+            };
+            if extension == 0 && gives_check && check_ext && ply < 2 * self.root_depth {
                 extension = 1;
             }
             self.stack[sp + 1].double_ext = self.stack[sp].double_ext + (extension >= 2) as i32;
@@ -2365,7 +2383,7 @@ impl Searcher {
             self.tt.prefetch(child.hash());
             let change = self.nnue_apply(board, m, &child);
             self.stack[sp].mv = Some(m);
-            self.stack[sp].cont = Some(ps);
+            self.stack[sp].cont = Some(cont_index(in_check, capture, ps));
             self.stack[sp].tactical = capture;
             self.hash_hist.push(child.hash());
             let new_depth = depth - 1 + extension;
@@ -2516,7 +2534,7 @@ impl Searcher {
                     for (k, w) in [(1usize, 1024i32), (2, 1024), (4, 512)] {
                         if prev_sp >= k {
                             if let Some(pp) = self.stack[prev_sp - k].cont {
-                                hist_update(&mut self.cont_hist[pp * 768 + prev_ps], b * w / 1024);
+                                hist_update(&mut self.cont_hist[pp * 768 + prev_ps % 768], b * w / 1024);
                             }
                         }
                     }
