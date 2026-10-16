@@ -236,7 +236,8 @@ Stockfish lines (promoted from the experimental `alphabeta_temp.rs` on 2026-10-1
   SEE pruning of quiets and captures, logarithmic LMR adjusted by PV/cut node,
   history, improving, checks and cutoff counts, with deeper/shallower re-searches.
 - **Extensions**: singular extensions with double extension, multi-cut and
-  negative extensions; every checking move is extended.
+  negative extensions. Checks are not extended (`CheckExt=0`: +9.3 Elo
+  [+0.3, +18.4] over 1600 games against extending every check).
 - **Quiescence**: TT probes and stores, stand-pat from the corrected eval,
   futility and SEE filters, evasions in check.
 - **Draws**: a position that repeats inside the search tree is a draw at once; one
@@ -249,13 +250,12 @@ Experiments tried and left off (defaults keep them inert): threat-aware quiet
 ordering (`ThreatEscape`/`ThreatEnter`; -21 Elo at 50, neutral at 10), quiet
 checks in the first quiescence ply (`QsChecks`, neutral), continuation history
 split by check/capture (`ContSplit`, neutral), SEE-guarded check extension
-(`CheckExt=2`, -14 Elo). Removing the check extension (`CheckExt=0`) is under
-confirmation. Results: [evidence/search_v2_20261016](evidence/search_v2_20261016/README.md).
+(`CheckExt=2`, -14 Elo). Results: [evidence/search_v2_20261016](evidence/search_v2_20261016/README.md).
 
 The mate suite is now read with depth escalation: the search is selective enough
-that some mates at fixed depth 7 come a few plies later (85/91 at depth 7 with
-106,965 nodes; **91/91 by depth 14 with 158,015 nodes**, against 91/91 at depth 7
-with about 7.1M nodes for the previous search).
+that some mates at fixed depth 7 come a few plies later (**91/91 by depth 14 with
+220,539 nodes**, against 91/91 at depth 7 with about 7.1M nodes for the previous
+search).
 
 ## Testing & Quality Assurance
 
@@ -283,9 +283,8 @@ PIEBOT_SUITE_FILE=src/suites/matein3.txt PIEBOT_TEST_THREADS=1 \
   PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=14 \
   cargo run --locked --release --bin accept
 ```
-Expected: `cases=91 ... nodes=158015` (91/91 by depth 14). With
-`PIEBOT_TEST_MAX_DEPTH=7`: 85 cases, 106,965 nodes; that node count is the
-deterministic signature for proving a rebuild matches.
+Expected: `cases=91 ... nodes=220539` (91/91 by depth 14); that node count is
+the deterministic signature for proving a rebuild matches.
 
 ---
 

@@ -36,14 +36,14 @@ fn full(depth: u32) -> SearchParams {
 #[test]
 fn perpetual_check_is_a_draw_at_the_first_repetition_inside_the_search() {
     // The line returns to the root position after four plies. Waiting for a
-    // true threefold needs eight; with two checks extended, depth 2 and 3
+    // true threefold needs eight. Checks are not extended, so depth 4 and 5
     // reach the first return but not the second.
     let board = Board::from_fen(PERPETUAL, false).unwrap();
     for (name, params) in [
-        ("plain depth 2", plain(2)),
-        ("plain depth 3", plain(3)),
-        ("full depth 2", full(2)),
-        ("full depth 3", full(3)),
+        ("plain depth 4", plain(4)),
+        ("plain depth 5", plain(5)),
+        ("full depth 4", full(4)),
+        ("full depth 5", full(5)),
     ] {
         let mut searcher = Searcher::default();
         let result = searcher.search_with_params(&board, params);

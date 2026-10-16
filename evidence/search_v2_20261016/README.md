@@ -21,7 +21,9 @@ not committed).
 | QsChecks = 1 | 600 | 114 / 373 / 113 | +0.6 [-15.5, +16.6] | `abq_qschecks.json` |
 | ContSplit = 1 | 600 | 104 / 400 / 96 | +4.6 [-10.1, +19.4] | `abq_contsplit.json` |
 | CheckExt = 2 (SEE-guarded) | 600 | 84 / 408 / 108 | -13.9 [-29.1, +1.3] | `abq_checkext2.json` |
-| CheckExt = 0 (no check extension) | 600 | 101 / 426 / 73 | +16.2 [+2.1, +30.4] | `abq_checkext0.json` (confirmation running) |
+| CheckExt = 0 (no check extension) | 600 | 101 / 426 / 73 | +16.2 [+2.1, +30.4] | `abq_checkext0.json` |
+| CheckExt = 0, confirmation | 1000 | 180 / 655 / 165 | +5.2 [-6.4, +16.9] | `abq_checkext0_confirm.json` |
+| CheckExt = 0, both runs pooled | 1600 | | +9.3 [+0.3, +18.4] | adopted as default |
 
 The toggle experiments ran on the tuned build (`999cc11`) against itself with
 default options. SPSA: 6000 game pairs at 6+0.06 over 55 constants;

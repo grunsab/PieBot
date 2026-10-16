@@ -113,7 +113,7 @@ tunables! {
     CorrPawn = 2, 0, 4;
     ThreatEscape = 0, 0, 120;
     QsChecks = 0, 0, 1;
-    CheckExt = 1, 0, 2;
+    CheckExt = 0, 0, 2;
     ContSplit = 0, 0, 1;
     ThreatEnter = 0, 0, 120;
     TmSoft = 47, 20, 80;
