@@ -554,8 +554,55 @@ struct TtBucket {
 }
 
 pub struct PackedTt {
-    buckets: Vec<TtBucket>,
+    buckets: BucketArray,
     gen: AtomicU64,
+}
+
+/// Cache-line aligned, lazily zeroed bucket storage. `alloc_zeroed` with an
+/// alignment above 16 is a malloc plus a full memset in Rust's system
+/// allocator, which costs seconds for a multi-GB table; asking for 16-byte
+/// alignment goes to `calloc` (fresh zero pages), and the 64-byte alignment
+/// is done by offsetting into a slightly larger block.
+struct BucketArray {
+    ptr: *mut TtBucket,
+    len: usize,
+    base: *mut u8,
+    layout: std::alloc::Layout,
+}
+
+// SAFETY: the buckets are atomics; the raw pointers are owned exclusively.
+unsafe impl Send for BucketArray {}
+unsafe impl Sync for BucketArray {}
+
+impl BucketArray {
+    fn zeroed(len: usize) -> Self {
+        let bytes = len * std::mem::size_of::<TtBucket>() + 64;
+        let layout = std::alloc::Layout::from_size_align(bytes, 16).expect("tt layout");
+        // SAFETY: non-zero size; all-zero bits are a valid empty TtBucket.
+        unsafe {
+            let base = std::alloc::alloc_zeroed(layout);
+            if base.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
+            let ptr = base.add(base.align_offset(64)) as *mut TtBucket;
+            Self { ptr, len, base, layout }
+        }
+    }
+}
+
+impl std::ops::Deref for BucketArray {
+    type Target = [TtBucket];
+    fn deref(&self) -> &[TtBucket] {
+        // SAFETY: `len` zero-initialised buckets live at `ptr`.
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+impl Drop for BucketArray {
+    fn drop(&mut self) {
+        // SAFETY: allocated in `zeroed` with this layout.
+        unsafe { std::alloc::dealloc(self.base, self.layout) }
+    }
 }
 
 const TT_DEPTH_OFFSET: i32 = 2;
@@ -563,20 +610,10 @@ const TT_DEPTH_OFFSET: i32 = 2;
 impl PackedTt {
     pub fn with_mb(mb: usize) -> Self {
         let n = ((mb.max(1) << 20) / std::mem::size_of::<TtBucket>()).max(1);
-        let mut buckets = Vec::with_capacity(n);
-        buckets.resize_with(n, TtBucket::default);
+        let buckets = BucketArray::zeroed(n);
         Self {
             buckets,
             gen: AtomicU64::new(0),
-        }
-    }
-
-    fn clear(&self) {
-        for b in &self.buckets {
-            for s in &b.slots {
-                s.0.store(0, Ordering::Relaxed);
-                s.1.store(0, Ordering::Relaxed);
-            }
         }
     }
 
@@ -1297,7 +1334,7 @@ impl Searcher {
         for f in self.stack.iter_mut() {
             *f = Frame::default();
         }
-        self.tt.clear();
+        self.reset_tt();
         for w in &mut self.smp_workers {
             w.clear_history();
         }
@@ -1305,7 +1342,7 @@ impl Searcher {
 
     pub fn set_eval_mode(&mut self, mode: EvalMode) {
         self.eval_mode = mode;
-        self.tt.clear();
+        self.reset_tt();
     }
     pub fn set_threads(&mut self, t: usize) {
         self.threads = t.max(1);
@@ -1350,7 +1387,7 @@ impl Searcher {
     }
     pub fn set_use_nnue(&mut self, on: bool) {
         if self.use_nnue != on {
-            self.tt.clear();
+            self.reset_tt();
         }
         self.use_nnue = on;
     }
@@ -1358,7 +1395,7 @@ impl Searcher {
         self.smp_workers.clear();
         self.nnue = nn;
         // The TT caches static evaluations of the previous network.
-        self.tt.clear();
+        self.reset_tt();
     }
     pub fn set_nnue_quant_model(&mut self, model: QuantNnue) {
         self.smp_workers.clear();
@@ -1366,22 +1403,27 @@ impl Searcher {
         // Build accumulators only for positions that are evaluated.
         qn.set_lazy(true);
         self.nnue_quant = Some(qn);
-        self.tt.clear();
+        self.reset_tt();
     }
     pub fn clear_nnue_quant(&mut self) {
         self.smp_workers.clear();
         self.nnue_quant = None;
-        self.tt.clear();
+        self.reset_tt();
     }
     pub fn set_eval_blend_percent(&mut self, p: u8) {
         if self.eval_blend_percent != p.min(100) {
-            self.tt.clear();
+            self.reset_tt();
         }
         self.eval_blend_percent = p.min(100);
     }
     pub fn eval_blend_percent(&self) -> u8 {
         self.eval_blend_percent
     }
+    /// Empty the TT by replacing it with a fresh zeroed table.
+    fn reset_tt(&mut self) {
+        self.tt = Arc::new(PackedTt::with_mb(self.tt_mb));
+    }
+
     pub fn set_tt_capacity_mb(&mut self, mb: usize) {
         self.tt_mb = mb.max(1);
         self.tt = Arc::new(PackedTt::with_mb(self.tt_mb));
@@ -2919,6 +2961,16 @@ mod tests {
         assert_eq!(e.bound, Some(Bound::Lower));
         assert!(e.pv);
         assert!(tt.probe(b.hash() ^ 1).is_none());
+    }
+
+    #[test]
+    fn tt_storage_is_cache_line_aligned_and_starts_empty() {
+        let tt = PackedTt::with_mb(3);
+        assert_eq!(tt.buckets.as_ptr() as usize % 64, 0);
+        assert!(tt.buckets.len() >= 3 * 1024 * 1024 / 64 - 1);
+        let b = Board::default();
+        assert!(tt.probe(b.hash()).is_none());
+        assert_eq!(tt.hashfull(), 0);
     }
 
     #[test]
