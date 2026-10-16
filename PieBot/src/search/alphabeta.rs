@@ -57,66 +57,70 @@ macro_rules! tunables {
 }
 
 tunables! {
-    BonusMul = 153, 50, 400;
-    BonusOff = 95, 0, 300;
-    BonusMax = 1761, 500, 4000;
-    MalusMul = 224, 50, 400;
-    MalusOff = 75, 0, 300;
-    MalusMax = 1459, 500, 4000;
-    LmrBase = 900, 0, 2000;
-    LmrDiv = 215, 150, 400;
-    RazorBase = 459, 100, 1000;
-    RazorMul = 274, 50, 600;
+    BonusMul = 138, 50, 400;
+    BonusOff = 98, 0, 300;
+    BonusMax = 1826, 500, 4000;
+    MalusMul = 237, 50, 400;
+    MalusOff = 76, 0, 300;
+    MalusMax = 1467, 500, 4000;
+    LmrBase = 929, 0, 2000;
+    LmrDiv = 213, 150, 400;
+    RazorBase = 446, 100, 1000;
+    RazorMul = 272, 50, 600;
     RfpDepth = 9, 4, 16;
-    RfpMul = 121, 30, 200;
-    RfpCut = 19, 0, 60;
+    RfpMul = 139, 30, 200;
+    RfpCut = 18, 0, 60;
     RfpWorsen = 15, 0, 60;
-    RfpImproving = 27, 0, 80;
+    RfpImproving = 26, 0, 80;
     NmpBase = 4, 2, 7;
     NmpDepthDiv = 3, 2, 6;
-    NmpEvalDiv = 203, 80, 400;
+    NmpEvalDiv = 198, 80, 400;
     NmpStaticMul = 20, 0, 50;
-    NmpStaticBase = 174, 0, 400;
+    NmpStaticBase = 172, 0, 400;
     IirDepth = 5, 3, 10;
     ProbcutMargin = 206, 80, 400;
     ProbcutImproving = 61, 0, 150;
     ProbcutDepth = 5, 3, 9;
     LmpBase = 3, 1, 8;
-    CapFutBase = 250, 50, 500;
-    CapFutMul = 234, 50, 400;
-    CapSeeMul = 176, 50, 300;
-    HistPruneMul = 3449, 1000, 8000;
-    HistLmrDiv = 6184, 2000, 15000;
-    FutBase = 91, 20, 250;
-    FutMul = 112, 40, 250;
+    CapFutBase = 255, 50, 500;
+    CapFutMul = 233, 50, 400;
+    CapSeeMul = 169, 50, 300;
+    HistPruneMul = 3446, 1000, 8000;
+    HistLmrDiv = 6427, 2000, 15000;
+    FutBase = 94, 20, 250;
+    FutMul = 110, 40, 250;
     QuietSeeMul = 25, 5, 60;
     SeDepth = 6, 4, 10;
     SeMargin = 61, 20, 150;
-    SeTtPvMargin = 68, 0, 150;
+    SeTtPvMargin = 70, 0, 150;
     SeDouble = 20, 0, 60;
-    LmrTtPv = 1018, 0, 2500;
-    LmrCut = 1775, 0, 3500;
-    LmrTtCapture = 1011, 0, 2500;
-    LmrNotImproving = 605, 0, 2000;
-    LmrCheck = 791, 0, 2000;
-    LmrCutoffCnt = 898, 0, 2500;
-    LmrTtMove = 1820, 0, 3500;
-    LmrCapture = 606, 0, 2000;
-    LmrStatDiv = 10821, 3000, 25000;
+    LmrTtPv = 994, 0, 2500;
+    LmrCut = 1780, 0, 3500;
+    LmrTtCapture = 1003, 0, 2500;
+    LmrNotImproving = 627, 0, 2000;
+    LmrCheck = 766, 0, 2000;
+    LmrCutoffCnt = 907, 0, 2500;
+    LmrTtMove = 1831, 0, 3500;
+    LmrCapture = 604, 0, 2000;
+    LmrStatDiv = 10514, 3000, 25000;
     DeeperBase = 49, 10, 120;
     DeeperMul = 2, 0, 8;
     Shallower = 9, 0, 30;
-    QsFutility = 200, 50, 400;
-    QsSee = 81, 0, 200;
+    QsFutility = 205, 50, 400;
+    QsSee = 80, 0, 200;
     AspDelta = 20, 5, 50;
     AspDiv = 15, 6, 64;
     CorrPawn = 2, 0, 4;
     ThreatEscape = 0, 0, 120;
     QsChecks = 0, 0, 1;
-    CheckExt = 1, 0, 2;
+    CheckExt = 0, 0, 2;
     ContSplit = 0, 0, 1;
+    UpcomingRep = 1, 0, 1;
+    Hindsight = 0, 0, 1;
+    HindsightMargin = 175, 0, 500;
+    EvalScaleBase = 0, 0, 400;
     ThreatEnter = 0, 0, 120;
-    TmSoft = 47, 20, 80;
+    TmSoft = 50, 20, 80;
 }
 
 /// Draw bias in centipawns for the side that started the search: a drawn
@@ -831,6 +835,8 @@ struct Frame {
     double_ext: i32,
     /// The move made from this ply was a capture or queen promotion.
     tactical: bool,
+    /// LMR reduction (plies) applied to the move searched from this ply.
+    reduction: i32,
 }
 
 impl Default for Frame {
@@ -847,6 +853,7 @@ impl Default for Frame {
             killers: [None, None],
             double_ext: 0,
             tactical: false,
+            reduction: 0,
         }
     }
 }
@@ -1563,6 +1570,17 @@ impl Searcher {
     #[inline]
     fn adjust_eval(&self, board: &Board, raw: i32, ply: usize) -> i32 {
         let mut v = raw + self.correction(board, ply);
+        // Optional material scaling (as Stockfish does after NNUE): leave a
+        // full middlegame (58 points of material) unchanged and shrink the
+        // score as material comes off.
+        let base = tp(T::EvalScaleBase);
+        if base > 0 {
+            let m = 3 * (board.pieces(Piece::Knight).len() + board.pieces(Piece::Bishop).len()) as i32
+                + 5 * board.pieces(Piece::Rook).len() as i32
+                + 9 * board.pieces(Piece::Queen).len() as i32
+                + board.pieces(Piece::Pawn).len() as i32;
+            v = v * (base + m) / (base + 58);
+        }
         // Drift toward a draw as the fifty-move counter runs.
         let hm = board.halfmove_clock() as i32;
         if hm > 16 {
@@ -1646,6 +1664,30 @@ impl Searcher {
                 }
             }
             d += 2;
+        }
+        false
+    }
+
+    /// Can the side to move return to a position already on the current line
+    /// (strictly inside the tree) with one reversible move? Then the node is
+    /// worth at least a draw.
+    fn upcoming_repetition(&self, board: &Board, ply: i32) -> bool {
+        let n = self.hash_hist.len();
+        let cur = n - 1;
+        let end = (board.halfmove_clock() as usize).min(cur.saturating_sub(self.null_floor));
+        if end < 3 {
+            return false;
+        }
+        let key = self.hash_hist[cur];
+        let occ = board.occupied();
+        let mut i = 3;
+        while i <= end {
+            if let Some((a, b)) = crate::search::cuckoo::lookup(key ^ self.hash_hist[cur - i]) {
+                if (cozy_chess::get_between_rays(a, b) & occ).is_empty() && ply as usize > i {
+                    return true;
+                }
+            }
+            i += 2;
         }
         false
     }
@@ -1833,6 +1875,15 @@ impl Searcher {
         }
         if ply > 0 && self.is_draw(board) {
             return Ok(self.draw_value(ply));
+        }
+        if ply > 0 && tp(T::UpcomingRep) != 0 {
+            let dv = self.draw_value(ply);
+            if alpha < dv && self.upcoming_repetition(board, ply) {
+                alpha = dv;
+                if alpha >= beta {
+                    return Ok(alpha);
+                }
+            }
         }
         let in_check = !board.checkers().is_empty();
         if ply as usize >= MAX_PLY - 1 {
@@ -2033,6 +2084,15 @@ impl Searcher {
             if self.is_draw(board) {
                 return Ok(self.draw_value(ply));
             }
+            if tp(T::UpcomingRep) != 0 {
+                let dv = self.draw_value(ply);
+                if alpha < dv && self.upcoming_repetition(board, ply) {
+                    alpha = dv;
+                    if alpha >= beta {
+                        return Ok(alpha);
+                    }
+                }
+            }
             if ply as usize >= MAX_PLY - 1 {
                 return Ok(if in_check { DRAW_SCORE } else { self.raw_eval(board) });
             }
@@ -2163,6 +2223,23 @@ impl Searcher {
             && ply >= 1
             && !self.stack[sp - 1].in_check
             && static_eval > -self.stack[sp - 1].static_eval;
+
+        // Hindsight: the parent reduced this node by `prior` plies. Give a ply
+        // back when the reduction looks unjustified, take one when both sides'
+        // static evals say the position is quiet and good for both.
+        if tp(T::Hindsight) != 0 && !root && !in_check && excluded.is_none() && ply >= 1 {
+            let prior = self.stack[sp - 1].reduction;
+            if prior >= 3 && !opp_worsening {
+                depth += 1;
+            }
+            if prior >= 2
+                && depth >= 2
+                && !self.stack[sp - 1].in_check
+                && static_eval + self.stack[sp - 1].static_eval > tp(T::HindsightMargin)
+            {
+                depth -= 1;
+            }
+        }
 
         let prune_ok = self.use_nullmove && !root && !in_check && excluded.is_none();
 
@@ -2465,7 +2542,10 @@ impl Searcher {
                     r -= stat * 1024 / tp(T::LmrStatDiv);
                     let r_plies = r / 1024;
                     let d = (new_depth - r_plies).clamp(1, new_depth + 1);
-                    let mut v = -self.search(&child, d, -alpha - 1, -alpha, ply + 1, true, false)?;
+                    self.stack[sp].reduction = new_depth - d;
+                    let reduced = self.search(&child, d, -alpha - 1, -alpha, ply + 1, true, false);
+                    self.stack[sp].reduction = 0;
+                    let mut v = -reduced?;
                     if v > alpha && d < new_depth {
                         let deeper = v > best + tp(T::DeeperBase) + tp(T::DeeperMul) * new_depth;
                         let shallower = v < best + tp(T::Shallower);
@@ -2961,6 +3041,35 @@ mod tests {
         assert_eq!(e.bound, Some(Bound::Lower));
         assert!(e.pv);
         assert!(tt.probe(b.hash() ^ 1).is_none());
+    }
+
+    #[test]
+    fn upcoming_repetition_sees_a_move_back_to_a_position_on_the_line() {
+        let mut b = Board::default();
+        let mut hashes = vec![b.hash()];
+        for u in ["g1f3", "g8f6", "f3g1"] {
+            let m = mv(&b, u);
+            b.play(m);
+            hashes.push(b.hash());
+        }
+        // Black to move can play Ng8, back to the start position, three
+        // plies up the line.
+        let mut s = Searcher::default();
+        s.hash_hist = hashes;
+        s.null_floor = 0;
+        assert!(s.upcoming_repetition(&b, 4), "start position is inside the tree");
+        assert!(!s.upcoming_repetition(&b, 3), "start position is the root or before it");
+        // A pawn move in between makes it unreachable.
+        let mut s2 = Searcher::default();
+        let mut b2 = Board::default();
+        let mut h2 = vec![b2.hash()];
+        for u in ["g1f3", "e7e6", "f3g1"] {
+            let m = mv(&b2, u);
+            b2.play(m);
+            h2.push(b2.hash());
+        }
+        s2.hash_hist = h2;
+        assert!(!s2.upcoming_repetition(&b2, 10));
     }
 
     #[test]

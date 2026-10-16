@@ -22,7 +22,7 @@ def main():
     queue_path = Path(sys.argv[1])
     out_dir = ROOT / "out" / "abq"
     out_dir.mkdir(parents=True, exist_ok=True)
-    workers = int(sys.argv[2]) if len(sys.argv) > 2 else 14
+    workers = int(sys.argv[2]) if len(sys.argv) > 2 else 12
     while True:
         queue = json.loads(queue_path.read_text())
         todo = [e for e in queue if not (out_dir / f"{e['name']}.json").exists()

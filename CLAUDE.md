@@ -26,8 +26,8 @@ What changed in the workflow:
   ContSplit, CheckExt) are tunables too; their defaults are the measured best.
 - Mate-suite gate: the search is selective, so read matein3 with escalation:
   `PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=14` must solve 91/91
-  (158,015 nodes at `999cc11`). Node signature at fixed depth 7: 106,965
-  (85/91), identical for `accept` and `accept_temp` while temp is the stub.
+  (283,705 nodes after SPSA round 2, 2026-10-17); the node count is the rebuild
+  signature, identical for `accept` and `accept_temp` while temp is the stub.
 - Always pass `UseNNUE=true` and an absolute `NNUEQuantFile` from scripts: the
   default net path is relative to the working directory, and a miss silently
   plays on the PST eval.
@@ -35,7 +35,8 @@ What changed in the workflow:
   Stockfish 19, keep 0 for normal play) and `SyzygyPath` (3-4-5 men tested;
   tables on this machine at `~/syzygy345`). The TT caches static evals, so
   anything that changes the evaluation must reset it (setters already do).
-- Measuring on this laptop: keep at most 14 cores busy (one game uses one
+- Measuring on this laptop: keep at most 12 cores busy (user limit since
+  2026-10-16; one game uses one
   core when both engines are single-threaded). `perf` is blocked
   (perf_event_paranoid=4); profile with `scripts/experiments/gdb_profile.py`.
 - Lichess: lichess-bot's engine is the separate clone
