@@ -107,6 +107,7 @@ def play_pair(task: dict) -> dict:
             inc = task["inc"]
             result = None
             termination = None
+            times = []
             while board.ply() < task["max_plies"]:
                 outcome = game_over(board)
                 if outcome is not None:
@@ -132,6 +133,7 @@ def play_pair(task: dict) -> dict:
                     result, termination = (0.0 if a_to_move else 1.0), "engine_error"
                     break
                 spent = time.monotonic() - started
+                times.append(round(spent, 3))
                 clocks[turn] -= spent
                 if clocks[turn] < -task["grace"]:
                     result, termination = (0.0 if a_to_move else 1.0), "time_forfeit"
@@ -150,6 +152,7 @@ def play_pair(task: dict) -> dict:
                     "termination": termination,
                     "plies": board.ply(),
                     "moves": " ".join(m.uci() for m in board.move_stack),
+                    "move_times": times,
                 }
             )
     finally:

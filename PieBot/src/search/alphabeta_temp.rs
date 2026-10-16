@@ -111,6 +111,9 @@ tunables! {
     AspDelta = 20, 5, 50;
     AspDiv = 16, 6, 64;
     CorrPawn = 2, 0, 4;
+    ThreatEscape = 0, 0, 120;
+    QsChecks = 0, 0, 1;
+    ThreatEnter = 0, 0, 120;
     TmSoft = 45, 20, 80;
 }
 
@@ -355,6 +358,48 @@ fn check_squares(board: &Board) -> [BitBoard; 6] {
         bishop | rook,
         BitBoard::EMPTY,
     ]
+}
+
+/// Squares attacked by the opponent's pawns, by its pawns or minors, and by
+/// its pawns, minors or rooks: what threatens a knight/bishop, a rook, and a
+/// queen respectively.
+fn threat_maps(board: &Board) -> [BitBoard; 3] {
+    let them = !board.side_to_move();
+    let occ = board.occupied();
+    let mut pawn = BitBoard::EMPTY;
+    for sq in board.colored_pieces(them, Piece::Pawn) {
+        pawn |= cozy_chess::get_pawn_attacks(sq, them);
+    }
+    let mut minor = pawn;
+    for sq in board.colored_pieces(them, Piece::Knight) {
+        minor |= cozy_chess::get_knight_moves(sq);
+    }
+    for sq in board.colored_pieces(them, Piece::Bishop) {
+        minor |= cozy_chess::get_bishop_moves(sq, occ);
+    }
+    let mut rook = minor;
+    for sq in board.colored_pieces(them, Piece::Rook) {
+        rook |= cozy_chess::get_rook_moves(sq, occ);
+    }
+    [pawn, minor, rook]
+}
+
+/// Append quiet (non-capturing, non-promoting) moves that give direct check.
+fn gen_quiet_checks(board: &Board, list: &mut MoveList) {
+    let checks = check_squares(board);
+    let empty = !board.occupied();
+    board.generate_moves(|mut pm| {
+        if pm.piece == Piece::King {
+            return false;
+        }
+        pm.to &= checks[pm.piece as usize] & empty;
+        for m in pm {
+            if m.promotion.is_none() && !(pm.piece == Piece::Pawn && m.from.file() != m.to.file()) {
+                list.push(m);
+            }
+        }
+        false
+    });
 }
 
 fn has_legal_move(board: &Board) -> bool {
@@ -964,17 +1009,32 @@ impl MovePicker {
                     }
                     let pk = pawn_key(board);
                     let checks = check_squares(board);
+                    let (esc, ent) = (tp(T::ThreatEscape), tp(T::ThreatEnter));
+                    let threats = if esc != 0 || ent != 0 { threat_maps(board) } else { [BitBoard::EMPTY; 3] };
                     for i in self.quiet_cur..self.list.len {
                         let m = self.list.get(i);
                         self.list.scores[i] = if m.promotion.is_some() {
                             -HIST_MAX * 20
                         } else {
                             let piece = board.piece_on(m.from).unwrap_or(Piece::Pawn);
-                            let bonus = if checks[piece as usize].has(m.to) && see_ge(board, m, -75) {
+                            let mut bonus = if checks[piece as usize].has(m.to) && see_ge(board, m, -75) {
                                 16_384
                             } else {
                                 0
                             };
+                            let lesser = match piece {
+                                Piece::Knight | Piece::Bishop => Some(threats[0]),
+                                Piece::Rook => Some(threats[1]),
+                                Piece::Queen => Some(threats[2]),
+                                _ => None,
+                            };
+                            if let Some(t) = lesser {
+                                if t.has(m.to) {
+                                    bonus -= ent * piece_value(piece);
+                                } else if t.has(m.from) {
+                                    bonus += esc * piece_value(piece);
+                                }
+                            }
                             s.quiet_score_pk(board, m, sp, pk) + bonus
                         };
                     }
@@ -1701,7 +1761,11 @@ impl Searcher {
 
     // ---------------- quiescence ------------------------------------------
 
-    fn qsearch(&mut self, board: &Board, mut alpha: i32, beta: i32, ply: i32, pv: bool) -> SResult {
+    fn qsearch(&mut self, board: &Board, alpha: i32, beta: i32, ply: i32, pv: bool) -> SResult {
+        self.qsearch_q(board, alpha, beta, ply, pv, 0)
+    }
+
+    fn qsearch_q(&mut self, board: &Board, mut alpha: i32, beta: i32, ply: i32, pv: bool, qply: i32) -> SResult {
         self.check_abort()?;
         self.nodes += 1;
         stat(1);
@@ -1780,6 +1844,9 @@ impl Searcher {
             gen_all(board, &mut list);
         } else {
             gen_tactical(board, &mut list);
+            if qply == 0 && tp(T::QsChecks) != 0 {
+                gen_quiet_checks(board, &mut list);
+            }
         }
         if list.len == 0 && !in_check && !has_legal_move(board) {
             return Ok(self.draw_value(ply));
@@ -1838,7 +1905,7 @@ impl Searcher {
             self.stack[sp].mv = Some(m);
             self.stack[sp].cont = Some(pc_index(stm, piece) * 64 + m.to as usize);
             self.hash_hist.push(child.hash());
-            let r = self.qsearch(&child, -beta, -alpha, ply + 1, pv);
+            let r = self.qsearch_q(&child, -beta, -alpha, ply + 1, pv, qply + 1);
             self.hash_hist.pop();
             self.nnue_revert(change);
             let score = -r?;

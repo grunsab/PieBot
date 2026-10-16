@@ -528,6 +528,9 @@ impl QuantNetwork {
             prev_bk: v2.bk_idx,
         });
         if v2.lazy {
+            // Start fetching the weight rows now; the slot is built when the
+            // child evaluates, usually moments later.
+            v2.prefetch_rows(&added, &removed);
             return v2.record(Pending::Delta { added, removed }, after);
         }
         v2.push_delta(&added, &removed);
@@ -937,6 +940,27 @@ impl V2State {
         }
         self.pending[t] = p;
         self.computed[t] = computed;
+    }
+
+    #[inline]
+    fn prefetch_rows(&self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let h = self.model.hidden_dim;
+            let w1 = self.model.w1.as_ptr();
+            for d in added.iter().chain(removed.iter()) {
+                for &idx in d.as_slice() {
+                    // First quarter of each 2 KB row; the hardware prefetcher
+                    // streams the rest once the loop starts.
+                    let row = unsafe { w1.add(idx * h) } as *const i8;
+                    let mut off = 0;
+                    while off < (h * 2) / 4 {
+                        unsafe { std::arch::x86_64::_mm_prefetch(row.add(off), std::arch::x86_64::_MM_HINT_T0) };
+                        off += 64;
+                    }
+                }
+            }
+        }
     }
 
     /// Lazy push: record the transition into slot top+1 and update the keys.
