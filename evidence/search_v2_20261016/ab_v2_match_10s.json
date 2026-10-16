@@ -1,0 +1,55 @@
+{
+ "config": {
+  "a": "out/ab/v2/uci_exp",
+  "b": "out/ab/base_main_uci",
+  "a_opt": [
+   "NNUEQuantFile=/home/rishi-sachdev/Documents/PieBot/models/lc0_chunk_00034965.nnue",
+   "UseNNUE=true",
+   "EvalBlend=100",
+   "Hash=64"
+  ],
+  "b_opt": [
+   "NNUEQuantFile=/home/rishi-sachdev/Documents/PieBot/models/lc0_chunk_00034965.nnue",
+   "UseNNUE=true",
+   "EvalBlend=100",
+   "Hash=64"
+  ],
+  "games": 400,
+  "tc": "10+0.1",
+  "workers": 14,
+  "book": "books/openings_v1.fen",
+  "seed": 102,
+  "max_plies": 400,
+  "grace": 0.25,
+  "out": "out/ab/v2/match_10s.json"
+ },
+ "summary": {
+  "games": 400,
+  "a_wins": 335,
+  "draws": 58,
+  "a_losses": 7,
+  "a_win_or_draw_rate": 0.9825,
+  "terminations": {
+   "checkmate": 342,
+   "threefold_repetition": 45,
+   "insufficient_material": 9,
+   "fifty_moves": 2,
+   "ply_cap": 2
+  },
+  "pairs": 200,
+  "score": 0.91,
+  "elo": 401.91955315270775,
+  "elo_95_ci": [
+   363.80045722393385,
+   448.4525948677387
+  ],
+  "pentanomial": [
+   0,
+   0,
+   9,
+   54,
+   137
+  ],
+  "wall_s": 764.7663519382477
+ }
+}

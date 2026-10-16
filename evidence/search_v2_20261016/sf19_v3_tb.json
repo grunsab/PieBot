@@ -1,0 +1,54 @@
+{
+ "config": {
+  "a": "out/sf19/v3/uci",
+  "b": "/home/rishi-sachdev/engines/sf19_dl/stockfish/stockfish-linux-x86-64-universal",
+  "a_opt": [
+   "NNUEQuantFile=/home/rishi-sachdev/Documents/PieBot/models/lc0_chunk_00034965.nnue",
+   "UseNNUE=true",
+   "EvalBlend=100",
+   "Hash=64",
+   "SyzygyPath=/home/rishi-sachdev/syzygy345"
+  ],
+  "b_opt": [
+   "Hash=64",
+   "Threads=1"
+  ],
+  "games": 280,
+  "tc": "20+0.2",
+  "workers": 5,
+  "book": "books/openings_v1.fen",
+  "seed": 2001,
+  "max_plies": 400,
+  "grace": 0.25,
+  "out": "out/sf19/v3/tb.json"
+ },
+ "summary": {
+  "games": 280,
+  "a_wins": 0,
+  "draws": 29,
+  "a_losses": 251,
+  "a_win_or_draw_rate": 0.10357142857142858,
+  "terminations": {
+   "checkmate": 251,
+   "threefold_repetition": 23,
+   "insufficient_material": 1,
+   "fifty_moves": 3,
+   "stalemate": 2
+  },
+  "pairs": 140,
+  "score": 0.05178571428571429,
+  "elo": -505.07860927300516,
+  "elo_95_ci": [
+   -580.210969018839,
+   -451.1066202825938
+  ],
+  "pentanomial": [
+   112,
+   27,
+   1,
+   0,
+   0
+  ],
+  "wall_s": 2692.4366734027863
+ }
+}

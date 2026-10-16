@@ -1,6 +1,8 @@
 # PieBot (Rust Chess Engine + Hand-Optimized NNUE)
 
-PieBot is a high-performance chess engine written in Rust (`PieBot/`) featuring hand-written AVX2 and ARM NEON SIMD inference kernels, parallel alpha-beta search with modern selectivity heuristics, and an advanced neural network training pipeline (`training/nnue/`) designed for continuous self-improvement and empirical validation against top-tier engines.
+PieBot is a chess engine written in Rust (`PieBot/`) with a large HalfKP NNUE, a Stockfish-style alpha-beta search (rewritten in October 2026, see [Search](#search)), Lazy SMP, optional Syzygy tablebases, and a neural network training pipeline (`training/nnue/`).
+
+**Current measured strength (2026-10-16, one thread each, this repo's opening book):** the October search rewrite plus NNUE speedups is **+402 Elo** over the previous search (400 games, 10+0.1), and SPSA tuning added a further **+96 Elo** (1000 games). Against **full-strength Stockfish 19** at 60+0.5 the pre-tuning rewrite scored 0 wins / 20 draws / 120 losses (14.3% win-or-draw; the previous search 1.4%). Details: [evidence/search_v2_20261016/README.md](evidence/search_v2_20261016/README.md).
 
 PieBot is evaluated through internal `120+1` matches against CCRL-listed engines. Those performance estimates are not an official CCRL ranking or a Lichess rating. See the [Lichess audit](evidence/lichess_audit_20261001/REPORT.md) and [verified Lazy SMP deployment](evidence/lichess_smp_deploy_20261001/REPORT.md) for the measured results and their limits.
 
@@ -10,29 +12,36 @@ PieBot is evaluated through internal `120+1` matches against CCRL-listed engines
 
 ### 1. Build the Engine
 
-Prerequisites: Rust toolchain (1.78+ recommended, install via [rustup.rs](https://rustup.rs/)).
+Prerequisites: Rust toolchain (1.85+; shakmaty-syzygy needs it. Install via [rustup.rs](https://rustup.rs/)).
 
 ```bash
 # Clone the repository
 git clone https://github.com/grunsab/PieBot.git
-cd PieBot
+cd PieBot/PieBot
 
-# Build the release UCI binary
-cargo build --release --bin uci --manifest-path PieBot/Cargo.toml
+# Build the release UCI binary *from inside PieBot/*
+cargo build --release --bin uci
 ```
 
 The compiled binary will be located at:
 `PieBot/target/release/uci`
 
+Build from inside `PieBot/`: `PieBot/.cargo/config.toml` sets `-C target-cpu=native`,
+and cargo only reads it relative to the working directory. A build started from the
+repo root with `--manifest-path` produces a generic x86-64 binary (about 5% slower
+on a Zen 4 laptop, more on older code paths).
+
 ### 2. Auto-Loaded NNUE (Zero Configuration Required)
 
-When launched, PieBot **automatically detects and loads** the highest-efficiency hand-optimized NNUE model present in the repository (`models/lc0_chunk_00034965.nnue`), sets `UseNNUE = true`, and configures the optimal evaluation blend (`EvalBlend = 75`):
+When launched, PieBot looks for `models/lc0_chunk_00034965.nnue` **relative to its working directory**, and if found loads it with `UseNNUE = true` and `EvalBlend = 100`:
 
 ```text
 info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
 ```
 
-No manual file path configuration is required—simply pull the repo, build, and run!
+If the engine is started from another directory the net is not found and it
+silently plays on the piece-square eval. Scripts and GUIs started elsewhere should
+set `NNUEQuantFile` to an absolute path and `UseNNUE` to `true`.
 
 ---
 
@@ -59,6 +68,8 @@ option name UseNNUE type check default true
 option name NNUEFile type string default 
 option name NNUEQuantFile type string default models/lc0_chunk_00034965.nnue
 option name EvalBlend type spin default 100 min 0 max 100
+option name Contempt type spin default 0 min -200 max 200
+option name SyzygyPath type string default <empty>
 uciok
 
 isready
@@ -117,6 +128,12 @@ PieBot works out-of-the-box with any standard UCI-compliant chess graphical inte
 | `NNUEQuantFile` | `string` | *(auto)* | Valid file path | Path to quantized int8 NNUE model (`PIENNQ02`). Auto-detects `models/lc0_chunk_00034965.nnue`. |
 | `NNUEFile` | `string` | `""` | Valid file path | Path to dense f32 NNUE model (`PIENNUE1`, for training/research development). |
 | `EvalBlend` | `spin` | `100` | `0 .. 100` | Percentage weight of NNUE evaluation vs classical evaluation ($0 = 100\%$ classical, $100 = 100\%$ NNUE). The engine plays on the network alone by default; lower values mix in the piece-square score. |
+| `Contempt` | `spin` | `0` | `-200 .. 200` | Draw bias in centipawns for the engine: a drawn line scores `+Contempt` for the side that is searching. Positive values seek draws, which helps against a much stronger opponent (vs Stockfish 19 at 20+0.2: 40 gave 15.0% win-or-draw against 10.4% at 0); leave it at 0 for normal play. |
+| `SyzygyPath` | `string` | `<empty>` | Directories separated by `;` or `:` | Syzygy WDL/DTZ tables (3-4-5 men tested). The search probes WDL right after captures and pawn moves; at the root it plays the DTZ-best move. Prints `info string syzygy: N tables, up to K pieces` when loaded. |
+
+Setting `PIEBOT_TUNE=1` in the engine's environment also advertises every search
+constant as a spin option (used by `scripts/experiments/spsa.py`); without it those
+options are hidden but still accepted.
 
 To set options in UCI:
 ```text
@@ -129,6 +146,16 @@ The NNUE engine sizes its own search pool from `Threads`; no `RAYON_NUM_THREADS`
 setting is needed. Helpers share the transposition table and immutable NNUE
 weights, while the main search selects the move. Deterministic searches, explicit
 node budgets, and the development dense-f32 NNUE backend use one search thread.
+All published strength numbers for the October search are single-threaded; Lazy
+SMP is carried over and tested for correctness, not yet for Elo.
+
+`go movetime N` uses the whole budget. With a clock (`wtime`/`btime`) the front
+end's allocation is a hard limit and the search aims to finish well inside it
+(`TmSoft`, 47% of the allocation), stretching or shrinking that target by
+best-move stability, the share of nodes spent on the best move, and a falling score.
+
+Large hash sizes are cheap to set: the table is allocated from lazily zeroed
+pages, so `Hash 8096` plus `ucinewgame` takes about 0.1 s.
 
 ---
 
@@ -165,37 +192,70 @@ PieBot uses an **arch-v2 (`PIENNQ02`)** neural architecture with hardware-vector
 ```
 
 ### Performance Features
-1. **Hand-Written SIMD Kernels**:
-   - **x86-64**: Hand-written **AVX2** 256-bit SIMD implementation (`simd_screlu_head_h1024_avx2`).
-   - **AArch64 / Apple Silicon**: Hand-written **ARM NEON** 128-bit SIMD implementation (`simd_screlu_head_h1024_neon`).
-   - Yields a **2.02x evaluation speedup** over scalar execution with bit-exact cross-platform parity.
-2. **Incremental Accumulator Updates**:
-   - Accumulator states are updated lazily and incrementally upon move application, only updating changed piece-square indices and the active king's perspective.
-3. **Squared Clipped ReLU (SCReLU)**:
-   - Provides smooth, non-linear activation gradient without expensive floating-point operations.
+The first-layer table is about 84 MB (41,024 features x 1024 x i16), so
+accumulator updates are bound by memory latency, not arithmetic. What matters:
+
+1. **Fused updates.** A quiet move is one pass over `src - out + in`, a capture
+   one pass over `src - mover - victim + mover'`, so the row misses overlap.
+   These are plain loops that the compiler vectorises to AVX-512 under
+   `target-cpu=native`; they measured faster than the earlier hand-written AVX2
+   intrinsics. The SCReLU head has an AVX-512 kernel (AVX2 and NEON remain).
+2. **King-move refresh cache ("Finny table").** A king move rebuilds only its own
+   perspective, by patching the cached accumulator for that king square with the
+   few pieces that differ; the other perspective is patched incrementally.
+3. **Lazy accumulators** (main search). Making a move records the feature change
+   and prefetches its weight rows; the slot is built only when an evaluation needs
+   it. Leaves answered from the TT (score or cached eval) never pay for an update.
+4. All of the above are exact: parity tests compare against full recomputation,
+   including sparse lazy evaluation along random games.
+
+Measured on a Ryzen 9 7940HX, one thread: the October search went from 567k to
+about 2.2-2.6M nodes/s through this work (the previous search: about 1.6M).
 
 ---
 
-## Modern Search Selectivity Architecture
+## Search
 
-PieBot implements an interconnected, co-tuned search system with modern selectivity:
+`PieBot/src/search/alphabeta.rs` was rewritten in October 2026 along modern
+Stockfish lines (promoted from the experimental `alphabeta_temp.rs` on 2026-10-16):
 
-- **Move Ordering**:
-  - **Capture History**: Piece-to-victim indexed capture history prioritizing tactically viable captures.
-  - **1-Ply & 2-Ply Continuation History**: Dual-depth quiet move context tables.
-  - **Counter-Move Heuristic**: Response-move prioritization based on previous ply.
-  - **Lazy Move Ordering**: Defers move scoring, SEE calculations, and allocations until after the Transposition Table (TT) move is searched, bypassing ordering on >55% of interior nodes that fail high immediately (+185k NPS).
-- **Pruning & Reductions**:
-  - **Principal Variation Search (PVS)** with Transposition Table cutoffs.
-  - **Dynamic Late Move Reductions (LMR)**: Depth-dependent logarithmic curve modulated by check status, capture flag, and history score.
-  - **Reverse Futility Pruning (RFP)** and **Futility Pruning (FP)** with improving-heuristic awareness.
-  - **Null-Move Pruning (NMP)** with adaptive reduction depths.
-  - **Static Exchange Evaluation (SEE)** pruning in both main search and quiescence search.
-  - **Quiescence Search**: Delta pruning, capture-history ordering, and tactical check extensions.
-- **Deterministic Node Signature**:
-  - Solves **91/91** mate problems in the `matein3.txt` test suite at depth 7 in **~1.9 seconds** (5,030,782 nodes).
+- **Transposition table**: lockless, 4-way 64-byte buckets of packed 16-byte
+  entries (move, score, static eval, depth, bound, PV flag, age), XOR-verified
+  keys, age-aware replacement, prefetched as soon as a move is made. It caches the
+  static eval, so loading or clearing a network clears it.
+- **Move ordering**: staged picker (TT move before generation; winning captures
+  by MVV, capture history and SEE; two killers and the counter move; quiets scored
+  only when reached, from butterfly, pawn and continuation histories at 1, 2, 4 and
+  6 plies, plus a bonus for direct checks; losing captures last).
+- **Evaluation adjustments**: pawn, non-pawn (per side), minor-piece and
+  continuation correction histories; a slight pull toward zero as the fifty-move
+  counter runs.
+- **Pruning and reductions**: PVS with aspiration windows, mate-distance pruning,
+  razoring, reverse futility, null move (with verification at high depth), ProbCut,
+  internal iterative reduction, late-move pruning, futility and history pruning,
+  SEE pruning of quiets and captures, logarithmic LMR adjusted by PV/cut node,
+  history, improving, checks and cutoff counts, with deeper/shallower re-searches.
+- **Extensions**: singular extensions with double extension, multi-cut and
+  negative extensions; every checking move is extended.
+- **Quiescence**: TT probes and stores, stand-pat from the corrected eval,
+  futility and SEE filters, evasions in check.
+- **Draws**: a position that repeats inside the search tree is a draw at once; one
+  from the game before the root needs a real threefold. `Contempt` sets the score.
+- **Endgames**: optional Syzygy probing (`SyzygyPath`).
+- **Tuning**: 55 constants are runtime tunables (`T::*` in `alphabeta.rs`); the
+  defaults are SPSA-tuned (6000 game pairs, +95.8 Elo [+82, +110] validated).
 
----
+Experiments tried and left off (defaults keep them inert): threat-aware quiet
+ordering (`ThreatEscape`/`ThreatEnter`; -21 Elo at 50, neutral at 10), quiet
+checks in the first quiescence ply (`QsChecks`, neutral), continuation history
+split by check/capture (`ContSplit`, neutral), SEE-guarded check extension
+(`CheckExt=2`, -14 Elo). Removing the check extension (`CheckExt=0`) is under
+confirmation. Results: [evidence/search_v2_20261016](evidence/search_v2_20261016/README.md).
+
+The mate suite is now read with depth escalation: the search is selective enough
+that some mates at fixed depth 7 come a few plies later (85/91 at depth 7 with
+106,965 nodes; **91/91 by depth 14 with 158,015 nodes**, against 91/91 at depth 7
+with about 7.1M nodes for the previous search).
 
 ## Testing & Quality Assurance
 
@@ -205,33 +265,71 @@ cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml
 cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml
 ```
 
-### Python Training & Pipeline Tests (554 Tests)
+### Python Training & Pipeline Tests
 ```bash
 python3 -m unittest discover -v training/nnue/tests
 python3 -m unittest discover -v scripts/tests
 ```
 
+The tablebase integration test needs real tables and is skipped otherwise:
+```bash
+cd PieBot && PIEBOT_SYZYGY_PATH=/path/to/syzygy cargo test --release --test syzygy_temp
+```
+
 ### Deterministic Mate Acceptance Suite
 ```bash
-PIEBOT_SUITE_FILE=PieBot/src/suites/matein3.txt PIEBOT_TEST_THREADS=1 \
-  PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=7 \
-  cargo run --locked --release --bin accept --manifest-path PieBot/Cargo.toml
+cd PieBot
+PIEBOT_SUITE_FILE=src/suites/matein3.txt PIEBOT_TEST_THREADS=1 \
+  PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=14 \
+  cargo run --locked --release --bin accept
 ```
+Expected: `cases=91 ... nodes=158015` (91/91 by depth 14). With
+`PIEBOT_TEST_MAX_DEPTH=7`: 85 cases, 106,965 nodes; that node count is the
+deterministic signature for proving a rebuild matches.
 
 ---
 
 ## Head-to-Head A/B Evaluation Workflow
 
-Per `AGENTS.md`, all search changes undergo empirical A/B evaluation against the baseline:
+Per `AGENTS.md`, search changes are A/B tested against the baseline before they
+are promoted. Put the change in `PieBot/src/search/alphabeta_temp.rs` (a stub that
+re-exports `alphabeta.rs` between experiments) and build the UCI binary on it with
+the `exp-search` feature:
 
 ```bash
-# Paired opening A/B match runner
-cargo run --locked --release --bin compare_play --manifest-path PieBot/Cargo.toml -- \
-  --games 400 --movetime 1000 --paired-openings --openings-file books/openings_v1.fen \
-  --base-eval nnue --base-blend 100 --base-nnue-quant-file models/lc0_chunk_00034965.nnue \
-  --exp-eval nnue --exp-blend 100 --exp-nnue-quant-file models/lc0_chunk_00034965.nnue \
-  --parallel-games 8 --threads 1 --json-out /tmp/ab_screen.json
+cd PieBot
+cargo build --release --features exp-search --target-dir ../out/target_exp
 ```
+
+Engine-vs-engine matches under real clocks (any two UCI engines, paired openings,
+draws only on a threefold that actually occurred):
+
+```bash
+python3 scripts/experiments/uci_match.py \
+  --a out/exp/uci --b out/base/uci \
+  --a-opt NNUEQuantFile=$PWD/models/lc0_chunk_00034965.nnue --a-opt UseNNUE=true \
+  --b-opt NNUEQuantFile=$PWD/models/lc0_chunk_00034965.nnue --b-opt UseNNUE=true \
+  --games 400 --tc 10+0.1 --workers 14 --book books/openings_v1.fen --out out/ab.json
+```
+
+The same runner plays PieBot against Stockfish (`--b path/to/stockfish
+--b-opt Threads=1`). Related tools in `scripts/experiments/`:
+
+| Script | Purpose |
+| :--- | :--- |
+| `uci_match.py` | Parallel paired match; pentanomial Elo with 95% CI, per-move times |
+| `ab_queue.py` | Runs a JSON queue of matches back to back; resumable |
+| `spsa.py` | Asynchronous SPSA over the tunables (engine started with `PIEBOT_TUNE=1`) |
+| `uci_nps.py` | Nodes per second of several engines on fixed positions |
+| `loss_points.py` | Where lost games turned, judged by Stockfish |
+| `gdb_profile.py` | Sampling profiler via gdb, for machines where `perf` is blocked |
+
+Because tunables and experiment toggles are UCI options, many experiments need
+no rebuild: play one binary against itself with different `--a-opt`/`--b-opt`
+(start the runner with `PIEBOT_TUNE=1` so the options are advertised).
+
+`compare_play` (in-process, fixed movetime) still works for `alphabeta` vs
+`alphabeta_temp`.
 
 ---
 

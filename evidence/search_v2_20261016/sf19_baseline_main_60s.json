@@ -1,0 +1,6 @@
+{
+ "note": "main 5860faf vs Stockfish 19 full strength, 60+0.5, 1 thread each, scripts/uci_elo_arena.py, draw-rule occurred, 14 seeds x 10 games",
+ "wins": 0,
+ "draws": 2,
+ "losses": 138
+}
