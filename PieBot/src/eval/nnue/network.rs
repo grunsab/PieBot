@@ -859,6 +859,12 @@ fn screlu_dot_madd(acc: &[i16], w: &[i8], qa: i16) -> i64 {
     unsafe {
         screlu_dot_neon(acc, w, qa)
     }
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    {
+        if acc.len() <= 4096 {
+            return unsafe { screlu_dot_avx512(acc, w, qa) };
+        }
+    }
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") {
@@ -869,6 +875,35 @@ fn screlu_dot_madd(acc: &[i16], w: &[i8], qa: i16) -> i64 {
     }
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     screlu_dot_madd_scalar(acc, w, qa)
+}
+
+/// AVX-512 SCReLU dot. Each i32 lane takes at most 2 * 255 * 255 * 127 per
+/// 32 inputs, so up to 4096 inputs fit without widening (< 2^31).
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[inline]
+unsafe fn screlu_dot_avx512(acc: &[i16], w: &[i8], qa: i16) -> i64 {
+    use std::arch::x86_64::*;
+    let len = acc.len();
+    let zero = _mm512_setzero_si512();
+    let qa_vec = _mm512_set1_epi16(qa);
+    let mut sum = _mm512_setzero_si512();
+    let n32 = len / 32;
+    let ap = acc.as_ptr();
+    let wp = w.as_ptr();
+    for i in 0..n32 {
+        let a = _mm512_loadu_si512(ap.add(i * 32) as *const _);
+        let v = _mm512_min_epi16(_mm512_max_epi16(a, zero), qa_vec);
+        let wi = _mm512_cvtepi8_epi16(_mm256_loadu_si256(wp.add(i * 32) as *const __m256i));
+        let vw = _mm512_mullo_epi16(v, wi);
+        sum = _mm512_add_epi32(sum, _mm512_madd_epi16(v, vw));
+    }
+    let mut total = _mm512_reduce_add_epi32(sum) as i64;
+    for j in n32 * 32..len {
+        let v = (*ap.add(j)).clamp(0, qa);
+        let vw = v * (*wp.add(j) as i16);
+        total += (v as i32 * vw as i32) as i64;
+    }
+    total
 }
 
 #[allow(dead_code)]
