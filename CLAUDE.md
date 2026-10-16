@@ -35,7 +35,8 @@ What changed in the workflow:
   Stockfish 19, keep 0 for normal play) and `SyzygyPath` (3-4-5 men tested;
   tables on this machine at `~/syzygy345`). The TT caches static evals, so
   anything that changes the evaluation must reset it (setters already do).
-- Measuring on this laptop: keep at most 14 cores busy (one game uses one
+- Measuring on this laptop: keep at most 12 cores busy (user limit since
+  2026-10-16; one game uses one
   core when both engines are single-threaded). `perf` is blocked
   (perf_event_paranoid=4); profile with `scripts/experiments/gdb_profile.py`.
 - Lichess: lichess-bot's engine is the separate clone

@@ -192,6 +192,7 @@ def main() -> None:
     ap.add_argument("--max-plies", type=int, default=400)
     ap.add_argument("--grace", type=float, default=0.25, help="seconds past zero before a loss on time")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--resume", action="store_true", help="keep finished pairs already in --out")
     args = ap.parse_args()
     if args.games % 2:
         raise SystemExit("--games must be even")
@@ -214,6 +215,17 @@ def main() -> None:
     config = {k: v for k, v in vars(args).items()}
     started = time.time()
     pairs: list[dict] = []
+    if args.resume and out.exists():
+        # Keep finished pairs from an earlier run with the same openings and
+        # settings (worker count may differ); replay only the rest.
+        prev = json.loads(out.read_text())
+        keys = ("a", "b", "a_opt", "b_opt", "games", "tc", "book", "seed", "max_plies")
+        if any(prev["config"].get(k) != config[k] for k in keys):
+            raise SystemExit("--resume: existing result file has different settings")
+        pairs = prev["pairs"]
+        done = {p["pair"] for p in pairs}
+        tasks = [t for t in tasks if t["game_id"] not in done]
+        print(f"resuming: {len(pairs)} pairs kept, {len(tasks)} to play", flush=True)
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         futures = [pool.submit(play_pair, t) for t in tasks]
         for fut in as_completed(futures):
@@ -223,7 +235,7 @@ def main() -> None:
             tmp = out.with_suffix(".tmp")
             tmp.write_text(json.dumps({"config": config, "summary": summary, "pairs": pairs}))
             tmp.replace(out)
-            if len(pairs) % 10 == 0 or len(pairs) == len(tasks):
+            if len(pairs) % 10 == 0:
                 print(f"pairs {len(pairs)}/{len(tasks)} W{summary['a_wins']} D{summary['draws']} "
                       f"L{summary['a_losses']} elo {summary['elo']:+.1f} "
                       f"[{summary['elo_95_ci'][0]:+.1f}, {summary['elo_95_ci'][1]:+.1f}]", flush=True)
