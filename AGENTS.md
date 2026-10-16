@@ -21,6 +21,50 @@ is preserved separately, with its original source pin unchanged. See
 `documents/LCZeroTraining.md` for source, testing, monitoring and restart details.
 Re-verify live state before acting. The August handoff below is historical.
 
+Search v2 (2026-10-16) — CURRENT for search work
+===============================================
+
+`PieBot/src/search/alphabeta.rs` is a rewritten, Stockfish-style search
+(promoted 2026-10-16 from `alphabeta_temp.rs`, which is again a re-export
+stub). Results and method: `evidence/search_v2_20261016/README.md`. In short:
++402 Elo over the previous search at 10+0.1, +96 more from SPSA, and 14.3%
+win-or-draw against full-strength Stockfish 19 at 60+0.5 (previous search 1.4%).
+This supersedes the search facts in the August handoff below (node signatures,
+arm history, "pruning is dense" conclusions were all about the old search).
+
+What changed in the workflow:
+- Build from inside `PieBot/` (`cd PieBot && cargo build --release`):
+  `.cargo/config.toml` (target-cpu=native) is read from the working directory,
+  so `--manifest-path` from the repo root gives a generic binary.
+- The `exp-search` feature builds the UCI front end on `alphabeta_temp.rs`
+  (`--target-dir ../out/target_exp`), so experiments are played under real
+  clocks with `scripts/experiments/uci_match.py` (paired openings, real
+  threefolds, pentanomial CI). `ab_queue.py` runs a queue of such matches;
+  `spsa.py` tunes; `uci_nps.py` measures speed; `loss_points.py` asks Stockfish
+  where lost games turned.
+- 55 search constants are runtime tunables (`tunables!` / `tp(T::...)` in
+  `alphabeta.rs`). With `PIEBOT_TUNE=1` in the engine's environment they are
+  advertised as UCI spin options, so one binary can be A/B tested against itself
+  with different options. Experiment toggles (ThreatEscape/Enter, QsChecks,
+  ContSplit, CheckExt) are tunables too; their defaults are the measured best.
+- Mate-suite gate: the search is selective, so read matein3 with escalation:
+  `PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=14` must solve 91/91
+  (158,015 nodes at `999cc11`). Node signature at fixed depth 7: 106,965
+  (85/91), identical for `accept` and `accept_temp` while temp is the stub.
+- Always pass `UseNNUE=true` and an absolute `NNUEQuantFile` from scripts: the
+  default net path is relative to the working directory, and a miss silently
+  plays on the PST eval.
+- New UCI options: `Contempt` (draw bias for the searching side; 40 helped vs
+  Stockfish 19, keep 0 for normal play) and `SyzygyPath` (3-4-5 men tested;
+  tables on this machine at `~/syzygy345`). The TT caches static evals, so
+  anything that changes the evaluation must reset it (setters already do).
+- Measuring on this laptop: keep at most 14 cores busy (one game uses one
+  core when both engines are single-threaded). `perf` is blocked
+  (perf_event_paranoid=4); profile with `scripts/experiments/gdb_profile.py`.
+- Lichess: lichess-bot's engine is the separate clone
+  `~/Documents/lichess-bot/engines/PieBot` (config `~/Documents/lichess-bot/config.yml`);
+  update it by fetching local `main` and rebuilding inside its `PieBot/`.
+
 Cozy Search Change Management and A/B Comparison
 ================================================
 
