@@ -5,7 +5,10 @@ use crate::eval::nnue::loader::QuantNnue;
 #[cfg(not(feature = "board-pleco"))]
 use crate::eval::nnue::Nnue;
 #[cfg(not(feature = "board-pleco"))]
+#[cfg(not(feature = "exp-search"))]
 use crate::search::alphabeta::{SearchParams, SearchResult, Searcher};
+#[cfg(all(not(feature = "board-pleco"), feature = "exp-search"))]
+use crate::search::alphabeta_temp::{SearchParams, SearchResult, Searcher};
 #[cfg(not(feature = "board-pleco"))]
 use cozy_chess::{Color, Piece, Square};
 #[cfg(not(feature = "board-pleco"))]
@@ -170,6 +173,10 @@ fn search_params_for_go(
         })
     };
     params.movetime = allocated_ms.map(Duration::from_millis);
+    #[cfg(feature = "exp-search")]
+    {
+        params.fixed_movetime = options.movetime_ms.is_some();
+    }
     params
 }
 
@@ -553,6 +560,18 @@ impl UciEngine {
             self.default_model_path.as_deref().unwrap_or("")
         );
         println!("{}", eval_blend_option_line());
+        #[cfg(feature = "exp-search")]
+        println!("option name Contempt type spin default 0 min -200 max 200");
+        #[cfg(feature = "exp-search")]
+        println!("option name SyzygyPath type string default <empty>");
+        #[cfg(feature = "exp-search")]
+        if std::env::var_os("PIEBOT_TUNE").is_some() {
+            use crate::search::alphabeta_temp::{TUNABLE_DEFAULTS, TUNABLE_NAMES, TUNABLE_RANGES};
+            for (i, name) in TUNABLE_NAMES.iter().enumerate() {
+                let (lo, hi) = TUNABLE_RANGES[i];
+                println!("option name {name} type spin default {} min {lo} max {hi}", TUNABLE_DEFAULTS[i]);
+            }
+        }
         println!("uciok");
     }
 
@@ -643,6 +662,27 @@ impl UciEngine {
                 }
                 None
             }
+            #[cfg(feature = "exp-search")]
+            "syzygypath" => match crate::search::syzygy::set_path(value) {
+                Ok(n) => Some(format!("info string syzygy: {n} tables, up to {} pieces", crate::search::syzygy::max_pieces())),
+                Err(e) => Some(format!("info string syzygy load failed: {e}")),
+            },
+            #[cfg(feature = "exp-search")]
+            "contempt" => {
+                if let Ok(v) = value.trim().parse::<i32>() {
+                    crate::search::alphabeta_temp::CONTEMPT
+                        .store(v.clamp(-200, 200), std::sync::atomic::Ordering::Relaxed);
+                }
+                None
+            }
+            #[cfg(feature = "exp-search")]
+            other => {
+                if let Ok(v) = value.trim().parse::<i32>() {
+                    crate::search::alphabeta_temp::set_tunable(other, v);
+                }
+                None
+            }
+            #[cfg(not(feature = "exp-search"))]
             _ => None,
         }
     }
@@ -738,6 +778,8 @@ impl UciEngine {
     }
 
     fn finish_search(&mut self, outcome: SearchOutcome) {
+        #[cfg(all(feature = "exp-search", feature = "search-stats"))]
+        crate::search::alphabeta_temp::print_stats();
         self.searcher = outcome.searcher;
         let result = outcome.result;
         println!(

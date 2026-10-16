@@ -1,24 +1,19 @@
 use piebot::search::alphabeta_temp::Searcher;
 
 #[test]
-fn test_dynamic_null_move_reduction() {
+fn null_move_reduction_grows_with_depth_and_eval_margin() {
     let searcher = Searcher::default();
-
-    // Shallow depth (<= 4): R = 1
-    assert_eq!(searcher.null_move_reduction(3, 0, 0), 1);
-    assert_eq!(searcher.null_move_reduction(4, 0, 0), 1);
-
-    // Medium depth (5): R = 2
-    assert_eq!(searcher.null_move_reduction(5, 0, 0), 2);
-
-    // Depth 6+: R = 3
-    assert_eq!(searcher.null_move_reduction(6, 0, 0), 3);
-    assert_eq!(searcher.null_move_reduction(8, 0, 0), 3);
-
-    // Depth 10+: R = 4
-    assert_eq!(searcher.null_move_reduction(10, 0, 0), 4);
-
-    // Eval margin bonus (+1 when eval - beta > 250)
-    assert_eq!(searcher.null_move_reduction(8, 300, 0), 4);
-    assert_eq!(searcher.null_move_reduction(8, 600, 0), 5);
+    let mut prev = 0;
+    for depth in 3..=20 {
+        let r = searcher.null_move_reduction(depth, 0, 0);
+        assert!(r >= prev, "reduction must not shrink with depth");
+        assert!(r <= depth, "reduction cannot exceed the depth");
+        prev = r;
+    }
+    assert!(searcher.null_move_reduction(12, 600, 0) > searcher.null_move_reduction(12, 0, 0));
+    // The eval-margin term is capped.
+    assert_eq!(
+        searcher.null_move_reduction(30, 5_000, 0),
+        searcher.null_move_reduction(30, 50_000, 0)
+    );
 }

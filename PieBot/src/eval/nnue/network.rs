@@ -1,5 +1,6 @@
 use crate::eval::nnue::features::{
-    dp_active_indices, dp_piece_index, HalfKpSchema, PieceFeatureIndices,
+    dp_active_indices, dp_idx_for, dp_piece_index, HalfKpSchema, PieceFeatureIndices,
+    HALFKP_PIECE_ORDER,
 };
 use crate::eval::nnue::loader::{QuantNnue, QuantNnueV2};
 use cozy_chess::{Board, Color, Move, Piece, Square};
@@ -64,6 +65,67 @@ struct V2State {
     wk_idx: usize,
     bk_idx: usize,
     stm: Color,
+    /// Refresh cache ("Finny table"): for each perspective and king square,
+    /// the accumulator of the last position refreshed with that king square
+    /// and the piece placement it was built from. A king move rebuilds its own
+    /// perspective by patching that entry with the few pieces that differ,
+    /// instead of summing ~30 weight rows from the 84 MB table.
+    finny: Vec<FinnyEntry>,
+    /// Lazy mode: applying a move only records how to build the child slot;
+    /// slots are materialised when an evaluation needs them.
+    lazy: bool,
+    pending: Vec<Pending>,
+    computed: Vec<bool>,
+}
+
+#[derive(Clone)]
+enum Pending {
+    None,
+    Delta {
+        added: [FeatureDelta; 2],
+        removed: [FeatureDelta; 2],
+    },
+    King {
+        before: Placement,
+        after: Placement,
+    },
+    Refresh {
+        after: Box<Board>,
+    },
+}
+
+/// Non-king piece bitboards ([color][HALFKP_PIECE_ORDER]) plus king squares:
+/// everything the accumulator needs from a position.
+#[derive(Clone, Copy)]
+struct Placement {
+    pieces: [[u64; 5]; 2],
+    wk: usize,
+    bk: usize,
+}
+
+impl Placement {
+    #[inline]
+    fn of(board: &Board) -> Self {
+        let mut pieces = [[0u64; 5]; 2];
+        for (ci, color) in [Color::White, Color::Black].into_iter().enumerate() {
+            for (pi, piece) in HALFKP_PIECE_ORDER.iter().enumerate() {
+                pieces[ci][pi] = (board.colors(color) & board.pieces(*piece)).0;
+            }
+        }
+        Self {
+            pieces,
+            wk: square_index(board, Color::White, Piece::King),
+            bk: square_index(board, Color::Black, Piece::King),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct FinnyEntry {
+    acc: Vec<i16>,
+    /// [piece color][HALFKP_PIECE_ORDER index] bitboards of the cached position.
+    pieces: [[u64; 5]; 2],
+    valid: bool,
 }
 
 /// Opaque undo token returned by [`QuantNetwork::apply_move`].
@@ -143,6 +205,10 @@ impl QuantNetwork {
                 wk_idx: 0,
                 bk_idx: 0,
                 stm: Color::White,
+                finny: Vec::new(),
+                lazy: false,
+                pending: Vec::new(),
+                computed: Vec::new(),
             };
             let model = Arc::new(model);
             return Self {
@@ -194,6 +260,10 @@ impl QuantNetwork {
                 wk_idx: v2.wk_idx,
                 bk_idx: v2.bk_idx,
                 stm: v2.stm,
+                finny: v2.finny.clone(),
+                lazy: v2.lazy,
+                pending: v2.pending.clone(),
+                computed: v2.computed.clone(),
             }),
         }
     }
@@ -218,6 +288,25 @@ impl QuantNetwork {
                 sum += row[idx] as i32;
             }
             self.acc[j] = sum;
+        }
+    }
+
+    /// Switch the arch-v2 backend between eager and lazy accumulator updates.
+    /// In lazy mode callers must call [`Self::ensure_computed`] before
+    /// [`Self::eval_current`].
+    pub fn set_lazy(&mut self, on: bool) {
+        if let Some(v2) = &mut self.v2 {
+            v2.lazy = on;
+        }
+    }
+
+    /// Materialise the live accumulator slot (no-op unless lazy).
+    #[inline]
+    pub fn ensure_computed(&mut self) {
+        if let Some(v2) = &mut self.v2 {
+            if v2.lazy {
+                v2.ensure_top();
+            }
         }
     }
 
@@ -383,22 +472,21 @@ impl QuantNetwork {
         let wk_after = square_index(after, Color::White, Piece::King);
         let bk_after = square_index(after, Color::Black, Piece::King);
         let v2 = self.v2.as_mut().expect("apply_move_v2 requires v2 backend");
-        if wk_before != wk_after
-            || bk_before != bk_after
-            || v2.wk_idx != wk_before
-            || v2.bk_idx != bk_before
-        {
-            return v2.push_refresh(after);
+        if v2.wk_idx != wk_before || v2.bk_idx != bk_before {
+            return v2.push_refresh_any(after);
+        }
+        if wk_before != wk_after || bk_before != bk_after {
+            return v2.push_king_any(before, after);
         }
 
         let Some(moving_piece) = before.piece_on(mv.from) else {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         };
         let Some(moving_color) = before.color_on(mv.from) else {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         };
         if moving_piece == Piece::King || moving_color != before.side_to_move() {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         }
 
         let placed_piece = mv.promotion.unwrap_or(moving_piece);
@@ -406,7 +494,7 @@ impl QuantNetwork {
             || after.color_on(mv.to) != Some(moving_color)
             || after.piece_on(mv.from).is_some()
         {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         }
 
         let mut removed = [FeatureDelta::new(), FeatureDelta::new()];
@@ -416,10 +504,10 @@ impl QuantNetwork {
 
         if let Some(captured_piece) = before.piece_on(mv.to) {
             let Some(captured_color) = before.color_on(mv.to) else {
-                return v2.push_refresh(after);
+                return v2.push_refresh_any(after);
             };
             if captured_piece == Piece::King || captured_color == moving_color {
-                return v2.push_refresh(after);
+                return v2.push_refresh_any(after);
             }
             v2.push_piece(&mut removed, captured_color, captured_piece, mv.to);
         } else if moving_piece == Piece::Pawn && mv.from.file() != mv.to.file() {
@@ -429,7 +517,7 @@ impl QuantNetwork {
                 || before.color_on(captured_square) != Some(captured_color)
                 || after.piece_on(captured_square).is_some()
             {
-                return v2.push_refresh(after);
+                return v2.push_refresh_any(after);
             }
             v2.push_piece(&mut removed, captured_color, Piece::Pawn, captured_square);
         }
@@ -439,6 +527,12 @@ impl QuantNetwork {
             prev_wk: v2.wk_idx,
             prev_bk: v2.bk_idx,
         });
+        if v2.lazy {
+            // Start fetching the weight rows now; the slot is built when the
+            // child evaluates, usually moments later.
+            v2.prefetch_rows(&added, &removed);
+            return v2.record(Pending::Delta { added, removed }, after);
+        }
         v2.push_delta(&added, &removed);
         v2.stm = after.side_to_move();
         change
@@ -610,102 +704,24 @@ unsafe fn screlu_dot_avx2(acc: &[i16], w: &[i8], qa: i16) -> i64 {
 #[inline]
 pub fn vec_add_assign_i16(dst: &mut [i16], row: &[i16]) {
     debug_assert_eq!(dst.len(), row.len());
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        use std::arch::aarch64::*;
-        let len = dst.len();
-        let chunks = len / 8;
-        let d_ptr = dst.as_mut_ptr();
-        let r_ptr = row.as_ptr();
-        for i in 0..chunks {
-            let offset = i * 8;
-            let d = vld1q_s16(d_ptr.add(offset));
-            let r = vld1q_s16(r_ptr.add(offset));
-            vst1q_s16(d_ptr.add(offset), vaddq_s16(d, r));
-        }
-        for i in (chunks * 8)..len {
-            *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_add(*r_ptr.add(i));
-        }
-    }
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                use std::arch::x86_64::*;
-                let len = dst.len();
-                let chunks = len / 16;
-                let d_ptr = dst.as_mut_ptr();
-                let r_ptr = row.as_ptr();
-                for i in 0..chunks {
-                    let offset = i * 16;
-                    let d = _mm256_loadu_si256(d_ptr.add(offset) as *const __m256i);
-                    let r = _mm256_loadu_si256(r_ptr.add(offset) as *const __m256i);
-                    _mm256_storeu_si256(d_ptr.add(offset) as *mut __m256i, _mm256_add_epi16(d, r));
-                }
-                for i in (chunks * 16)..len {
-                    *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_add(*r_ptr.add(i));
-                }
-            }
-        } else {
-            for (d, &r) in dst.iter_mut().zip(row) {
-                *d = d.wrapping_add(r);
-            }
-        }
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    for (d, &r) in dst.iter_mut().zip(row) {
-        *d = d.wrapping_add(r);
+    // Plain loop: with target-cpu=native this vectorises to the widest
+    // registers available, and measured faster than the old AVX2 intrinsics.
+    let n = dst.len();
+    let row = &row[..n];
+    for i in 0..n {
+        dst[i] = dst[i].wrapping_add(row[i]);
     }
 }
 
 #[inline]
 pub fn vec_sub_assign_i16(dst: &mut [i16], row: &[i16]) {
     debug_assert_eq!(dst.len(), row.len());
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        use std::arch::aarch64::*;
-        let len = dst.len();
-        let chunks = len / 8;
-        let d_ptr = dst.as_mut_ptr();
-        let r_ptr = row.as_ptr();
-        for i in 0..chunks {
-            let offset = i * 8;
-            let d = vld1q_s16(d_ptr.add(offset));
-            let r = vld1q_s16(r_ptr.add(offset));
-            vst1q_s16(d_ptr.add(offset), vsubq_s16(d, r));
-        }
-        for i in (chunks * 8)..len {
-            *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_sub(*r_ptr.add(i));
-        }
-    }
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                use std::arch::x86_64::*;
-                let len = dst.len();
-                let chunks = len / 16;
-                let d_ptr = dst.as_mut_ptr();
-                let r_ptr = row.as_ptr();
-                for i in 0..chunks {
-                    let offset = i * 16;
-                    let d = _mm256_loadu_si256(d_ptr.add(offset) as *const __m256i);
-                    let r = _mm256_loadu_si256(r_ptr.add(offset) as *const __m256i);
-                    _mm256_storeu_si256(d_ptr.add(offset) as *mut __m256i, _mm256_sub_epi16(d, r));
-                }
-                for i in (chunks * 16)..len {
-                    *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_sub(*r_ptr.add(i));
-                }
-            }
-        } else {
-            for (d, &r) in dst.iter_mut().zip(row) {
-                *d = d.wrapping_sub(r);
-            }
-        }
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    for (d, &r) in dst.iter_mut().zip(row) {
-        *d = d.wrapping_sub(r);
+    // Plain loop: with target-cpu=native this vectorises to the widest
+    // registers available, and measured faster than the old AVX2 intrinsics.
+    let n = dst.len();
+    let row = &row[..n];
+    for i in 0..n {
+        dst[i] = dst[i].wrapping_sub(row[i]);
     }
 }
 
@@ -772,6 +788,69 @@ pub fn push_delta_quiet_fused(dst: &mut [i16], src: &[i16], r: &[i16], a: &[i16]
     }
 }
 
+/// `dst = src - r + a` in one pass; vectorised by the compiler.
+#[inline]
+pub fn push_delta_quiet_fused_plain(dst: &mut [i16], src: &[i16], r: &[i16], a: &[i16]) {
+    let n = dst.len();
+    let (src, r, a) = (&src[..n], &r[..n], &a[..n]);
+    for i in 0..n {
+        dst[i] = src[i].wrapping_sub(r[i]).wrapping_add(a[i]);
+    }
+}
+
+/// `acc += a1 + a2 - r1 - r2` for up to two rows each (None = absent), one
+/// pass. Used to batch the row updates of a refresh.
+#[inline]
+fn acc_update2(acc: &mut [i16], add: [Option<&[i16]>; 2], sub: [Option<&[i16]>; 2]) {
+    let n = acc.len();
+    match (add, sub) {
+        ([Some(a1), Some(a2)], [None, None]) => {
+            let (a1, a2) = (&a1[..n], &a2[..n]);
+            for i in 0..n {
+                acc[i] = acc[i].wrapping_add(a1[i]).wrapping_add(a2[i]);
+            }
+        }
+        ([None, None], [Some(r1), Some(r2)]) => {
+            let (r1, r2) = (&r1[..n], &r2[..n]);
+            for i in 0..n {
+                acc[i] = acc[i].wrapping_sub(r1[i]).wrapping_sub(r2[i]);
+            }
+        }
+        ([Some(a1), None], [Some(r1), None]) => {
+            let (a1, r1) = (&a1[..n], &r1[..n]);
+            for i in 0..n {
+                acc[i] = acc[i].wrapping_add(a1[i]).wrapping_sub(r1[i]);
+            }
+        }
+        _ => {
+            for row in add.into_iter().flatten() {
+                let row = &row[..n];
+                for i in 0..n {
+                    acc[i] = acc[i].wrapping_add(row[i]);
+                }
+            }
+            for row in sub.into_iter().flatten() {
+                let row = &row[..n];
+                for i in 0..n {
+                    acc[i] = acc[i].wrapping_sub(row[i]);
+                }
+            }
+        }
+    }
+}
+
+/// `dst = src - r1 - r2 + a` in one pass (wrapping, like every accumulator
+/// update). Plain loops: with `target-cpu=native` the compiler vectorises
+/// this to the widest available registers.
+#[inline]
+pub fn push_delta_capture_fused(dst: &mut [i16], src: &[i16], r1: &[i16], r2: &[i16], a: &[i16]) {
+    let n = dst.len();
+    let (src, r1, r2, a) = (&src[..n], &r1[..n], &r2[..n], &a[..n]);
+    for i in 0..n {
+        dst[i] = src[i].wrapping_sub(r1[i]).wrapping_sub(r2[i]).wrapping_add(a[i]);
+    }
+}
+
 /// Fast path: dispatches to hand-written NEON (aarch64) or AVX2 (x86_64) SIMD kernels,
 /// with scalar fallback.
 #[inline]
@@ -779,6 +858,12 @@ fn screlu_dot_madd(acc: &[i16], w: &[i8], qa: i16) -> i64 {
     #[cfg(target_arch = "aarch64")]
     unsafe {
         screlu_dot_neon(acc, w, qa)
+    }
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    {
+        if acc.len() <= 4096 {
+            return unsafe { screlu_dot_avx512(acc, w, qa) };
+        }
     }
     #[cfg(target_arch = "x86_64")]
     {
@@ -790,6 +875,35 @@ fn screlu_dot_madd(acc: &[i16], w: &[i8], qa: i16) -> i64 {
     }
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     screlu_dot_madd_scalar(acc, w, qa)
+}
+
+/// AVX-512 SCReLU dot. Each i32 lane takes at most 2 * 255 * 255 * 127 per
+/// 32 inputs, so up to 4096 inputs fit without widening (< 2^31).
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[inline]
+unsafe fn screlu_dot_avx512(acc: &[i16], w: &[i8], qa: i16) -> i64 {
+    use std::arch::x86_64::*;
+    let len = acc.len();
+    let zero = _mm512_setzero_si512();
+    let qa_vec = _mm512_set1_epi16(qa);
+    let mut sum = _mm512_setzero_si512();
+    let n32 = len / 32;
+    let ap = acc.as_ptr();
+    let wp = w.as_ptr();
+    for i in 0..n32 {
+        let a = _mm512_loadu_si512(ap.add(i * 32) as *const _);
+        let v = _mm512_min_epi16(_mm512_max_epi16(a, zero), qa_vec);
+        let wi = _mm512_cvtepi8_epi16(_mm256_loadu_si256(wp.add(i * 32) as *const __m256i));
+        let vw = _mm512_mullo_epi16(v, wi);
+        sum = _mm512_add_epi32(sum, _mm512_madd_epi16(v, vw));
+    }
+    let mut total = _mm512_reduce_add_epi32(sum) as i64;
+    for j in n32 * 32..len {
+        let v = (*ap.add(j)).clamp(0, qa);
+        let vw = v * (*wp.add(j) as i16);
+        total += (v as i32 * vw as i32) as i64;
+    }
+    total
 }
 
 #[allow(dead_code)]
@@ -847,6 +961,110 @@ impl V2State {
     fn refresh(&mut self, board: &Board) {
         self.top = 0;
         self.refresh_into(0, board);
+        self.mark(0, Pending::None, true);
+    }
+
+    #[inline]
+    fn mark(&mut self, t: usize, p: Pending, computed: bool) {
+        if !self.lazy {
+            return;
+        }
+        if self.pending.len() <= t {
+            self.pending.resize(t + 1, Pending::None);
+            self.computed.resize(t + 1, false);
+        }
+        self.pending[t] = p;
+        self.computed[t] = computed;
+    }
+
+    #[inline]
+    fn prefetch_rows(&self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let h = self.model.hidden_dim;
+            let w1 = self.model.w1.as_ptr();
+            for d in added.iter().chain(removed.iter()) {
+                for &idx in d.as_slice() {
+                    // First quarter of each 2 KB row; the hardware prefetcher
+                    // streams the rest once the loop starts.
+                    let row = unsafe { w1.add(idx * h) } as *const i8;
+                    let mut off = 0;
+                    while off < (h * 2) / 4 {
+                        unsafe { std::arch::x86_64::_mm_prefetch(row.add(off), std::arch::x86_64::_MM_HINT_T0) };
+                        off += 64;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Lazy push: record the transition into slot top+1 and update the keys.
+    fn record(&mut self, p: Pending, after: &Board) -> ChangeSet {
+        let change = ChangeSet(ChangeKind::PushV2 {
+            prev_stm: self.stm,
+            prev_wk: self.wk_idx,
+            prev_bk: self.bk_idx,
+        });
+        let t = self.top + 1;
+        self.mark(t, p, false);
+        self.wk_idx = square_index(after, Color::White, Piece::King);
+        self.bk_idx = square_index(after, Color::Black, Piece::King);
+        self.stm = after.side_to_move();
+        self.top = t;
+        change
+    }
+
+    fn push_refresh_any(&mut self, after: &Board) -> ChangeSet {
+        if self.lazy {
+            return self.record(Pending::Refresh { after: Box::new(after.clone()) }, after);
+        }
+        self.push_refresh(after)
+    }
+
+    fn push_king_any(&mut self, before: &Board, after: &Board) -> ChangeSet {
+        if self.lazy {
+            return self.record(
+                Pending::King {
+                    before: Placement::of(before),
+                    after: Placement::of(after),
+                },
+                after,
+            );
+        }
+        self.push_king_move(before, after)
+    }
+
+    /// Materialise every pending slot up to `top`.
+    fn ensure_top(&mut self) {
+        let top = self.top;
+        if top < self.computed.len() && self.computed[top] {
+            return;
+        }
+        let mut c = top;
+        while c > 0 && !(c < self.computed.len() && self.computed[c]) {
+            c -= 1;
+        }
+        for t in c + 1..=top {
+            let p = std::mem::replace(&mut self.pending[t], Pending::None);
+            self.ensure_slot(t);
+            match &p {
+                Pending::Delta { added, removed } => self.delta_into(t, added, removed),
+                Pending::King { before, after } => self.king_into(t, before, after),
+                Pending::Refresh { after } => self.refresh_slot(t, after),
+                Pending::None => {}
+            }
+            self.pending[t] = p;
+            self.computed[t] = true;
+        }
+    }
+
+    /// Rebuild slot `t` from scratch without touching the live keys.
+    fn refresh_slot(&mut self, t: usize, board: &Board) {
+        let (wk, bk, stm) = (self.wk_idx, self.bk_idx, self.stm);
+        self.refresh_into(t, board);
+        self.wk_idx = wk;
+        self.bk_idx = bk;
+        self.stm = stm;
     }
 
     /// Rebuild both perspective accumulators from scratch into slot `t`.
@@ -947,9 +1165,16 @@ impl V2State {
     /// Write the post-move accumulators into a fresh slot above `top`, leaving
     /// the parent's slot untouched so revert is a decrement.
     fn push_delta(&mut self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
-        let h = self.model.hidden_dim;
         let top = self.top;
         self.ensure_slot(top + 1);
+        self.delta_into(top + 1, added, removed);
+        self.top = top + 1;
+    }
+
+    /// Write slot `t` as slot `t - 1` patched by the feature delta.
+    fn delta_into(&mut self, t: usize, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
+        let h = self.model.hidden_dim;
+        let top = t - 1;
         let model = &*self.model;
         let w1 = &model.w1;
         // Parent slot ends exactly where the child slot begins, so one split
@@ -970,7 +1195,16 @@ impl V2State {
             if let ([r_idx], [a_idx]) = (rem, add) {
                 let r = &w1[r_idx * h..(r_idx + 1) * h];
                 let a = &w1[a_idx * h..(a_idx + 1) * h];
-                push_delta_quiet_fused(dst, src, r, a);
+                push_delta_quiet_fused_plain(dst, src, r, a);
+                continue;
+            }
+            // A capture: mover and victim out, mover in. One pass over all
+            // three rows keeps their misses in flight together.
+            if let ([r1_idx, r2_idx], [a_idx]) = (rem, add) {
+                let r1 = &w1[r1_idx * h..(r1_idx + 1) * h];
+                let r2 = &w1[r2_idx * h..(r2_idx + 1) * h];
+                let a = &w1[a_idx * h..(a_idx + 1) * h];
+                push_delta_capture_fused(dst, src, r1, r2, a);
                 continue;
             }
             dst.copy_from_slice(src);
@@ -983,13 +1217,147 @@ impl V2State {
                 vec_add_assign_i16(dst, row);
             }
         }
-        self.top = top + 1;
     }
 
     /// King moves re-key every HalfKP feature, so the accumulators are rebuilt
     /// rather than patched. Pushing that rebuild into a new slot keeps revert
     /// uniform -- and free -- instead of cloning the parent accumulators.
     #[cold]
+    /// Child slot after a king move: the mover's perspective is rebuilt from
+    /// the refresh cache, the other perspective is patched from the parent by
+    /// the non-king pieces that changed (a capture, or the castling rook).
+    fn push_king_move(&mut self, before: &Board, after: &Board) -> ChangeSet {
+        let change = ChangeSet(ChangeKind::PushV2 {
+            prev_stm: self.stm,
+            prev_wk: self.wk_idx,
+            prev_bk: self.bk_idx,
+        });
+        let t = self.top + 1;
+        self.ensure_slot(t);
+        self.king_into(t, &Placement::of(before), &Placement::of(after));
+        self.wk_idx = square_index(after, Color::White, Piece::King);
+        self.bk_idx = square_index(after, Color::Black, Piece::King);
+        self.stm = after.side_to_move();
+        self.top = t;
+        change
+    }
+
+    /// Write slot `t` (parent `t - 1`) for a king move from `before`.
+    fn king_into(&mut self, t: usize, before: &Placement, after: &Placement) {
+        let h = self.model.hidden_dim;
+        let (wk_before, bk_before) = (before.wk, before.bk);
+        let (wk_after, bk_after) = (after.wk, after.bk);
+        let white_moved = wk_after != wk_before;
+        let black_moved = bk_after != bk_before;
+        for (p, perspective) in [Color::White, Color::Black].into_iter().enumerate() {
+            let moved = if p == 0 { white_moved } else { black_moved };
+            if moved {
+                let k = if p == 0 { wk_after } else { bk_after };
+                self.finny_refresh_into(t, p, perspective, k, after);
+            } else {
+                let k = if p == 0 { wk_before } else { bk_before };
+                let model = &*self.model;
+                let (parent_slots, child_slot) = self.stack.split_at_mut(t * 2 * h);
+                let src = &parent_slots[(t - 1) * 2 * h + p * h..(t - 1) * 2 * h + (p + 1) * h];
+                let dst = &mut child_slot[p * h..(p + 1) * h];
+                dst.copy_from_slice(src);
+                for (ci, color) in [Color::White, Color::Black].into_iter().enumerate() {
+                    for pi in 0..HALFKP_PIECE_ORDER.len() {
+                        let old = before.pieces[ci][pi];
+                        let new = after.pieces[ci][pi];
+                        let mut gone = old & !new;
+                        while gone != 0 {
+                            let sq = gone.trailing_zeros() as usize;
+                            gone &= gone - 1;
+                            let idx = dp_idx_for(perspective, k, color, pi, sq);
+                            vec_sub_assign_i16(dst, &model.w1[idx * h..(idx + 1) * h]);
+                        }
+                        let mut came = new & !old;
+                        while came != 0 {
+                            let sq = came.trailing_zeros() as usize;
+                            came &= came - 1;
+                            let idx = dp_idx_for(perspective, k, color, pi, sq);
+                            vec_add_assign_i16(dst, &model.w1[idx * h..(idx + 1) * h]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rebuild perspective `p` of slot `t` for a position whose king (for that
+    /// perspective) stands on square index `k`, via the refresh cache.
+    fn finny_refresh_into(&mut self, t: usize, p: usize, perspective: Color, k: usize, board: &Placement) {
+        let h = self.model.hidden_dim;
+        if self.finny.is_empty() {
+            self.finny = vec![
+                FinnyEntry {
+                    acc: Vec::new(),
+                    pieces: [[0; 5]; 2],
+                    valid: false,
+                };
+                2 * 64
+            ];
+        }
+        let model = &*self.model;
+        let entry = &mut self.finny[p * 64 + k];
+        if !entry.valid {
+            entry.acc.clear();
+            entry.acc.extend_from_slice(&model.b1);
+            entry.pieces = [[0; 5]; 2];
+            entry.valid = true;
+        }
+        let mut adds = [0usize; 32];
+        let mut subs = [0usize; 32];
+        let (mut na, mut ns) = (0, 0);
+        for (ci, color) in [Color::White, Color::Black].into_iter().enumerate() {
+            for pi in 0..HALFKP_PIECE_ORDER.len() {
+                let old = entry.pieces[ci][pi];
+                let new = board.pieces[ci][pi];
+                let mut gone = old & !new;
+                while gone != 0 {
+                    let sq = gone.trailing_zeros() as usize;
+                    gone &= gone - 1;
+                    if ns < 32 {
+                        subs[ns] = dp_idx_for(perspective, k, color, pi, sq);
+                        ns += 1;
+                    }
+                }
+                let mut came = new & !old;
+                while came != 0 {
+                    let sq = came.trailing_zeros() as usize;
+                    came &= came - 1;
+                    if na < 32 {
+                        adds[na] = dp_idx_for(perspective, k, color, pi, sq);
+                        na += 1;
+                    }
+                }
+                entry.pieces[ci][pi] = new;
+            }
+        }
+        let row = |idx: usize| &model.w1[idx * h..(idx + 1) * h];
+        let (mut ia, mut is) = (0, 0);
+        while ia < na || is < ns {
+            let a1 = (ia < na).then(|| row(adds[ia]));
+            let r1 = (is < ns).then(|| row(subs[is]));
+            if a1.is_some() && r1.is_some() {
+                acc_update2(&mut entry.acc, [a1, None], [r1, None]);
+                ia += 1;
+                is += 1;
+            } else if a1.is_some() {
+                let a2 = (ia + 1 < na).then(|| row(adds[ia + 1]));
+                acc_update2(&mut entry.acc, [a1, a2], [None, None]);
+                ia += 1 + a2.is_some() as usize;
+            } else {
+                let r2 = (is + 1 < ns).then(|| row(subs[is + 1]));
+                acc_update2(&mut entry.acc, [None, None], [r1, r2]);
+                is += 1 + r2.is_some() as usize;
+            }
+        }
+        let base = t * 2 * h;
+        self.stack[base + p * h..base + (p + 1) * h].copy_from_slice(&entry.acc);
+    }
+
     fn push_refresh(&mut self, after: &Board) -> ChangeSet {
         let change = ChangeSet(ChangeKind::PushV2 {
             prev_stm: self.stm,

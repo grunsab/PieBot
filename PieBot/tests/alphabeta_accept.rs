@@ -65,7 +65,9 @@ fn temp_search_keeps_forcing_checking_sacrifice_at_root() {
     );
 
     let mut params = piebot::search::alphabeta_temp::SearchParams::default();
-    params.depth = 7;
+    // The rewritten search prunes far harder per ply: it proves this mate at
+    // depth 8 in ~4.5k nodes where the baseline needs depth 7 and ~72k.
+    params.depth = 8;
     params.use_tt = true;
     params.order_captures = true;
     params.use_history = true;

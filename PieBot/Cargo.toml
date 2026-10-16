@@ -38,6 +38,8 @@ indicatif = "0.17"
 # Random number generation
 rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = "0.4"
+shakmaty-syzygy = "0.27"
+shakmaty = "0.29"
 
 [features]
 default = []
@@ -46,6 +48,11 @@ simd-neon = []
 simd-avx2 = []
 simd-avx512 = []
 board-pleco = ["pleco"]
+# Build the UCI front end on the experimental search (alphabeta_temp) so the
+# A/B workflow can play it against the baseline under real clocks.
+exp-search = []
+# Per-node operation counters in the experimental search (slow; diagnostics only).
+search-stats = []
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

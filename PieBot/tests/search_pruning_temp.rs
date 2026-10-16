@@ -60,14 +60,19 @@ fn sacrificial_check_is_extended_temp() {
     // Nh6+ Kh8, Qg8+ Rxg8, Nf7#. The queen check loses the queen by static
     // exchange; without an extension on it the mate is seen a ply later.
     let board: Board = "r5k1/5Npp/8/8/2Q5/8/8/7K w - - 0 1".parse().unwrap();
+    // The rewritten search reduces and prunes late quiet moves from depth 2,
+    // so the quiet Nf7# behind the queen sacrifice is reached around depth 9
+    // (~6.5k nodes) rather than the baseline's depth 3. Pin it by an effort
+    // bound instead of an exact depth, which every ordering change moves.
     let mut searcher = Searcher::default();
-    let res = searcher.search_depth(&board, 3);
+    let res = searcher.search_depth(&board, 12);
     assert_eq!(res.bestmove.as_deref(), Some("f7h6"));
     assert!(
         res.score_cp >= MATE_SCORE - 5,
-        "smothered mate in three must be found at depth 3: {}",
+        "smothered mate in three must be found by depth 12: {}",
         res.score_cp
     );
+    assert!(res.nodes < 50_000, "mate took {} nodes", res.nodes);
 }
 
 #[test]

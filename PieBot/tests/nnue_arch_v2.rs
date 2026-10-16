@@ -307,3 +307,47 @@ fn screlu_head_matches_reference_formula() {
     assert_eq!(net.eval_current(), expected_white_pov);
     assert_eq!(net.eval_full(&board), expected_white_pov);
 }
+
+#[test]
+fn lazy_accumulators_match_full_recompute_when_evaluated_sparsely() {
+    // Lazy mode only records each move; a slot is built when evaluated, from
+    // the nearest built ancestor. Evaluate on a random subset of plies (and
+    // during unwind) so chains of pending king moves, captures and castling
+    // are materialised in one go.
+    let mut net = QuantNetwork::new(random_v2_model(32, 0x1a2b_5eed));
+    net.set_lazy(true);
+    let mut seed = 0x0dd_ba11u64;
+    for game in 0..16 {
+        let mut board = Board::default();
+        net.refresh(&board);
+        let mut undo = Vec::new();
+        let mut ancestors = Vec::new();
+        for ply in 0..100 {
+            let mut moves = Vec::new();
+            board.generate_moves(|batch| {
+                moves.extend(batch);
+                false
+            });
+            if moves.is_empty() {
+                break;
+            }
+            ancestors.push(board.clone());
+            let mv = moves[(lcg(&mut seed) as usize) % moves.len()];
+            let before = board.clone();
+            board.play_unchecked(mv);
+            undo.push(net.apply_move(&before, mv, &board));
+            if lcg(&mut seed) % 3 == 0 {
+                net.ensure_computed();
+                assert_eq!(net.eval_current(), net.eval_full(&board), "game={game} ply={ply}");
+            }
+        }
+        while let Some(change) = undo.pop() {
+            net.revert(change);
+            let ancestor = ancestors.pop().unwrap();
+            if lcg(&mut seed) % 2 == 0 {
+                net.ensure_computed();
+                assert_eq!(net.eval_current(), net.eval_full(&ancestor), "game={game} unwind");
+            }
+        }
+    }
+}
