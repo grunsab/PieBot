@@ -2,7 +2,7 @@
 
 PieBot is a chess engine written in Rust (`PieBot/`) with a large HalfKP NNUE, a Stockfish-style alpha-beta search (rewritten in October 2026, see [Search](#search)), Lazy SMP, optional Syzygy tablebases, and a neural network training pipeline (`training/nnue/`).
 
-**Current measured strength (2026-10-16, one thread each, this repo's opening book):** the October search rewrite plus NNUE speedups is **+402 Elo** over the previous search (400 games, 10+0.1), and SPSA tuning added a further **+96 Elo** (1000 games). Against **full-strength Stockfish 19** at 60+0.5 the pre-tuning rewrite scored 0 wins / 20 draws / 120 losses (14.3% win-or-draw; the previous search 1.4%). Details: [evidence/search_v2_20261016/README.md](evidence/search_v2_20261016/README.md).
+**Current measured strength (2026-10-16, one thread each, this repo's opening book):** the October search rewrite plus NNUE speedups is **+402 Elo** over the previous search (400 games, 10+0.1), and SPSA tuning added a further **+96 Elo** (1000 games). Against **full-strength Stockfish 19** at 60+0.5 the tuned build with Syzygy and `Contempt 40` scored 0 wins / 54 draws / 226 losses (19.3% win-or-draw, 280 games); the pre-tuning rewrite scored 14.3% and the previous search 1.4%. Details: [evidence/search_v2_20261016/README.md](evidence/search_v2_20261016/README.md).
 
 PieBot is evaluated through internal `120+1` matches against CCRL-listed engines. Those performance estimates are not an official CCRL ranking or a Lichess rating. See the [Lichess audit](evidence/lichess_audit_20261001/REPORT.md) and [verified Lazy SMP deployment](evidence/lichess_smp_deploy_20261001/REPORT.md) for the measured results and their limits.
 

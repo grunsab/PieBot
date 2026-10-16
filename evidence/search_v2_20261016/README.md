@@ -45,6 +45,7 @@ default options. SPSA: 6000 game pairs at 6+0.06 over 55 constants;
 | :--- | :--- | ---: | :---: | ---: | :--- |
 | main `5860faf` | 60+0.5 | 140 | 0 / 2 / 138 | 1.4% | `sf19_baseline_main_60s.json` |
 | v2 | 60+0.5 | 140 | 0 / 20 / 120 | 14.3% | `sf19_v2_match.json` |
+| v5 (SPSA-tuned, check extension on), Syzygy, Contempt 40 | 60+0.5 | 280 | 0 / 54 / 226 | 19.3% | `sf19_v5_match_60s.json` |
 | v3 (v2 + lazy NNUE), no TB, Contempt 0 | 20+0.2 | 280 | 0 / 26 / 254 | 9.3% | `sf19_v3_notb.json` |
 | v3, Syzygy 3-4-5 | 20+0.2 | 280 | 0 / 29 / 251 | 10.4% | `sf19_v3_tb.json` |
 | v3, Syzygy, Contempt 40 | 20+0.2 | 280 | 0 / 42 / 238 | 15.0% | `sf19_v3_tb_c40.json` |
