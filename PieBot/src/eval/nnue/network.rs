@@ -71,6 +71,53 @@ struct V2State {
     /// perspective by patching that entry with the few pieces that differ,
     /// instead of summing ~30 weight rows from the 84 MB table.
     finny: Vec<FinnyEntry>,
+    /// Lazy mode: applying a move only records how to build the child slot;
+    /// slots are materialised when an evaluation needs them.
+    lazy: bool,
+    pending: Vec<Pending>,
+    computed: Vec<bool>,
+}
+
+#[derive(Clone)]
+enum Pending {
+    None,
+    Delta {
+        added: [FeatureDelta; 2],
+        removed: [FeatureDelta; 2],
+    },
+    King {
+        before: Placement,
+        after: Placement,
+    },
+    Refresh {
+        after: Box<Board>,
+    },
+}
+
+/// Non-king piece bitboards ([color][HALFKP_PIECE_ORDER]) plus king squares:
+/// everything the accumulator needs from a position.
+#[derive(Clone, Copy)]
+struct Placement {
+    pieces: [[u64; 5]; 2],
+    wk: usize,
+    bk: usize,
+}
+
+impl Placement {
+    #[inline]
+    fn of(board: &Board) -> Self {
+        let mut pieces = [[0u64; 5]; 2];
+        for (ci, color) in [Color::White, Color::Black].into_iter().enumerate() {
+            for (pi, piece) in HALFKP_PIECE_ORDER.iter().enumerate() {
+                pieces[ci][pi] = (board.colors(color) & board.pieces(*piece)).0;
+            }
+        }
+        Self {
+            pieces,
+            wk: square_index(board, Color::White, Piece::King),
+            bk: square_index(board, Color::Black, Piece::King),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -159,6 +206,9 @@ impl QuantNetwork {
                 bk_idx: 0,
                 stm: Color::White,
                 finny: Vec::new(),
+                lazy: false,
+                pending: Vec::new(),
+                computed: Vec::new(),
             };
             let model = Arc::new(model);
             return Self {
@@ -211,6 +261,9 @@ impl QuantNetwork {
                 bk_idx: v2.bk_idx,
                 stm: v2.stm,
                 finny: v2.finny.clone(),
+                lazy: v2.lazy,
+                pending: v2.pending.clone(),
+                computed: v2.computed.clone(),
             }),
         }
     }
@@ -235,6 +288,25 @@ impl QuantNetwork {
                 sum += row[idx] as i32;
             }
             self.acc[j] = sum;
+        }
+    }
+
+    /// Switch the arch-v2 backend between eager and lazy accumulator updates.
+    /// In lazy mode callers must call [`Self::ensure_computed`] before
+    /// [`Self::eval_current`].
+    pub fn set_lazy(&mut self, on: bool) {
+        if let Some(v2) = &mut self.v2 {
+            v2.lazy = on;
+        }
+    }
+
+    /// Materialise the live accumulator slot (no-op unless lazy).
+    #[inline]
+    pub fn ensure_computed(&mut self) {
+        if let Some(v2) = &mut self.v2 {
+            if v2.lazy {
+                v2.ensure_top();
+            }
         }
     }
 
@@ -401,20 +473,20 @@ impl QuantNetwork {
         let bk_after = square_index(after, Color::Black, Piece::King);
         let v2 = self.v2.as_mut().expect("apply_move_v2 requires v2 backend");
         if v2.wk_idx != wk_before || v2.bk_idx != bk_before {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         }
         if wk_before != wk_after || bk_before != bk_after {
-            return v2.push_king_move(before, after);
+            return v2.push_king_any(before, after);
         }
 
         let Some(moving_piece) = before.piece_on(mv.from) else {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         };
         let Some(moving_color) = before.color_on(mv.from) else {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         };
         if moving_piece == Piece::King || moving_color != before.side_to_move() {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         }
 
         let placed_piece = mv.promotion.unwrap_or(moving_piece);
@@ -422,7 +494,7 @@ impl QuantNetwork {
             || after.color_on(mv.to) != Some(moving_color)
             || after.piece_on(mv.from).is_some()
         {
-            return v2.push_refresh(after);
+            return v2.push_refresh_any(after);
         }
 
         let mut removed = [FeatureDelta::new(), FeatureDelta::new()];
@@ -432,10 +504,10 @@ impl QuantNetwork {
 
         if let Some(captured_piece) = before.piece_on(mv.to) {
             let Some(captured_color) = before.color_on(mv.to) else {
-                return v2.push_refresh(after);
+                return v2.push_refresh_any(after);
             };
             if captured_piece == Piece::King || captured_color == moving_color {
-                return v2.push_refresh(after);
+                return v2.push_refresh_any(after);
             }
             v2.push_piece(&mut removed, captured_color, captured_piece, mv.to);
         } else if moving_piece == Piece::Pawn && mv.from.file() != mv.to.file() {
@@ -445,7 +517,7 @@ impl QuantNetwork {
                 || before.color_on(captured_square) != Some(captured_color)
                 || after.piece_on(captured_square).is_some()
             {
-                return v2.push_refresh(after);
+                return v2.push_refresh_any(after);
             }
             v2.push_piece(&mut removed, captured_color, Piece::Pawn, captured_square);
         }
@@ -455,6 +527,9 @@ impl QuantNetwork {
             prev_wk: v2.wk_idx,
             prev_bk: v2.bk_idx,
         });
+        if v2.lazy {
+            return v2.record(Pending::Delta { added, removed }, after);
+        }
         v2.push_delta(&added, &removed);
         v2.stm = after.side_to_move();
         change
@@ -848,6 +923,89 @@ impl V2State {
     fn refresh(&mut self, board: &Board) {
         self.top = 0;
         self.refresh_into(0, board);
+        self.mark(0, Pending::None, true);
+    }
+
+    #[inline]
+    fn mark(&mut self, t: usize, p: Pending, computed: bool) {
+        if !self.lazy {
+            return;
+        }
+        if self.pending.len() <= t {
+            self.pending.resize(t + 1, Pending::None);
+            self.computed.resize(t + 1, false);
+        }
+        self.pending[t] = p;
+        self.computed[t] = computed;
+    }
+
+    /// Lazy push: record the transition into slot top+1 and update the keys.
+    fn record(&mut self, p: Pending, after: &Board) -> ChangeSet {
+        let change = ChangeSet(ChangeKind::PushV2 {
+            prev_stm: self.stm,
+            prev_wk: self.wk_idx,
+            prev_bk: self.bk_idx,
+        });
+        let t = self.top + 1;
+        self.mark(t, p, false);
+        self.wk_idx = square_index(after, Color::White, Piece::King);
+        self.bk_idx = square_index(after, Color::Black, Piece::King);
+        self.stm = after.side_to_move();
+        self.top = t;
+        change
+    }
+
+    fn push_refresh_any(&mut self, after: &Board) -> ChangeSet {
+        if self.lazy {
+            return self.record(Pending::Refresh { after: Box::new(after.clone()) }, after);
+        }
+        self.push_refresh(after)
+    }
+
+    fn push_king_any(&mut self, before: &Board, after: &Board) -> ChangeSet {
+        if self.lazy {
+            return self.record(
+                Pending::King {
+                    before: Placement::of(before),
+                    after: Placement::of(after),
+                },
+                after,
+            );
+        }
+        self.push_king_move(before, after)
+    }
+
+    /// Materialise every pending slot up to `top`.
+    fn ensure_top(&mut self) {
+        let top = self.top;
+        if top < self.computed.len() && self.computed[top] {
+            return;
+        }
+        let mut c = top;
+        while c > 0 && !(c < self.computed.len() && self.computed[c]) {
+            c -= 1;
+        }
+        for t in c + 1..=top {
+            let p = std::mem::replace(&mut self.pending[t], Pending::None);
+            self.ensure_slot(t);
+            match &p {
+                Pending::Delta { added, removed } => self.delta_into(t, added, removed),
+                Pending::King { before, after } => self.king_into(t, before, after),
+                Pending::Refresh { after } => self.refresh_slot(t, after),
+                Pending::None => {}
+            }
+            self.pending[t] = p;
+            self.computed[t] = true;
+        }
+    }
+
+    /// Rebuild slot `t` from scratch without touching the live keys.
+    fn refresh_slot(&mut self, t: usize, board: &Board) {
+        let (wk, bk, stm) = (self.wk_idx, self.bk_idx, self.stm);
+        self.refresh_into(t, board);
+        self.wk_idx = wk;
+        self.bk_idx = bk;
+        self.stm = stm;
     }
 
     /// Rebuild both perspective accumulators from scratch into slot `t`.
@@ -948,9 +1106,16 @@ impl V2State {
     /// Write the post-move accumulators into a fresh slot above `top`, leaving
     /// the parent's slot untouched so revert is a decrement.
     fn push_delta(&mut self, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
-        let h = self.model.hidden_dim;
         let top = self.top;
         self.ensure_slot(top + 1);
+        self.delta_into(top + 1, added, removed);
+        self.top = top + 1;
+    }
+
+    /// Write slot `t` as slot `t - 1` patched by the feature delta.
+    fn delta_into(&mut self, t: usize, added: &[FeatureDelta; 2], removed: &[FeatureDelta; 2]) {
+        let h = self.model.hidden_dim;
+        let top = t - 1;
         let model = &*self.model;
         let w1 = &model.w1;
         // Parent slot ends exactly where the child slot begins, so one split
@@ -993,7 +1158,6 @@ impl V2State {
                 vec_add_assign_i16(dst, row);
             }
         }
-        self.top = top + 1;
     }
 
     /// King moves re-key every HalfKP feature, so the accumulators are rebuilt
@@ -1009,29 +1173,39 @@ impl V2State {
             prev_wk: self.wk_idx,
             prev_bk: self.bk_idx,
         });
-        let h = self.model.hidden_dim;
         let t = self.top + 1;
         self.ensure_slot(t);
-        let wk_after = square_index(after, Color::White, Piece::King);
-        let bk_after = square_index(after, Color::Black, Piece::King);
-        let white_moved = wk_after != self.wk_idx;
-        let black_moved = bk_after != self.bk_idx;
+        self.king_into(t, &Placement::of(before), &Placement::of(after));
+        self.wk_idx = square_index(after, Color::White, Piece::King);
+        self.bk_idx = square_index(after, Color::Black, Piece::King);
+        self.stm = after.side_to_move();
+        self.top = t;
+        change
+    }
+
+    /// Write slot `t` (parent `t - 1`) for a king move from `before`.
+    fn king_into(&mut self, t: usize, before: &Placement, after: &Placement) {
+        let h = self.model.hidden_dim;
+        let (wk_before, bk_before) = (before.wk, before.bk);
+        let (wk_after, bk_after) = (after.wk, after.bk);
+        let white_moved = wk_after != wk_before;
+        let black_moved = bk_after != bk_before;
         for (p, perspective) in [Color::White, Color::Black].into_iter().enumerate() {
             let moved = if p == 0 { white_moved } else { black_moved };
             if moved {
                 let k = if p == 0 { wk_after } else { bk_after };
                 self.finny_refresh_into(t, p, perspective, k, after);
             } else {
-                let k = if p == 0 { self.wk_idx } else { self.bk_idx };
+                let k = if p == 0 { wk_before } else { bk_before };
                 let model = &*self.model;
                 let (parent_slots, child_slot) = self.stack.split_at_mut(t * 2 * h);
                 let src = &parent_slots[(t - 1) * 2 * h + p * h..(t - 1) * 2 * h + (p + 1) * h];
                 let dst = &mut child_slot[p * h..(p + 1) * h];
                 dst.copy_from_slice(src);
-                for color in [Color::White, Color::Black] {
-                    for (pi, piece) in HALFKP_PIECE_ORDER.iter().enumerate() {
-                        let old = (before.colors(color) & before.pieces(*piece)).0;
-                        let new = (after.colors(color) & after.pieces(*piece)).0;
+                for (ci, color) in [Color::White, Color::Black].into_iter().enumerate() {
+                    for pi in 0..HALFKP_PIECE_ORDER.len() {
+                        let old = before.pieces[ci][pi];
+                        let new = after.pieces[ci][pi];
                         let mut gone = old & !new;
                         while gone != 0 {
                             let sq = gone.trailing_zeros() as usize;
@@ -1050,16 +1224,11 @@ impl V2State {
                 }
             }
         }
-        self.wk_idx = wk_after;
-        self.bk_idx = bk_after;
-        self.stm = after.side_to_move();
-        self.top = t;
-        change
     }
 
     /// Rebuild perspective `p` of slot `t` for a position whose king (for that
     /// perspective) stands on square index `k`, via the refresh cache.
-    fn finny_refresh_into(&mut self, t: usize, p: usize, perspective: Color, k: usize, board: &Board) {
+    fn finny_refresh_into(&mut self, t: usize, p: usize, perspective: Color, k: usize, board: &Placement) {
         let h = self.model.hidden_dim;
         if self.finny.is_empty() {
             self.finny = vec![
@@ -1083,9 +1252,9 @@ impl V2State {
         let mut subs = [0usize; 32];
         let (mut na, mut ns) = (0, 0);
         for (ci, color) in [Color::White, Color::Black].into_iter().enumerate() {
-            for (pi, piece) in HALFKP_PIECE_ORDER.iter().enumerate() {
+            for pi in 0..HALFKP_PIECE_ORDER.len() {
                 let old = entry.pieces[ci][pi];
-                let new = (board.colors(color) & board.pieces(*piece)).0;
+                let new = board.pieces[ci][pi];
                 let mut gone = old & !new;
                 while gone != 0 {
                     let sq = gone.trailing_zeros() as usize;

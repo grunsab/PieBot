@@ -607,7 +607,6 @@ impl PackedTt {
             }
             if s.0.load(Ordering::Relaxed) ^ data == key {
                 victim = i;
-                victim_value = i32::MIN;
                 break;
             }
             let d = ((data >> 48) & 0xff) as i32;
@@ -1280,7 +1279,10 @@ impl Searcher {
     }
     pub fn set_nnue_quant_model(&mut self, model: QuantNnue) {
         self.smp_workers.clear();
-        self.nnue_quant = Some(QuantNetwork::new(model));
+        let mut qn = QuantNetwork::new(model);
+        // Build accumulators only for positions that are evaluated.
+        qn.set_lazy(true);
+        self.nnue_quant = Some(qn);
         self.tt.clear();
     }
     pub fn clear_nnue_quant(&mut self) {
@@ -1360,8 +1362,13 @@ impl Searcher {
     // ---------------- evaluation ------------------------------------------
 
     #[inline]
-    fn raw_eval(&self, board: &Board) -> i32 {
+    fn raw_eval(&mut self, board: &Board) -> i32 {
         stat(2);
+        if self.use_nnue {
+            if let Some(qn) = self.nnue_quant.as_mut() {
+                qn.ensure_computed();
+            }
+        }
         let v = match self.eval_mode {
             EvalMode::Material => material_eval_cp(board),
             EvalMode::Pst | EvalMode::Nnue => {
@@ -1709,11 +1716,9 @@ impl Searcher {
 
         let mut best;
         let raw;
-        let static_eval;
         let futility_base;
         if in_check {
             raw = -INF;
-            static_eval = -INF;
             best = -INF;
             futility_base = -INF;
         } else {
@@ -1721,7 +1726,7 @@ impl Searcher {
                 Some(e) if e.eval > -32_000 && e.eval < 32_000 => e.eval,
                 _ => self.raw_eval(board),
             };
-            static_eval = self.adjust_eval(board, raw, sp);
+            let static_eval = self.adjust_eval(board, raw, sp);
             best = static_eval;
             if let (Some(e), Some(ts)) = (tte, tt_score) {
                 if !is_decisive(ts)
