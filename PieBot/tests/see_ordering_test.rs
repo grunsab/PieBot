@@ -28,6 +28,7 @@ fn test_bad_captures_ordered_after_quiet_moves() {
 }
 
 #[test]
+#[ignore = "exact parity holds only while alphabeta_temp re-exports the baseline"]
 fn probcut_parity_between_baseline_and_temp() {
     let fens = [
         "r1bqk2r/pppp1ppp/2n5/4p3/1bB1n3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 6",

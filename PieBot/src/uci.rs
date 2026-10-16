@@ -5,7 +5,10 @@ use crate::eval::nnue::loader::QuantNnue;
 #[cfg(not(feature = "board-pleco"))]
 use crate::eval::nnue::Nnue;
 #[cfg(not(feature = "board-pleco"))]
+#[cfg(not(feature = "exp-search"))]
 use crate::search::alphabeta::{SearchParams, SearchResult, Searcher};
+#[cfg(all(not(feature = "board-pleco"), feature = "exp-search"))]
+use crate::search::alphabeta_temp::{SearchParams, SearchResult, Searcher};
 #[cfg(not(feature = "board-pleco"))]
 use cozy_chess::{Color, Piece, Square};
 #[cfg(not(feature = "board-pleco"))]
@@ -170,6 +173,10 @@ fn search_params_for_go(
         })
     };
     params.movetime = allocated_ms.map(Duration::from_millis);
+    #[cfg(feature = "exp-search")]
+    {
+        params.fixed_movetime = options.movetime_ms.is_some();
+    }
     params
 }
 
@@ -738,6 +745,8 @@ impl UciEngine {
     }
 
     fn finish_search(&mut self, outcome: SearchOutcome) {
+        #[cfg(all(feature = "exp-search", feature = "search-stats"))]
+        crate::search::alphabeta_temp::print_stats();
         self.searcher = outcome.searcher;
         let result = outcome.result;
         println!(

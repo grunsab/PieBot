@@ -1,5 +1,6 @@
 use crate::eval::nnue::features::{
-    dp_active_indices, dp_piece_index, HalfKpSchema, PieceFeatureIndices,
+    dp_active_indices, dp_idx_for, dp_piece_index, HalfKpSchema, PieceFeatureIndices,
+    HALFKP_PIECE_ORDER,
 };
 use crate::eval::nnue::loader::{QuantNnue, QuantNnueV2};
 use cozy_chess::{Board, Color, Move, Piece, Square};
@@ -64,6 +65,20 @@ struct V2State {
     wk_idx: usize,
     bk_idx: usize,
     stm: Color,
+    /// Refresh cache ("Finny table"): for each perspective and king square,
+    /// the accumulator of the last position refreshed with that king square
+    /// and the piece placement it was built from. A king move rebuilds its own
+    /// perspective by patching that entry with the few pieces that differ,
+    /// instead of summing ~30 weight rows from the 84 MB table.
+    finny: Vec<FinnyEntry>,
+}
+
+#[derive(Clone)]
+struct FinnyEntry {
+    acc: Vec<i16>,
+    /// [piece color][HALFKP_PIECE_ORDER index] bitboards of the cached position.
+    pieces: [[u64; 5]; 2],
+    valid: bool,
 }
 
 /// Opaque undo token returned by [`QuantNetwork::apply_move`].
@@ -143,6 +158,7 @@ impl QuantNetwork {
                 wk_idx: 0,
                 bk_idx: 0,
                 stm: Color::White,
+                finny: Vec::new(),
             };
             let model = Arc::new(model);
             return Self {
@@ -194,6 +210,7 @@ impl QuantNetwork {
                 wk_idx: v2.wk_idx,
                 bk_idx: v2.bk_idx,
                 stm: v2.stm,
+                finny: v2.finny.clone(),
             }),
         }
     }
@@ -383,12 +400,11 @@ impl QuantNetwork {
         let wk_after = square_index(after, Color::White, Piece::King);
         let bk_after = square_index(after, Color::Black, Piece::King);
         let v2 = self.v2.as_mut().expect("apply_move_v2 requires v2 backend");
-        if wk_before != wk_after
-            || bk_before != bk_after
-            || v2.wk_idx != wk_before
-            || v2.bk_idx != bk_before
-        {
+        if v2.wk_idx != wk_before || v2.bk_idx != bk_before {
             return v2.push_refresh(after);
+        }
+        if wk_before != wk_after || bk_before != bk_after {
+            return v2.push_king_move(before, after);
         }
 
         let Some(moving_piece) = before.piece_on(mv.from) else {
@@ -610,102 +626,24 @@ unsafe fn screlu_dot_avx2(acc: &[i16], w: &[i8], qa: i16) -> i64 {
 #[inline]
 pub fn vec_add_assign_i16(dst: &mut [i16], row: &[i16]) {
     debug_assert_eq!(dst.len(), row.len());
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        use std::arch::aarch64::*;
-        let len = dst.len();
-        let chunks = len / 8;
-        let d_ptr = dst.as_mut_ptr();
-        let r_ptr = row.as_ptr();
-        for i in 0..chunks {
-            let offset = i * 8;
-            let d = vld1q_s16(d_ptr.add(offset));
-            let r = vld1q_s16(r_ptr.add(offset));
-            vst1q_s16(d_ptr.add(offset), vaddq_s16(d, r));
-        }
-        for i in (chunks * 8)..len {
-            *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_add(*r_ptr.add(i));
-        }
-    }
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                use std::arch::x86_64::*;
-                let len = dst.len();
-                let chunks = len / 16;
-                let d_ptr = dst.as_mut_ptr();
-                let r_ptr = row.as_ptr();
-                for i in 0..chunks {
-                    let offset = i * 16;
-                    let d = _mm256_loadu_si256(d_ptr.add(offset) as *const __m256i);
-                    let r = _mm256_loadu_si256(r_ptr.add(offset) as *const __m256i);
-                    _mm256_storeu_si256(d_ptr.add(offset) as *mut __m256i, _mm256_add_epi16(d, r));
-                }
-                for i in (chunks * 16)..len {
-                    *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_add(*r_ptr.add(i));
-                }
-            }
-        } else {
-            for (d, &r) in dst.iter_mut().zip(row) {
-                *d = d.wrapping_add(r);
-            }
-        }
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    for (d, &r) in dst.iter_mut().zip(row) {
-        *d = d.wrapping_add(r);
+    // Plain loop: with target-cpu=native this vectorises to the widest
+    // registers available, and measured faster than the old AVX2 intrinsics.
+    let n = dst.len();
+    let row = &row[..n];
+    for i in 0..n {
+        dst[i] = dst[i].wrapping_add(row[i]);
     }
 }
 
 #[inline]
 pub fn vec_sub_assign_i16(dst: &mut [i16], row: &[i16]) {
     debug_assert_eq!(dst.len(), row.len());
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        use std::arch::aarch64::*;
-        let len = dst.len();
-        let chunks = len / 8;
-        let d_ptr = dst.as_mut_ptr();
-        let r_ptr = row.as_ptr();
-        for i in 0..chunks {
-            let offset = i * 8;
-            let d = vld1q_s16(d_ptr.add(offset));
-            let r = vld1q_s16(r_ptr.add(offset));
-            vst1q_s16(d_ptr.add(offset), vsubq_s16(d, r));
-        }
-        for i in (chunks * 8)..len {
-            *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_sub(*r_ptr.add(i));
-        }
-    }
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                use std::arch::x86_64::*;
-                let len = dst.len();
-                let chunks = len / 16;
-                let d_ptr = dst.as_mut_ptr();
-                let r_ptr = row.as_ptr();
-                for i in 0..chunks {
-                    let offset = i * 16;
-                    let d = _mm256_loadu_si256(d_ptr.add(offset) as *const __m256i);
-                    let r = _mm256_loadu_si256(r_ptr.add(offset) as *const __m256i);
-                    _mm256_storeu_si256(d_ptr.add(offset) as *mut __m256i, _mm256_sub_epi16(d, r));
-                }
-                for i in (chunks * 16)..len {
-                    *d_ptr.add(i) = (*d_ptr.add(i)).wrapping_sub(*r_ptr.add(i));
-                }
-            }
-        } else {
-            for (d, &r) in dst.iter_mut().zip(row) {
-                *d = d.wrapping_sub(r);
-            }
-        }
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    for (d, &r) in dst.iter_mut().zip(row) {
-        *d = d.wrapping_sub(r);
+    // Plain loop: with target-cpu=native this vectorises to the widest
+    // registers available, and measured faster than the old AVX2 intrinsics.
+    let n = dst.len();
+    let row = &row[..n];
+    for i in 0..n {
+        dst[i] = dst[i].wrapping_sub(row[i]);
     }
 }
 
@@ -769,6 +707,69 @@ pub fn push_delta_quiet_fused(dst: &mut [i16], src: &[i16], r: &[i16], a: &[i16]
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     for (((value, &s), &rw), &aw) in dst.iter_mut().zip(src).zip(r).zip(a) {
         *value = s.wrapping_sub(rw).wrapping_add(aw);
+    }
+}
+
+/// `dst = src - r + a` in one pass; vectorised by the compiler.
+#[inline]
+pub fn push_delta_quiet_fused_plain(dst: &mut [i16], src: &[i16], r: &[i16], a: &[i16]) {
+    let n = dst.len();
+    let (src, r, a) = (&src[..n], &r[..n], &a[..n]);
+    for i in 0..n {
+        dst[i] = src[i].wrapping_sub(r[i]).wrapping_add(a[i]);
+    }
+}
+
+/// `acc += a1 + a2 - r1 - r2` for up to two rows each (None = absent), one
+/// pass. Used to batch the row updates of a refresh.
+#[inline]
+fn acc_update2(acc: &mut [i16], add: [Option<&[i16]>; 2], sub: [Option<&[i16]>; 2]) {
+    let n = acc.len();
+    match (add, sub) {
+        ([Some(a1), Some(a2)], [None, None]) => {
+            let (a1, a2) = (&a1[..n], &a2[..n]);
+            for i in 0..n {
+                acc[i] = acc[i].wrapping_add(a1[i]).wrapping_add(a2[i]);
+            }
+        }
+        ([None, None], [Some(r1), Some(r2)]) => {
+            let (r1, r2) = (&r1[..n], &r2[..n]);
+            for i in 0..n {
+                acc[i] = acc[i].wrapping_sub(r1[i]).wrapping_sub(r2[i]);
+            }
+        }
+        ([Some(a1), None], [Some(r1), None]) => {
+            let (a1, r1) = (&a1[..n], &r1[..n]);
+            for i in 0..n {
+                acc[i] = acc[i].wrapping_add(a1[i]).wrapping_sub(r1[i]);
+            }
+        }
+        _ => {
+            for row in add.into_iter().flatten() {
+                let row = &row[..n];
+                for i in 0..n {
+                    acc[i] = acc[i].wrapping_add(row[i]);
+                }
+            }
+            for row in sub.into_iter().flatten() {
+                let row = &row[..n];
+                for i in 0..n {
+                    acc[i] = acc[i].wrapping_sub(row[i]);
+                }
+            }
+        }
+    }
+}
+
+/// `dst = src - r1 - r2 + a` in one pass (wrapping, like every accumulator
+/// update). Plain loops: with `target-cpu=native` the compiler vectorises
+/// this to the widest available registers.
+#[inline]
+pub fn push_delta_capture_fused(dst: &mut [i16], src: &[i16], r1: &[i16], r2: &[i16], a: &[i16]) {
+    let n = dst.len();
+    let (src, r1, r2, a) = (&src[..n], &r1[..n], &r2[..n], &a[..n]);
+    for i in 0..n {
+        dst[i] = src[i].wrapping_sub(r1[i]).wrapping_sub(r2[i]).wrapping_add(a[i]);
     }
 }
 
@@ -970,7 +971,16 @@ impl V2State {
             if let ([r_idx], [a_idx]) = (rem, add) {
                 let r = &w1[r_idx * h..(r_idx + 1) * h];
                 let a = &w1[a_idx * h..(a_idx + 1) * h];
-                push_delta_quiet_fused(dst, src, r, a);
+                push_delta_quiet_fused_plain(dst, src, r, a);
+                continue;
+            }
+            // A capture: mover and victim out, mover in. One pass over all
+            // three rows keeps their misses in flight together.
+            if let ([r1_idx, r2_idx], [a_idx]) = (rem, add) {
+                let r1 = &w1[r1_idx * h..(r1_idx + 1) * h];
+                let r2 = &w1[r2_idx * h..(r2_idx + 1) * h];
+                let a = &w1[a_idx * h..(a_idx + 1) * h];
+                push_delta_capture_fused(dst, src, r1, r2, a);
                 continue;
             }
             dst.copy_from_slice(src);
@@ -990,6 +1000,136 @@ impl V2State {
     /// rather than patched. Pushing that rebuild into a new slot keeps revert
     /// uniform -- and free -- instead of cloning the parent accumulators.
     #[cold]
+    /// Child slot after a king move: the mover's perspective is rebuilt from
+    /// the refresh cache, the other perspective is patched from the parent by
+    /// the non-king pieces that changed (a capture, or the castling rook).
+    fn push_king_move(&mut self, before: &Board, after: &Board) -> ChangeSet {
+        let change = ChangeSet(ChangeKind::PushV2 {
+            prev_stm: self.stm,
+            prev_wk: self.wk_idx,
+            prev_bk: self.bk_idx,
+        });
+        let h = self.model.hidden_dim;
+        let t = self.top + 1;
+        self.ensure_slot(t);
+        let wk_after = square_index(after, Color::White, Piece::King);
+        let bk_after = square_index(after, Color::Black, Piece::King);
+        let white_moved = wk_after != self.wk_idx;
+        let black_moved = bk_after != self.bk_idx;
+        for (p, perspective) in [Color::White, Color::Black].into_iter().enumerate() {
+            let moved = if p == 0 { white_moved } else { black_moved };
+            if moved {
+                let k = if p == 0 { wk_after } else { bk_after };
+                self.finny_refresh_into(t, p, perspective, k, after);
+            } else {
+                let k = if p == 0 { self.wk_idx } else { self.bk_idx };
+                let model = &*self.model;
+                let (parent_slots, child_slot) = self.stack.split_at_mut(t * 2 * h);
+                let src = &parent_slots[(t - 1) * 2 * h + p * h..(t - 1) * 2 * h + (p + 1) * h];
+                let dst = &mut child_slot[p * h..(p + 1) * h];
+                dst.copy_from_slice(src);
+                for color in [Color::White, Color::Black] {
+                    for (pi, piece) in HALFKP_PIECE_ORDER.iter().enumerate() {
+                        let old = (before.colors(color) & before.pieces(*piece)).0;
+                        let new = (after.colors(color) & after.pieces(*piece)).0;
+                        let mut gone = old & !new;
+                        while gone != 0 {
+                            let sq = gone.trailing_zeros() as usize;
+                            gone &= gone - 1;
+                            let idx = dp_idx_for(perspective, k, color, pi, sq);
+                            vec_sub_assign_i16(dst, &model.w1[idx * h..(idx + 1) * h]);
+                        }
+                        let mut came = new & !old;
+                        while came != 0 {
+                            let sq = came.trailing_zeros() as usize;
+                            came &= came - 1;
+                            let idx = dp_idx_for(perspective, k, color, pi, sq);
+                            vec_add_assign_i16(dst, &model.w1[idx * h..(idx + 1) * h]);
+                        }
+                    }
+                }
+            }
+        }
+        self.wk_idx = wk_after;
+        self.bk_idx = bk_after;
+        self.stm = after.side_to_move();
+        self.top = t;
+        change
+    }
+
+    /// Rebuild perspective `p` of slot `t` for a position whose king (for that
+    /// perspective) stands on square index `k`, via the refresh cache.
+    fn finny_refresh_into(&mut self, t: usize, p: usize, perspective: Color, k: usize, board: &Board) {
+        let h = self.model.hidden_dim;
+        if self.finny.is_empty() {
+            self.finny = vec![
+                FinnyEntry {
+                    acc: Vec::new(),
+                    pieces: [[0; 5]; 2],
+                    valid: false,
+                };
+                2 * 64
+            ];
+        }
+        let model = &*self.model;
+        let entry = &mut self.finny[p * 64 + k];
+        if !entry.valid {
+            entry.acc.clear();
+            entry.acc.extend_from_slice(&model.b1);
+            entry.pieces = [[0; 5]; 2];
+            entry.valid = true;
+        }
+        let mut adds = [0usize; 32];
+        let mut subs = [0usize; 32];
+        let (mut na, mut ns) = (0, 0);
+        for (ci, color) in [Color::White, Color::Black].into_iter().enumerate() {
+            for (pi, piece) in HALFKP_PIECE_ORDER.iter().enumerate() {
+                let old = entry.pieces[ci][pi];
+                let new = (board.colors(color) & board.pieces(*piece)).0;
+                let mut gone = old & !new;
+                while gone != 0 {
+                    let sq = gone.trailing_zeros() as usize;
+                    gone &= gone - 1;
+                    if ns < 32 {
+                        subs[ns] = dp_idx_for(perspective, k, color, pi, sq);
+                        ns += 1;
+                    }
+                }
+                let mut came = new & !old;
+                while came != 0 {
+                    let sq = came.trailing_zeros() as usize;
+                    came &= came - 1;
+                    if na < 32 {
+                        adds[na] = dp_idx_for(perspective, k, color, pi, sq);
+                        na += 1;
+                    }
+                }
+                entry.pieces[ci][pi] = new;
+            }
+        }
+        let row = |idx: usize| &model.w1[idx * h..(idx + 1) * h];
+        let (mut ia, mut is) = (0, 0);
+        while ia < na || is < ns {
+            let a1 = (ia < na).then(|| row(adds[ia]));
+            let r1 = (is < ns).then(|| row(subs[is]));
+            if a1.is_some() && r1.is_some() {
+                acc_update2(&mut entry.acc, [a1, None], [r1, None]);
+                ia += 1;
+                is += 1;
+            } else if a1.is_some() {
+                let a2 = (ia + 1 < na).then(|| row(adds[ia + 1]));
+                acc_update2(&mut entry.acc, [a1, a2], [None, None]);
+                ia += 1 + a2.is_some() as usize;
+            } else {
+                let r2 = (is + 1 < ns).then(|| row(subs[is + 1]));
+                acc_update2(&mut entry.acc, [None, None], [r1, r2]);
+                is += 1 + r2.is_some() as usize;
+            }
+        }
+        let base = t * 2 * h;
+        self.stack[base + p * h..base + (p + 1) * h].copy_from_slice(&entry.acc);
+    }
+
     fn push_refresh(&mut self, after: &Board) -> ChangeSet {
         let change = ChangeSet(ChangeKind::PushV2 {
             prev_stm: self.stm,

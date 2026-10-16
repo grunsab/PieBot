@@ -46,6 +46,11 @@ simd-neon = []
 simd-avx2 = []
 simd-avx512 = []
 board-pleco = ["pleco"]
+# Build the UCI front end on the experimental search (alphabeta_temp) so the
+# A/B workflow can play it against the baseline under real clocks.
+exp-search = []
+# Per-node operation counters in the experimental search (slow; diagnostics only).
+search-stats = []
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
