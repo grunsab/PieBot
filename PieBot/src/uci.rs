@@ -560,6 +560,14 @@ impl UciEngine {
             self.default_model_path.as_deref().unwrap_or("")
         );
         println!("{}", eval_blend_option_line());
+        #[cfg(feature = "exp-search")]
+        if std::env::var_os("PIEBOT_TUNE").is_some() {
+            use crate::search::alphabeta_temp::{TUNABLE_DEFAULTS, TUNABLE_NAMES, TUNABLE_RANGES};
+            for (i, name) in TUNABLE_NAMES.iter().enumerate() {
+                let (lo, hi) = TUNABLE_RANGES[i];
+                println!("option name {name} type spin default {} min {lo} max {hi}", TUNABLE_DEFAULTS[i]);
+            }
+        }
         println!("uciok");
     }
 
@@ -650,6 +658,14 @@ impl UciEngine {
                 }
                 None
             }
+            #[cfg(feature = "exp-search")]
+            other => {
+                if let Ok(v) = value.trim().parse::<i32>() {
+                    crate::search::alphabeta_temp::set_tunable(other, v);
+                }
+                None
+            }
+            #[cfg(not(feature = "exp-search"))]
             _ => None,
         }
     }

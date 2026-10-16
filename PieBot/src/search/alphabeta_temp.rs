@@ -14,7 +14,7 @@ use crate::eval::nnue::network::{ChangeSet, QuantNetwork};
 use crate::search::eval::{eval_cp, material_eval_cp, DRAW_SCORE, MATE_SCORE};
 use crate::search::tt::Bound;
 use cozy_chess::{BitBoard, Board, Color, Move, Piece, Square};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,6 +39,100 @@ const STACK_OFFSET: usize = 8;
 // Tunables
 // ---------------------------------------------------------------------------
 
+macro_rules! tunables {
+    ($($name:ident = $def:expr, $min:expr, $max:expr;)*) => {
+        /// Search constants exposed for tuning (UCI options in the
+        /// experimental build). Process-wide; read with `tp`.
+        #[allow(non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
+        #[derive(Clone, Copy, Debug)]
+        #[repr(usize)]
+        pub enum T { $($name),* }
+        pub const TUNABLE_NAMES: &[&str] = &[$(stringify!($name)),*];
+        pub const TUNABLE_DEFAULTS: &[i32] = &[$($def),*];
+        pub const TUNABLE_RANGES: &[(i32, i32)] = &[$(($min, $max)),*];
+        pub static TUNABLES: [AtomicI32; TUNABLE_NAMES.len()] = [$(AtomicI32::new($def)),*];
+    };
+}
+
+tunables! {
+    BonusMul = 170, 50, 400;
+    BonusOff = 90, 0, 300;
+    BonusMax = 1700, 500, 4000;
+    MalusMul = 200, 50, 400;
+    MalusOff = 80, 0, 300;
+    MalusMax = 1400, 500, 4000;
+    LmrBase = 820, 0, 2000;
+    LmrDiv = 225, 150, 400;
+    RazorBase = 450, 100, 1000;
+    RazorMul = 280, 50, 600;
+    RfpDepth = 10, 4, 16;
+    RfpMul = 90, 30, 200;
+    RfpCut = 20, 0, 60;
+    RfpWorsen = 15, 0, 60;
+    RfpImproving = 30, 0, 80;
+    NmpBase = 4, 2, 7;
+    NmpDepthDiv = 3, 2, 6;
+    NmpEvalDiv = 200, 80, 400;
+    NmpStaticMul = 20, 0, 50;
+    NmpStaticBase = 180, 0, 400;
+    IirDepth = 5, 3, 10;
+    ProbcutMargin = 210, 80, 400;
+    ProbcutImproving = 60, 0, 150;
+    ProbcutDepth = 5, 3, 9;
+    LmpBase = 3, 1, 8;
+    CapFutBase = 250, 50, 500;
+    CapFutMul = 230, 50, 400;
+    CapSeeMul = 180, 50, 300;
+    HistPruneMul = 3500, 1000, 8000;
+    HistLmrDiv = 6000, 2000, 15000;
+    FutBase = 90, 20, 250;
+    FutMul = 110, 40, 250;
+    QuietSeeMul = 25, 5, 60;
+    SeDepth = 6, 4, 10;
+    SeMargin = 60, 20, 150;
+    SeTtPvMargin = 70, 0, 150;
+    SeDouble = 20, 0, 60;
+    LmrTtPv = 1024, 0, 2500;
+    LmrCut = 1800, 0, 3500;
+    LmrTtCapture = 1024, 0, 2500;
+    LmrNotImproving = 600, 0, 2000;
+    LmrCheck = 800, 0, 2000;
+    LmrCutoffCnt = 900, 0, 2500;
+    LmrTtMove = 1800, 0, 3500;
+    LmrCapture = 600, 0, 2000;
+    LmrStatDiv = 10000, 3000, 25000;
+    DeeperBase = 50, 10, 120;
+    DeeperMul = 2, 0, 8;
+    Shallower = 9, 0, 30;
+    QsFutility = 200, 50, 400;
+    QsSee = 80, 0, 200;
+    AspDelta = 20, 5, 50;
+    AspDiv = 16, 6, 64;
+    CorrPawn = 2, 0, 4;
+    TmSoft = 45, 20, 80;
+}
+
+#[inline(always)]
+fn tp(t: T) -> i32 {
+    TUNABLES[t as usize].load(Ordering::Relaxed)
+}
+
+/// Set a tunable by its name (case-insensitive). Returns false if unknown or
+/// the value is outside its range.
+pub fn set_tunable(name: &str, value: i32) -> bool {
+    for (i, n) in TUNABLE_NAMES.iter().enumerate() {
+        if n.eq_ignore_ascii_case(name) {
+            let (lo, hi) = TUNABLE_RANGES[i];
+            if value < lo || value > hi {
+                return false;
+            }
+            TUNABLES[i].store(value, Ordering::Relaxed);
+            return true;
+        }
+    }
+    false
+}
+
 const HIST_MAX: i32 = 16_384;
 const CORR_GRAIN: i32 = 256;
 const CORR_MAX: i32 = 64 * CORR_GRAIN;
@@ -47,25 +141,29 @@ const PAWN_HIST_SIZE: usize = 1_024;
 
 #[inline]
 fn stat_bonus(depth: i32) -> i32 {
-    (170 * depth - 90).clamp(0, 1_700)
+    (tp(T::BonusMul) * depth - tp(T::BonusOff)).clamp(0, tp(T::BonusMax))
 }
 
 #[inline]
 fn stat_malus(depth: i32) -> i32 {
-    (200 * depth - 80).clamp(0, 1_400)
+    (tp(T::MalusMul) * depth - tp(T::MalusOff)).clamp(0, tp(T::MalusMax))
 }
 
-pub static LMR_TABLE: std::sync::LazyLock<[[i32; 64]; 64]> = std::sync::LazyLock::new(|| {
-    // Reductions in 1/1024 plies.
-    let mut table = [[0i32; 64]; 64];
+/// Reductions in 1/1024 plies for the current tunables.
+fn lmr_table() -> Box<[[i32; 64]; 64]> {
+    let base = tp(T::LmrBase) as f64 / 1024.0;
+    let div = tp(T::LmrDiv) as f64 / 100.0;
+    let mut table = Box::new([[0i32; 64]; 64]);
     for depth in 1..64 {
         for m in 1..64 {
-            let r = 0.80 + (depth as f64).ln() * (m as f64).ln() / 2.25;
+            let r = base + (depth as f64).ln() * (m as f64).ln() / div;
             table[depth][m] = (r * 1024.0) as i32;
         }
     }
     table
-});
+}
+
+pub static LMR_TABLE: std::sync::LazyLock<[[i32; 64]; 64]> = std::sync::LazyLock::new(|| *lmr_table());
 
 /// Integer late-move reduction used by the tests and the shallow-pruning
 /// estimate: the base table, plus one ply when not improving, minus one for
@@ -1003,6 +1101,7 @@ pub struct Searcher {
     last_depth: u32,
     nmp_min_ply: i32,
     root_moves: Vec<RootMove>,
+    lmr: Box<[[i32; 64]; 64]>,
 }
 
 #[derive(Clone, Copy)]
@@ -1061,6 +1160,7 @@ impl Default for Searcher {
             last_depth: 0,
             nmp_min_ply: 0,
             root_moves: Vec::new(),
+            lmr: lmr_table(),
         }
     }
 }
@@ -1309,7 +1409,7 @@ impl Searcher {
             (Some(a), Some(b)) => self.cont_corr[b * 768 + a],
             _ => 0,
         };
-        (2 * p + nw + nb + mi + cc) / (2 * CORR_GRAIN)
+        (tp(T::CorrPawn) * p + nw + nb + mi + cc) / (2 * CORR_GRAIN)
     }
 
     fn update_correction(&mut self, board: &Board, ply: usize, diff: i32, depth: i32) {
@@ -1647,7 +1747,7 @@ impl Searcher {
             if best > alpha {
                 alpha = best;
             }
-            futility_base = static_eval + 200;
+            futility_base = static_eval + tp(T::QsFutility);
         }
 
         let mut list = MoveList::new();
@@ -1702,7 +1802,7 @@ impl Searcher {
                         continue;
                     }
                 }
-                if !see_ge(board, m, -80) {
+                if !see_ge(board, m, -tp(T::QsSee)) {
                     continue;
                 }
             }
@@ -1898,7 +1998,7 @@ impl Searcher {
 
         if prune_ok && !pv {
             // Razoring.
-            if eval < alpha - 450 - 280 * depth * depth {
+            if eval < alpha - tp(T::RazorBase) - tp(T::RazorMul) * depth * depth {
                 let v = self.qsearch(board, alpha - 1, alpha, ply, false)?;
                 if v < alpha && !is_decisive(v) {
                     return Ok(v);
@@ -1906,9 +2006,9 @@ impl Searcher {
             }
 
             // Reverse futility pruning.
-            if !tt_pv && depth < 10 && !is_decisive(eval) && eval >= beta && !is_decisive(beta) {
-                let margin = (90 - 20 * cut_node as i32 - 15 * opp_worsening as i32) * depth
-                    - 60 * improving as i32 * depth / 2;
+            if !tt_pv && depth < tp(T::RfpDepth) && !is_decisive(eval) && eval >= beta && !is_decisive(beta) {
+                let margin = (tp(T::RfpMul) - tp(T::RfpCut) * cut_node as i32 - tp(T::RfpWorsen) * opp_worsening as i32) * depth
+                    - tp(T::RfpImproving) * improving as i32 * depth;
                 if eval - margin.max(20) >= beta {
                     return Ok((eval + beta) / 2);
                 }
@@ -1918,12 +2018,12 @@ impl Searcher {
             if cut_node
                 && self.stack[sp - 1].mv.is_some()
                 && eval >= beta
-                && static_eval >= beta - 20 * depth + 180
+                && static_eval >= beta - tp(T::NmpStaticMul) * depth + tp(T::NmpStaticBase)
                 && ply >= self.nmp_min_ply
                 && non_pawn_material(board, board.side_to_move())
                 && !is_decisive(beta)
             {
-                let r = (4 + depth / 3 + ((eval - beta) / 200).min(6)).min(depth);
+                let r = (tp(T::NmpBase) + depth / tp(T::NmpDepthDiv) + ((eval - beta) / tp(T::NmpEvalDiv)).min(6)).min(depth);
                 if let Some(nb) = board.null_move() {
                     self.tt.prefetch(nb.hash());
                     let change = self.nnue_apply_null(&nb);
@@ -1955,13 +2055,13 @@ impl Searcher {
         }
 
         // Internal iterative reduction.
-        if !root && (pv || cut_node) && depth >= 5 && tt_move.is_none() && excluded.is_none() {
+        if !root && (pv || cut_node) && depth >= tp(T::IirDepth) && tt_move.is_none() && excluded.is_none() {
             depth -= 1 + (pv && depth >= 8) as i32;
         }
 
         // ProbCut.
-        if prune_ok && !pv && depth >= 5 && !is_decisive(beta) {
-            let pc_beta = beta + 210 - 60 * improving as i32;
+        if prune_ok && !pv && depth >= tp(T::ProbcutDepth) && !is_decisive(beta) {
+            let pc_beta = beta + tp(T::ProbcutMargin) - tp(T::ProbcutImproving) * improving as i32;
             let tt_blocks = matches!((tte, tt_score), (Some(e), Some(ts)) if e.depth >= depth - 3 && e.bound.is_some() && ts < pc_beta);
             if !tt_blocks {
                 let mut list = MoveList::new();
@@ -2035,7 +2135,7 @@ impl Searcher {
         let mut captures: [Move; 32] = [Move { from: Square::A1, to: Square::A1, promotion: None }; 32];
         let mut n_captures = 0;
         let mut skip_quiets = false;
-        let lmp_limit = ((3 + depth * depth) / (2 - improving as i32)) as usize;
+        let lmp_limit = ((tp(T::LmpBase) + depth * depth) / (2 - improving as i32)) as usize;
 
         let mut root_idx = 0;
         loop {
@@ -2081,25 +2181,25 @@ impl Searcher {
                 if move_count >= lmp_limit {
                     skip_quiets = true;
                 }
-                let base_r = LMR_TABLE[depth.min(63) as usize][move_count.min(63)] / 1024;
+                let base_r = self.lmr[depth.min(63) as usize][move_count.min(63)] / 1024;
                 let lmr_depth = (depth - 1 - base_r).max(0);
                 if capture || gives_check {
                     if !gives_check && lmr_depth < 7 && !in_check {
                         let victim = captured_piece(board, m).map(piece_value).unwrap_or(0);
-                        if static_eval + 250 + 230 * lmr_depth + victim + hist / 8 <= alpha {
+                        if static_eval + tp(T::CapFutBase) + tp(T::CapFutMul) * lmr_depth + victim + hist / 8 <= alpha {
                             continue;
                         }
                     }
-                    if !gives_check && !see_ge(board, m, -(180 * depth).max(0) - hist / 64) {
+                    if !gives_check && !see_ge(board, m, -(tp(T::CapSeeMul) * depth).max(0) - hist / 64) {
                         continue;
                     }
                 } else {
-                    if lmr_depth < 6 && hist < -3500 * depth {
+                    if lmr_depth < 6 && hist < -tp(T::HistPruneMul) * depth {
                         continue;
                     }
-                    let lmr_depth_h = (lmr_depth + hist / 6000).max(0);
+                    let lmr_depth_h = (lmr_depth + hist / tp(T::HistLmrDiv)).max(0);
                     if !in_check && lmr_depth_h < 10 {
-                        let fut = static_eval + 90 + 110 * lmr_depth_h;
+                        let fut = static_eval + tp(T::FutBase) + tp(T::FutMul) * lmr_depth_h;
                         if fut <= alpha {
                             if best <= fut && !is_decisive(best) {
                                 best = fut;
@@ -2107,7 +2207,7 @@ impl Searcher {
                             continue;
                         }
                     }
-                    if !see_ge(board, m, -25 * lmr_depth_h * lmr_depth_h) {
+                    if !see_ge(board, m, -tp(T::QuietSeeMul) * lmr_depth_h * lmr_depth_h) {
                         continue;
                     }
                 }
@@ -2118,12 +2218,12 @@ impl Searcher {
             if !root
                 && Some(m) == tt_move
                 && excluded.is_none()
-                && depth >= 6
+                && depth >= tp(T::SeDepth)
                 && ply < 2 * self.root_depth
             {
                 if let (Some(e), Some(ts)) = (tte, tt_score) {
                     if e.depth >= depth - 3 && matches!(e.bound, Some(Bound::Lower | Bound::Exact)) && !is_decisive(ts) {
-                        let s_beta = ts - (60 + 70 * (tt_pv && !pv) as i32) * depth / 64;
+                        let s_beta = ts - (tp(T::SeMargin) + tp(T::SeTtPvMargin) * (tt_pv && !pv) as i32) * depth / 64;
                         let s_depth = (depth - 1) / 2;
                         self.stack[sp].excluded = Some(m);
                         let v = self.search(board, s_depth, s_beta - 1, s_beta, ply, cut_node, false);
@@ -2131,7 +2231,7 @@ impl Searcher {
                         let v = v?;
                         if v < s_beta {
                             extension = 1;
-                            if !pv && v < s_beta - 20 && self.stack[sp].double_ext <= 8 {
+                            if !pv && v < s_beta - tp(T::SeDouble) && self.stack[sp].double_ext <= 8 {
                                 extension = 2;
                             }
                         } else if v >= beta && !is_decisive(v) {
@@ -2160,40 +2260,40 @@ impl Searcher {
 
             let searched: SResult = (|| {
                 if depth >= 2 && move_count > 1 + root as usize && self.use_lmr {
-                    let mut r = LMR_TABLE[depth.min(63) as usize][move_count.min(63)];
+                    let mut r = self.lmr[depth.min(63) as usize][move_count.min(63)];
                     if tt_pv {
-                        r -= 1024;
+                        r -= tp(T::LmrTtPv);
                     }
                     if cut_node {
-                        r += 1800;
+                        r += tp(T::LmrCut);
                     }
                     if tt_capture && !capture {
-                        r += 1024;
+                        r += tp(T::LmrTtCapture);
                     }
                     if !improving {
-                        r += 600;
+                        r += tp(T::LmrNotImproving);
                     }
                     if gives_check {
-                        r -= 800;
+                        r -= tp(T::LmrCheck);
                     }
                     if self.stack[sp + 1].cutoff_cnt > 2 {
-                        r += 900;
+                        r += tp(T::LmrCutoffCnt);
                     }
                     if Some(m) == tt_move {
-                        r -= 1800;
+                        r -= tp(T::LmrTtMove);
                     }
                     if capture {
-                        r -= 600;
+                        r -= tp(T::LmrCapture);
                     }
                     let stat = if capture { hist * 2 } else { hist };
                     self.stack[sp].stat_score = stat;
-                    r -= stat * 1024 / 10_000;
+                    r -= stat * 1024 / tp(T::LmrStatDiv);
                     let r_plies = r / 1024;
                     let d = (new_depth - r_plies).clamp(1, new_depth + 1);
                     let mut v = -self.search(&child, d, -alpha - 1, -alpha, ply + 1, true, false)?;
                     if v > alpha && d < new_depth {
-                        let deeper = v > best + 50 + 2 * new_depth;
-                        let shallower = v < best + 9;
+                        let deeper = v > best + tp(T::DeeperBase) + tp(T::DeeperMul) * new_depth;
+                        let shallower = v < best + tp(T::Shallower);
                         let nd = new_depth + deeper as i32 - shallower as i32;
                         if nd > d {
                             v = -self.search(&child, nd, -alpha - 1, -alpha, ply + 1, !cut_node, false)?;
@@ -2403,7 +2503,7 @@ impl Searcher {
                 rm.prev_score = rm.score;
                 rm.nodes = 0;
             }
-            let mut delta = 20 + prev_score.abs() / 16;
+            let mut delta = tp(T::AspDelta) + prev_score.abs() / tp(T::AspDiv);
             let (mut alpha, mut beta) = if depth >= 4 && self.use_aspiration && !is_decisive(prev_score) {
                 ((prev_score - delta).max(-INF), (prev_score + delta).min(INF))
             } else {
@@ -2537,6 +2637,7 @@ impl Searcher {
             w.node_limit = u64::MAX;
             w.hard_deadline = self.hard_deadline;
             w.nodes = 0;
+            w.lmr = self.lmr.clone();
         }
         let result = pool.scope(|scope| {
             let _guard = StopHelpersOnDrop(stop);
@@ -2557,6 +2658,10 @@ impl Searcher {
 
     fn run(&mut self, board: &Board, depth: u32, movetime: Option<Duration>, soft: Option<Duration>, threads: usize) -> SearchResult {
         self.nodes = 0;
+        self.lmr = lmr_table();
+        for w in &mut self.smp_workers {
+            w.lmr = self.lmr.clone();
+        }
         self.tt.new_search();
         let start = Instant::now();
         self.hard_deadline = movetime.map(|d| start + d);
@@ -2590,7 +2695,7 @@ impl Searcher {
         let soft = if params.fixed_movetime {
             None
         } else {
-            params.movetime.map(|d| d.mul_f64(0.45))
+            params.movetime.map(|d| d.mul_f64(tp(T::TmSoft) as f64 / 100.0))
         };
         let r = self.run(board, params.depth, params.movetime, soft, threads);
         self.node_limit = u64::MAX;
