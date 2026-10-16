@@ -116,6 +116,8 @@ tunables! {
     CheckExt = 0, 0, 2;
     ContSplit = 0, 0, 1;
     UpcomingRep = 1, 0, 1;
+    Hindsight = 0, 0, 1;
+    HindsightMargin = 175, 0, 500;
     ThreatEnter = 0, 0, 120;
     TmSoft = 47, 20, 80;
 }
@@ -832,6 +834,8 @@ struct Frame {
     double_ext: i32,
     /// The move made from this ply was a capture or queen promotion.
     tactical: bool,
+    /// LMR reduction (plies) applied to the move searched from this ply.
+    reduction: i32,
 }
 
 impl Default for Frame {
@@ -848,6 +852,7 @@ impl Default for Frame {
             killers: [None, None],
             double_ext: 0,
             tactical: false,
+            reduction: 0,
         }
     }
 }
@@ -2207,6 +2212,23 @@ impl Searcher {
             && !self.stack[sp - 1].in_check
             && static_eval > -self.stack[sp - 1].static_eval;
 
+        // Hindsight: the parent reduced this node by `prior` plies. Give a ply
+        // back when the reduction looks unjustified, take one when both sides'
+        // static evals say the position is quiet and good for both.
+        if tp(T::Hindsight) != 0 && !root && !in_check && excluded.is_none() && ply >= 1 {
+            let prior = self.stack[sp - 1].reduction;
+            if prior >= 3 && !opp_worsening {
+                depth += 1;
+            }
+            if prior >= 2
+                && depth >= 2
+                && !self.stack[sp - 1].in_check
+                && static_eval + self.stack[sp - 1].static_eval > tp(T::HindsightMargin)
+            {
+                depth -= 1;
+            }
+        }
+
         let prune_ok = self.use_nullmove && !root && !in_check && excluded.is_none();
 
         if prune_ok && !pv {
@@ -2508,7 +2530,10 @@ impl Searcher {
                     r -= stat * 1024 / tp(T::LmrStatDiv);
                     let r_plies = r / 1024;
                     let d = (new_depth - r_plies).clamp(1, new_depth + 1);
-                    let mut v = -self.search(&child, d, -alpha - 1, -alpha, ply + 1, true, false)?;
+                    self.stack[sp].reduction = new_depth - d;
+                    let reduced = self.search(&child, d, -alpha - 1, -alpha, ply + 1, true, false);
+                    self.stack[sp].reduction = 0;
+                    let mut v = -reduced?;
                     if v > alpha && d < new_depth {
                         let deeper = v > best + tp(T::DeeperBase) + tp(T::DeeperMul) * new_depth;
                         let shallower = v < best + tp(T::Shallower);
