@@ -336,6 +336,64 @@ no rebuild: play one binary against itself with different `--a-opt`/`--b-opt`
 
 ---
 
+## Next Steps: NNUE Work on a GPU Machine
+
+The October search campaign (see [Search](#search) and
+[evidence/search_v2_20261016](evidence/search_v2_20261016/README.md)) brought
+PieBot from 1.4% to 19.3% win-or-draw against full-strength Stockfish 19 at
+60+0.5. The remaining gap to the 45% goal (roughly 200-250 Elo) is mostly the
+evaluation, not the search:
+
+- Losses are slow drift, not tactics: the first move that takes PieBot below
+  -150 cp comes at median ply 32 with almost all material on the board and a
+  median swing of 74 cp; only 9% of those moves swing 200 cp or more.
+- Speed is no longer the gap (about 2-2.6M nodes/s against SF19's ~1M on the
+  same laptop), and search tuning is flattening (SPSA +96, then +17 Elo).
+
+Recommended order, each step gated head-to-head against the current net
+before any Stockfish measurement:
+
+1. **Output buckets by material.** Choose one of ~8 output heads by piece
+   count. Cheapest change: only the head and `QuantNetwork::head`/loader change.
+2. **King-bucketed, horizontally mirrored inputs instead of HalfKP.** Group the
+   64 king squares into 16-32 buckets and mirror files, cutting the first layer
+   from ~41k to ~12-25k features. Expected to generalise better (more positions
+   per weight) *and* run faster: accumulator updates are memory-latency bound on
+   today's 84 MB table, and the king-move refresh cache (`finny_refresh_into`)
+   already makes bucket changes cheap.
+3. **A small hidden stack after the accumulator** (for example 2x1024 -> 16 ->
+   32 -> 1, int8 with SCReLU/CReLU). Needs new quantised inference code in
+   `PieBot/src/eval/nnue/network.rs` and a new file magic (do not reuse
+   `PIENNQ02`).
+4. **Much more and more diverse data.** Use the LCZero best-Q plus game-outcome
+   targets already set up in `training/nnue/` (`fetch_lc0_*`, `lc0_corpus.py`,
+   `lc0_filter.py`, `documents/LCZeroTraining.md`). Aim for 10^8-10^9 filtered
+   positions: drop in-check positions, positions whose best move is a capture,
+   and early opening plies. Keep a held-out set labelled exactly like training.
+   August's finding that more rows of the same self-play distribution did not
+   help means diversity matters more than raw count. Per AGENTS.md, Stockfish
+   stays an evaluation anchor, never a label source.
+5. **Trainer.** A GPU trainer built for these architectures (bullet is the usual
+   choice for this net family) will iterate much faster than
+   `training/nnue/train_torch.py`; write a converter to PieBot's quant format and
+   check it with the existing parity tests (`PieBot/tests/nnue_arch_v2.rs`).
+
+After a new net is adopted:
+
+- **Re-tune the search.** Every new net changes the eval scale that the
+  pruning margins were tuned against. Rebuild with `PIEBOT_TUNE=1`, run
+  `scripts/experiments/spsa.py` (start with ~6000 pairs at 6+0.06), then
+  validate tuned against untuned with `uci_match.py` over 1000 games.
+- **Measure against Stockfish 19** the same way as before: `uci_match.py`,
+  one thread each, 60+0.5, 280 games, `books/openings_v1.fen`, seed 1901,
+  `SyzygyPath` set and `Contempt=40`, so results stay comparable.
+- **Search work still open:** multi-threaded Elo of the new search has never
+  been measured; `Hindsight` and `EvalScaleBase` exist as toggles but their
+  A/Bs were interrupted; the SF19 run of the build after SPSA round 2
+  (`ad462fc`) was not started.
+
+---
+
 ## License
 
 AGPL-3.0. See [`PieBot/LICENSE`](PieBot/LICENSE).

@@ -69,6 +69,13 @@ material still on the board and a median swing of 74 cp; only 9% of those
 moves swung 200 cp or more. PieBot loses by gradual middlegame drift rather
 than tactical blunders, which points at evaluation quality more than search.
 
+## Interrupted (2026-10-17, stopped by request)
+
+- `Hindsight=1` on top of SPSA round 2: -2.5 Elo [-20.4, +15.4] after 420 of
+  1000 games (inconclusive; stays off).
+- `EvalScaleBase` 100/200 and the SF19 60+0.5 run of `ad462fc` were queued
+  but not started.
+
 ## Not measured
 
 - Elo with more than one thread for the new search (Lazy SMP is carried over
