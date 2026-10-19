@@ -81,12 +81,12 @@ class ProductionScriptContractTests(unittest.TestCase):
         self.assertIn('--exp-nnue-quant-file "$NNUE_QUANT"', script)
 
     def test_systemd_stops_after_a_clean_deadline_exit(self) -> None:
-        setup = read("documents/ZEN5_3090_NNUE_SETUP.md")
+        setup = read("documents/history/ZEN5_3090_NNUE_SETUP.md")
         self.assertIn("Restart=on-failure", setup)
         self.assertNotIn("Restart=always", setup)
 
     def test_systemd_path_includes_service_users_cargo_bin(self) -> None:
-        setup = read("documents/ZEN5_3090_NNUE_SETUP.md")
+        setup = read("documents/history/ZEN5_3090_NNUE_SETUP.md")
         self.assertIn("User=YOUR_USER", setup)
         self.assertRegex(
             setup,
@@ -94,7 +94,7 @@ class ProductionScriptContractTests(unittest.TestCase):
         )
 
     def test_run_directory_ownership_is_documented(self) -> None:
-        setup = read("documents/ZEN5_3090_NNUE_SETUP.md")
+        setup = read("documents/history/ZEN5_3090_NNUE_SETUP.md")
         self.assertRegex(setup, r"install -d .* /opt/piebot_runs")
         self.assertRegex(setup, r"/opt/piebot_runs.*own|own.*?/opt/piebot_runs")
 

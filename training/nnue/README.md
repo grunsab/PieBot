@@ -6,7 +6,7 @@ test91 corpus, `lc0_corpus` prepares bounded game-disjoint data, and
 latest-weight/Adam checkpoints and independent gameplay promotion. Torch's
 `--target-mode lc0-q-outcome --checkpoint-selection latest` enables this objective;
 the default self-play behavior remains unchanged. See
-`../../documents/LCZeroTraining.md` for deployment and self-play restart details.
+`../../documents/history/LCZeroTraining.md` for deployment and self-play restart details.
 
 File formats
 - Dense dev format (PIENNUE1): simple f32 layers for bootstrapping and tests.

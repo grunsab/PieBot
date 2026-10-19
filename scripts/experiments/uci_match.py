@@ -5,7 +5,8 @@ Each opening is played twice with colours reversed, one engine thread per
 side unless told otherwise, on a real Fischer clock. A game is drawn only on
 a threefold that actually occurred, the fifty-move rule, stalemate or
 insufficient material -- never because a repetition was merely claimable (see
-CLAUDE.md, "arena threefold draws before this date never happened").
+documents/history/agent_handoffs_2026.md, "arena threefold draws before this
+date never happened").
 
 Results are written after every finished pair, so a run can be watched while
 it plays. Evaluation only; nothing here produces training labels.

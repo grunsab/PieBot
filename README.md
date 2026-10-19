@@ -1,455 +1,168 @@
-# PieBot (Rust Chess Engine + Hand-Optimized NNUE)
+# PieBot
 
-PieBot is a chess engine written in Rust (`PieBot/`) with a large HalfKP NNUE, a Stockfish-style alpha-beta search (rewritten in October 2026, see [Search](#search)), Lazy SMP, optional Syzygy tablebases, and a neural network training pipeline (`training/nnue/`).
+PieBot is a UCI chess engine written in Rust. It combines a Stockfish-style
+alpha-beta search with an NNUE evaluation trained on Leela Chess Zero game
+data, and includes the tooling used to train its networks and measure every
+change in games.
 
-**Current measured strength (2026-10-16, one thread each, this repo's opening book):** the October search rewrite plus NNUE speedups is **+402 Elo** over the previous search (400 games, 10+0.1), and SPSA tuning added a further **+96 Elo** (1000 games). Against **full-strength Stockfish 19** at 60+0.5 the tuned build with Syzygy and `Contempt 40` scored 0 wins / 54 draws / 226 losses (19.3% win-or-draw, 280 games); the pre-tuning rewrite scored 14.3% and the previous search 1.4%. Details: [evidence/search_v2_20261016/README.md](evidence/search_v2_20261016/README.md).
+## Strength
 
-PieBot is evaluated through internal `120+1` matches against CCRL-listed engines. Those performance estimates are not an official CCRL ranking or a Lichess rating. See the [Lichess audit](evidence/lichess_audit_20261001/REPORT.md) and [verified Lazy SMP deployment](evidence/lichess_smp_deploy_20261001/REPORT.md) for the measured results and their limits.
+PieBot has no entry on an official rating list (CCRL, CEGT or similar). The
+figures below come from this repository's own matches, played with
+[`scripts/experiments/uci_match.py`](scripts/experiments/uci_match.py): one
+search thread per engine, openings from `books/openings_v1.fen` played twice
+with colours reversed, and draws only on a threefold repetition that actually
+occurred, the fifty-move rule, stalemate or insufficient material.
 
----
+**Against full-strength Stockfish 19** (60+0.5, 280 games, Syzygy 3-4-5,
+`Contempt 40`, Ryzen 9 7940HX):
 
-## Quick Start: How to Run the Engine
+| PieBot build | W / D / L | Win or draw |
+| :--- | :---: | ---: |
+| Previous search (August 2026) | 0 / 2 / 138 (140 games) | 1.4% |
+| October 2026 search, SPSA-tuned, arch-v2 net | 0 / 54 / 226 | 19.3% |
+| October 2026 search, arch-v3 net | match in progress | – |
 
-### 1. Build the Engine
+**Self-play progression** (Elo with 95% confidence intervals):
 
-Prerequisites: Rust toolchain (1.85+; shakmaty-syzygy needs it. Install via [rustup.rs](https://rustup.rs/)).
+| Change | Games | Time control | Elo |
+| :--- | ---: | :--- | :--- |
+| Search rewrite and NNUE speed-ups, against the previous search | 400 | 10+0.1 | +401.9 [+363.8, +448.5] |
+| SPSA tuning, round 1 | 1000 | 10+0.1 | +95.8 [+82.4, +109.6] |
+| SPSA tuning, round 2 | 1000 | 10+0.1 | +16.7 [+5.0, +28.4] |
+| Arch-v3 net against the arch-v2 net, same binary | 1000 | 10+0.1 | +95.1 [+80.1, +110.3] |
+
+Self-play gains are measured engine against engine and do not translate
+one-for-one into gains against other opponents. Full tables:
+[evidence/search_v2_20261016](evidence/search_v2_20261016/README.md) and
+[documents/NNUE.md](documents/NNUE.md).
+
+## Features
+
+- **Search:** iterative deepening with aspiration windows and PVS; a lockless
+  transposition table that also caches static evaluations; a staged move
+  picker with butterfly, capture, pawn and continuation histories; correction
+  histories; null move, ProbCut, razoring, futility, late-move and SEE pruning;
+  logarithmic late-move reductions; singular extensions; quiescence search;
+  cuckoo-table detection of upcoming repetitions. See
+  [documents/SEARCH.md](documents/SEARCH.md).
+- **Evaluation (arch-v3):** king-bucketed inputs (16 or 32 buckets, mirrored
+  horizontally, kings included as pieces), 8 output buckets chosen by piece
+  count, and an optional mixture of material experts on the input layer.
+  Accumulators are updated incrementally and lazily, with a refresh cache for
+  king-bucket changes. The arch-v2 HalfKP net is still supported. See
+  [documents/NNUE.md](documents/NNUE.md).
+- **Endgames:** Syzygy WDL/DTZ probing (3-4-5 men tested).
+- **Parallel search:** Lazy SMP over a shared transposition table.
+- **Contempt:** a configurable draw score, useful against stronger opponents.
+- **Tuning:** 55 search constants exposed as runtime parameters and tuned by
+  SPSA.
+
+## Getting started
+
+Requirements: a Rust toolchain, 1.88 or newer ([rustup.rs](https://rustup.rs/)).
 
 ```bash
-# Clone the repository
 git clone https://github.com/grunsab/PieBot.git
 cd PieBot/PieBot
-
-# Build the release UCI binary *from inside PieBot/*
 cargo build --release --bin uci
 ```
 
-The compiled binary will be located at:
-`PieBot/target/release/uci`
+Build from inside `PieBot/`. `PieBot/.cargo/config.toml` sets
+`-C target-cpu=native`, and cargo reads it only from the working directory: a
+build started from the repository root with `--manifest-path` produces a
+slower, generic binary. The engine is `PieBot/target/release/uci`.
 
-Build from inside `PieBot/`: `PieBot/.cargo/config.toml` sets `-C target-cpu=native`,
-and cargo only reads it relative to the working directory. A build started from the
-repo root with `--manifest-path` produces a generic x86-64 binary (about 5% slower
-on a Zen 4 laptop, more on older code paths).
-
-### 2. Auto-Loaded NNUE (Zero Configuration Required)
-
-When launched, PieBot looks for `models/lc0_chunk_00034965.nnue` **relative to its working directory**, and if found loads it with `UseNNUE = true` and `EvalBlend = 100`:
-
-```text
-info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
-```
-
-If the engine is started from another directory the net is not found and it
-silently plays on the piece-square eval. Scripts and GUIs started elsewhere should
-set `NNUEQuantFile` to an absolute path and `UseNNUE` to `true`.
-
----
-
-## Running PieBot
-
-### Option A: Interactive Command Line (CLI)
-
-You can interact with PieBot directly using the standard Universal Chess Interface (UCI) protocol:
-
-```bash
-./PieBot/target/release/uci
-```
-
-Example UCI session:
+At start-up the engine looks for `models/lc0_chunk_00034965.nnue` **relative to
+its working directory**. If the file is not found, it plays on a simple
+piece-square evaluation without warning. When starting the engine from
+anywhere else (a GUI, a script), set `UseNNUE` to `true` and `NNUEQuantFile` to
+an absolute path.
 
 ```text
 uci
-info string Loaded default NNUE model: models/lc0_chunk_00034965.nnue
 id name PieBot NNUE
-id author PieBot Team
-option name Threads type spin default 1 min 1 max 512
-option name Hash type spin default 64 min 1 max 16384
-option name UseNNUE type check default true
-option name NNUEFile type string default 
-option name NNUEQuantFile type string default models/lc0_chunk_00034965.nnue
-option name EvalBlend type spin default 100 min 0 max 100
-option name Contempt type spin default 0 min -200 max 200
-option name SyzygyPath type string default <empty>
+...
 uciok
-
+setoption name NNUEQuantFile value /path/to/PieBot/models/lc0_chunk_00034965.nnue
+setoption name UseNNUE value true
+setoption name Hash value 256
 isready
 readyok
-
-# Set position and search with fixed time (1000 ms)
-position startpos moves e2e4 e7e5 g1f3 b8c6
-go movetime 1000
-info depth 10 seldepth 12 score cp 32 nodes 45210 nps 1125000 pv f1c4 g8f6
-bestmove f1c4
-
-# Search to fixed depth
-position fen r1bqkb1r/pppp1ppp/2n5/4p3/2B1n3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 5
-go depth 12
-
-# Play with clock time control (White has 60s + 0.5s increment)
+position startpos moves e2e4 e7e5
 go wtime 60000 btime 60000 winc 500 binc 500
-
-# Exit the engine
+info depth 18 ... pv g1f3 b8c6 ...
+bestmove g1f3
 quit
 ```
 
----
+To use PieBot in a GUI (Cute Chess, Arena, Banksia, Nibbler, En Croissant),
+add `PieBot/target/release/uci` as a UCI engine and set `NNUEQuantFile` to the
+absolute path of a network. No other configuration is needed.
 
-### Option B: Running in a Chess GUI
+## UCI options
 
-PieBot works out-of-the-box with any standard UCI-compliant chess graphical interface:
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `Threads` | spin, 1-512 | 1 | Lazy SMP search threads, including the main thread. |
+| `Hash` | spin, 1-16384 | 64 | Transposition table size in MiB. Large sizes allocate quickly (lazily zeroed pages). |
+| `UseNNUE` | check | true | Use the network evaluation. |
+| `NNUEQuantFile` | string | `models/lc0_chunk_00034965.nnue` | Quantised network: arch-v2 (`PIENNQ02`) or arch-v3 (`PIENNQ03`). Loading a net clears the hash. |
+| `NNUEFile` | string | empty | Dense f32 network (`PIENNUE1`), for development only. |
+| `EvalBlend` | spin, 0-100 | 100 | Percentage weight of the network against the piece-square evaluation. |
+| `Contempt` | spin, -200-200 | 0 | Draw score in centipawns for the searching side. Positive values avoid losing lines by preferring draws; 40 helped against Stockfish 19. Leave at 0 for normal play. |
+| `SyzygyPath` | string | empty | Syzygy table directories, separated by `;` or `:`. |
 
-#### 1. CuteChess
-1. Open **CuteChess** $\to$ **Tools** $\to$ **Settings** $\to$ **Engines**.
-2. Click **Add...** (+).
-3. Set the binary path to `PieBot/target/release/uci`.
-4. Protocol will auto-detect as **UCI**.
-5. Set desired **Hash** (e.g., 256 MB or 1024 MB) and **Threads** (e.g., 4 or 8).
-6. Click **OK**. PieBot is ready for matches and tournament play.
+With `PIEBOT_TUNE=1` in the engine's environment, the 55 search constants are
+also advertised as spin options (they are accepted, but hidden, without it).
 
-#### 2. Nibbler
-1. Open **Nibbler** $\to$ **Engine** $\to$ **Choose engine...**.
-2. Select `PieBot/target/release/uci`.
-3. Nibbler will initialize the engine and immediately display search evaluations and PV lines.
+With a clock, the engine treats its time allocation as a hard limit and aims to
+finish well inside it, adjusting by best-move stability and score trend.
+`go movetime N` uses the whole budget.
 
-#### 3. Banksia GUI / Arena / En Croissant
-1. Navigate to Engine Management / Install New Engine.
-2. Select `PieBot/target/release/uci`.
-3. The engine initializes automatically with NNUE enabled.
+## Networks
 
----
+Networks live in [`models/`](models/), with hashes in
+[`models/MANIFEST.json`](models/MANIFEST.json).
 
-## UCI Configuration Options Reference
+| File | Format | Notes |
+| :--- | :--- | :--- |
+| `lc0_chunk_00034965.nnue` | arch-v2 (`PIENNQ02`), HalfKP, 1024 wide, 84 MB | Current default. Trained on LCZero data. |
+| `v3_lc0t91_b16.nnue` | arch-v3 (`PIENNQ03`), 16 king buckets, 8 output buckets, 1024 wide, 25 MB | Trained on 725M filtered LCZero test91 positions. |
+| `v8_cycle_000013_quant.nnue` | arch-v2 (`PIENNQ02`) | Earlier self-play network (August 2026). |
+| `cycle_000098_quant.nnue` | arch-v1 (`PIENNQ01`) | Historical; kept because benchmarking scripts read it by path. |
 
-| Option | Type | Default | Valid Range | Description |
-| :--- | :---: | :---: | :---: | :--- |
-| `Threads` | `spin` | `1` | `1 .. 512` | Total Lazy SMP search threads, including the main search. Workers and their private search state are reused across moves. |
-| `Hash` | `spin` | `64` | `1 .. 16384` | Transposition Table (TT) capacity in megabytes (MiB). |
-| `UseNNUE` | `check` | `true` | `true / false` | Enables neural network evaluation. Defaults to `true` when a valid model is found. |
-| `NNUEQuantFile` | `string` | *(auto)* | Valid file path | Path to quantized int8 NNUE model (`PIENNQ02`). Auto-detects `models/lc0_chunk_00034965.nnue`. |
-| `NNUEFile` | `string` | `""` | Valid file path | Path to dense f32 NNUE model (`PIENNUE1`, for training/research development). |
-| `EvalBlend` | `spin` | `100` | `0 .. 100` | Percentage weight of NNUE evaluation vs classical evaluation ($0 = 100\%$ classical, $100 = 100\%$ NNUE). The engine plays on the network alone by default; lower values mix in the piece-square score. |
-| `Contempt` | `spin` | `0` | `-200 .. 200` | Draw bias in centipawns for the engine: a drawn line scores `+Contempt` for the side that is searching. Positive values seek draws, which helps against a much stronger opponent (vs Stockfish 19 at 20+0.2: 40 gave 15.0% win-or-draw against 10.4% at 0); leave it at 0 for normal play. |
-| `SyzygyPath` | `string` | `<empty>` | Directories separated by `;` or `:` | Syzygy WDL/DTZ tables (3-4-5 men tested). The search probes WDL right after captures and pawn moves; at the root it plays the DTZ-best move. Prints `info string syzygy: N tables, up to K pieces` when loaded. |
-
-Setting `PIEBOT_TUNE=1` in the engine's environment also advertises every search
-constant as a spin option (used by `scripts/experiments/spsa.py`); without it those
-options are hidden but still accepted.
-
-To set options in UCI:
-```text
-setoption name Threads value 8
-setoption name Hash value 256
-setoption name EvalBlend value 100
-```
-
-The NNUE engine sizes its own search pool from `Threads`; no `RAYON_NUM_THREADS`
-setting is needed. Helpers share the transposition table and immutable NNUE
-weights, while the main search selects the move. Deterministic searches, explicit
-node budgets, and the development dense-f32 NNUE backend use one search thread.
-All published strength numbers for the October search are single-threaded; Lazy
-SMP is carried over and tested for correctness, not yet for Elo.
-
-`go movetime N` uses the whole budget. With a clock (`wtime`/`btime`) the front
-end's allocation is a hard limit and the search aims to finish well inside it
-(`TmSoft`, 47% of the allocation), stretching or shrinking that target by
-best-move stability, the share of nodes spent on the best move, and a falling score.
-
-Large hash sizes are cheap to set: the table is allocated from lazily zeroed
-pages, so `Hash 8096` plus `ucinewgame` takes about 0.1 s.
-
----
-
-## Bundled High-Efficiency Hand-Optimized NNUE Models
-
-All neural network weights reside in the [`models/`](models/) directory and are indexed in [`models/MANIFEST.json`](models/MANIFEST.json):
-
-| Model File | Architecture | Elo Rating (Classical `120+1`) | Validation Loss | Description |
-| :--- | :---: | :---: | :---: | :--- |
-| [`lc0_chunk_00034965.nnue`](models/lc0_chunk_00034965.nnue) | `PIENNQ02` (arch-v2) | **3203.8 Elo** | **0.6201** | **CURRENT BEST.** Trained on 40,000+ chunks of LCZero games with best-Q and game outcomes. Scores 14.5% against CCRL 3500+ engines with a 28.9% draw rate and checkmate win against Carp 3.0.1. **Auto-loaded by default.** |
-| [`v8_cycle_000013_quant.nnue`](models/v8_cycle_000013_quant.nnue) | `PIENNQ02` (arch-v2) | **3009.4 Elo** | 0.6550 | Campaign v8 cycle 13 self-play network. Objective-corrected normalized-cp Huber loss. |
-| [`cycle_000098_quant.nnue`](models/cycle_000098_quant.nnue) | `PIENNQ01` (arch-v1) | 2422.0 Elo | — | Historical baseline retained for CPU benchmarking qualifications. |
-
----
-
-## Hand-Optimized SIMD Vectorized NNUE Architecture
-
-PieBot uses an **arch-v2 (`PIENNQ02`)** neural architecture with hardware-vectorized inference kernels written from scratch:
-
-```
-[HalfKP Dual-Perspective Features] (2 x 41,024 inputs)
-                     │
-         [Accumulator Layer (i16)]
-                     │
-        [SCReLU Activation: (x / 256)² clamped to 0..255]
-                     │
-    ┌────────────────┴────────────────┐
- [White Perspective]              [Black Perspective]
-  (1024 i8 weights)                (1024 i8 weights)
-    └────────────────┬────────────────┘
-                     │  (Hand-written AVX2 / ARM NEON SIMD)
-                     ▼
-             [Output Value (cp)]
-```
-
-### Performance Features
-The first-layer table is about 84 MB (41,024 features x 1024 x i16), so
-accumulator updates are bound by memory latency, not arithmetic. What matters:
-
-1. **Fused updates.** A quiet move is one pass over `src - out + in`, a capture
-   one pass over `src - mover - victim + mover'`, so the row misses overlap.
-   These are plain loops that the compiler vectorises to AVX-512 under
-   `target-cpu=native`; they measured faster than the earlier hand-written AVX2
-   intrinsics. The SCReLU head has an AVX-512 kernel (AVX2 and NEON remain).
-2. **King-move refresh cache ("Finny table").** A king move rebuilds only its own
-   perspective, by patching the cached accumulator for that king square with the
-   few pieces that differ; the other perspective is patched incrementally.
-3. **Lazy accumulators** (main search). Making a move records the feature change
-   and prefetches its weight rows; the slot is built only when an evaluation needs
-   it. Leaves answered from the TT (score or cached eval) never pay for an update.
-4. All of the above are exact: parity tests compare against full recomputation,
-   including sparse lazy evaluation along random games.
-
-Measured on a Ryzen 9 7940HX, one thread: the October search went from 567k to
-about 2.2-2.6M nodes/s through this work (the previous search: about 1.6M).
-
----
-
-## Search
-
-`PieBot/src/search/alphabeta.rs` was rewritten in October 2026 along modern
-Stockfish lines (promoted from the experimental `alphabeta_temp.rs` on 2026-10-16):
-
-- **Transposition table**: lockless, 4-way 64-byte buckets of packed 16-byte
-  entries (move, score, static eval, depth, bound, PV flag, age), XOR-verified
-  keys, age-aware replacement, prefetched as soon as a move is made. It caches the
-  static eval, so loading or clearing a network clears it.
-- **Move ordering**: staged picker (TT move before generation; winning captures
-  by MVV, capture history and SEE; two killers and the counter move; quiets scored
-  only when reached, from butterfly, pawn and continuation histories at 1, 2, 4 and
-  6 plies, plus a bonus for direct checks; losing captures last).
-- **Evaluation adjustments**: pawn, non-pawn (per side), minor-piece and
-  continuation correction histories; a slight pull toward zero as the fifty-move
-  counter runs.
-- **Pruning and reductions**: PVS with aspiration windows, mate-distance pruning,
-  razoring, reverse futility, null move (with verification at high depth), ProbCut,
-  internal iterative reduction, late-move pruning, futility and history pruning,
-  SEE pruning of quiets and captures, logarithmic LMR adjusted by PV/cut node,
-  history, improving, checks and cutoff counts, with deeper/shallower re-searches.
-- **Extensions**: singular extensions with double extension, multi-cut and
-  negative extensions. Checks are not extended (`CheckExt=0`: +9.3 Elo
-  [+0.3, +18.4] over 1600 games against extending every check).
-- **Quiescence**: TT probes and stores, stand-pat from the corrected eval,
-  futility and SEE filters, evasions in check.
-- **Draws**: a position that repeats inside the search tree is a draw at once; one
-  from the game before the root needs a real threefold. Upcoming repetitions are
-  seen one move early through Stockfish-style cuckoo tables (`search/cuckoo.rs`,
-  rebuilt from cozy-chess's Zobrist constants; +10.8 Elo [-1.5, +23.1]).
-  `Contempt` sets the draw score.
-- **Endgames**: optional Syzygy probing (`SyzygyPath`).
-- **Tuning**: 55 constants are runtime tunables (`T::*` in `alphabeta.rs`); the
-  defaults are SPSA-tuned in two rounds (6000 pairs at 6+0.06, then 8000 at
-  8+0.08; validated at +95.8 Elo [+82, +110] and +16.7 [+5, +28]).
-
-Experiments tried and left off (defaults keep them inert): threat-aware quiet
-ordering (`ThreatEscape`/`ThreatEnter`; -21 Elo at 50, neutral at 10), quiet
-checks in the first quiescence ply (`QsChecks`, neutral), continuation history
-split by check/capture (`ContSplit`, neutral), SEE-guarded check extension
-(`CheckExt=2`, -14 Elo). Results: [evidence/search_v2_20261016](evidence/search_v2_20261016/README.md).
-
-The mate suite is now read with depth escalation: the search is selective enough
-that some mates at fixed depth 7 come a few plies later (**91/91 by depth 14 with
-283,705 nodes**, against 91/91 at depth 7 with about 7.1M nodes for the previous
-search).
-
-## Testing & Quality Assurance
-
-### Rust Unit & Integration Tests
-```bash
-cargo test --locked --all-targets --manifest-path PieBot/Cargo.toml
-cargo test --locked --all-targets --all-features --manifest-path PieBot/Cargo.toml
-```
-
-### Python Training & Pipeline Tests
-```bash
-python3 -m unittest discover -v training/nnue/tests
-python3 -m unittest discover -v scripts/tests
-```
-
-The tablebase integration test needs real tables and is skipped otherwise:
-```bash
-cd PieBot && PIEBOT_SYZYGY_PATH=/path/to/syzygy cargo test --release --test syzygy_temp
-```
-
-### Deterministic Mate Acceptance Suite
-```bash
-cd PieBot
-PIEBOT_SUITE_FILE=src/suites/matein3.txt PIEBOT_TEST_THREADS=1 \
-  PIEBOT_TEST_START_DEPTH=7 PIEBOT_TEST_MAX_DEPTH=14 \
-  cargo run --locked --release --bin accept
-```
-Expected: `cases=91 ... nodes=283705` (91/91 by depth 14); that node count is
-the deterministic signature for proving a rebuild matches.
-
----
-
-## Head-to-Head A/B Evaluation Workflow
-
-Per `AGENTS.md`, search changes are A/B tested against the baseline before they
-are promoted. Put the change in `PieBot/src/search/alphabeta_temp.rs` (a stub that
-re-exports `alphabeta.rs` between experiments) and build the UCI binary on it with
-the `exp-search` feature:
+To compare two networks quickly with the same search, the in-process
+`compare_play` runner takes an evaluation and a network per side (game-level
+measurements use `uci_match.py`; see [DEVELOPMENT.md](documents/DEVELOPMENT.md)):
 
 ```bash
 cd PieBot
-cargo build --release --features exp-search --target-dir ../out/target_exp
+cargo run --locked --release --bin compare_play -- --games 40 --movetime 200 --same-search \
+  --base-eval nnue --base-nnue-quant-file ../models/lc0_chunk_00034965.nnue \
+  --exp-eval nnue --exp-nnue-quant-file ../models/v8_cycle_000013_quant.nnue
 ```
 
-Engine-vs-engine matches under real clocks (any two UCI engines, paired openings,
-draws only on a threefold that actually occurred):
+Earlier versions of this README gave rating-list-style Elo figures (for example
+"3203.8") for these networks. They came from an older match harness whose draw
+adjudication was later found to be wrong, and they are not comparable with the
+figures above.
 
-```bash
-python3 scripts/experiments/uci_match.py \
-  --a out/exp/uci --b out/base/uci \
-  --a-opt NNUEQuantFile=$PWD/models/lc0_chunk_00034965.nnue --a-opt UseNNUE=true \
-  --b-opt NNUEQuantFile=$PWD/models/lc0_chunk_00034965.nnue --b-opt UseNNUE=true \
-  --games 400 --tc 10+0.1 --workers 14 --book books/openings_v1.fen --out out/ab.json
-```
+## Documentation
 
-The same runner plays PieBot against Stockfish (`--b path/to/stockfish
---b-opt Threads=1`). Related tools in `scripts/experiments/`:
-
-| Script | Purpose |
-| :--- | :--- |
-| `uci_match.py` | Parallel paired match; pentanomial Elo with 95% CI, per-move times |
-| `ab_queue.py` | Runs a JSON queue of matches back to back; resumable |
-| `spsa.py` | Asynchronous SPSA over the tunables (engine started with `PIEBOT_TUNE=1`) |
-| `uci_nps.py` | Nodes per second of several engines on fixed positions |
-| `loss_points.py` | Where lost games turned, judged by Stockfish |
-| `gdb_profile.py` | Sampling profiler via gdb, for machines where `perf` is blocked |
-
-Because tunables and experiment toggles are UCI options, many experiments need
-no rebuild: play one binary against itself with different `--a-opt`/`--b-opt`
-(start the runner with `PIEBOT_TUNE=1` so the options are advertised).
-
-`compare_play` (in-process, fixed movetime) still works for `alphabeta` vs
-`alphabeta_temp`.
-
----
-
-## Arch-v3 NNUE: King Buckets, Output Buckets and Material Experts (October 2026)
-
-The first two steps of the NNUE plan below are implemented on branch `nnue-v3`
-(`PIENNQ03` files, loaded through the same `NNUEQuantFile` option):
-
-- **Inputs:** each perspective's king square, oriented and mirrored to files
-  a-d, picks one of 16 king buckets (32 optional); every piece, kings included,
-  contributes one feature in that bucket: 12,288 inputs instead of HalfKP's
-  41,024, a 25 MB first layer instead of 84 MB at width 1024.
-- **Output buckets:** 8 linear heads over the 2x1024 SCReLU accumulators,
-  chosen by piece count.
-- **Mixture of experts on the input layer (`--experts 4`):** after the
-  description in the [Triumviratus](https://github.com/Tors3/Triumviratus)
-  README, the feature transformer holds one full set of king-bucketed weights
-  per material band (32-25, 24-17, 16-9 and 8-2 pieces), and the piece count
-  picks the expert. Only one expert is active, so the layer has four times the
-  weights at almost the cost of one; routing is a fixed rule, not a learned
-  gate. In the engine the expert is part of each perspective's accumulator key,
-  so a capture that crosses a band boundary rebuilds the accumulators from the
-  refresh cache and every other move stays incremental. The implementation is
-  our own; only the idea comes from Triumviratus.
-- An optional hidden stack (2x1024 -> 16 -> 32 -> 1 per bucket) is implemented
-  but not used: its first layer cut the engine from about 2.07M to 0.67M nodes/s
-  for a small loss gain, and it lost 295 Elo in games.
-
-Pipeline: `training/nnue/lc0_to_v3bin.py` turns LCZero test91 archives into
-32-byte records (dropping deleted records, the first 8 plies, positions in check
-and positions whose best move is a capture; ~70% kept); `training/nnue/train_v3.py`
-trains on them with features computed on the GPU (~600k positions/s on an RTX
-4080) and exports `PIENNQ03`, with a pure-Python integer reference evaluator that
-the Rust tests check the engine against.
-
-First full run (1,800 archives from August-October 2026, 725M positions, 3B
-training positions, 16 buckets, linear head), each checkpoint against the
-`lc0_chunk_00034965` net, same binary, 200 games at 10+0.1:
-
-| Positions trained | Elo vs current net [95% CI] |
-| ---: | :--- |
-| 250M | -59.6 [-96.8, -23.8] |
-| 1.0B | +31.4 [-2.4, +65.7] |
-| 2.0B | +96.2 [+62.6, +131.7] |
-| 2.75B | +135.0 [+101.7, +170.8] |
-
-Still to do: confirm the best checkpoint over 1000 games, retune the search
-for the new eval scale (SPSA), measure against Stockfish 19, and compare the
-32-bucket and 4-expert runs.
-
----
-
-## Next Steps: NNUE Work on a GPU Machine
-
-The October search campaign (see [Search](#search) and
-[evidence/search_v2_20261016](evidence/search_v2_20261016/README.md)) brought
-PieBot from 1.4% to 19.3% win-or-draw against full-strength Stockfish 19 at
-60+0.5. The remaining gap to the 45% goal (roughly 200-250 Elo) is mostly the
-evaluation, not the search:
-
-- Losses are slow drift, not tactics: the first move that takes PieBot below
-  -150 cp comes at median ply 32 with almost all material on the board and a
-  median swing of 74 cp; only 9% of those moves swing 200 cp or more.
-- Speed is no longer the gap (about 2-2.6M nodes/s against SF19's ~1M on the
-  same laptop), and search tuning is flattening (SPSA +96, then +17 Elo).
-
-Recommended order, each step gated head-to-head against the current net
-before any Stockfish measurement:
-
-1. **Output buckets by material.** Choose one of ~8 output heads by piece
-   count. Cheapest change: only the head and `QuantNetwork::head`/loader change.
-2. **King-bucketed, horizontally mirrored inputs instead of HalfKP.** Group the
-   64 king squares into 16-32 buckets and mirror files, cutting the first layer
-   from ~41k to ~12-25k features. Expected to generalise better (more positions
-   per weight) *and* run faster: accumulator updates are memory-latency bound on
-   today's 84 MB table, and the king-move refresh cache (`finny_refresh_into`)
-   already makes bucket changes cheap.
-3. **A small hidden stack after the accumulator** (for example 2x1024 -> 16 ->
-   32 -> 1, int8 with SCReLU/CReLU). Needs new quantised inference code in
-   `PieBot/src/eval/nnue/network.rs` and a new file magic (do not reuse
-   `PIENNQ02`).
-4. **Much more and more diverse data.** Use the LCZero best-Q plus game-outcome
-   targets already set up in `training/nnue/` (`fetch_lc0_*`, `lc0_corpus.py`,
-   `lc0_filter.py`, `documents/LCZeroTraining.md`). Aim for 10^8-10^9 filtered
-   positions: drop in-check positions, positions whose best move is a capture,
-   and early opening plies. Keep a held-out set labelled exactly like training.
-   August's finding that more rows of the same self-play distribution did not
-   help means diversity matters more than raw count. Per AGENTS.md, Stockfish
-   stays an evaluation anchor, never a label source.
-5. **Trainer.** A GPU trainer built for these architectures (bullet is the usual
-   choice for this net family) will iterate much faster than
-   `training/nnue/train_torch.py`; write a converter to PieBot's quant format and
-   check it with the existing parity tests (`PieBot/tests/nnue_arch_v2.rs`).
-
-After a new net is adopted:
-
-- **Re-tune the search.** Every new net changes the eval scale that the
-  pruning margins were tuned against. Rebuild with `PIEBOT_TUNE=1`, run
-  `scripts/experiments/spsa.py` (start with ~6000 pairs at 6+0.06), then
-  validate tuned against untuned with `uci_match.py` over 1000 games.
-- **Measure against Stockfish 19** the same way as before: `uci_match.py`,
-  one thread each, 60+0.5, 280 games, `books/openings_v1.fen`, seed 1901,
-  `SyzygyPath` set and `Contempt=40`, so results stay comparable.
-- **Search work still open:** multi-threaded Elo of the new search has never
-  been measured; `Hindsight` and `EvalScaleBase` exist as toggles but their
-  A/Bs were interrupted; the SF19 run of the build after SPSA round 2
-  (`ad462fc`) was not started.
-
----
+- [documents/SEARCH.md](documents/SEARCH.md): search design and measured experiments.
+- [documents/NNUE.md](documents/NNUE.md): network architectures, file formats, training pipeline and results.
+- [documents/DEVELOPMENT.md](documents/DEVELOPMENT.md): building, testing, A/B testing, tuning and measurement protocols.
+- [documents/history/](documents/history/): earlier plans and campaign notes, kept for reference.
+- [evidence/](evidence/): match results and measurement records behind the numbers above.
 
 ## Credits
 
 **This project is AI-generated.** Almost all of its code, tests, training
 pipeline and documentation were written by AI coding agents (most recently
 Anthropic's Claude, through Claude Code), with almost no code added by human
-authors. The human authors set the goals, made the decisions, and supplied
-the hardware.
+authors. The human authors set the goals, made the decisions and supplied the
+hardware.
 
 PieBot builds on the work of many people. Ideas we studied and reimplemented,
 and the libraries, data and tools we use:
@@ -459,37 +172,35 @@ and the libraries, data and tools we use:
   experts on the NNUE input layer, chosen by material (the "Consilium"
   network). Our implementation was written independently from the
   description in its README.
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the
-  October 2026 search follows its structure and many of its techniques
-  (staged move picking, butterfly/continuation/capture/pawn histories,
-  correction history, singular extensions, ProbCut, the LMR adjustments,
-  upcoming-repetition detection), NNUE design ideas such as king buckets,
-  output buckets and refresh caches, and the fishtest formulation of SPSA.
-  Stockfish 19 is also the strength anchor PieBot is measured against.
-- **NNUE** itself was introduced by Yu Nasu for computer shogi (2018).
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the search
+  follows its structure and many of its techniques (staged move picking,
+  butterfly, continuation, capture and pawn histories, correction history,
+  singular extensions, ProbCut, the LMR adjustments, upcoming-repetition
+  detection); NNUE design ideas such as king buckets, output buckets and
+  refresh caches; and the fishtest formulation of SPSA. Stockfish 19 is also
+  the strength anchor PieBot is measured against.
+- **NNUE** was introduced by Yu Nasu for computer shogi (2018).
 - **Upcoming-repetition detection** with cuckoo tables is due to Marcel van
   Kervinck.
 - **[Leela Chess Zero](https://lczero.org/)**: the training data (test91
-  archives, made available under the Open Database License and the Database
-  Contents License) and the networks behind it.
-- The wider open-source engine community, including **Ethereal**, **Berserk**,
-  **Koivisto**, **Reckless** and **Stormphrax**, for widely shared techniques
-  such as correction-history weighting and accumulator refresh caches, and the
-  **[Chess Programming Wiki](https://www.chessprogramming.org/)**.
-- **[cozy-chess](https://github.com/analog-hors/cozy-chess)** (move
-  generation and board representation), **[shakmaty](https://github.com/niklasf/shakmaty)**
-  and **[shakmaty-syzygy](https://github.com/niklasf/shakmaty-syzygy)**
-  (tablebase probing) and **[python-chess](https://github.com/niklasf/python-chess)**
-  (match tooling and data conversion), by Niklas Fiekas for the latter three.
+  archives, available under the Open Database License and the Database
+  Contents License) and the networks that produced it.
+- The wider open-source engine community, including **Ethereal**,
+  **Berserk**, **Koivisto**, **Reckless** and **Stormphrax**, for widely shared
+  techniques such as correction-history weighting and accumulator refresh
+  caches, and the **[Chess Programming Wiki](https://www.chessprogramming.org/)**.
+- **[cozy-chess](https://github.com/analog-hors/cozy-chess)** (move generation
+  and board representation); **[shakmaty](https://github.com/niklasf/shakmaty)**,
+  **[shakmaty-syzygy](https://github.com/niklasf/shakmaty-syzygy)** (tablebase
+  probing) and **[python-chess](https://github.com/niklasf/python-chess)**
+  (match tooling and data conversion), all three by Niklas Fiekas.
 - **Syzygy tablebases** by Ronald de Man, downloaded from the
   [lichess](https://tablebase.lichess.ovh/) mirror.
 - **[PyTorch](https://pytorch.org/)** and **NumPy** for training,
-  **[rayon](https://github.com/rayon-rs/rayon)** and the Rust ecosystem for
-  the engine, and **[lichess-bot](https://github.com/lichess-bot-devs/lichess-bot)**
+  **[rayon](https://github.com/rayon-rs/rayon)** and the Rust ecosystem for the
+  engine, and **[lichess-bot](https://github.com/lichess-bot-devs/lichess-bot)**
   for playing on Lichess.
 - GPU time was rented on **[Vast.ai](https://vast.ai/)**.
-
----
 
 ## License
 

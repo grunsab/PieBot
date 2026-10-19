@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# campaign_v2: the long super-GM training lineage (CampaignPlan_SuperGM_v1 s4).
+# campaign_v2: the long super-GM training lineage (documents/history/CampaignPlan_SuperGM_v1.md s4).
 # Deadline is minted ONCE at root creation and covers the campaign plus the
 # 15-day reserve. Gate knobs (including SPRT) are frozen here for the
 # lineage's entire life: this launcher is never edited mid-lineage.
