@@ -36,6 +36,10 @@ from pathlib import Path
 import numpy as np
 
 MAGIC = b"PIENNQ03"
+FILE_VERSION_SINGLE = 1   # feature transformer + bucketed linear head
+FILE_VERSION_HIDDEN = 2   # + bucketed hidden stack 2h -> L1 -> L2 -> 1
+L1_IN_SCALE = 254         # SCReLU output 0..1 -> u8 0..254 ((acc clamped)^2 >> 8)
+L1_QB = 64                # L1 weights as i8
 N_KING_BUCKETS = 16
 # Indexed by rank * 4 + file for the mirrored half (files a-d).
 KING_BUCKET_LAYOUT = [
@@ -86,12 +90,14 @@ def piece_features(squares_codes, king_white: int, king_black: int):
 # Training (torch imported lazily so the reference helpers work without it)
 # ---------------------------------------------------------------------------
 
-def build_model(hidden: int):
+def build_model(hidden: int, l1: int = 0, l2: int = 32):
     import torch
 
     class V3(torch.nn.Module):
         def __init__(self):
             super().__init__()
+            self.l1 = l1
+            self.l2 = l2
             self.ft = torch.nn.Parameter(torch.empty(N_FEATURES + 1, hidden))  # last row: padding
             self.ft_bias = torch.nn.Parameter(torch.full((hidden,), 0.5))
             self.out_w = torch.nn.Parameter(torch.empty(N_OUTPUT_BUCKETS, 2 * hidden))
@@ -100,14 +106,32 @@ def build_model(hidden: int):
                 torch.nn.init.normal_(self.ft, 0.0, 0.5 / math.sqrt(30.0))
                 self.ft[N_FEATURES].zero_()
                 torch.nn.init.uniform_(self.out_w, -1.0 / math.sqrt(2 * hidden), 1.0 / math.sqrt(2 * hidden))
+            if l1 > 0:
+                nb = N_OUTPUT_BUCKETS
+                self.h1_w = torch.nn.Parameter(torch.empty(nb * l1, 2 * hidden))
+                self.h1_b = torch.nn.Parameter(torch.zeros(nb * l1))
+                self.h2_w = torch.nn.Parameter(torch.empty(nb * l2, l1))
+                self.h2_b = torch.nn.Parameter(torch.zeros(nb * l2))
+                self.h3_w = torch.nn.Parameter(torch.empty(nb, l2))
+                self.h3_b = torch.nn.Parameter(torch.zeros(nb))
+                with torch.no_grad():
+                    for w, fan in ((self.h1_w, 2 * hidden), (self.h2_w, l1), (self.h3_w, l2)):
+                        torch.nn.init.uniform_(w, -1.0 / math.sqrt(fan), 1.0 / math.sqrt(fan))
 
         def forward(self, idx_stm, idx_nstm, bucket):
             f = torch.nn.functional.embedding_bag
             a = f(idx_stm, self.ft, mode="sum", padding_idx=N_FEATURES) + self.ft_bias
             b = f(idx_nstm, self.ft, mode="sum", padding_idx=N_FEATURES) + self.ft_bias
             h = torch.cat([a, b], dim=1).clamp(0.0, 1.0).pow(2)
-            w = self.out_w[bucket]
-            return (h * w).sum(1) + self.out_b[bucket]
+            if self.l1 == 0:
+                w = self.out_w[bucket]
+                return (h * w).sum(1) + self.out_b[bucket]
+            # Every bucket's layer at once, then keep the position's bucket.
+            B = h.shape[0]
+            ar = torch.arange(B, device=h.device)
+            y1 = (h @ self.h1_w.t() + self.h1_b).view(B, -1, self.l1)[ar, bucket].clamp(0.0, 1.0)
+            y2 = (y1 @ self.h2_w.t() + self.h2_b).view(B, -1, self.l2)[ar, bucket].clamp(0.0, 1.0)
+            return (y2 * self.h3_w[bucket]).sum(1) + self.h3_b[bucket]
 
     return V3()
 
@@ -216,6 +240,7 @@ def evaluate(model, data, device, wdl_weight, batch=16384):
 def export(model, path: Path, hidden: int) -> None:
     import torch
 
+    l1 = getattr(model, "l1", 0)
     with torch.no_grad():
         ft = model.ft[:N_FEATURES].detach().cpu().numpy()
         fb = model.ft_bias.detach().cpu().numpy()
@@ -228,7 +253,7 @@ def export(model, path: Path, hidden: int) -> None:
     tmp = path.with_suffix(".tmp")
     with open(tmp, "wb") as f:
         f.write(MAGIC)
-        f.write(struct.pack("<II", 1, N_KING_BUCKETS))
+        f.write(struct.pack("<II", FILE_VERSION_HIDDEN if l1 else FILE_VERSION_SINGLE, N_KING_BUCKETS))
         f.write(bytes(KING_BUCKET_LAYOUT))
         f.write(struct.pack("<II", hidden, N_OUTPUT_BUCKETS))
         f.write(struct.pack("<iii", QA, QB, EVAL_SCALE))
@@ -236,6 +261,18 @@ def export(model, path: Path, hidden: int) -> None:
         f.write(b1.tobytes())
         f.write(w2.tobytes())
         f.write(b2.tobytes())
+        if l1:
+            # Hidden stack: u32 l1, u32 l2; i8 h1_w[nb*l1][2h] (x L1_QB),
+            # f32 h1_b[nb*l1], f32 h2_w[nb*l2][l1], f32 h2_b[nb*l2],
+            # f32 h3_w[nb][l2], f32 h3_b[nb].
+            with torch.no_grad():
+                h1w = np.clip(np.round(model.h1_w.cpu().numpy() * L1_QB), -128, 127).astype("i1")
+                parts = [model.h1_b, model.h2_w, model.h2_b, model.h3_w, model.h3_b]
+                parts = [p.detach().cpu().numpy().astype("<f4") for p in parts]
+            f.write(struct.pack("<II", model.l1, model.l2))
+            f.write(h1w.tobytes())
+            for p in parts:
+                f.write(p.tobytes())
     tmp.replace(path)
 
 
@@ -252,9 +289,19 @@ def load_quant(path: Path) -> dict:
     b1 = np.frombuffer(raw, "<i2", hidden, off); off += hidden * 2
     w2 = np.frombuffer(raw, "i1", nout * 2 * hidden, off).reshape(nout, 2 * hidden); off += nout * 2 * hidden
     b2 = np.frombuffer(raw, "<i4", nout, off); off += nout * 4
+    net = dict(version=version, layout=layout, hidden=hidden, nout=nout, qa=qa, qb=qb, scale=scale,
+               w1=w1, b1=b1, w2=w2, b2=b2, l1=0)
+    if version == FILE_VERSION_HIDDEN:
+        l1, l2 = struct.unpack_from("<II", raw, off); off += 8
+        net["l1"], net["l2"] = l1, l2
+        net["h1_w"] = np.frombuffer(raw, "i1", nout * l1 * 2 * hidden, off).reshape(nout, l1, 2 * hidden)
+        off += nout * l1 * 2 * hidden
+        for name, shape in (("h1_b", (nout, l1)), ("h2_w", (nout, l2, l1)), ("h2_b", (nout, l2)),
+                            ("h3_w", (nout, l2)), ("h3_b", (nout,))):
+            n = int(np.prod(shape))
+            net[name] = np.frombuffer(raw, "<f4", n, off).reshape(shape); off += n * 4
     assert off == len(raw), "trailing bytes"
-    return dict(version=version, layout=layout, hidden=hidden, nout=nout, qa=qa, qb=qb, scale=scale,
-                w1=w1, b1=b1, w2=w2, b2=b2)
+    return net
 
 
 def quant_eval_fen(net: dict, fen: str) -> int:
@@ -275,6 +322,14 @@ def quant_eval_fen(net: dict, fen: str) -> int:
     stm, nstm = (acc[0], acc[1]) if board.turn else (acc[1], acc[0])
     h = np.concatenate([np.clip(stm, 0, net["qa"]), np.clip(nstm, 0, net["qa"])])
     bucket = output_bucket(len(pairs))
+    if net.get("l1"):
+        # u8 activations: (clamped acc)^2 >> 8, i32 dot with i8 weights, then f32.
+        x = (h * h) >> 8
+        y1 = (x.astype(np.int64) @ net["h1_w"][bucket].astype(np.int64).T).astype(np.float32)
+        y1 = np.clip(y1 / np.float32(L1_IN_SCALE * L1_QB) + net["h1_b"][bucket], 0, 1).astype(np.float32)
+        y2 = np.clip(net["h2_w"][bucket] @ y1 + net["h2_b"][bucket], 0, 1).astype(np.float32)
+        out = np.float32(np.dot(net["h3_w"][bucket], y2) + net["h3_b"][bucket])
+        return int(np.float32(out * net["scale"]))
     s = int((h * h * net["w2"][bucket].astype(np.int64)).sum()) + int(net["b2"][bucket])
     num = s * net["scale"]
     den = net["qa"] * net["qa"] * net["qb"]
@@ -289,6 +344,8 @@ def main() -> None:
     ap.add_argument("--data", required=True, help="directory with train/ and holdout/ *.bin")
     ap.add_argument("--out", required=True)
     ap.add_argument("--hidden", type=int, default=1024)
+    ap.add_argument("--l1", type=int, default=0, help="hidden stack width (0: linear head)")
+    ap.add_argument("--l2", type=int, default=32)
     ap.add_argument("--batch", type=int, default=16384)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--final-lr-frac", type=float, default=0.03)
@@ -315,7 +372,7 @@ def main() -> None:
     data = Shards(train_files, seed=a.seed)
     print(f"train positions {data.total():,} in {len(train_files)} files; holdout {len(hold):,}", flush=True)
 
-    model = build_model(a.hidden).to(device)
+    model = build_model(a.hidden, a.l1, a.l2).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     seen = 0
     state_path = out / "state.pt"
@@ -345,6 +402,8 @@ def main() -> None:
             opt.step()
             with torch.no_grad():
                 model.out_w.clamp_(-W2_LIMIT, W2_LIMIT)
+                if a.l1:
+                    model.h1_w.clamp_(-127 / L1_QB, 127 / L1_QB)
                 model.ft[N_FEATURES].zero_()
             seen += a.batch
             if seen >= next_eval or seen >= total:

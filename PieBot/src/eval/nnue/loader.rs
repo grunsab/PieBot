@@ -46,6 +46,25 @@ pub struct QuantNnueV3 {
     /// Per output bucket, `2 * hidden` weights, side-to-move half first.
     pub w2: Vec<i8>,
     pub b2: Vec<i32>,
+    /// File version 2: a hidden stack replaces the linear head.
+    pub hidden_stack: Option<HiddenStackV3>,
+}
+
+/// Per output bucket: `2h -> l1` in int8 (inputs `(clamp(acc)^2) >> 8`,
+/// weights x64), then `l1 -> l2 -> 1` in f32 with clamp(0, 1) activations.
+#[derive(Debug, Clone)]
+pub struct HiddenStackV3 {
+    pub l1: usize,
+    pub l2: usize,
+    /// `[bucket][l1][2 * hidden]`
+    pub h1_w: Vec<i8>,
+    pub h1_b: Vec<f32>,
+    /// `[bucket][l2][l1]`
+    pub h2_w: Vec<f32>,
+    pub h2_b: Vec<f32>,
+    /// `[bucket][l2]`
+    pub h3_w: Vec<f32>,
+    pub h3_b: Vec<f32>,
 }
 
 impl QuantNnueV3 {
@@ -203,7 +222,7 @@ impl QuantNnue {
         let qa = u32le(r, "qa")? as i32;
         let qb = u32le(r, "qb")? as i32;
         let scale = u32le(r, "scale")? as i32;
-        if version != 1 {
+        if version != 1 && version != 2 {
             bail!("unsupported PIENNQ03 version {version}");
         }
         if n_king_buckets == 0 || n_king_buckets > 32 || hidden_dim == 0 || hidden_dim > 8192 {
@@ -235,6 +254,33 @@ impl QuantNnue {
             .chunks_exact(4)
             .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
+        let hidden_stack = if version == 2 {
+            let l1 = u32le(r, "l1")? as usize;
+            let l2 = u32le(r, "l2")? as usize;
+            if l1 == 0 || l1 > 256 || l2 == 0 || l2 > 256 {
+                bail!("invalid v3 hidden stack {l1}x{l2}");
+            }
+            let nb = n_output_buckets;
+            let mut hw = vec![0u8; nb * l1 * 2 * hidden_dim];
+            r.read_exact(&mut hw).context("read v3 h1_w")?;
+            let read_f32 = |r: &mut R, n: usize, what: &str| -> Result<Vec<f32>> {
+                let mut b = vec![0u8; n * 4];
+                r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
+                Ok(b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+            };
+            Some(HiddenStackV3 {
+                l1,
+                l2,
+                h1_w: hw.into_iter().map(|b| b as i8).collect(),
+                h1_b: read_f32(r, nb * l1, "h1_b")?,
+                h2_w: read_f32(r, nb * l2 * l1, "h2_w")?,
+                h2_b: read_f32(r, nb * l2, "h2_b")?,
+                h3_w: read_f32(r, nb * l2, "h3_w")?,
+                h3_b: read_f32(r, nb, "h3_b")?,
+            })
+        } else {
+            None
+        };
         let mut extra = [0u8; 1];
         if r.read(&mut extra).context("check v3 trailing bytes")? != 0 {
             bail!("trailing bytes after PIENNQ03 payload");
@@ -265,6 +311,7 @@ impl QuantNnue {
                 b1,
                 w2,
                 b2,
+                hidden_stack,
             })),
         })
     }

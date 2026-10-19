@@ -47,6 +47,7 @@ fn random_v3(hidden: usize, seed: u64) -> QuantNnue {
             b1,
             w2,
             b2,
+            hidden_stack: None,
         })),
     }
 }
@@ -124,4 +125,24 @@ fn engine_matches_the_python_reference_fixture() {
         let stm = if b.side_to_move() == cozy_chess::Color::White { white } else { -white };
         assert_eq!(stm, want_stm, "{fen}");
     }
+}
+
+#[test]
+fn hidden_stack_engine_matches_the_python_reference_fixture() {
+    // The f32 layers can round differently from numpy by one centipawn.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let model = QuantNnue::load_quantized(dir.join("v3h_fixture.nnue")).expect("load PIENNQ03 v2 fixture");
+    assert!(model.v3.as_ref().unwrap().hidden_stack.is_some());
+    let cases: Vec<(String, i32)> =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("v3h_fixture_evals.json")).unwrap()).unwrap();
+    let net = QuantNetwork::new(model);
+    let mut exact = 0;
+    for (fen, want_stm) in &cases {
+        let b = Board::from_fen(fen, false).unwrap();
+        let white = net.eval_full(&b);
+        let stm = if b.side_to_move() == cozy_chess::Color::White { white } else { -white };
+        assert!((stm - want_stm).abs() <= 1, "{fen}: engine {stm} python {want_stm}");
+        exact += (stm == *want_stm) as usize;
+    }
+    assert!(exact * 10 >= cases.len() * 9, "only {exact}/{} exact", cases.len());
 }

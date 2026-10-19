@@ -96,3 +96,32 @@ class V3Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(torch is None, "torch/chess not installed")
+class V3HiddenTests(unittest.TestCase):
+    def test_hidden_stack_export_tracks_the_float_model(self):
+        import lc0_to_v3bin as conv
+        import train_v3 as tv3
+        torch.manual_seed(77)
+        model = tv3.build_model(32, 16, 32)
+        with torch.no_grad():
+            model.h1_w.mul_(8.0)
+            model.h1_b.uniform_(0.0, 0.5)
+            model.h2_b.uniform_(0.0, 0.5)
+        boards = random_boards(80, seed=13)
+        arr = np.zeros(len(boards), dtype=conv.V3_DTYPE)
+        for i, b in enumerate(boards):
+            occ, pcs = conv.encode_board(b)
+            arr[i]["occ"], arr[i]["pcs"], arr[i]["stm"] = occ, np.frombuffer(pcs, dtype=np.uint8), 0 if b.turn else 1
+        ia, ib, bk = tv3.gpu_features(arr["occ"], arr["pcs"], arr["stm"], torch.device("cpu"))
+        with torch.no_grad():
+            want = (model(ia, ib, bk) * tv3.EVAL_SCALE).numpy()
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "h.nnue"
+            tv3.export(model, p, 32)
+            net = tv3.load_quant(p)
+        self.assertEqual((net["l1"], net["l2"]), (16, 32))
+        got = np.array([tv3.quant_eval_fen(net, b.fen()) for b in boards])
+        self.assertLess(np.mean(np.abs(got - want)), 3.0)
+        self.assertLess(np.max(np.abs(got - want)), 12.0)

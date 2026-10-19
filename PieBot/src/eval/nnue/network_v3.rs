@@ -320,11 +320,60 @@ impl V3State {
         let m = &*self.model;
         let h = self.h;
         let bucket = (((pieces as i64 - 2) / 4).clamp(0, m.n_output_buckets as i64 - 1)) as usize;
+        if let Some(hs) = &m.hidden_stack {
+            return Self::hidden_head(hs, white, black, stm, bucket, h, m.qa, m.scale);
+        }
         let w = &m.w2[bucket * 2 * h..(bucket + 1) * 2 * h];
         let (first, second) = if stm == Color::White { (white, black) } else { (black, white) };
         let sum = screlu_dot_pub(first, &w[..h], m.qa) + screlu_dot_pub(second, &w[h..], m.qa);
         let num = (sum + m.b2[bucket] as i64) * m.scale as i64;
         (num / (m.qa as i64 * m.qa as i64 * m.qb as i64)) as i32
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn hidden_head(
+        hs: &crate::eval::nnue::loader::HiddenStackV3,
+        white: &[i16],
+        black: &[i16],
+        stm: Color,
+        bucket: usize,
+        h: usize,
+        qa: i32,
+        scale: i32,
+    ) -> i32 {
+        let (first, second) = if stm == Color::White { (white, black) } else { (black, white) };
+        // u8 activations, side to move first: (clamp(acc, 0, QA))^2 >> 8.
+        let mut x = [0u8; 4096];
+        let n = 2 * h;
+        for (i, &a) in first.iter().chain(second.iter()).enumerate() {
+            let v = (a as i32).clamp(0, qa);
+            x[i] = ((v * v) >> 8) as u8;
+        }
+        let x = &x[..n];
+        let l1 = hs.l1;
+        let l2 = hs.l2;
+        let mut y1 = [0f32; 256];
+        let w1 = &hs.h1_w[bucket * l1 * n..(bucket + 1) * l1 * n];
+        for j in 0..l1 {
+            let row = &w1[j * n..(j + 1) * n];
+            let mut acc = 0i32;
+            for k in 0..n {
+                acc += x[k] as i32 * row[k] as i32;
+            }
+            let v = acc as f32 / (254.0 * 64.0) + hs.h1_b[bucket * l1 + j];
+            y1[j] = v.clamp(0.0, 1.0);
+        }
+        let w2 = &hs.h2_w[bucket * l2 * l1..(bucket + 1) * l2 * l1];
+        let mut out = 0f32;
+        for j in 0..l2 {
+            let mut v = hs.h2_b[bucket * l2 + j];
+            for k in 0..l1 {
+                v += w2[j * l1 + k] * y1[k];
+            }
+            out += hs.h3_w[bucket * l2 + j] * v.clamp(0.0, 1.0);
+        }
+        out += hs.h3_b[bucket];
+        (out * scale as f32) as i32
     }
 
     /// White-POV centipawns of the live slot (which must be built).
