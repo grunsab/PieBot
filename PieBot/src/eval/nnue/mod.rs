@@ -3,6 +3,7 @@ pub mod accumulator;
 pub mod features;
 pub mod loader;
 pub mod network;
+pub mod network_v3;
 pub mod quant;
 use anyhow::{bail, Context, Result};
 use std::collections::HashSet;

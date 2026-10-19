@@ -23,6 +23,7 @@ fn eval_blend_quant_bias_only() {
         w2: vec![0; hidden_dim],
         b2: vec![50],
             v2: None,
+            v3: None,
         };
 
     let b = Board::default();

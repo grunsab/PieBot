@@ -38,6 +38,9 @@ pub struct QuantNetwork {
     /// present, every public method dispatches here and the legacy fields
     /// above are inert.
     v2: Option<V2State>,
+    /// Arch-v3 backend (king buckets, output buckets); when present every
+    /// public method dispatches here.
+    v3: Option<crate::eval::nnue::network_v3::V3State>,
 }
 
 /// Number of plies the accumulator stack is sized for up front. Deeper lines
@@ -132,6 +135,10 @@ struct FinnyEntry {
 pub struct ChangeSet(ChangeKind);
 
 enum ChangeKind {
+    PushV3(crate::eval::nnue::network_v3::PushV3),
+    NullV3 {
+        prev_stm: Color,
+    },
     Delta {
         added: FeatureDelta,
         removed: FeatureDelta,
@@ -196,6 +203,19 @@ impl FeatureDelta {
 
 impl QuantNetwork {
     pub fn new(model: QuantNnue) -> Self {
+        if let Some(v3_model) = model.v3.clone() {
+            let v3 = crate::eval::nnue::network_v3::V3State::new(v3_model);
+            return Self {
+                model: Arc::new(model),
+                schema: HalfKpSchema::FullPerspective,
+                w1_feature_major: Arc::from(Vec::new().into_boxed_slice()),
+                acc: Vec::new(),
+                wk_idx: 0,
+                bk_idx: 0,
+                v2: None,
+                v3: Some(v3),
+            };
+        }
         if let Some(v2_model) = model.v2.clone() {
             let hidden = v2_model.hidden_dim;
             let v2 = V2State {
@@ -219,6 +239,7 @@ impl QuantNetwork {
                 wk_idx: 0,
                 bk_idx: 0,
                 v2: Some(v2),
+                v3: None,
             };
         }
         let schema = HalfKpSchema::from_input_dim(model.meta.input_dim).unwrap_or_else(|| {
@@ -240,6 +261,7 @@ impl QuantNetwork {
             wk_idx: 0,
             bk_idx: 0,
             v2: None,
+            v3: None,
         }
     }
 
@@ -265,10 +287,15 @@ impl QuantNetwork {
                 pending: v2.pending.clone(),
                 computed: v2.computed.clone(),
             }),
+            v3: self.v3.clone(),
         }
     }
 
     pub fn refresh(&mut self, board: &Board) {
+        if let Some(v3) = &mut self.v3 {
+            v3.refresh(board);
+            return;
+        }
         if let Some(v2) = &mut self.v2 {
             v2.refresh(board);
             return;
@@ -295,6 +322,9 @@ impl QuantNetwork {
     /// In lazy mode callers must call [`Self::ensure_computed`] before
     /// [`Self::eval_current`].
     pub fn set_lazy(&mut self, on: bool) {
+        if let Some(v3) = &mut self.v3 {
+            v3.lazy = on;
+        }
         if let Some(v2) = &mut self.v2 {
             v2.lazy = on;
         }
@@ -303,6 +333,10 @@ impl QuantNetwork {
     /// Materialise the live accumulator slot (no-op unless lazy).
     #[inline]
     pub fn ensure_computed(&mut self) {
+        if let Some(v3) = &mut self.v3 {
+            v3.ensure_top();
+            return;
+        }
         if let Some(v2) = &mut self.v2 {
             if v2.lazy {
                 v2.ensure_top();
@@ -311,6 +345,9 @@ impl QuantNetwork {
     }
 
     pub fn eval_current(&self) -> i32 {
+        if let Some(v3) = &self.v3 {
+            return v3.eval_from_acc();
+        }
         if let Some(v2) = &self.v2 {
             return v2.eval_from_acc();
         }
@@ -318,6 +355,9 @@ impl QuantNetwork {
     }
 
     pub fn eval_full(&self, board: &Board) -> i32 {
+        if let Some(v3) = &self.v3 {
+            return v3.eval_full(board);
+        }
         if let Some(v2) = &self.v2 {
             return v2.eval_full(board);
         }
@@ -344,6 +384,10 @@ impl QuantNetwork {
     }
 
     pub fn apply_move(&mut self, before: &Board, mv: Move, after: &Board) -> ChangeSet {
+        if let Some(v3) = &mut self.v3 {
+            let _ = mv;
+            return ChangeSet(ChangeKind::PushV3(v3.apply_move(before, after)));
+        }
         if self.v2.is_some() {
             return self.apply_move_v2(before, mv, after);
         }
@@ -422,6 +466,9 @@ impl QuantNetwork {
     /// sign the caller applies, so it is genuinely stm-independent and this is
     /// inert there.
     pub fn apply_null_move(&mut self, after: &Board) -> ChangeSet {
+        if let Some(v3) = &mut self.v3 {
+            return ChangeSet(ChangeKind::NullV3 { prev_stm: v3.null_move(after) });
+        }
         match &mut self.v2 {
             Some(v2) => {
                 let prev_stm = v2.stm;
@@ -435,6 +482,12 @@ impl QuantNetwork {
     pub fn revert(&mut self, change: ChangeSet) {
         match change.0 {
             ChangeKind::Inert => {}
+            ChangeKind::PushV3(prev) => {
+                self.v3.as_mut().expect("v3 change on v3 backend").revert(prev);
+            }
+            ChangeKind::NullV3 { prev_stm } => {
+                self.v3.as_mut().expect("v3 change on v3 backend").stm = prev_stm;
+            }
             ChangeKind::NullV2 { prev_stm } => {
                 let v2 = self.v2.as_mut().expect("v2 change on v2 backend");
                 v2.stm = prev_stm;
@@ -605,6 +658,12 @@ const SCRELU_CHUNK: usize = 128;
 /// int8 weight range: `qa * 128 <= i16::MAX`. The shipped models quantize at
 /// QA=255, which is exactly this bound.
 const MAX_I16_MADD_QA: i32 = (i16::MAX as i32) / 128;
+
+/// SCReLU dot product for other backends in this crate.
+#[inline]
+pub(crate) fn screlu_dot_pub(acc: &[i16], w: &[i8], qa: i32) -> i64 {
+    screlu_dot(acc, w, qa)
+}
 
 #[inline]
 fn screlu_dot(acc: &[i16], w: &[i8], qa: i32) -> i64 {
@@ -1551,6 +1610,7 @@ mod tests {
             w2: vec![0; hidden_dim],
             b2: vec![0],
             v2: None,
+            v3: None,
         });
 
         let worker = network.clone_for_search();

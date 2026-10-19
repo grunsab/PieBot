@@ -64,6 +64,7 @@ fn quant_one_feature(input_dim: usize, feature_idx: usize) -> QuantNnue {
         w2: vec![1],
         b2: vec![0],
         v2: None,
+        v3: None,
     }
 }
 
@@ -176,6 +177,7 @@ fn quant_v2_incremental_matches_full_and_revert() {
         w2: vec![2, -1, 3, 1],
         b2: vec![5],
             v2: None,
+            v3: None,
         };
     let mut network = QuantNetwork::new(model);
     let mut board = Board::default();

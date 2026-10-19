@@ -32,6 +32,7 @@ fn deterministic_model() -> QuantNnue {
         w2: vec![3, -2, 5, 1, -4, 6, -1, 2],
         b2: vec![23],
         v2: None,
+        v3: None,
     }
 }
 
