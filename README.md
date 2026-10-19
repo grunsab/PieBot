@@ -21,7 +21,7 @@ occurred, the fifty-move rule, stalemate or insufficient material.
 | :--- | :---: | ---: |
 | Previous search (August 2026) | 0 / 2 / 138 (140 games) | 1.4% |
 | October 2026 search, SPSA-tuned, arch-v2 net | 0 / 54 / 226 | 19.3% |
-| October 2026 search, arch-v3 net | match in progress | – |
+| October 2026 search, arch-v3 net (`v3_lc0t91_b16`) | 0 / 92 / 188 | 32.9% |
 
 **Self-play progression** (Elo with 95% confidence intervals):
 
