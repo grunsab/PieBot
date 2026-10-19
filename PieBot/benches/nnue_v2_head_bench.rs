@@ -71,6 +71,7 @@ fn build_v2_network(hidden_dim: usize) -> QuantNetwork {
         w2: Vec::new(),
         b2: Vec::new(),
         v2: Some(Arc::new(v2)),
+        v3: None,
     })
 }
 

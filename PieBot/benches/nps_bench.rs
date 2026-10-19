@@ -38,6 +38,7 @@ fn make_random_quant_model(hidden_dim: usize) -> QuantNnue {
         w2,
         b2,
         v2: None,
+        v3: None,
     }
 }
 

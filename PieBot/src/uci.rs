@@ -494,6 +494,9 @@ impl UciEngine {
 
     pub fn auto_load_default_model(&mut self) -> bool {
         let candidates = [
+            "models/v3_lc0t91_b16.nnue",
+            "../models/v3_lc0t91_b16.nnue",
+            "../../models/v3_lc0t91_b16.nnue",
             "models/lc0_chunk_00034965.nnue",
             "../models/lc0_chunk_00034965.nnue",
             "../../models/lc0_chunk_00034965.nnue",
@@ -1226,6 +1229,17 @@ mod tests {
             assert!(engine.nnue_loaded);
             assert!(engine.use_nnue);
             assert!(engine.default_model_path.is_some());
+        }
+    }
+
+    #[test]
+    fn auto_load_prefers_the_arch_v3_network() {
+        let mut engine = UciEngine::new();
+        let shipped = ["models/v3_lc0t91_b16.nnue", "../models/v3_lc0t91_b16.nnue"];
+        if shipped.iter().any(|p| std::path::Path::new(p).is_file()) {
+            assert!(engine.auto_load_default_model());
+            let path = engine.default_model_path.clone().unwrap();
+            assert!(path.ends_with("v3_lc0t91_b16.nnue"), "{path}");
         }
     }
 }

@@ -12,7 +12,7 @@ magic.
 - Activation: SCReLU on both perspectives' accumulators.
 - Output: one linear head over the 2×1024 activations.
 
-The default network, `models/lc0_chunk_00034965.nnue`, uses this format.
+The previous default network, `models/lc0_chunk_00034965.nnue`, uses this format; the current default, `models/v3_lc0t91_b16.nnue`, is arch-v3.
 
 ## Arch-v3 (`PIENNQ03`)
 
