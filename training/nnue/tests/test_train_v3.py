@@ -125,3 +125,53 @@ class V3HiddenTests(unittest.TestCase):
         got = np.array([tv3.quant_eval_fen(net, b.fen()) for b in boards])
         self.assertLess(np.mean(np.abs(got - want)), 3.0)
         self.assertLess(np.max(np.abs(got - want)), 12.0)
+
+
+@unittest.skipIf(torch is None, "torch/chess not installed")
+class V3BucketTests(unittest.TestCase):
+    def test_32_buckets_keep_gpu_and_reference_features_identical(self):
+        import lc0_to_v3bin as conv
+        import train_v3 as tv3
+        tv3.set_king_buckets(32)
+        try:
+            boards = random_boards(200, seed=21)
+            arr = np.zeros(len(boards), dtype=conv.V3_DTYPE)
+            for i, b in enumerate(boards):
+                occ, pcs = conv.encode_board(b)
+                arr[i]["occ"], arr[i]["pcs"], arr[i]["stm"] = occ, np.frombuffer(pcs, dtype=np.uint8), 0 if b.turn else 1
+            ia, ib, _ = tv3.gpu_features(arr["occ"], arr["pcs"], arr["stm"], torch.device("cpu"))
+            for i, b in enumerate(boards):
+                pairs = [(sq, (0 if p.color else 1) * 6 + p.piece_type - 1) for sq, p in b.piece_map().items()]
+                fw, fbk = tv3.piece_features(pairs, b.king(chess.WHITE), b.king(chess.BLACK))
+                stm = fw if b.turn else fbk
+                self.assertEqual(sorted(x for x in ia[i].tolist() if x != tv3.N_FEATURES), sorted(stm))
+                self.assertTrue(max(stm) < 32 * 768)
+        finally:
+            tv3.set_king_buckets(16)
+
+
+@unittest.skipIf(torch is None, "torch/chess not installed")
+class V3ExpertTests(unittest.TestCase):
+    def test_experts_route_by_piece_count_on_both_paths(self):
+        import lc0_to_v3bin as conv
+        import train_v3 as tv3
+        tv3.set_experts(4)
+        try:
+            boards = random_boards(300, seed=31)
+            arr = np.zeros(len(boards), dtype=conv.V3_DTYPE)
+            for i, b in enumerate(boards):
+                occ, pcs = conv.encode_board(b)
+                arr[i]["occ"], arr[i]["pcs"], arr[i]["stm"] = occ, np.frombuffer(pcs, dtype=np.uint8), 0 if b.turn else 1
+            ia, ib, _ = tv3.gpu_features(arr["occ"], arr["pcs"], arr["stm"], torch.device("cpu"))
+            seen = set()
+            for i, b in enumerate(boards):
+                pairs = [(sq, (0 if p.color else 1) * 6 + p.piece_type - 1) for sq, p in b.piece_map().items()]
+                fw, fbk = tv3.piece_features(pairs, b.king(chess.WHITE), b.king(chess.BLACK))
+                stm = fw if b.turn else fbk
+                self.assertEqual(sorted(x for x in ia[i].tolist() if x != tv3.N_FEATURES), sorted(stm))
+                e = tv3.experts_table(4)[len(pairs)]
+                seen.add(e)
+                self.assertTrue(all(e * 16 * 768 <= f < (e + 1) * 16 * 768 for f in stm))
+            self.assertGreaterEqual(len(seen), 3)
+        finally:
+            tv3.set_experts(1)

@@ -20,8 +20,22 @@ const LAYOUT: [u8; 32] = [
 ];
 
 fn random_v3(hidden: usize, seed: u64) -> QuantNnue {
+    random_v3_experts(hidden, seed, 1)
+}
+
+fn expert_table(n: usize) -> [u8; 33] {
+    let mut t = [0u8; 33];
+    if n == 4 {
+        for (p, e) in t.iter_mut().enumerate() {
+            *e = if p >= 25 { 0 } else if p >= 17 { 1 } else if p >= 9 { 2 } else { 3 };
+        }
+    }
+    t
+}
+
+fn random_v3_experts(hidden: usize, seed: u64, experts: usize) -> QuantNnue {
     let mut s = seed;
-    let nf = 16 * 768;
+    let nf = experts * 16 * 768;
     let w1 = (0..nf * hidden).map(|_| (lcg(&mut s) % 61) as i16 - 30).collect();
     let b1 = (0..hidden).map(|_| (lcg(&mut s) % 41) as i16 - 20).collect();
     let w2 = (0..8 * 2 * hidden).map(|_| (lcg(&mut s) % 121) as i8 - 60).collect();
@@ -38,6 +52,8 @@ fn random_v3(hidden: usize, seed: u64) -> QuantNnue {
         v3: Some(Arc::new(QuantNnueV3 {
             n_king_buckets: 16,
             king_bucket_layout: LAYOUT,
+            n_experts: experts,
+            expert_of_pieces: expert_table(experts),
             hidden_dim: hidden,
             n_output_buckets: 8,
             qa: 255,
@@ -53,7 +69,11 @@ fn random_v3(hidden: usize, seed: u64) -> QuantNnue {
 }
 
 fn play_random_games(lazy: bool) {
-    let mut net = QuantNetwork::new(random_v3(32, 0xabc0_ffee));
+    play_random_games_with(lazy, 1);
+}
+
+fn play_random_games_with(lazy: bool, experts: usize) {
+    let mut net = QuantNetwork::new(random_v3_experts(32, 0xabc0_ffee, experts));
     net.set_lazy(lazy);
     let mut seed = if lazy { 99 } else { 7 };
     for game in 0..30 {
@@ -145,4 +165,28 @@ fn hidden_stack_engine_matches_the_python_reference_fixture() {
         exact += (stm == *want_stm) as usize;
     }
     assert!(exact * 10 >= cases.len() * 9, "only {exact}/{} exact", cases.len());
+}
+
+#[test]
+fn incremental_v3_with_material_experts_matches_full_recompute() {
+    // Random games shed material quickly, so captures cross every expert
+    // boundary and force rebuilds from the refresh cache.
+    play_random_games_with(false, 4);
+    play_random_games_with(true, 4);
+}
+
+#[test]
+fn experts_engine_matches_the_python_reference_fixture() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let model = QuantNnue::load_quantized(dir.join("v3e_fixture.nnue")).expect("load experts fixture");
+    assert_eq!(model.v3.as_ref().unwrap().n_experts, 4);
+    let cases: Vec<(String, i32)> =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("v3e_fixture_evals.json")).unwrap()).unwrap();
+    let net = QuantNetwork::new(model);
+    for (fen, want_stm) in cases {
+        let b = Board::from_fen(&fen, false).unwrap();
+        let white = net.eval_full(&b);
+        let stm = if b.side_to_move() == cozy_chess::Color::White { white } else { -white };
+        assert_eq!(stm, want_stm, "{fen}");
+    }
 }

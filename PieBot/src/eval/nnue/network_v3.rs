@@ -81,7 +81,7 @@ pub(crate) struct V3State {
     stack: Vec<i16>,
     pending: Vec<Pending>,
     /// Per slot: keys (one per perspective) and piece count, set at record time.
-    slot_keys: Vec<[u8; 2]>,
+    slot_keys: Vec<[u16; 2]>,
     slot_pieces: Vec<u32>,
     top: usize,
     pub(crate) stm: Color,
@@ -113,17 +113,21 @@ impl V3State {
     }
 
     #[inline]
-    fn key(&self, place: &Placement3, persp: usize) -> u8 {
+    /// Accumulator key of a perspective: `(expert * n_king_buckets + bucket)
+    /// * 2 + mirror`. The material expert comes from the piece count.
+    fn key(&self, place: &Placement3, persp: usize) -> u16 {
         let k = place.king(persp);
         let k = if persp == 1 { k ^ 56 } else { k };
         let mirror = (k & 7) >= 4;
         let k = if mirror { k ^ 7 } else { k };
         let bucket = self.model.king_bucket_layout[(k >> 3) * 4 + (k & 7)];
-        bucket * 2 + mirror as u8
+        let expert = self.model.expert_of_pieces[place.count() as usize] as usize;
+        let combined = expert * self.model.n_king_buckets + bucket as usize;
+        (combined * 2 + mirror as usize) as u16
     }
 
     #[inline]
-    fn feature(key: u8, persp: usize, color: usize, piece: usize, sq: usize) -> u32 {
+    fn feature(key: u16, persp: usize, color: usize, piece: usize, sq: usize) -> u32 {
         let bucket = (key >> 1) as usize;
         let mut s = if persp == 1 { sq ^ 56 } else { sq };
         if key & 1 == 1 {
@@ -278,7 +282,7 @@ impl V3State {
     fn rebuild_into(&mut self, t: usize, p: usize, place: &Placement3) {
         let h = self.h;
         let key = self.slot_keys[t][p];
-        let nkeys = self.model.n_king_buckets * 2;
+        let nkeys = self.model.n_experts * self.model.n_king_buckets * 2;
         if self.finny.is_empty() {
             self.finny = vec![Finny { acc: Vec::new(), place: None }; 2 * nkeys];
         }

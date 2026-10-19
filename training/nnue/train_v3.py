@@ -38,6 +38,7 @@ import numpy as np
 MAGIC = b"PIENNQ03"
 FILE_VERSION_SINGLE = 1   # feature transformer + bucketed linear head
 FILE_VERSION_HIDDEN = 2   # + bucketed hidden stack 2h -> L1 -> L2 -> 1
+FILE_VERSION_EXPERTS = 3  # linear head; input layer split into material experts
 L1_IN_SCALE = 254         # SCReLU output 0..1 -> u8 0..254 ((acc clamped)^2 >> 8)
 L1_QB = 64                # L1 weights as i8
 N_KING_BUCKETS = 16
@@ -54,6 +55,46 @@ KING_BUCKET_LAYOUT = [
 ]
 N_OUTPUT_BUCKETS = 8
 N_FEATURES = N_KING_BUCKETS * 768
+# --buckets 32: one bucket per oriented, mirrored king square.
+KING_BUCKET_LAYOUT_32 = list(range(32))
+KING_BUCKET_LAYOUT_16 = list(KING_BUCKET_LAYOUT)
+
+# Mixture of experts on the input layer (idea: Triumviratus' "Consilium"
+# network): the feature transformer holds one full set of king-bucketed
+# weights per material band, and the piece count picks which set a position
+# uses. Exactly one expert is active, so the layer has N times the weights at
+# almost the cost of one. Routing is a fixed rule, not a learned gate.
+N_EXPERTS = 1
+EXPERT_OF_PIECES = [0] * 33
+
+
+def experts_table(n: int) -> list:
+    """Piece count (0..32) -> expert. 4 experts: 32-25, 24-17, 16-9, 8-2 pieces."""
+    if n == 1:
+        return [0] * 33
+    if n == 4:
+        return [0 if p >= 25 else 1 if p >= 17 else 2 if p >= 9 else 3 for p in range(33)]
+    raise ValueError("experts must be 1 or 4")
+
+
+def set_experts(n: int) -> None:
+    global N_EXPERTS, EXPERT_OF_PIECES, N_FEATURES
+    N_EXPERTS = n
+    EXPERT_OF_PIECES = experts_table(n)
+    N_FEATURES = N_EXPERTS * N_KING_BUCKETS * 768
+
+
+def set_king_buckets(n: int) -> None:
+    """Switch the module to 16 (grouped) or 32 (one per square) king buckets."""
+    global N_KING_BUCKETS, KING_BUCKET_LAYOUT, N_FEATURES
+    if n == 32:
+        KING_BUCKET_LAYOUT = KING_BUCKET_LAYOUT_32
+    elif n == 16:
+        KING_BUCKET_LAYOUT = KING_BUCKET_LAYOUT_16
+    else:
+        raise ValueError("king buckets must be 16 or 32")
+    N_KING_BUCKETS = n
+    N_FEATURES = N_EXPERTS * n * 768
 QA, QB, EVAL_SCALE = 255, 64, 400
 W2_LIMIT = 127 / QB  # keep output weights representable as i8
 
@@ -68,12 +109,13 @@ def piece_features(squares_codes, king_white: int, king_black: int):
     Reference implementation in plain Python (the GPU path must agree).
     """
     out = []
+    expert = EXPERT_OF_PIECES[len(squares_codes)]
     for persp in (0, 1):
         k = king_white if persp == 0 else king_black ^ 56
         mirror = (k & 7) >= 4
         if mirror:
             k ^= 7
-        bucket = KING_BUCKET_LAYOUT[(k >> 3) * 4 + (k & 7)]
+        bucket = expert * N_KING_BUCKETS + KING_BUCKET_LAYOUT[(k >> 3) * 4 + (k & 7)]
         feats = []
         for sq, code in squares_codes:
             color, ptype = divmod(code, 6)
@@ -157,12 +199,13 @@ def gpu_features(occ, pcs, stm, device):
     kb = torch.argmax((code == 11).long(), 1)
     sqb = sq.unsqueeze(0).expand(B, 64)
     layout = torch.tensor(KING_BUCKET_LAYOUT, device=device)
+    expert = torch.tensor(EXPERT_OF_PIECES, device=device)[n_pieces]
 
     def persp(p):
         k = kw if p == 0 else kb ^ 56
         mir = (k & 7) >= 4
         k = torch.where(mir, k ^ 7, k)
-        bucket = layout[(k >> 3) * 4 + (k & 7)]
+        bucket = expert * N_KING_BUCKETS + layout[(k >> 3) * 4 + (k & 7)]
         s = sqb if p == 0 else sqb ^ 56
         s = torch.where(mir.unsqueeze(1), s ^ 7, s)
         rel = color if p == 0 else 1 - color
@@ -197,6 +240,7 @@ class Shards:
     def __init__(self, files, slice_len=65536, slices=48, seed=0):
         from lc0_to_v3bin import V3_DTYPE
 
+        files = [f for f in files if Path(f).stat().st_size >= V3_DTYPE.itemsize]
         self.maps = [np.memmap(f, dtype=V3_DTYPE, mode="r") for f in files]
         self.maps = [m for m in self.maps if len(m) > 0]
         self.sizes = np.array([len(m) for m in self.maps], dtype=np.float64)
@@ -252,9 +296,15 @@ def export(model, path: Path, hidden: int) -> None:
     b2 = np.round(ob * QA * QA * QB).astype("<i4")
     tmp = path.with_suffix(".tmp")
     with open(tmp, "wb") as f:
+        if l1 and N_EXPERTS > 1:
+            raise ValueError("experts with a hidden stack are not supported")
+        version = FILE_VERSION_HIDDEN if l1 else FILE_VERSION_EXPERTS if N_EXPERTS > 1 else FILE_VERSION_SINGLE
         f.write(MAGIC)
-        f.write(struct.pack("<II", FILE_VERSION_HIDDEN if l1 else FILE_VERSION_SINGLE, N_KING_BUCKETS))
+        f.write(struct.pack("<II", version, N_KING_BUCKETS))
         f.write(bytes(KING_BUCKET_LAYOUT))
+        if version == FILE_VERSION_EXPERTS:
+            f.write(struct.pack("<I", N_EXPERTS))
+            f.write(bytes(EXPERT_OF_PIECES))
         f.write(struct.pack("<II", hidden, N_OUTPUT_BUCKETS))
         f.write(struct.pack("<iii", QA, QB, EVAL_SCALE))
         f.write(w1.tobytes())
@@ -282,15 +332,20 @@ def load_quant(path: Path) -> dict:
     off = 8
     version, nkb = struct.unpack_from("<II", raw, off); off += 8
     layout = list(raw[off:off + 32]); off += 32
+    n_experts, expert_table = 1, [0] * 33
+    if version == FILE_VERSION_EXPERTS:
+        (n_experts,) = struct.unpack_from("<I", raw, off); off += 4
+        expert_table = list(raw[off:off + 33]); off += 33
     hidden, nout = struct.unpack_from("<II", raw, off); off += 8
     qa, qb, scale = struct.unpack_from("<iii", raw, off); off += 12
-    nf = nkb * 768
+    nf = n_experts * nkb * 768
     w1 = np.frombuffer(raw, "<i2", nf * hidden, off).reshape(nf, hidden); off += nf * hidden * 2
     b1 = np.frombuffer(raw, "<i2", hidden, off); off += hidden * 2
     w2 = np.frombuffer(raw, "i1", nout * 2 * hidden, off).reshape(nout, 2 * hidden); off += nout * 2 * hidden
     b2 = np.frombuffer(raw, "<i4", nout, off); off += nout * 4
     net = dict(version=version, layout=layout, hidden=hidden, nout=nout, qa=qa, qb=qb, scale=scale,
-               w1=w1, b1=b1, w2=w2, b2=b2, l1=0)
+               w1=w1, b1=b1, w2=w2, b2=b2, l1=0, n_experts=n_experts, expert_table=expert_table,
+               nkb=nkb)
     if version == FILE_VERSION_HIDDEN:
         l1, l2 = struct.unpack_from("<II", raw, off); off += 8
         net["l1"], net["l2"] = l1, l2
@@ -312,7 +367,16 @@ def quant_eval_fen(net: dict, fen: str) -> int:
     pairs = [(sq, (0 if p.color else 1) * 6 + p.piece_type - 1) for sq, p in board.piece_map().items()]
     kw = board.king(chess.WHITE)
     kb = board.king(chess.BLACK)
-    fw, fbk = piece_features(pairs, kw, kb)
+    # Evaluate with the file's own configuration.
+    saved = (N_EXPERTS, EXPERT_OF_PIECES, N_KING_BUCKETS, KING_BUCKET_LAYOUT, N_FEATURES)
+    globals().update(N_EXPERTS=net["n_experts"], EXPERT_OF_PIECES=net["expert_table"],
+                     N_KING_BUCKETS=net["nkb"], KING_BUCKET_LAYOUT=net["layout"],
+                     N_FEATURES=net["n_experts"] * net["nkb"] * 768)
+    try:
+        fw, fbk = piece_features(pairs, kw, kb)
+    finally:
+        globals().update(N_EXPERTS=saved[0], EXPERT_OF_PIECES=saved[1], N_KING_BUCKETS=saved[2],
+                         KING_BUCKET_LAYOUT=saved[3], N_FEATURES=saved[4])
     acc = []
     for feats in (fw, fbk):
         a = net["b1"].astype(np.int64).copy()
@@ -344,6 +408,9 @@ def main() -> None:
     ap.add_argument("--data", required=True, help="directory with train/ and holdout/ *.bin")
     ap.add_argument("--out", required=True)
     ap.add_argument("--hidden", type=int, default=1024)
+    ap.add_argument("--buckets", type=int, default=16, choices=(16, 32))
+    ap.add_argument("--experts", type=int, default=1, choices=(1, 4),
+                    help="material experts on the input layer (see set_experts)")
     ap.add_argument("--l1", type=int, default=0, help="hidden stack width (0: linear head)")
     ap.add_argument("--l2", type=int, default=32)
     ap.add_argument("--batch", type=int, default=16384)
@@ -357,6 +424,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=1)
     a = ap.parse_args()
 
+    set_king_buckets(a.buckets)
+    set_experts(a.experts)
     torch.manual_seed(a.seed)
     random.seed(a.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

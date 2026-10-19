@@ -35,6 +35,11 @@ pub struct QuantNnueV3 {
     pub n_king_buckets: usize,
     /// Bucket for each oriented, mirrored king square: index `rank * 4 + file`.
     pub king_bucket_layout: [u8; 32],
+    /// Mixture of experts on the input layer (file version 3): the feature
+    /// transformer holds one king-bucketed weight set per expert, and the
+    /// piece count (0..=32) selects the expert. 1 expert = no split.
+    pub n_experts: usize,
+    pub expert_of_pieces: [u8; 33],
     pub hidden_dim: usize,
     pub n_output_buckets: usize,
     pub qa: i32,
@@ -69,7 +74,7 @@ pub struct HiddenStackV3 {
 
 impl QuantNnueV3 {
     pub fn n_features(&self) -> usize {
-        self.n_king_buckets * 768
+        self.n_experts * self.n_king_buckets * 768
     }
 }
 
@@ -217,12 +222,21 @@ impl QuantNnue {
         let n_king_buckets = u32le(r, "n_king_buckets")? as usize;
         let mut king_bucket_layout = [0u8; 32];
         r.read_exact(&mut king_bucket_layout).context("read v3 bucket layout")?;
+        let mut n_experts = 1usize;
+        let mut expert_of_pieces = [0u8; 33];
+        if version == 3 {
+            n_experts = u32le(r, "n_experts")? as usize;
+            r.read_exact(&mut expert_of_pieces).context("read v3 expert table")?;
+            if n_experts == 0 || n_experts > 8 || expert_of_pieces.iter().any(|&e| e as usize >= n_experts) {
+                bail!("invalid v3 experts: n={n_experts}");
+            }
+        }
         let hidden_dim = u32le(r, "hidden_dim")? as usize;
         let n_output_buckets = u32le(r, "n_output_buckets")? as usize;
         let qa = u32le(r, "qa")? as i32;
         let qb = u32le(r, "qb")? as i32;
         let scale = u32le(r, "scale")? as i32;
-        if version != 1 && version != 2 {
+        if !(1..=3).contains(&version) {
             bail!("unsupported PIENNQ03 version {version}");
         }
         if n_king_buckets == 0 || n_king_buckets > 32 || hidden_dim == 0 || hidden_dim > 8192 {
@@ -237,7 +251,7 @@ impl QuantNnue {
         if qa <= 0 || qa > (i16::MAX as i32) / 128 || qb <= 0 || scale <= 0 {
             bail!("invalid v3 quant scales: qa={qa} qb={qb} scale={scale}");
         }
-        let n_features = n_king_buckets * 768;
+        let n_features = n_experts * n_king_buckets * 768;
         let read_i16 = |r: &mut R, n: usize, what: &str| -> Result<Vec<i16>> {
             let mut b = vec![0u8; n * 2];
             r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
@@ -302,6 +316,8 @@ impl QuantNnue {
             v3: Some(std::sync::Arc::new(QuantNnueV3 {
                 n_king_buckets,
                 king_bucket_layout,
+                n_experts,
+                expert_of_pieces,
                 hidden_dim,
                 n_output_buckets,
                 qa,
