@@ -47,7 +47,7 @@ Search changes must also pass the mate-suite gate described in
 3. Play it against the baseline under real clocks:
 
    ```bash
-   NET=$PWD/models/lc0_chunk_00034965.nnue
+   NET=$PWD/models/v3_lc0t91_b16.nnue
    python3 scripts/experiments/uci_match.py \
      --a out/target_exp/release/uci --b PieBot/target/release/uci \
      --a-opt NNUEQuantFile=$NET --a-opt UseNNUE=true \

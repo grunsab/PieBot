@@ -21,7 +21,7 @@ occurred, the fifty-move rule, stalemate or insufficient material.
 | :--- | :---: | ---: |
 | Previous search (August 2026) | 0 / 2 / 138 (140 games) | 1.4% |
 | October 2026 search, SPSA-tuned, arch-v2 net | 0 / 54 / 226 | 19.3% |
-| October 2026 search, arch-v3 net | match in progress | – |
+| October 2026 search, arch-v3 net (`v3_lc0t91_b16`) | 0 / 92 / 188 | 32.9% |
 
 **Self-play progression** (Elo with 95% confidence intervals):
 
@@ -73,7 +73,7 @@ Build from inside `PieBot/`. `PieBot/.cargo/config.toml` sets
 build started from the repository root with `--manifest-path` produces a
 slower, generic binary. The engine is `PieBot/target/release/uci`.
 
-At start-up the engine looks for `models/lc0_chunk_00034965.nnue` **relative to
+At start-up the engine looks for `models/v3_lc0t91_b16.nnue` **relative to
 its working directory**. If the file is not found, it plays on a simple
 piece-square evaluation without warning. When starting the engine from
 anywhere else (a GUI, a script), set `UseNNUE` to `true` and `NNUEQuantFile` to
@@ -84,7 +84,7 @@ uci
 id name PieBot NNUE
 ...
 uciok
-setoption name NNUEQuantFile value /path/to/PieBot/models/lc0_chunk_00034965.nnue
+setoption name NNUEQuantFile value /path/to/PieBot/models/v3_lc0t91_b16.nnue
 setoption name UseNNUE value true
 setoption name Hash value 256
 isready
@@ -107,7 +107,7 @@ absolute path of a network. No other configuration is needed.
 | `Threads` | spin, 1-512 | 1 | Lazy SMP search threads, including the main thread. |
 | `Hash` | spin, 1-16384 | 64 | Transposition table size in MiB. Large sizes allocate quickly (lazily zeroed pages). |
 | `UseNNUE` | check | true | Use the network evaluation. |
-| `NNUEQuantFile` | string | `models/lc0_chunk_00034965.nnue` | Quantised network: arch-v2 (`PIENNQ02`) or arch-v3 (`PIENNQ03`). Loading a net clears the hash. |
+| `NNUEQuantFile` | string | `models/v3_lc0t91_b16.nnue` | Quantised network: arch-v2 (`PIENNQ02`) or arch-v3 (`PIENNQ03`). Loading a net clears the hash. |
 | `NNUEFile` | string | empty | Dense f32 network (`PIENNUE1`), for development only. |
 | `EvalBlend` | spin, 0-100 | 100 | Percentage weight of the network against the piece-square evaluation. |
 | `Contempt` | spin, -200-200 | 0 | Draw score in centipawns for the searching side. Positive values avoid losing lines by preferring draws; 40 helped against Stockfish 19. Leave at 0 for normal play. |
@@ -127,8 +127,8 @@ Networks live in [`models/`](models/), with hashes in
 
 | File | Format | Notes |
 | :--- | :--- | :--- |
-| `lc0_chunk_00034965.nnue` | arch-v2 (`PIENNQ02`), HalfKP, 1024 wide, 84 MB | Current default. Trained on LCZero data. |
-| `v3_lc0t91_b16.nnue` | arch-v3 (`PIENNQ03`), 16 king buckets, 8 output buckets, 1024 wide, 25 MB | Trained on 725M filtered LCZero test91 positions. |
+| `v3_lc0t91_b16.nnue` | arch-v3 (`PIENNQ03`), 16 king buckets, 8 output buckets, 1024 wide, 25 MB | Current default. Trained on 725M filtered LCZero test91 positions. |
+| `lc0_chunk_00034965.nnue` | arch-v2 (`PIENNQ02`), HalfKP, 1024 wide, 84 MB | Previous default. Trained on LCZero data. |
 | `v8_cycle_000013_quant.nnue` | arch-v2 (`PIENNQ02`) | Earlier self-play network (August 2026). |
 | `cycle_000098_quant.nnue` | arch-v1 (`PIENNQ01`) | Historical; kept because benchmarking scripts read it by path. |
 

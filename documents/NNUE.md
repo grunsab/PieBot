@@ -12,7 +12,7 @@ magic.
 - Activation: SCReLU on both perspectives' accumulators.
 - Output: one linear head over the 2×1024 activations.
 
-The default network, `models/lc0_chunk_00034965.nnue`, uses this format.
+The previous default network, `models/lc0_chunk_00034965.nnue`, uses this format; the current default, `models/v3_lc0t91_b16.nnue`, is arch-v3.
 
 ## Arch-v3 (`PIENNQ03`)
 
@@ -154,6 +154,10 @@ the same binary, 200 games at 10+0.1, one thread:
 | 3.0B | +123.0 [+87.1, +161.6] |
 | final | +109.5 [+74.7, +146.5] |
 | final, 1000-game confirmation (W409 D449 L142) | +95.1 [+80.1, +110.3] |
+
+Against full-strength Stockfish 19 (60+0.5, 280 games, Syzygy, `Contempt 40`)
+the final net scored 0 / 92 / 188, 32.9% win or draw, against 19.3% for the
+arch-v2 net under the same conditions (Elo −282.6 [−313.8, −254.8]).
 
 Hold-out loss reached 0.6013 at 2.75B positions. Checkpoints after about
 1.25B positions are within noise of each other at 200 games.
