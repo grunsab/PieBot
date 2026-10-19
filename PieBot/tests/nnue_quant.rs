@@ -84,6 +84,7 @@ fn quant_scales_are_applied_in_eval() {
         w2: vec![0; hidden_dim],
         b2: vec![8],
             v2: None,
+            v3: None,
         };
 
     let mut s = Searcher::default();

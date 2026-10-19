@@ -44,6 +44,7 @@ fn make_test_v2_model(hidden: usize, seed: u64) -> QuantNnue {
         w2: Vec::new(),
         b2: Vec::new(),
         v2: Some(Arc::new(v2)),
+        v3: None,
     }
 }
 

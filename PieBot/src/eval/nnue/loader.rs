@@ -23,6 +23,59 @@ pub struct QuantNnue {
     /// Present when the file is a PIENNQ02 dual-perspective model; the legacy
     /// fields above are empty in that case and `meta` mirrors the v2 dims.
     pub v2: Option<std::sync::Arc<QuantNnueV2>>,
+    /// Present when the file is a PIENNQ03 king-bucketed model.
+    pub v3: Option<std::sync::Arc<QuantNnueV3>>,
+}
+
+/// Arch-v3 model (`training/nnue/train_v3.py`): king-bucketed, horizontally
+/// mirrored inputs (kings included), shared feature transformer, SCReLU,
+/// output heads chosen by piece count.
+#[derive(Debug, Clone)]
+pub struct QuantNnueV3 {
+    pub n_king_buckets: usize,
+    /// Bucket for each oriented, mirrored king square: index `rank * 4 + file`.
+    pub king_bucket_layout: [u8; 32],
+    /// Mixture of experts on the input layer (file version 3): the feature
+    /// transformer holds one king-bucketed weight set per expert, and the
+    /// piece count (0..=32) selects the expert. 1 expert = no split.
+    pub n_experts: usize,
+    pub expert_of_pieces: [u8; 33],
+    pub hidden_dim: usize,
+    pub n_output_buckets: usize,
+    pub qa: i32,
+    pub qb: i32,
+    pub scale: i32,
+    /// Feature-major: row `idx` is `w1[idx * hidden .. (idx + 1) * hidden]`.
+    pub w1: Vec<i16>,
+    pub b1: Vec<i16>,
+    /// Per output bucket, `2 * hidden` weights, side-to-move half first.
+    pub w2: Vec<i8>,
+    pub b2: Vec<i32>,
+    /// File version 2: a hidden stack replaces the linear head.
+    pub hidden_stack: Option<HiddenStackV3>,
+}
+
+/// Per output bucket: `2h -> l1` in int8 (inputs `(clamp(acc)^2) >> 8`,
+/// weights x64), then `l1 -> l2 -> 1` in f32 with clamp(0, 1) activations.
+#[derive(Debug, Clone)]
+pub struct HiddenStackV3 {
+    pub l1: usize,
+    pub l2: usize,
+    /// `[bucket][l1][2 * hidden]`
+    pub h1_w: Vec<i8>,
+    pub h1_b: Vec<f32>,
+    /// `[bucket][l2][l1]`
+    pub h2_w: Vec<f32>,
+    pub h2_b: Vec<f32>,
+    /// `[bucket][l2]`
+    pub h3_w: Vec<f32>,
+    pub h3_b: Vec<f32>,
+}
+
+impl QuantNnueV3 {
+    pub fn n_features(&self) -> usize {
+        self.n_experts * self.n_king_buckets * 768
+    }
 }
 
 /// Arch-v2 model: dual-perspective shared feature transformer, SCReLU head,
@@ -46,6 +99,7 @@ pub struct QuantNnueV2 {
 
 const Q_MAGIC: &[u8; 8] = b"PIENNQ01"; // Pie NNUE Quant v1
 const Q_MAGIC_V2: &[u8; 8] = b"PIENNQ02"; // Pie NNUE Quant v2 (dual perspective)
+const Q_MAGIC_V3: &[u8; 8] = b"PIENNQ03"; // Pie NNUE Quant v3 (king buckets, output buckets)
 
 impl QuantNnue {
     pub fn load_quantized<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -65,6 +119,9 @@ impl QuantNnue {
         r.read_exact(&mut magic).context("read magic")?;
         if &magic == Q_MAGIC_V2 {
             return Self::load_quantized_v2(&mut r);
+        }
+        if &magic == Q_MAGIC_V3 {
+            return Self::load_quantized_v3(&mut r);
         }
         if &magic != Q_MAGIC {
             bail!("bad quant NNUE magic");
@@ -146,6 +203,132 @@ impl QuantNnue {
             w2,
             b2,
             v2: None,
+            v3: None,
+        })
+    }
+
+    fn load_quantized_v3<R: Read>(r: &mut R) -> Result<Self> {
+        // PIENNQ03 layout after the 8-byte magic (all little-endian):
+        // u32 version, u32 n_king_buckets, u8 layout[32],
+        // u32 hidden_dim, u32 n_output_buckets, i32 qa, i32 qb, i32 scale,
+        // i16 w1[n_king_buckets * 768 * hidden] (feature-major), i16 b1[hidden],
+        // i8 w2[n_output_buckets * 2 * hidden], i32 b2[n_output_buckets]
+        fn u32le<R: Read>(r: &mut R, what: &str) -> Result<u32> {
+            let mut b = [0u8; 4];
+            r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
+            Ok(u32::from_le_bytes(b))
+        }
+        let version = u32le(r, "version")?;
+        let n_king_buckets = u32le(r, "n_king_buckets")? as usize;
+        let mut king_bucket_layout = [0u8; 32];
+        r.read_exact(&mut king_bucket_layout).context("read v3 bucket layout")?;
+        let mut n_experts = 1usize;
+        let mut expert_of_pieces = [0u8; 33];
+        if version == 3 {
+            n_experts = u32le(r, "n_experts")? as usize;
+            r.read_exact(&mut expert_of_pieces).context("read v3 expert table")?;
+            if n_experts == 0 || n_experts > 8 || expert_of_pieces.iter().any(|&e| e as usize >= n_experts) {
+                bail!("invalid v3 experts: n={n_experts}");
+            }
+        }
+        let hidden_dim = u32le(r, "hidden_dim")? as usize;
+        let n_output_buckets = u32le(r, "n_output_buckets")? as usize;
+        let qa = u32le(r, "qa")? as i32;
+        let qb = u32le(r, "qb")? as i32;
+        let scale = u32le(r, "scale")? as i32;
+        if !(1..=3).contains(&version) {
+            bail!("unsupported PIENNQ03 version {version}");
+        }
+        if n_king_buckets == 0 || n_king_buckets > 32 || hidden_dim == 0 || hidden_dim > 8192 {
+            bail!("invalid v3 dims: buckets={n_king_buckets} hidden={hidden_dim}");
+        }
+        if king_bucket_layout.iter().any(|&b| b as usize >= n_king_buckets) {
+            bail!("v3 bucket layout names a bucket >= {n_king_buckets}");
+        }
+        if n_output_buckets == 0 || n_output_buckets > 16 {
+            bail!("invalid v3 output buckets {n_output_buckets}");
+        }
+        if qa <= 0 || qa > (i16::MAX as i32) / 128 || qb <= 0 || scale <= 0 {
+            bail!("invalid v3 quant scales: qa={qa} qb={qb} scale={scale}");
+        }
+        let n_features = n_experts * n_king_buckets * 768;
+        let read_i16 = |r: &mut R, n: usize, what: &str| -> Result<Vec<i16>> {
+            let mut b = vec![0u8; n * 2];
+            r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
+            Ok(b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect())
+        };
+        let w1 = read_i16(r, n_features * hidden_dim, "w1")?;
+        let b1 = read_i16(r, hidden_dim, "b1")?;
+        let mut w2b = vec![0u8; n_output_buckets * 2 * hidden_dim];
+        r.read_exact(&mut w2b).context("read v3 w2")?;
+        let w2: Vec<i8> = w2b.into_iter().map(|b| b as i8).collect();
+        let mut b2b = vec![0u8; n_output_buckets * 4];
+        r.read_exact(&mut b2b).context("read v3 b2")?;
+        let b2: Vec<i32> = b2b
+            .chunks_exact(4)
+            .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let hidden_stack = if version == 2 {
+            let l1 = u32le(r, "l1")? as usize;
+            let l2 = u32le(r, "l2")? as usize;
+            if l1 == 0 || l1 > 256 || l2 == 0 || l2 > 256 {
+                bail!("invalid v3 hidden stack {l1}x{l2}");
+            }
+            let nb = n_output_buckets;
+            let mut hw = vec![0u8; nb * l1 * 2 * hidden_dim];
+            r.read_exact(&mut hw).context("read v3 h1_w")?;
+            let read_f32 = |r: &mut R, n: usize, what: &str| -> Result<Vec<f32>> {
+                let mut b = vec![0u8; n * 4];
+                r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
+                Ok(b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+            };
+            Some(HiddenStackV3 {
+                l1,
+                l2,
+                h1_w: hw.into_iter().map(|b| b as i8).collect(),
+                h1_b: read_f32(r, nb * l1, "h1_b")?,
+                h2_w: read_f32(r, nb * l2 * l1, "h2_w")?,
+                h2_b: read_f32(r, nb * l2, "h2_b")?,
+                h3_w: read_f32(r, nb * l2, "h3_w")?,
+                h3_b: read_f32(r, nb, "h3_b")?,
+            })
+        } else {
+            None
+        };
+        let mut extra = [0u8; 1];
+        if r.read(&mut extra).context("check v3 trailing bytes")? != 0 {
+            bail!("trailing bytes after PIENNQ03 payload");
+        }
+        Ok(Self {
+            meta: QuantMeta {
+                version,
+                input_dim: n_features,
+                hidden_dim,
+                output_dim: 1,
+            },
+            w1_scale: 1.0,
+            w2_scale: 1.0,
+            w1: Vec::new(),
+            b1: Vec::new(),
+            w2: Vec::new(),
+            b2: Vec::new(),
+            v2: None,
+            v3: Some(std::sync::Arc::new(QuantNnueV3 {
+                n_king_buckets,
+                king_bucket_layout,
+                n_experts,
+                expert_of_pieces,
+                hidden_dim,
+                n_output_buckets,
+                qa,
+                qb,
+                scale,
+                w1,
+                b1,
+                w2,
+                b2,
+                hidden_stack,
+            })),
         })
     }
 
@@ -225,6 +408,7 @@ impl QuantNnue {
             b1: Vec::new(),
             w2: Vec::new(),
             b2: Vec::new(),
+            v3: None,
             v2: Some(std::sync::Arc::new(QuantNnueV2 {
                 per_perspective_input_dim: input_dim,
                 hidden_dim,

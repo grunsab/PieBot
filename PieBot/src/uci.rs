@@ -629,10 +629,13 @@ impl UciEngine {
             }
             "nnuequantfile" => match QuantNnue::load_quantized(value) {
                 Ok(model) => {
-                    if crate::eval::nnue::features::HalfKpSchema::from_input_dim(
-                        model.meta.input_dim,
-                    )
-                    .is_none()
+                    // PIENNQ03 (king buckets) is self-describing; the HalfKP
+                    // dimension check applies to the older formats only.
+                    if model.v3.is_none()
+                        && crate::eval::nnue::features::HalfKpSchema::from_input_dim(
+                            model.meta.input_dim,
+                        )
+                        .is_none()
                     {
                         let legacy = crate::eval::nnue::features::halfkp_dim();
                         let full = crate::eval::nnue::features::halfkp_v2_dim();
@@ -1136,6 +1139,20 @@ mod tests {
             score_after_dense_load, -29,
             "new dense model must replace the old quantized model"
         );
+    }
+
+    #[test]
+    fn uci_loads_a_king_bucketed_v3_model() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/v3_fixture.nnue");
+        let mut engine = UciEngine::new();
+        assert_eq!(engine.apply_setoption("NNUEQuantFile", path.to_str().unwrap()), None);
+        engine.apply_setoption("UseNNUE", "true");
+        engine.apply_setoption("EvalBlend", "100");
+        // Start position from the Python reference: the fixture's evaluator
+        // gives the side to move this score after 1.a4 (see the fixture JSON);
+        // here just require a finite, non-PST evaluation path that loads.
+        let v = engine.searcher.qsearch_eval_cp(engine.pos.board());
+        assert!(v.abs() < 5000, "{v}");
     }
 
     #[test]

@@ -41,6 +41,7 @@ fn make_quant_model_for(input_dim: usize, hidden_dim: usize, bias: i16) -> Quant
         w2,
         b2: vec![bias],
         v2: None,
+        v3: None,
     }
 }
 
@@ -64,6 +65,7 @@ fn make_bias_only_quant_model(hidden_dim: usize, bias: i16) -> QuantNnue {
         w2: vec![0; hidden_dim],
         b2: vec![bias],
         v2: None,
+        v3: None,
     }
 }
 

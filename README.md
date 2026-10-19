@@ -336,6 +336,55 @@ no rebuild: play one binary against itself with different `--a-opt`/`--b-opt`
 
 ---
 
+## Arch-v3 NNUE: King Buckets, Output Buckets and Material Experts (October 2026)
+
+The first two steps of the NNUE plan below are implemented on branch `nnue-v3`
+(`PIENNQ03` files, loaded through the same `NNUEQuantFile` option):
+
+- **Inputs:** each perspective's king square, oriented and mirrored to files
+  a-d, picks one of 16 king buckets (32 optional); every piece, kings included,
+  contributes one feature in that bucket: 12,288 inputs instead of HalfKP's
+  41,024, a 25 MB first layer instead of 84 MB at width 1024.
+- **Output buckets:** 8 linear heads over the 2x1024 SCReLU accumulators,
+  chosen by piece count.
+- **Mixture of experts on the input layer (`--experts 4`):** after the
+  description in the [Triumviratus](https://github.com/Tors3/Triumviratus)
+  README, the feature transformer holds one full set of king-bucketed weights
+  per material band (32-25, 24-17, 16-9 and 8-2 pieces), and the piece count
+  picks the expert. Only one expert is active, so the layer has four times the
+  weights at almost the cost of one; routing is a fixed rule, not a learned
+  gate. In the engine the expert is part of each perspective's accumulator key,
+  so a capture that crosses a band boundary rebuilds the accumulators from the
+  refresh cache and every other move stays incremental. The implementation is
+  our own; only the idea comes from Triumviratus.
+- An optional hidden stack (2x1024 -> 16 -> 32 -> 1 per bucket) is implemented
+  but not used: its first layer cut the engine from about 2.07M to 0.67M nodes/s
+  for a small loss gain, and it lost 295 Elo in games.
+
+Pipeline: `training/nnue/lc0_to_v3bin.py` turns LCZero test91 archives into
+32-byte records (dropping deleted records, the first 8 plies, positions in check
+and positions whose best move is a capture; ~70% kept); `training/nnue/train_v3.py`
+trains on them with features computed on the GPU (~600k positions/s on an RTX
+4080) and exports `PIENNQ03`, with a pure-Python integer reference evaluator that
+the Rust tests check the engine against.
+
+First full run (1,800 archives from August-October 2026, 725M positions, 3B
+training positions, 16 buckets, linear head), each checkpoint against the
+`lc0_chunk_00034965` net, same binary, 200 games at 10+0.1:
+
+| Positions trained | Elo vs current net [95% CI] |
+| ---: | :--- |
+| 250M | -59.6 [-96.8, -23.8] |
+| 1.0B | +31.4 [-2.4, +65.7] |
+| 2.0B | +96.2 [+62.6, +131.7] |
+| 2.75B | +135.0 [+101.7, +170.8] |
+
+Still to do: confirm the best checkpoint over 1000 games, retune the search
+for the new eval scale (SPSA), measure against Stockfish 19, and compare the
+32-bucket and 4-expert runs.
+
+---
+
 ## Next Steps: NNUE Work on a GPU Machine
 
 The October search campaign (see [Search](#search) and
@@ -391,6 +440,54 @@ After a new net is adopted:
   been measured; `Hindsight` and `EvalScaleBase` exist as toggles but their
   A/Bs were interrupted; the SF19 run of the build after SPSA round 2
   (`ad462fc`) was not started.
+
+---
+
+## Credits
+
+**This project is AI-generated.** Almost all of its code, tests, training
+pipeline and documentation were written by AI coding agents (most recently
+Anthropic's Claude, through Claude Code), with almost no code added by human
+authors. The human authors set the goals, made the decisions, and supplied
+the hardware.
+
+PieBot builds on the work of many people. Ideas we studied and reimplemented,
+and the libraries, data and tools we use:
+
+- **[Triumviratus](https://github.com/Tors3/Triumviratus)** by Francesco
+  Torsello, in collaboration with Maurizio Platino: the idea of a mixture of
+  experts on the NNUE input layer, chosen by material (the "Consilium"
+  network). Our implementation was written independently from the
+  description in its README.
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the
+  October 2026 search follows its structure and many of its techniques
+  (staged move picking, butterfly/continuation/capture/pawn histories,
+  correction history, singular extensions, ProbCut, the LMR adjustments,
+  upcoming-repetition detection), NNUE design ideas such as king buckets,
+  output buckets and refresh caches, and the fishtest formulation of SPSA.
+  Stockfish 19 is also the strength anchor PieBot is measured against.
+- **NNUE** itself was introduced by Yu Nasu for computer shogi (2018).
+- **Upcoming-repetition detection** with cuckoo tables is due to Marcel van
+  Kervinck.
+- **[Leela Chess Zero](https://lczero.org/)**: the training data (test91
+  archives, made available under the Open Database License and the Database
+  Contents License) and the networks behind it.
+- The wider open-source engine community, including **Ethereal**, **Berserk**,
+  **Koivisto**, **Reckless** and **Stormphrax**, for widely shared techniques
+  such as correction-history weighting and accumulator refresh caches, and the
+  **[Chess Programming Wiki](https://www.chessprogramming.org/)**.
+- **[cozy-chess](https://github.com/analog-hors/cozy-chess)** (move
+  generation and board representation), **[shakmaty](https://github.com/niklasf/shakmaty)**
+  and **[shakmaty-syzygy](https://github.com/niklasf/shakmaty-syzygy)**
+  (tablebase probing) and **[python-chess](https://github.com/niklasf/python-chess)**
+  (match tooling and data conversion), by Niklas Fiekas for the latter three.
+- **Syzygy tablebases** by Ronald de Man, downloaded from the
+  [lichess](https://tablebase.lichess.ovh/) mirror.
+- **[PyTorch](https://pytorch.org/)** and **NumPy** for training,
+  **[rayon](https://github.com/rayon-rs/rayon)** and the Rust ecosystem for
+  the engine, and **[lichess-bot](https://github.com/lichess-bot-devs/lichess-bot)**
+  for playing on Lichess.
+- GPU time was rented on **[Vast.ai](https://vast.ai/)**.
 
 ---
 
