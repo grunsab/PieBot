@@ -11,7 +11,10 @@ use std::{
     thread,
 };
 
-use bullet::game::formats::bulletformat::ChessBoard;
+use bullet::game::{
+    formats::bulletformat::ChessBoard,
+    inputs::{ChessBucketsMirrored, SparseInputType},
+};
 use bullet_trainer::reader::DataReader;
 use sfbinpack::{
     ChunkReader, TrainingDataEntry,
@@ -25,6 +28,8 @@ pub const EVAL_SCALE: i32 = 400;
 pub const OUTPUT_BUCKETS: usize = 8;
 pub const MAGIC: &[u8; 8] = b"PIENNQ03";
 pub const FILE_VERSION_SINGLE: u32 = 1;
+/// Legacy i8 head with the material-experts header (train_v3.FILE_VERSION_EXPERTS).
+pub const FILE_VERSION_EXPERTS: u32 = 3;
 /// Linear head with i16 output weights at `QB_PRECISE` and i64 biases (see
 /// train_v3.FILE_VERSION_PRECISE); the default export.
 pub const FILE_VERSION_PRECISE: u32 = 4;
@@ -64,6 +69,114 @@ pub fn layout(buckets: usize) -> [usize; 32] {
 
 pub fn num_buckets(layout: &[usize; 32]) -> usize {
     layout.iter().max().unwrap() + 1
+}
+
+// ---------------------------------------------------------------------------
+// Material experts
+// ---------------------------------------------------------------------------
+
+/// Default cuts for 4 experts: the lowest piece count of experts 0..2, so
+/// expert 0 takes >= 26 pieces, 1 takes 17-25, 2 takes 11-16 and 3 the rest.
+/// Close to equal-frequency on LCZero data (27/25/22/26%).
+pub const DEFAULT_EXPERT_CUTS: [usize; 3] = [26, 17, 11];
+
+/// Piece count (0..=32) -> expert, as train_v3.experts_table(n, cuts):
+/// expert i is the first with pieces >= cuts[i], else n - 1.
+pub fn experts_table(n: usize, cuts: &[usize]) -> [u8; 33] {
+    let mut t = [0u8; 33];
+    match n {
+        1 => {}
+        4 => {
+            assert!(cuts.len() == 3 && cuts.windows(2).all(|w| w[0] > w[1]), "4 experts need 3 descending cuts");
+            for (p, e) in t.iter_mut().enumerate() {
+                *e = cuts.iter().position(|&c| p >= c).unwrap_or(3) as u8;
+            }
+        }
+        _ => panic!("experts must be 1 or 4"),
+    }
+    t
+}
+
+/// The network's shape, written next to the checkpoints (`piebot_net.txt`)
+/// so `export` can rebuild it without repeating the training options.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetMeta {
+    pub buckets: usize,
+    pub hidden: usize,
+    pub experts: usize,
+    pub cuts: Vec<usize>,
+}
+
+impl NetMeta {
+    pub const FILE: &'static str = "piebot_net.txt";
+
+    pub fn table(&self) -> [u8; 33] {
+        experts_table(self.experts, &self.cuts)
+    }
+
+    pub fn to_text(&self) -> String {
+        let cuts: Vec<String> = self.cuts.iter().map(|c| c.to_string()).collect();
+        format!("buckets={}\nhidden={}\nexperts={}\ncuts={}\n", self.buckets, self.hidden, self.experts, cuts.join(","))
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut m = std::collections::HashMap::new();
+        for line in text.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                m.insert(k.trim().to_string(), v.trim().to_string());
+            }
+        }
+        let num = |k: &str| m.get(k).and_then(|v| v.parse().ok());
+        let cuts = m.get("cuts").map(|v| parse_cuts(v)).unwrap_or_default();
+        Some(Self { buckets: num("buckets")?, hidden: num("hidden")?, experts: num("experts")?, cuts })
+    }
+}
+
+pub fn parse_cuts(s: &str) -> Vec<usize> {
+    s.split(',').filter(|x| !x.trim().is_empty()).map(|x| x.trim().parse().expect("--expert-cuts: integers")).collect()
+}
+
+/// King-bucketed, mirrored inputs (bullet's `ChessBucketsMirrored`), with the
+/// whole 768 x buckets block repeated per material expert: a position's
+/// features live in the block of its expert, chosen by piece count. With one
+/// expert this is exactly `ChessBucketsMirrored`.
+#[derive(Clone, Copy, Debug)]
+pub struct ChessBucketsMirroredExperts {
+    inner: ChessBucketsMirrored,
+    block: usize,
+    experts: usize,
+    table: [u8; 33],
+}
+
+impl ChessBucketsMirroredExperts {
+    pub fn new(layout: [usize; 32], experts: usize, table: [u8; 33]) -> Self {
+        Self { inner: ChessBucketsMirrored::new(layout), block: 768 * num_buckets(&layout), experts, table }
+    }
+}
+
+impl SparseInputType for ChessBucketsMirroredExperts {
+    type RequiredDataType = ChessBoard;
+
+    fn num_inputs(&self) -> usize {
+        self.block * self.experts
+    }
+
+    fn max_active(&self) -> usize {
+        32
+    }
+
+    fn map_features<F: FnMut(usize, usize)>(&self, pos: &ChessBoard, mut f: F) {
+        let off = self.block * usize::from(self.table[pos.occ().count_ones() as usize]);
+        self.inner.map_features(pos, |s, n| f(off + s, off + n));
+    }
+
+    fn shorthand(&self) -> String {
+        format!("{}x{}e", self.inner.shorthand(), self.experts)
+    }
+
+    fn description(&self) -> String {
+        "Horizontally mirrored, king bucketed psqt inputs, one block per material expert".to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +446,14 @@ impl DataReader<ChessBoard> for InterleavedBinpackLoader {
 /// Feature indices for (white, black) perspectives from (square, code)
 /// pairs, code = color * 6 + piece_type (white 0..5, black 6..11, P N B R Q K).
 pub fn reference_features(layout: &[usize; 32], pieces: &[(usize, usize)]) -> [Vec<usize>; 2] {
+    reference_features_experts(layout, &[0; 33], pieces)
+}
+
+/// As `reference_features`, with train_v3's expert offset:
+/// bucket index = expert * buckets + king bucket.
+pub fn reference_features_experts(layout: &[usize; 32], table: &[u8; 33], pieces: &[(usize, usize)]) -> [Vec<usize>; 2] {
+    let expert = usize::from(table[pieces.len()]);
+    let nb = num_buckets(layout);
     let king = |code| pieces.iter().find(|&&(_, c)| c == code).unwrap().0;
     let (kw, kb) = (king(5), king(11));
     let mut out = [Vec::new(), Vec::new()];
@@ -342,7 +463,7 @@ pub fn reference_features(layout: &[usize; 32], pieces: &[(usize, usize)]) -> [V
         if mirror {
             k ^= 7;
         }
-        let bucket = layout[(k >> 3) * 4 + (k & 7)];
+        let bucket = expert * nb + layout[(k >> 3) * 4 + (k & 7)];
         for &(sq, code) in pieces {
             let (color, ptype) = (code / 6, code % 6);
             let mut s = if persp == 0 { sq } else { sq ^ 56 };
@@ -387,6 +508,9 @@ pub struct FloatNet {
     pub buckets: usize,
     pub layout: [usize; 32],
     pub hidden: usize,
+    /// Material experts: w1 holds `experts` blocks of buckets * 768 rows.
+    pub experts: usize,
+    pub expert_table: [u8; 33],
     pub w1: Vec<f32>,
     pub b1: Vec<f32>,
     pub w2: Vec<f32>,
@@ -397,14 +521,20 @@ impl FloatNet {
     /// Read the float `quantised.bin` our save format writes:
     /// l0w (factoriser merged), l0b, l1w (transposed), l1b, then bullet's padding.
     pub fn from_bullet_floats(path: &Path, buckets: usize, hidden: usize) -> io::Result<Self> {
+        Self::from_bullet_floats_experts(path, buckets, hidden, 1, [0; 33])
+    }
+
+    /// As `from_bullet_floats` for a net with material experts (the saved
+    /// l0w already has the shared base and factoriser folded in).
+    pub fn from_bullet_floats_experts(path: &Path, buckets: usize, hidden: usize, experts: usize, expert_table: [u8; 33]) -> io::Result<Self> {
         let raw = std::fs::read(path)?;
-        let nf = buckets * 768;
+        let nf = experts * buckets * 768;
         let sizes = [nf * hidden, hidden, OUTPUT_BUCKETS * 2 * hidden, OUTPUT_BUCKETS];
         let need: usize = sizes.iter().sum::<usize>() * 4;
         if raw.len() < need || raw.len() - need >= 64 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("{}: {} bytes, expected {} (+ <64 padding) for {buckets} buckets x {hidden}", path.display(), raw.len(), need),
+                format!("{}: {} bytes, expected {} (+ <64 padding) for {experts} experts x {buckets} buckets x {hidden}", path.display(), raw.len(), need),
             ));
         }
         let mut off = 0;
@@ -414,7 +544,7 @@ impl FloatNet {
             v
         };
         let (w1, b1, w2, b2) = (take(sizes[0]), take(sizes[1]), take(sizes[2]), take(sizes[3]));
-        Ok(Self { buckets, layout: layout(buckets), hidden, w1, b1, w2, b2 })
+        Ok(Self { buckets, layout: layout(buckets), hidden, experts, expert_table, w1, b1, w2, b2 })
     }
 
     /// Write PIENNQ03 file version 4 (precise head, the default) or 1 (i8
@@ -428,6 +558,8 @@ impl FloatNet {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("cannot write PIENNQ03 version {version}")));
         }
         let precise = version == FILE_VERSION_PRECISE;
+        // As train_v3.export: a legacy i8 head with experts is version 3.
+        let version = if !precise && self.experts > 1 { FILE_VERSION_EXPERTS } else { version };
         let qb_i = if precise { QB_PRECISE } else { QB };
         let (qa, qb) = (QA as f32, qb_i as f32);
         let mut out = Vec::new();
@@ -435,10 +567,9 @@ impl FloatNet {
         out.extend_from_slice(&version.to_le_bytes());
         out.extend_from_slice(&(self.buckets as u32).to_le_bytes());
         out.extend(self.layout.iter().map(|&b| b as u8));
-        if precise {
-            // One expert: n_experts = 1 and an all-zero piece-count table.
-            out.extend_from_slice(&1u32.to_le_bytes());
-            out.extend_from_slice(&[0u8; 33]);
+        if precise || self.experts > 1 {
+            out.extend_from_slice(&(self.experts as u32).to_le_bytes());
+            out.extend_from_slice(&self.expert_table);
         }
         out.extend_from_slice(&(self.hidden as u32).to_le_bytes());
         out.extend_from_slice(&(OUTPUT_BUCKETS as u32).to_le_bytes());
@@ -500,6 +631,22 @@ mod tests {
             assert!((p - want).abs() < 2e-3, "q {q}: {p} vs {want}");
         }
         assert_eq!(m.map(-500), -m.map(500));
+    }
+
+    #[test]
+    fn expert_tables_match_train_v3() {
+        let t = experts_table(4, &DEFAULT_EXPERT_CUTS);
+        assert_eq!([t[32], t[26], t[25], t[17], t[16], t[11], t[10], t[2]], [0, 0, 1, 1, 2, 2, 3, 3]);
+        // train_v3's own default split.
+        let t = experts_table(4, &[25, 17, 9]);
+        assert_eq!([t[25], t[24], t[17], t[16], t[9], t[8]], [0, 1, 1, 2, 2, 3]);
+        assert_eq!(experts_table(1, &[]), [0; 33]);
+    }
+
+    #[test]
+    fn net_meta_round_trips() {
+        let m = NetMeta { buckets: 16, hidden: 1024, experts: 4, cuts: vec![26, 17, 11] };
+        assert_eq!(NetMeta::parse(&m.to_text()), Some(m));
     }
 
     #[test]

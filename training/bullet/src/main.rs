@@ -10,11 +10,7 @@
 use std::{collections::HashMap, path::Path};
 
 use bullet::{
-    game::{
-        formats::bulletformat::ChessBoard,
-        inputs::{ChessBucketsMirrored, SparseInputType},
-        outputs::MaterialCount,
-    },
+    game::{formats::bulletformat::ChessBoard, inputs::SparseInputType, outputs::MaterialCount},
     nn::{
         InitSettings, ModelNode, Shape,
         optimiser::{AdamW, AdamWOptimiser, AdamWParams},
@@ -26,11 +22,12 @@ use bullet::{
     },
     value::{ValueTrainer, ValueTrainerBuilder},
 };
-use bullet_compiler::tensor::operation::Unary;
+use bullet_compiler::tensor::{TValue, operation::Unary};
+use bullet_trainer::model::utils::{read_from_byte_buffer, write_to_byte_buffer};
 use piebot_bullet::*;
 use sfbinpack::{ChunkReader, read_chunk_into};
 
-type Trainer = ValueTrainer<AdamWOptimiser, ChessBucketsMirrored, MaterialCount<OUTPUT_BUCKETS>>;
+type Trainer = ValueTrainer<AdamWOptimiser, ChessBucketsMirroredExperts, MaterialCount<OUTPUT_BUCKETS>>;
 
 struct Args(HashMap<String, Vec<String>>);
 
@@ -74,15 +71,36 @@ fn mse<'a>(output: ModelNode<'a>, target: ModelNode<'a>) -> ModelNode<'a> {
     output.sigmoid().squared_error(target)
 }
 
-fn build(buckets: usize, hidden: usize, loss: &str, factoriser: bool) -> Trainer {
+/// Network shape from the command line: --buckets, --hidden, --experts,
+/// --expert-cuts (defaults 16, 1024, 1, 26,17,11).
+fn meta_from(a: &Args) -> NetMeta {
+    let experts: usize = a.num("experts", "1");
+    let cuts = if experts == 1 { Vec::new() } else { parse_cuts(&a.get("expert-cuts", "26,17,11")) };
+    let m = NetMeta { buckets: a.num("buckets", "16"), hidden: a.num("hidden", "1024"), experts, cuts };
+    m.table(); // validate
+    m
+}
+
+/// With one expert the graph is the plain one (l0w, l0b, l0f, l1w, l1b).
+/// With several, each expert's input weights are a shared base `l0base`
+/// (one bucketed block, trained on every position) plus a per-expert delta
+/// `l0w` that starts at zero, plus the 768-input factoriser `l0f`, as
+/// train_v3.py --factorised. All three are folded into l0w on save.
+fn build(meta: &NetMeta, loss: &str, factoriser: bool) -> Trainer {
+    let (buckets, hidden, experts) = (meta.buckets, meta.hidden, meta.experts);
     let lay = layout(buckets);
     let nb = num_buckets(&lay);
     let save = vec![
         SavedFormat::id("l0w").transform(move |store, w| {
+            let mut w = w;
+            if experts > 1 {
+                let base = store.get("l0base").values.f32().repeat(experts);
+                w = w.into_iter().zip(base).map(|(a, b)| a + b).collect();
+            }
             if !factoriser {
                 return w;
             }
-            let f = store.get("l0f").values.f32().repeat(nb);
+            let f = store.get("l0f").values.f32().repeat(nb * experts);
             w.into_iter().zip(f).map(|(a, b)| a + b).collect()
         }),
         SavedFormat::id("l0b"),
@@ -97,15 +115,24 @@ fn build(buckets: usize, hidden: usize, loss: &str, factoriser: bool) -> Trainer
     let mut t = ValueTrainerBuilder::default()
         .dual_perspective()
         .optimiser(AdamW)
-        .inputs(ChessBucketsMirrored::new(lay))
+        .inputs(ChessBucketsMirroredExperts::new(lay, experts, meta.table()))
         .output_buckets(MaterialCount::<OUTPUT_BUCKETS>)
         .save_format(&save)
         .loss_fn(loss_fn)
         .build(move |builder, stm, ntm, out_buckets| {
-            let mut l0 = builder.new_affine("l0", 768 * nb, hidden);
+            let mut l0 = if experts == 1 {
+                builder.new_affine("l0", 768 * nb, hidden)
+            } else {
+                // Deltas start at zero; the base gets the init a plain l0w would.
+                let delta = builder.new_weights("l0w", Shape::new(hidden, 768 * nb * experts), InitSettings::Zeroed);
+                let init = InitSettings::Normal { mean: 0.0, stdev: (2.0 / (768 * nb) as f32).sqrt() };
+                let base = builder.new_weights("l0base", Shape::new(hidden, 768 * nb), init);
+                let bias = builder.new_weights("l0b", Shape::new(hidden, 1), InitSettings::Zeroed);
+                bullet::nn::Affine { weights: delta + base.repeat(experts), bias }
+            };
             // Shared 768-input factoriser (folded into l0w on export).
             let l0f = builder.new_weights("l0f", Shape::new(hidden, 768), InitSettings::Zeroed);
-            l0.weights = l0.weights + l0f.repeat(nb);
+            l0.weights = l0.weights + l0f.repeat(nb * experts);
             let l1 = builder.new_affine("l1", 2 * hidden, OUTPUT_BUCKETS);
             let h = l0.forward(stm).screlu().concat(l0.forward(ntm).screlu());
             l1.forward(h).select(out_buckets)
@@ -155,11 +182,37 @@ fn score_mode(a: &Args) -> ScoreMode {
     }
 }
 
+/// Start an experts net from a trained one-expert checkpoint: its input
+/// weights become the shared base (`l0w` -> `l0base`), every other weight is
+/// copied, and the per-expert deltas stay zero, so the starting net plays
+/// exactly like the checkpoint. The optimiser state starts fresh.
+fn init_from(trainer: &mut Trainer, meta: &NetMeta, ckpt: &str) {
+    assert!(meta.experts > 1, "--init-from starts an experts net (--experts 4) from a one-expert checkpoint");
+    let buf = std::fs::read(format!("{ckpt}/optimiser_state/weights.bin")).unwrap_or_else(|e| panic!("{ckpt}: {e}"));
+    let (mut off, mut out) = (0, Vec::new());
+    while off < buf.len() {
+        let (vals, id, n) = read_from_byte_buffer(&buf[off..]);
+        off += n;
+        let id = match id.as_str() {
+            "l0w" => "l0base".to_string(),
+            "l0base" => panic!("{ckpt} is already an experts checkpoint"),
+            _ => id,
+        };
+        out.extend(write_to_byte_buffer(&TValue::F32(vals), &id).unwrap());
+    }
+    let tmp = std::env::temp_dir().join(format!("piebot_init_{}.bin", std::process::id()));
+    std::fs::write(&tmp, out).unwrap();
+    trainer.optimiser.load_weights_from_file(tmp.to_str().unwrap()).unwrap();
+    std::fs::remove_file(tmp).ok();
+    println!("shared base and head initialised from {ckpt}; expert deltas are zero");
+}
+
 fn train(a: &Args) {
-    let buckets: usize = a.num("buckets", "16");
-    let hidden: usize = a.num("hidden", "1024");
-    let mut trainer = build(buckets, hidden, &a.get("loss", "bce"), !a.flag("no-factoriser"));
+    let meta = meta_from(a);
+    let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"));
     let out = a.get("out", "checkpoints");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(Path::new(&out).join(NetMeta::FILE), meta.to_text()).unwrap();
     let superbatches: usize = a.num("superbatches", "2000");
     let lr0: f32 = a.num("lr", "0.001");
     let final_lr = lr0 * a.num::<f32>("final-lr-frac", "0.03");
@@ -167,6 +220,8 @@ fn train(a: &Args) {
     if let Some(ckpt) = a.0.get("resume").and_then(|v| v.first()) {
         trainer.load_from_checkpoint(ckpt);
         println!("resumed weights and optimiser from {ckpt}; continuing at superbatch {start}");
+    } else if let Some(ckpt) = a.0.get("init-from").and_then(|v| v.first()) {
+        init_from(&mut trainer, &meta, ckpt);
     }
     let schedule = TrainingSchedule {
         net_id: a.get("net-id", "piebot_v3"),
@@ -202,27 +257,47 @@ fn train(a: &Args) {
     trainer.run(&schedule, &settings, &loader);
 }
 
+/// The net's shape for a checkpoint file: `piebot_net.txt` from the run
+/// directory (the checkpoint's parent) when present, else the command line.
+fn meta_for_checkpoint(a: &Args, file: &Path) -> NetMeta {
+    let explicit = ["buckets", "hidden", "experts", "expert-cuts"].iter().any(|k| a.flag(k));
+    let saved = file
+        .parent()
+        .and_then(|ck| ck.parent())
+        .and_then(|run| std::fs::read_to_string(run.join(NetMeta::FILE)).ok())
+        .and_then(|t| NetMeta::parse(&t));
+    match saved {
+        Some(m) if !explicit => m,
+        _ => meta_from(a),
+    }
+}
+
 fn export(a: &Args) {
     let input = a.get("input", "");
     let output = a.get("output", "");
-    let net = FloatNet::from_bullet_floats(Path::new(&input), a.num("buckets", "16"), a.num("hidden", "1024"))
+    let m = meta_for_checkpoint(a, Path::new(&input));
+    let net = FloatNet::from_bullet_floats_experts(Path::new(&input), m.buckets, m.hidden, m.experts, m.table())
         .unwrap_or_else(|e| panic!("{e}"));
     net.write_piennq03_version(Path::new(&output), a.num("file-version", "4")).unwrap();
     println!("wrote {output}");
 }
 
 fn evalfens(a: &Args) {
-    let buckets: usize = a.num("buckets", "16");
-    let hidden: usize = a.num("hidden", "1024");
-    let mut trainer = build(buckets, hidden, &a.get("loss", "bce"), !a.flag("no-factoriser"));
+    let meta = meta_from(a);
+    let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"));
     if let Some(ckpt) = a.0.get("checkpoint").and_then(|v| v.first()) {
         trainer.load_from_checkpoint(ckpt);
+    } else if let Some(ckpt) = a.0.get("init-from").and_then(|v| v.first()) {
+        init_from(&mut trainer, &meta, ckpt);
     }
     // Optionally also save this exact net, so a fresh/random net can be compared.
     if let Some(save) = a.0.get("save").and_then(|v| v.first()) {
         let tmp = format!("{save}.floats");
         trainer.save_quantised(&tmp).unwrap();
-        FloatNet::from_bullet_floats(Path::new(&tmp), buckets, hidden).unwrap().write_piennq03(Path::new(save)).unwrap();
+        FloatNet::from_bullet_floats_experts(Path::new(&tmp), meta.buckets, meta.hidden, meta.experts, meta.table())
+            .unwrap()
+            .write_piennq03_version(Path::new(save), a.num("file-version", "4"))
+            .unwrap();
         std::fs::remove_file(tmp).ok();
     }
     let fens = std::fs::read_to_string(a.get("fens", "")).unwrap();
@@ -235,8 +310,13 @@ fn evalfens(a: &Args) {
 }
 
 fn features(a: &Args) {
-    let lay = layout(a.num("buckets", "16"));
-    let inputs = ChessBucketsMirrored::new(lay);
+    let meta = meta_from(a);
+    let lay = layout(meta.buckets);
+    let table = meta.table();
+    let inputs = ChessBucketsMirroredExperts::new(lay, meta.experts, table);
+    // --dump FILE: also write "fen<TAB>stm features" lines, for a parity
+    // check against train_v3.piece_features itself.
+    let mut dump = a.0.get("dump").and_then(|v| v.first()).map(|p| std::io::BufWriter::new(std::fs::File::create(p).unwrap()));
     let scores = ScoreMap::new(ScoreMode::Raw);
     let max: usize = a.num("positions", "20000");
     let (mut checked, mut bad) = (0usize, 0usize);
@@ -253,7 +333,12 @@ fn features(a: &Args) {
                     stm.push(s);
                     ntm.push(n);
                 });
-                let [mut w, mut b] = reference_features(&lay, &entry_pieces(&e));
+                if let Some(d) = dump.as_mut() {
+                    use std::io::Write;
+                    let fs: Vec<String> = stm.iter().map(|x| x.to_string()).collect();
+                    writeln!(d, "{}\t{}", e.pos.fen().unwrap_or_default(), fs.join(" ")).unwrap();
+                }
+                let [mut w, mut b] = reference_features_experts(&lay, &table, &entry_pieces(&e));
                 let white = e.pos.side_to_move().ordinal() == 0;
                 if !white {
                     std::mem::swap(&mut w, &mut b);

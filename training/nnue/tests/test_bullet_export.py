@@ -10,6 +10,12 @@
    between float and integer is the format's quantisation error (mostly the
    i8 output weights at QB = 64) and is printed, not asserted.
 
+3. Factorised material experts (--experts 4): the exporter matches
+   train_v3.export with experts byte for byte; bullet's expert features
+   match train_v3.piece_features on real binpack positions (set
+   PIEBOT_BINPACK_SAMPLE); and a net started with --init-from a one-expert
+   checkpoint evaluates exactly like that checkpoint (zero deltas).
+
 The binary is training/bullet/target/release/piebot-bullet, or the path in
 PIEBOT_BULLET_BIN; tests skip when it (or torch/chess) is missing.
 """
@@ -116,7 +122,8 @@ class BulletExportTests(unittest.TestCase):
         for n in sizes:
             parts.append(raw[off:off + n].astype(np.float64)); off += n
         w1, b1, w2, b2 = parts[0].reshape(nf, hidden), parts[1], parts[2].reshape(8, 2 * hidden), parts[3]
-        dq = (net["w1"] / tv3.QA, net["b1"] / tv3.QA, net["w2"] / tv3.QB, net["b2"] / (tv3.QA * tv3.QA * tv3.QB))
+        qb = net["qb"]  # 4096 for file version 4 (the default), 64 for version 1
+        dq = (net["w1"] / tv3.QA, net["b1"] / tv3.QA, net["w2"] / qb, net["b2"] / (tv3.QA * tv3.QA * qb))
 
         def forward(W1, B1, W2, B2, fen):
             b = chess.Board(fen)
@@ -139,6 +146,97 @@ class BulletExportTests(unittest.TestCase):
               f"quantisation error: mean {quant_err.mean():+.2f}, max |{np.abs(quant_err).max():.2f}| cp over {len(rows)} FENs")
         self.assertLess(max(float_err), 0.05)
         self.assertLessEqual(max(int_err), 1.0 + 1e-6)
+
+
+CUTS = (26, 17, 11)
+
+
+@unittest.skipIf(torch is None or not BIN.exists(), "needs torch, chess and the piebot-bullet binary")
+class BulletExpertsTests(unittest.TestCase):
+    def tearDown(self):
+        import train_v3 as tv3
+        tv3.set_experts(1)
+
+    def test_experts_exporter_matches_train_v3_byte_for_byte(self):
+        import train_v3 as tv3
+        hidden, buckets = 32, 16
+        tv3.set_king_buckets(buckets)
+        tv3.set_experts(4, cuts=CUTS)
+        rng = np.random.default_rng(2)
+        nf = 4 * buckets * 768
+        ft = rng.normal(0, 0.05, (nf, hidden)).astype(np.float32)
+        fb = rng.normal(0, 0.2, hidden).astype(np.float32)
+        ow = rng.uniform(-1.9, 1.9, (8, 2 * hidden)).astype(np.float32)
+        ob = rng.normal(0, 0.1, 8).astype(np.float32)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            ck = d / "run" / "net-20"
+            ck.mkdir(parents=True)
+            raw = np.concatenate([ft.ravel(), fb, ow.ravel(), ob]).astype("<f4").tobytes()
+            raw += b"\0" * ((64 - len(raw) % 64) % 64)
+            (ck / "quantised.bin").write_bytes(raw)
+            # The run directory's piebot_net.txt supplies the shape.
+            (d / "run" / "piebot_net.txt").write_text(f"buckets={buckets}\nhidden={hidden}\nexperts=4\ncuts=26,17,11\n")
+            for version, want in ((4, 4), (1, 3)):
+                subprocess.run([str(BIN), "export", "--input", str(ck / "quantised.bin"), "--output", str(d / "rust.nnue"),
+                                "--file-version", str(version)], check=True, capture_output=True)
+                tv3.export(_Model(ft, fb, ow, ob), d / "py.nnue", hidden, version=version)
+                self.assertEqual((d / "rust.nnue").read_bytes(), (d / "py.nnue").read_bytes(), f"version {version}")
+                net = tv3.load_quant(d / "rust.nnue")
+                self.assertEqual((net["version"], net["n_experts"]), (want, 4))
+                self.assertEqual(net["expert_table"], tv3.experts_table(4, CUTS))
+            # Explicit options give the same file as the sidecar.
+            subprocess.run([str(BIN), "export", "--input", str(ck / "quantised.bin"), "--output", str(d / "cli.nnue"),
+                            "--buckets", "16", "--hidden", str(hidden), "--experts", "4", "--expert-cuts", "26,17,11"],
+                           check=True, capture_output=True)
+            tv3.export(_Model(ft, fb, ow, ob), d / "py.nnue", hidden, version=4)
+            self.assertEqual((d / "cli.nnue").read_bytes(), (d / "py.nnue").read_bytes())
+
+    @unittest.skipUnless(os.environ.get("PIEBOT_BINPACK_SAMPLE"), "set PIEBOT_BINPACK_SAMPLE to a .binpack file")
+    def test_expert_features_match_train_v3_on_real_positions(self):
+        import train_v3 as tv3
+        tv3.set_king_buckets(16)
+        tv3.set_experts(4, cuts=CUTS)
+        with tempfile.TemporaryDirectory() as d:
+            dump = Path(d) / "f.tsv"
+            subprocess.run([str(BIN), "features", "--data", os.environ["PIEBOT_BINPACK_SAMPLE"], "--experts", "4",
+                            "--expert-cuts", "26,17,11", "--positions", "20000", "--dump", str(dump)],
+                           check=True, capture_output=True)
+            lines = dump.read_text().splitlines()
+        self.assertGreaterEqual(len(lines), 20000)
+        experts_seen = set()
+        for line in lines:
+            fen, feats = line.split("\t")
+            b = chess.Board(fen)
+            pairs = [(sq, (0 if p.color else 1) * 6 + p.piece_type - 1) for sq, p in b.piece_map().items()]
+            fw, fbk = tv3.piece_features(pairs, b.king(chess.WHITE), b.king(chess.BLACK))
+            stm = fw if b.turn else fbk
+            self.assertEqual(sorted(map(int, feats.split())), sorted(stm), fen)
+            experts_seen.add(tv3.EXPERT_OF_PIECES[len(pairs)])
+        self.assertEqual(experts_seen, {0, 1, 2, 3})
+
+    @unittest.skipUnless(os.environ.get("PIEBOT_BULLET_CHECKPOINT"), "set PIEBOT_BULLET_CHECKPOINT (a one-expert checkpoint)")
+    def test_zero_deltas_evaluate_like_the_base_checkpoint(self):
+        import train_v3 as tv3
+        ckpt = os.environ["PIEBOT_BULLET_CHECKPOINT"]
+        hidden = os.environ.get("PIEBOT_BULLET_HIDDEN", "1024")
+        fens = random_fens(60, seed=9)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "fens.txt").write_text("\n".join(fens) + "\n")
+
+            def run(*extra, save):
+                out = subprocess.run([str(BIN), "evalfens", "--fens", str(d / "fens.txt"), "--hidden", hidden,
+                                      "--save", str(d / save), *extra], check=True, capture_output=True, text=True).stdout
+                return json.loads(out[out.index("[["):])
+
+            base = run("--checkpoint", ckpt, save="base.nnue")
+            moe = run("--experts", "4", "--expert-cuts", "26,17,11", "--init-from", ckpt, save="moe.nnue")
+            nb, nm = tv3.load_quant(d / "base.nnue"), tv3.load_quant(d / "moe.nnue")
+        self.assertEqual(nm["n_experts"], 4)
+        for (fen, a), (_, b) in zip(base, moe):
+            self.assertAlmostEqual(a, b, delta=0.01, msg=fen)
+            self.assertEqual(tv3.quant_eval_fen(nb, fen), tv3.quant_eval_fen(nm, fen), fen)
 
 
 if __name__ == "__main__":

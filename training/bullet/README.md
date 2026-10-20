@@ -58,10 +58,15 @@ $B export --input /workspace/bt4_run/b16-200/quantised.bin --output b16-200.nnue
 # rate schedule picked up at the given superbatch.
 $B train ... --resume /workspace/bt4_run/b16-200 --start-superbatch 201
 
+# Material experts, started from a trained one-expert checkpoint (see below).
+$B train --data /workspace/bt4 --out /workspace/moe_run --net-id moe \
+  --experts 4 --init-from /workspace/bt4_run/b16-1500 --lr 0.0003
+
 # Checks.
 $B inspect --data file.binpack       # entry count, filter statistics, sample entries
 $B compare-q --plain X.binpack --q X.q.binpack
 $B features --data file.binpack      # bullet inputs vs train_v3's feature map
+                                     # (--experts 4 for expert inputs; --dump FILE writes them)
 $B evalfens --checkpoint DIR --fens fens.txt --save net.nnue   # float evals as JSON
 ```
 
@@ -81,6 +86,42 @@ $B evalfens --checkpoint DIR --fens fens.txt --save net.nnue   # float evals as 
 | `--buffer-mpos` | 16 | Shuffle buffer, in millions of positions (32 bytes each) |
 | `--no-factoriser` | off | Turn off the shared 768-input factoriser. It helps training and is folded into the bucketed weights on export, so it costs nothing in the engine |
 | `--measure-loader` | off | Report data-loader throughput without training |
+| `--experts`, `--expert-cuts` | 1, 26,17,11 | Material experts on the input layer (see below) |
+| `--init-from` | none | With `--experts 4`: start the shared base and head from a one-expert checkpoint, deltas zero, fresh optimiser |
+
+`train` writes the network's shape to `--out/piebot_net.txt`, and `export`
+reads it from the checkpoint's run directory, so an experts checkpoint
+exports without repeating the options. Passing `--buckets`, `--hidden`,
+`--experts` or `--expert-cuts` to `export` overrides the file.
+
+### Material experts
+
+`--experts 4` splits the input layer into four weight sets chosen by the
+number of pieces on the board (Triumviratus' "Consilium" idea), trained the
+same way as `train_v3.py --factorised`:
+
+- **Routing.** `--expert-cuts a,b,c` are the lowest piece counts of experts
+  0-2: by default expert 0 takes 26 or more pieces, 1 takes 17-25, 2 takes
+  11-16 and 3 the rest, about a quarter of LCZero positions each. Kings and
+  pawns count. The table goes into the file, and the engine follows it.
+- **Parameterisation.** Each expert's weights are a shared base `l0base`
+  (one king-bucketed block, trained on every position) plus a per-expert
+  delta `l0w` that starts at zero, plus the shared 768-input factoriser. The
+  base learns from all the data and the experts separate only where the data
+  asks them to. On save the three are folded into the four plain blocks the
+  engine reads (PIENNQ03 version 4 with `n_experts = 4`; version 3 for the
+  legacy i8 head).
+- **Warm start.** `--init-from` copies a one-expert checkpoint's input
+  weights into the base and its bias, factoriser and head as they are, so the
+  starting net plays exactly like that checkpoint.
+- **Cost.** Four times the input weights (about 200 MB of floats at 16 buckets
+  and width 1024, plus optimiser state; checkpoints grow accordingly). A
+  2-superbatch smoke run trained at about 1.0M positions/s while sharing the
+  4080 with another run.
+- **Expectation.** At 725M positions the `train_v3.py` version lost to an
+  identical fine-tune without experts (−23 Elo). Triumviratus' experts needed
+  hundreds of billions of positions to pass a single-set net, so the intended
+  use is a long run, or a warm start from a net trained on the full corpus.
 
 ## Data
 
@@ -166,13 +207,19 @@ cut off mid-chunk, is read again from the start.
 | Bullet's float eval vs a numpy forward pass of the exported floats over train_v3's features | max 0.000 cp over 60 FENs |
 | `train_v3.quant_eval_fen` (which the engine matches) vs the dequantised weights | max 0.96 cp |
 | The engine loading an exported net | loads and searches |
-| Unit tests (`cargo test --lib`) | Q mapping round trip; target equals `(1 + q) / 2`; layouts; numpy-style rounding |
+| Unit tests (`cargo test --lib`) | Q mapping round trip; target equals `(1 + q) / 2`; layouts; numpy-style rounding; expert tables; `piebot_net.txt` round trip |
+| Experts: `features --experts 4` vs the Rust reference | 0 mismatches over 300k real positions |
+| Experts: `features --dump` vs train_v3's `piece_features` itself (cuts 26,17,11) | identical on 20k real positions, all four experts present |
+| Experts: exporter vs `train_v3.export` with 4 experts | identical bytes, versions 4 and 3, from `piebot_net.txt` or from options |
+| Experts: `--init-from` a checkpoint, zero deltas | float eval within 0.01 cp of the checkpoint's, integer eval identical, over 60 FENs |
 
 Run the Python parity tests with:
 
 ```bash
 PIEBOT_BULLET_BIN=training/bullet/target/release/piebot-bullet \
-PIEBOT_BULLET_CHECKPOINT=/path/to/checkpoint python3 -m unittest -v training/nnue/tests/test_bullet_export.py
+PIEBOT_BULLET_CHECKPOINT=/path/to/one-expert/checkpoint \
+PIEBOT_BINPACK_SAMPLE=/path/to/sample.binpack \
+python3 -m unittest -v training/nnue/tests/test_bullet_export.py
 ```
 
 **Quantisation error.** With file version 1 the gap between a float net and
