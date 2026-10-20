@@ -16,6 +16,11 @@
    PIEBOT_BINPACK_SAMPLE); and a net started with --init-from a one-expert
    checkpoint evaluates exactly like that checkpoint (zero deltas).
 
+4. Pairwise hidden stack (--pairwise, file version 5): the exporter matches
+   train_v3.export byte for byte, and for a pairwise checkpoint (set
+   PIEBOT_BULLET_PAIRWISE_CHECKPOINT) bullet's float eval equals train_v3's
+   torch model (build_model(..., pairwise=True)) loaded with the same floats.
+
 The binary is training/bullet/target/release/piebot-bullet, or the path in
 PIEBOT_BULLET_BIN; tests skip when it (or torch/chess) is missing.
 """
@@ -237,6 +242,111 @@ class BulletExpertsTests(unittest.TestCase):
         for (fen, a), (_, b) in zip(base, moe):
             self.assertAlmostEqual(a, b, delta=0.01, msg=fen)
             self.assertEqual(tv3.quant_eval_fen(nb, fen), tv3.quant_eval_fen(nm, fen), fen)
+
+
+PW_HIDDEN, PW_L1, PW_L2 = 32, 16, 32
+
+
+def pairwise_floats(raw, hidden, l1, l2, buckets=16):
+    """Split a pairwise checkpoint's float quantised.bin (bullet's save order)."""
+    nf, nb = buckets * 768, 8
+    sizes = [("ft", (nf, hidden)), ("fb", (hidden,)), ("h1_w", (nb * l1, hidden)), ("h1_b", (nb * l1,)),
+             ("h2_w", (nb * l2, l1)), ("h2_b", (nb * l2,)), ("h3_w", (nb, l2)), ("h3_b", (nb,))]
+    out, off = {}, 0
+    for name, shape in sizes:
+        n = int(np.prod(shape))
+        out[name] = raw[off:off + n].reshape(shape)
+        off += n
+    return out
+
+
+def pairwise_model(w, hidden, l1, l2):
+    """train_v3's own pairwise model holding the given floats (linear head zero)."""
+    import train_v3 as tv3
+    m = tv3.build_model(hidden, l1, l2, pairwise=True)
+    with torch.no_grad():
+        m.ft.zero_()
+        m.ft[:tv3.N_FEATURES] = torch.tensor(w["ft"])
+        m.ft_bias.copy_(torch.tensor(w["fb"]))
+        m.out_w.zero_()
+        m.out_b.zero_()
+        for k in ("h1_w", "h1_b", "h2_w", "h2_b", "h3_w", "h3_b"):
+            getattr(m, k).copy_(torch.tensor(w[k]))
+    return m
+
+
+@unittest.skipIf(torch is None or not BIN.exists(), "needs torch, chess and the piebot-bullet binary")
+class BulletPairwiseTests(unittest.TestCase):
+    def test_pairwise_exporter_matches_train_v3_byte_for_byte(self):
+        import train_v3 as tv3
+        tv3.set_king_buckets(16)
+        rng = np.random.default_rng(3)
+        nf, nb = 16 * 768, 8
+        w = {
+            "ft": rng.normal(0, 0.05, (nf, PW_HIDDEN)), "fb": rng.normal(0.3, 0.2, PW_HIDDEN),
+            "h1_w": rng.uniform(-1.9, 1.9, (nb * PW_L1, PW_HIDDEN)), "h1_b": rng.normal(0, 0.3, nb * PW_L1),
+            "h2_w": rng.normal(0, 0.5, (nb * PW_L2, PW_L1)), "h2_b": rng.normal(0, 0.3, nb * PW_L2),
+            "h3_w": rng.normal(0, 0.5, (nb, PW_L2)), "h3_b": rng.normal(0, 0.3, nb),
+        }
+        w = {k: v.astype(np.float32) for k, v in w.items()}
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            ck = d / "run" / "pw-20"
+            ck.mkdir(parents=True)
+            order = ("ft", "fb", "h1_w", "h1_b", "h2_w", "h2_b", "h3_w", "h3_b")
+            raw = np.concatenate([w[k].ravel() for k in order]).astype("<f4").tobytes()
+            raw += b"\0" * ((64 - len(raw) % 64) % 64)
+            (ck / "quantised.bin").write_bytes(raw)
+            tv3.export(pairwise_model(w, PW_HIDDEN, PW_L1, PW_L2), d / "py.nnue", PW_HIDDEN)
+            subprocess.run([str(BIN), "export", "--input", str(ck / "quantised.bin"), "--output", str(d / "cli.nnue"),
+                            "--buckets", "16", "--hidden", str(PW_HIDDEN), "--pairwise", "--l1", str(PW_L1),
+                            "--l2", str(PW_L2)], check=True, capture_output=True)
+            self.assertEqual((d / "cli.nnue").read_bytes(), (d / "py.nnue").read_bytes())
+            # The run's piebot_net.txt supplies the same shape.
+            (d / "run" / "piebot_net.txt").write_text(
+                f"buckets=16\nhidden={PW_HIDDEN}\nexperts=1\ncuts=\npairwise_l1={PW_L1}\npairwise_l2={PW_L2}\n")
+            subprocess.run([str(BIN), "export", "--input", str(ck / "quantised.bin"), "--output", str(d / "side.nnue")],
+                           check=True, capture_output=True)
+            self.assertEqual((d / "side.nnue").read_bytes(), (d / "py.nnue").read_bytes())
+            net = tv3.load_quant(d / "side.nnue")
+        self.assertEqual((net["version"], net["l1"], net["l2"], net["pairwise"]), (5, PW_L1, PW_L2, True))
+
+    @unittest.skipUnless(os.environ.get("PIEBOT_BULLET_PAIRWISE_CHECKPOINT"), "set PIEBOT_BULLET_PAIRWISE_CHECKPOINT")
+    def test_pairwise_bullet_eval_matches_train_v3_model(self):
+        import lc0_to_v3bin as conv
+        import train_v3 as tv3
+        ckpt = Path(os.environ["PIEBOT_BULLET_PAIRWISE_CHECKPOINT"])
+        hidden = int(os.environ.get("PIEBOT_BULLET_HIDDEN", "1024"))
+        l1 = int(os.environ.get("PIEBOT_BULLET_L1", "16"))
+        l2 = int(os.environ.get("PIEBOT_BULLET_L2", "32"))
+        tv3.set_king_buckets(16)
+        fens = random_fens(60, seed=21)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "fens.txt").write_text("\n".join(fens) + "\n")
+            out = subprocess.run([str(BIN), "evalfens", "--checkpoint", str(ckpt), "--fens", str(d / "fens.txt"),
+                                  "--save", str(d / "net.nnue"), "--hidden", str(hidden), "--pairwise",
+                                  "--l1", str(l1), "--l2", str(l2)],
+                                 check=True, capture_output=True, text=True).stdout
+            rows = json.loads(out[out.index("[["):])
+            net = tv3.load_quant(d / "net.nnue")
+            if os.environ.get("PIEBOT_SAVE_PAIRWISE_NET"):
+                Path(os.environ["PIEBOT_SAVE_PAIRWISE_NET"]).write_bytes((d / "net.nnue").read_bytes())
+        w = pairwise_floats(np.fromfile(ckpt / "quantised.bin", dtype="<f4"), hidden, l1, l2)
+        model = pairwise_model(w, hidden, l1, l2).double()
+        boards = [chess.Board(f) for f, _ in rows]
+        arr = np.zeros(len(boards), dtype=conv.V3_DTYPE)
+        for i, b in enumerate(boards):
+            occ, pcs = conv.encode_board(b)
+            arr[i]["occ"], arr[i]["pcs"], arr[i]["stm"] = occ, np.frombuffer(pcs, dtype=np.uint8), 0 if b.turn else 1
+        ia, ib, bk = tv3.gpu_features(arr["occ"], arr["pcs"], arr["stm"], torch.device("cpu"))
+        with torch.no_grad():
+            ref = (model(ia, ib, bk) * tv3.EVAL_SCALE).numpy()
+        got = np.array([cp for _, cp in rows])
+        quant = np.array([tv3.quant_eval_fen(net, f) for f, _ in rows])
+        print(f"\npairwise: bullet vs train_v3 float max {np.abs(got - ref).max():.4f} cp; "
+              f"integer vs float mean {np.mean(quant - ref):+.2f}, max |{np.abs(quant - ref).max():.2f}| cp")
+        self.assertLess(np.abs(got - ref).max(), 0.05)
 
 
 if __name__ == "__main__":

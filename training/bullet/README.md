@@ -17,6 +17,9 @@ The network is the same one `train_v3.py` trains:
   are i16 at QB = 4096 (file version 4, the default) or i8 at QB = 64
   (version 1, with `export --file-version 1`).
 
+With `--pairwise` it trains `train_v3.py --pairwise` instead: the
+accumulator feeds a pairwise hidden stack (file version 5, see below).
+
 Exported files are byte-for-byte what `train_v3.export` writes from the same
 weights, so the engine, gating scripts and fixtures need no change.
 
@@ -88,11 +91,14 @@ $B evalfens --checkpoint DIR --fens fens.txt --save net.nnue   # float evals as 
 | `--measure-loader` | off | Report data-loader throughput without training |
 | `--experts`, `--expert-cuts` | 1, 26,17,11 | Material experts on the input layer (see below) |
 | `--init-from` | none | With `--experts 4`: start the shared base and head from a one-expert checkpoint, deltas zero, fresh optimiser |
+| `--pairwise`, `--l1`, `--l2` | off, 16, 32 | Pairwise hidden stack instead of the linear head (one expert only; see below) |
+| `--act-l1` | 0 | With `--pairwise`: weight of the activation-sparsity penalty, as `train_v3.py --act-l1` |
 
 `train` writes the network's shape to `--out/piebot_net.txt`, and `export`
 reads it from the checkpoint's run directory, so an experts checkpoint
 exports without repeating the options. Passing `--buckets`, `--hidden`,
-`--experts` or `--expert-cuts` to `export` overrides the file.
+`--experts`, `--expert-cuts`, `--pairwise`, `--l1` or `--l2` to `export`
+overrides the file. A pairwise net exports as version 5 by default.
 
 ### Material experts
 
@@ -122,6 +128,35 @@ same way as `train_v3.py --factorised`:
   identical fine-tune without experts (−23 Elo). Triumviratus' experts needed
   hundreds of billions of positions to pass a single-set net, so the intended
   use is a long run, or a warm start from a net trained on the full corpus.
+
+### Pairwise hidden stack
+
+`--pairwise` builds the network of `train_v3.py --pairwise`, PIENNQ03 file
+version 5, which the engine runs with its sparse first-layer kernel:
+
+- **Accumulator to first layer.** For each perspective,
+  `x[i] = crelu(a[i]) * crelu(a[i + h/2])` for `i < h/2` (bullet slices the
+  input layer's rows, so each half is its own matmul), side to move first:
+  `h` inputs in all.
+- **Layers.** L1: `h -> 8 x l1`, crelu; L2: `l1 -> 8 x l2`, crelu; output:
+  `l2 -> 8`. Each layer keeps the rows of the position's output bucket
+  (piece count). L1's weights are clipped to the i8 grid (±127/64), as
+  train_v3 does; L2 and the output layer stay unclipped f32, as the engine
+  stores them.
+- **Sparsity penalty.** `--act-l1 w` adds `w * mean(x)` to each position's
+  loss, the same term `train_v3.py --act-l1` adds to its batch loss. bullet
+  expresses it with `build_custom` (the graph returns the output and its own
+  per-position loss) and `reduce_sum_rows` over `x`. Measured on short
+  train_v3 runs, the penalty is what makes the engine fast: 0.3 gave
+  9% nonzero activations and −14% NPS against the linear head; without it,
+  63% and −19%.
+- **File.** Version 5 holds the linear head too (zero here, unused by the
+  engine), then `l1`, `l2`, i8 L1 weights at 64 and the f32 rest.
+- **Speed.** Smoke runs on the idle 4080 (batch 16,384, 8 loader threads):
+  linear 3.58M positions/s, pairwise 3.29M, pairwise with `--act-l1 0.05`
+  3.09M.
+- **Not supported:** experts with a pairwise stack (train_v3 rejects that
+  combination too), and the old non-pairwise hidden stack (version 2).
 
 ## Data
 
@@ -212,6 +247,9 @@ cut off mid-chunk, is read again from the start.
 | Experts: `features --dump` vs train_v3's `piece_features` itself (cuts 26,17,11) | identical on 20k real positions, all four experts present |
 | Experts: exporter vs `train_v3.export` with 4 experts | identical bytes, versions 4 and 3, from `piebot_net.txt` or from options |
 | Experts: `--init-from` a checkpoint, zero deltas | float eval within 0.01 cp of the checkpoint's, integer eval identical, over 60 FENs |
+| Pairwise: exporter vs `train_v3.export` (version 5) | identical bytes, from options or from `piebot_net.txt` |
+| Pairwise: bullet's float eval vs train_v3's torch model with the checkpoint's floats | max 0.0001 cp over 60 FENs (2-superbatch smoke checkpoint, `--act-l1 0.05`) |
+| Pairwise: engine (`examples/v3_eval_fens.rs`) vs `quant_eval_fen` on the exported file | identical on 60 FENs |
 
 Run the Python parity tests with:
 
@@ -219,6 +257,7 @@ Run the Python parity tests with:
 PIEBOT_BULLET_BIN=training/bullet/target/release/piebot-bullet \
 PIEBOT_BULLET_CHECKPOINT=/path/to/one-expert/checkpoint \
 PIEBOT_BINPACK_SAMPLE=/path/to/sample.binpack \
+PIEBOT_BULLET_PAIRWISE_CHECKPOINT=/path/to/pairwise/checkpoint \
 python3 -m unittest -v training/nnue/tests/test_bullet_export.py
 ```
 

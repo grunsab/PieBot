@@ -34,6 +34,11 @@ pub const FILE_VERSION_EXPERTS: u32 = 3;
 /// train_v3.FILE_VERSION_PRECISE); the default export.
 pub const FILE_VERSION_PRECISE: u32 = 4;
 pub const QB_PRECISE: i32 = 4096;
+/// Pairwise hidden stack (train_v3.FILE_VERSION_PAIRWISE): per perspective
+/// x[i] = clamp(a[i]) * clamp(a[i + h/2]) for i < h/2, then L1 (i8 at
+/// `L1_QB`, crelu) -> L2 (f32, crelu) -> 1 (f32), each with 8 output buckets.
+pub const FILE_VERSION_PAIRWISE: u32 = 5;
+pub const L1_QB: i32 = 64;
 
 /// 16 buckets, indexed by rank * 4 + file for the mirrored half (files a-d).
 /// Identical to `KING_BUCKET_LAYOUT` in train_v3.py.
@@ -105,6 +110,8 @@ pub struct NetMeta {
     pub hidden: usize,
     pub experts: usize,
     pub cuts: Vec<usize>,
+    /// Pairwise hidden stack widths (l1, l2); None for the linear head.
+    pub stack: Option<(usize, usize)>,
 }
 
 impl NetMeta {
@@ -116,7 +123,11 @@ impl NetMeta {
 
     pub fn to_text(&self) -> String {
         let cuts: Vec<String> = self.cuts.iter().map(|c| c.to_string()).collect();
-        format!("buckets={}\nhidden={}\nexperts={}\ncuts={}\n", self.buckets, self.hidden, self.experts, cuts.join(","))
+        let mut t = format!("buckets={}\nhidden={}\nexperts={}\ncuts={}\n", self.buckets, self.hidden, self.experts, cuts.join(","));
+        if let Some((l1, l2)) = self.stack {
+            t += &format!("pairwise_l1={l1}\npairwise_l2={l2}\n");
+        }
+        t
     }
 
     pub fn parse(text: &str) -> Option<Self> {
@@ -128,7 +139,11 @@ impl NetMeta {
         }
         let num = |k: &str| m.get(k).and_then(|v| v.parse().ok());
         let cuts = m.get("cuts").map(|v| parse_cuts(v)).unwrap_or_default();
-        Some(Self { buckets: num("buckets")?, hidden: num("hidden")?, experts: num("experts")?, cuts })
+        let stack = match (num("pairwise_l1"), num("pairwise_l2")) {
+            (Some(l1), Some(l2)) => Some((l1, l2)),
+            _ => None,
+        };
+        Some(Self { buckets: num("buckets")?, hidden: num("hidden")?, experts: num("experts")?, cuts, stack })
     }
 }
 
@@ -515,6 +530,22 @@ pub struct FloatNet {
     pub b1: Vec<f32>,
     pub w2: Vec<f32>,
     pub b2: Vec<f32>,
+    /// Pairwise hidden stack; w2/b2 (the unused linear head) are then zero.
+    pub stack: Option<PairwiseStack>,
+}
+
+/// Float weights of the pairwise hidden stack, in train_v3's layout:
+/// h1_w [8 * l1][hidden], h1_b [8 * l1], h2_w [8 * l2][l1], h2_b [8 * l2],
+/// h3_w [8][l2], h3_b [8].
+pub struct PairwiseStack {
+    pub l1: usize,
+    pub l2: usize,
+    pub h1_w: Vec<f32>,
+    pub h1_b: Vec<f32>,
+    pub h2_w: Vec<f32>,
+    pub h2_b: Vec<f32>,
+    pub h3_w: Vec<f32>,
+    pub h3_b: Vec<f32>,
 }
 
 impl FloatNet {
@@ -544,7 +575,65 @@ impl FloatNet {
             v
         };
         let (w1, b1, w2, b2) = (take(sizes[0]), take(sizes[1]), take(sizes[2]), take(sizes[3]));
-        Ok(Self { buckets, layout: layout(buckets), hidden, experts, expert_table, w1, b1, w2, b2 })
+        Ok(Self { buckets, layout: layout(buckets), hidden, experts, expert_table, w1, b1, w2, b2, stack: None })
+    }
+
+    /// Read a checkpoint's float `quantised.bin` for any shape in `meta`.
+    pub fn from_bullet_floats_meta(path: &Path, meta: &NetMeta) -> io::Result<Self> {
+        match meta.stack {
+            None => Self::from_bullet_floats_experts(path, meta.buckets, meta.hidden, meta.experts, meta.table()),
+            Some((l1, l2)) => {
+                if meta.experts != 1 {
+                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "a pairwise stack takes one expert"));
+                }
+                Self::from_bullet_floats_pairwise(path, meta.buckets, meta.hidden, l1, l2)
+            }
+        }
+    }
+
+    /// The pairwise save format: l0w (factoriser merged), l0b, then l1w, l1b,
+    /// l2w, l2b, l3w, l3b with each weight transposed to [out][in].
+    pub fn from_bullet_floats_pairwise(path: &Path, buckets: usize, hidden: usize, l1: usize, l2: usize) -> io::Result<Self> {
+        let raw = std::fs::read(path)?;
+        let nb = OUTPUT_BUCKETS;
+        let nf = buckets * 768;
+        let sizes = [nf * hidden, hidden, nb * l1 * hidden, nb * l1, nb * l2 * l1, nb * l2, nb * l2, nb];
+        let need: usize = sizes.iter().sum::<usize>() * 4;
+        if raw.len() < need || raw.len() - need >= 64 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{}: {} bytes, expected {} (+ <64 padding) for a pairwise {buckets} x {hidden} -> {l1} -> {l2} net", path.display(), raw.len(), need),
+            ));
+        }
+        let mut off = 0;
+        let mut take = |n: usize| {
+            let v: Vec<f32> = raw[off..off + 4 * n].chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
+            off += 4 * n;
+            v
+        };
+        let (w1, b1) = (take(sizes[0]), take(sizes[1]));
+        let stack = PairwiseStack {
+            l1,
+            l2,
+            h1_w: take(sizes[2]),
+            h1_b: take(sizes[3]),
+            h2_w: take(sizes[4]),
+            h2_b: take(sizes[5]),
+            h3_w: take(sizes[6]),
+            h3_b: take(sizes[7]),
+        };
+        Ok(Self {
+            buckets,
+            layout: layout(buckets),
+            hidden,
+            experts: 1,
+            expert_table: [0; 33],
+            w1,
+            b1,
+            w2: vec![0.0; nb * 2 * hidden],
+            b2: vec![0.0; nb],
+            stack: Some(stack),
+        })
     }
 
     /// Write PIENNQ03 file version 4 (precise head, the default) or 1 (i8
@@ -554,7 +643,13 @@ impl FloatNet {
     }
 
     pub fn write_piennq03_version(&self, path: &Path, version: u32) -> io::Result<()> {
-        if version != FILE_VERSION_SINGLE && version != FILE_VERSION_PRECISE {
+        if self.stack.is_some() != (version == FILE_VERSION_PAIRWISE) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "a pairwise stack is written as version 5, and only it"));
+        }
+        if version == FILE_VERSION_PAIRWISE && self.experts != 1 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "experts with a hidden stack are not supported"));
+        }
+        if version != FILE_VERSION_SINGLE && version != FILE_VERSION_PRECISE && version != FILE_VERSION_PAIRWISE {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("cannot write PIENNQ03 version {version}")));
         }
         let precise = version == FILE_VERSION_PRECISE;
@@ -601,6 +696,20 @@ impl FloatNet {
                 out.extend_from_slice(&(v as i32).to_le_bytes());
             }
         }
+        if let Some(st) = &self.stack {
+            // As train_v3.export: u32 l1, u32 l2, i8 h1_w (x L1_QB), then the
+            // f32 h1_b, h2_w, h2_b, h3_w, h3_b.
+            out.extend_from_slice(&(st.l1 as u32).to_le_bytes());
+            out.extend_from_slice(&(st.l2 as u32).to_le_bytes());
+            for &w in &st.h1_w {
+                out.push(round_even(w * L1_QB as f32).clamp(-128.0, 127.0) as i8 as u8);
+            }
+            for part in [&st.h1_b, &st.h2_w, &st.h2_b, &st.h3_w, &st.h3_b] {
+                for &v in part.iter() {
+                    out.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+        }
         let tmp = path.with_extension("tmp");
         File::create(&tmp)?.write_all(&out)?;
         std::fs::rename(tmp, path)
@@ -645,7 +754,9 @@ mod tests {
 
     #[test]
     fn net_meta_round_trips() {
-        let m = NetMeta { buckets: 16, hidden: 1024, experts: 4, cuts: vec![26, 17, 11] };
+        let m = NetMeta { buckets: 16, hidden: 1024, experts: 4, cuts: vec![26, 17, 11], stack: None };
+        assert_eq!(NetMeta::parse(&m.to_text()), Some(m));
+        let m = NetMeta { buckets: 16, hidden: 1024, experts: 1, cuts: vec![], stack: Some((16, 32)) };
         assert_eq!(NetMeta::parse(&m.to_text()), Some(m));
     }
 

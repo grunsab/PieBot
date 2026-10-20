@@ -76,7 +76,9 @@ fn mse<'a>(output: ModelNode<'a>, target: ModelNode<'a>) -> ModelNode<'a> {
 fn meta_from(a: &Args) -> NetMeta {
     let experts: usize = a.num("experts", "1");
     let cuts = if experts == 1 { Vec::new() } else { parse_cuts(&a.get("expert-cuts", "26,17,11")) };
-    let m = NetMeta { buckets: a.num("buckets", "16"), hidden: a.num("hidden", "1024"), experts, cuts };
+    let stack = a.flag("pairwise").then(|| (a.num("l1", "16"), a.num("l2", "32")));
+    assert!(stack.is_none() || experts == 1, "--pairwise takes one expert");
+    let m = NetMeta { buckets: a.num("buckets", "16"), hidden: a.num("hidden", "1024"), experts, cuts, stack };
     m.table(); // validate
     m
 }
@@ -86,7 +88,10 @@ fn meta_from(a: &Args) -> NetMeta {
 /// (one bucketed block, trained on every position) plus a per-expert delta
 /// `l0w` that starts at zero, plus the 768-input factoriser `l0f`, as
 /// train_v3.py --factorised. All three are folded into l0w on save.
-fn build(meta: &NetMeta, loss: &str, factoriser: bool) -> Trainer {
+fn build(meta: &NetMeta, loss: &str, factoriser: bool, act_l1: f32) -> Trainer {
+    if let Some((l1, l2)) = meta.stack {
+        return build_pairwise(meta, loss, factoriser, l1, l2, act_l1);
+    }
     let (buckets, hidden, experts) = (meta.buckets, meta.hidden, meta.experts);
     let lay = layout(buckets);
     let nb = num_buckets(&lay);
@@ -142,6 +147,76 @@ fn build(meta: &NetMeta, loss: &str, factoriser: bool) -> Trainer {
     // weights must fit i8 at QB = 64 (train_v3's W2_LIMIT = 127 / 64).
     let w2 = 127.0 / QB as f32;
     t.optimiser.set_params_for_weight("l1w", AdamWParams { max_weight: w2, min_weight: -w2, ..Default::default() });
+    t
+}
+
+fn loss_by_name(loss: &str) -> for<'a> fn(ModelNode<'a>, ModelNode<'a>) -> ModelNode<'a> {
+    match loss {
+        "bce" => bce,
+        "mse" => mse,
+        other => panic!("--loss must be bce or mse, not {other}"),
+    }
+}
+
+/// The pairwise hidden stack (file version 5), as train_v3.py --pairwise:
+/// per perspective x = crelu(a[..h/2]) * crelu(a[h/2..]), side to move
+/// first, then L1 (8 x l1, crelu) -> L2 (8 x l2, crelu) -> 1 (8 buckets),
+/// each layer's bucket chosen by piece count. `act_l1` adds train_v3's
+/// --act-l1 penalty, act_l1 * mean(x), to every position's loss.
+fn build_pairwise(meta: &NetMeta, loss: &str, factoriser: bool, l1: usize, l2: usize, act_l1: f32) -> Trainer {
+    let (buckets, hidden) = (meta.buckets, meta.hidden);
+    assert!(hidden % 2 == 0, "--pairwise needs an even --hidden");
+    let lay = layout(buckets);
+    let nb = num_buckets(&lay);
+    let save = vec![
+        SavedFormat::id("l0w").transform(move |store, w| {
+            if !factoriser {
+                return w;
+            }
+            let f = store.get("l0f").values.f32().repeat(nb);
+            w.into_iter().zip(f).map(|(a, b)| a + b).collect()
+        }),
+        SavedFormat::id("l0b"),
+        SavedFormat::id("l1w").transpose(),
+        SavedFormat::id("l1b"),
+        SavedFormat::id("l2w").transpose(),
+        SavedFormat::id("l2b"),
+        SavedFormat::id("l3w").transpose(),
+        SavedFormat::id("l3b"),
+    ];
+    let loss_fn = loss_by_name(loss);
+    let mut t = ValueTrainerBuilder::default()
+        .dual_perspective()
+        .optimiser(AdamW)
+        .inputs(ChessBucketsMirroredExperts::new(lay, 1, [0; 33]))
+        .output_buckets(MaterialCount::<OUTPUT_BUCKETS>)
+        .save_format(&save)
+        .build_custom(move |builder, (stm, ntm, out_buckets), targets| {
+            let mut l0 = builder.new_affine("l0", 768 * nb, hidden);
+            let l0f = builder.new_weights("l0f", Shape::new(hidden, 768), InitSettings::Zeroed);
+            l0.weights = l0.weights + l0f.repeat(nb);
+            let h1 = builder.new_affine("l1", hidden, OUTPUT_BUCKETS * l1);
+            let h2 = builder.new_affine("l2", l1, OUTPUT_BUCKETS * l2);
+            let h3 = builder.new_affine("l3", l2, OUTPUT_BUCKETS);
+            let half = |input, start, end| l0.slice(start, end).forward(input).crelu();
+            let pw = |input| half(input, 0, hidden / 2) * half(input, hidden / 2, hidden);
+            let x = pw(stm).concat(pw(ntm));
+            let y1 = h1.forward(x).select(out_buckets).crelu();
+            let y2 = h2.forward(y1).select(out_buckets).crelu();
+            let out = h3.forward(y2).select(out_buckets);
+            let mut loss = loss_fn(out, targets);
+            if act_l1 != 0.0 {
+                loss = loss + x.reduce_sum_rows() * (act_l1 / hidden as f32);
+            }
+            (out, loss)
+        });
+    // train_v3 clamps h1_w to the i8 grid (127 / L1_QB) and leaves L2/L3,
+    // which the engine keeps in f32, unclipped.
+    let w = 127.0 / L1_QB as f32;
+    t.optimiser.set_params_for_weight("l1w", AdamWParams { max_weight: w, min_weight: -w, ..Default::default() });
+    for id in ["l2w", "l2b", "l3w", "l3b", "l1b"] {
+        t.optimiser.set_params_for_weight(id, AdamWParams { max_weight: 1e6, min_weight: -1e6, ..Default::default() });
+    }
     t
 }
 
@@ -209,7 +284,7 @@ fn init_from(trainer: &mut Trainer, meta: &NetMeta, ckpt: &str) {
 
 fn train(a: &Args) {
     let meta = meta_from(a);
-    let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"));
+    let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"), a.num("act-l1", "0"));
     let out = a.get("out", "checkpoints");
     std::fs::create_dir_all(&out).unwrap();
     std::fs::write(Path::new(&out).join(NetMeta::FILE), meta.to_text()).unwrap();
@@ -260,7 +335,7 @@ fn train(a: &Args) {
 /// The net's shape for a checkpoint file: `piebot_net.txt` from the run
 /// directory (the checkpoint's parent) when present, else the command line.
 fn meta_for_checkpoint(a: &Args, file: &Path) -> NetMeta {
-    let explicit = ["buckets", "hidden", "experts", "expert-cuts"].iter().any(|k| a.flag(k));
+    let explicit = ["buckets", "hidden", "experts", "expert-cuts", "pairwise", "l1", "l2"].iter().any(|k| a.flag(k));
     let saved = file
         .parent()
         .and_then(|ck| ck.parent())
@@ -276,15 +351,19 @@ fn export(a: &Args) {
     let input = a.get("input", "");
     let output = a.get("output", "");
     let m = meta_for_checkpoint(a, Path::new(&input));
-    let net = FloatNet::from_bullet_floats_experts(Path::new(&input), m.buckets, m.hidden, m.experts, m.table())
-        .unwrap_or_else(|e| panic!("{e}"));
-    net.write_piennq03_version(Path::new(&output), a.num("file-version", "4")).unwrap();
+    let net = FloatNet::from_bullet_floats_meta(Path::new(&input), &m).unwrap_or_else(|e| panic!("{e}"));
+    net.write_piennq03_version(Path::new(&output), a.num("file-version", default_version(&m))).unwrap();
     println!("wrote {output}");
+}
+
+/// Version 5 for a pairwise stack, else 4 (precise linear head).
+fn default_version(m: &NetMeta) -> &'static str {
+    if m.stack.is_some() { "5" } else { "4" }
 }
 
 fn evalfens(a: &Args) {
     let meta = meta_from(a);
-    let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"));
+    let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"), 0.0);
     if let Some(ckpt) = a.0.get("checkpoint").and_then(|v| v.first()) {
         trainer.load_from_checkpoint(ckpt);
     } else if let Some(ckpt) = a.0.get("init-from").and_then(|v| v.first()) {
@@ -294,9 +373,9 @@ fn evalfens(a: &Args) {
     if let Some(save) = a.0.get("save").and_then(|v| v.first()) {
         let tmp = format!("{save}.floats");
         trainer.save_quantised(&tmp).unwrap();
-        FloatNet::from_bullet_floats_experts(Path::new(&tmp), meta.buckets, meta.hidden, meta.experts, meta.table())
+        FloatNet::from_bullet_floats_meta(Path::new(&tmp), &meta)
             .unwrap()
-            .write_piennq03_version(Path::new(save), a.num("file-version", "4"))
+            .write_piennq03_version(Path::new(save), a.num("file-version", default_version(&meta)))
             .unwrap();
         std::fs::remove_file(tmp).ok();
     }
