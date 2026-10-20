@@ -159,6 +159,21 @@ Against full-strength Stockfish 19 (60+0.5, 280 games, Syzygy, `Contempt 40`)
 the final net scored 0 / 92 / 188, 32.9% win or draw, against 19.3% for the
 arch-v2 net under the same conditions (Elo −282.6 [−313.8, −254.8]).
 
+Variants played against `v3_lc0t91_b16` with the same binary, 10+0.1
+(`evidence/nnue_v3_20261019/`):
+
+| Variant | Games | W / D / L | Elo [95% CI] |
+| :--- | ---: | :---: | :--- |
+| 32 king buckets, same data and schedule | 1000 | 153 / 676 / 171 | −6.3 [−18.7, +6.2] |
+| 4 material experts trained as independent weight sets | 400 | 49 / 233 / 118 | −60.5 [−82.7, −38.8] |
+| Same net, file version 4 (precise output weights) | 1000 | 142 / 711 / 147 | −1.7 [−12.5, +9.1] |
+
+The independent experts each learn from about a quarter of the data;
+Consilium trains a shared base plus zero-initialised per-expert deltas
+instead, which `train_v3.py --factorised` now implements. File version 4
+cuts the quantisation error from 24 cp to 4 cp SD without a measurable
+change in strength.
+
 Hold-out loss reached 0.6013 at 2.75B positions. Checkpoints after about
 1.25B positions are within noise of each other at 200 games.
 
