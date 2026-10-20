@@ -167,10 +167,17 @@ Variants played against `v3_lc0t91_b16` with the same binary, 10+0.1
 | 32 king buckets, same data and schedule | 1000 | 153 / 676 / 171 | −6.3 [−18.7, +6.2] |
 | 4 material experts trained as independent weight sets | 400 | 49 / 233 / 118 | −60.5 [−82.7, −38.8] |
 | Same net, file version 4 (precise output weights) | 1000 | 142 / 711 / 147 | −1.7 [−12.5, +9.1] |
+| Plain fine-tune, 1.5B more positions on the same data | 400 | 57 / 280 / 63 | −5.2 [−23.6, +13.2] |
+| Factorised experts (cuts 26/17/11), same fine-tune, vs that plain fine-tune | 600 | 69 / 422 / 109 | −23.2 [−38.2, −8.3] |
 
 The independent experts each learn from about a quarter of the data;
 Consilium trains a shared base plus zero-initialised per-expert deltas
-instead, which `train_v3.py --factorised` now implements. File version 4
+instead, which `train_v3.py --factorised` now implements. Started from the trained net and fine-tuned on
+the same 725M positions, the factorised experts still lost to an
+identical fine-tune without experts, and neither fine-tune beat its
+starting point: with this little data, more capacity does not pay.
+Triumviratus' experts needed hundreds of billions of positions to reach
+parity with a single-set net. File version 4
 cuts the quantisation error from 24 cp to 4 cp SD without a measurable
 change in strength.
 
