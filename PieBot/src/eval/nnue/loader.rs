@@ -66,11 +66,14 @@ pub struct QuantNnueV3 {
 
 /// Per output bucket: `2h -> l1` in int8 (inputs `(clamp(acc)^2) >> 8`,
 /// weights x64), then `l1 -> l2 -> 1` in f32 with clamp(0, 1) activations.
+/// File version 5 (`pairwise`): the first layer reads `h` inputs, for each
+/// perspective `(clamp(a[i]) * clamp(a[i + h/2])) >> 8` for `i < h/2`.
 #[derive(Debug, Clone)]
 pub struct HiddenStackV3 {
     pub l1: usize,
     pub l2: usize,
-    /// `[bucket][l1][2 * hidden]`
+    pub pairwise: bool,
+    /// `[bucket][l1][n_in]`, `n_in` = `2 * hidden` (or `hidden` if pairwise)
     pub h1_w: Vec<i8>,
     /// The same weights block-major, `[bucket][2 * hidden / 4][l1][4]`, for
     /// the sparse first layer (see `sparse_l1`).
@@ -78,6 +81,9 @@ pub struct HiddenStackV3 {
     pub h1_b: Vec<f32>,
     /// `[bucket][l2][l1]`
     pub h2_w: Vec<f32>,
+    /// The same weights `[bucket][l1][l2]`, so the engine's L2 loop runs
+    /// across outputs (vectorisable) in the same per-output summation order.
+    pub h2_w_t: Vec<f32>,
     pub h2_b: Vec<f32>,
     /// `[bucket][l2]`
     pub h3_w: Vec<f32>,
@@ -226,7 +232,9 @@ impl QuantNnue {
         // i16 w1[n_king_buckets * 768 * hidden] (feature-major), i16 b1[hidden],
         // i8 w2[n_output_buckets * 2 * hidden], i32 b2[n_output_buckets]
         // Version 3 adds u32 n_experts + u8 expert_of_pieces[33] after the
-        // layout; version 2 appends a hidden stack; version 4 has the experts
+        // layout; version 2 appends a hidden stack (version 5: the same, fed
+        // by the pairwise product of each accumulator's halves, so h1_w is
+        // [nb][l1][hidden]); version 4 has the experts
         // fields and stores i16 w2 and i64 b2 (a precise linear head).
         fn u32le<R: Read>(r: &mut R, what: &str) -> Result<u32> {
             let mut b = [0u8; 4];
@@ -251,7 +259,7 @@ impl QuantNnue {
         let qa = u32le(r, "qa")? as i32;
         let qb = u32le(r, "qb")? as i32;
         let scale = u32le(r, "scale")? as i32;
-        if !(1..=4).contains(&version) {
+        if !(1..=5).contains(&version) {
             bail!("unsupported PIENNQ03 version {version}");
         }
         if n_king_buckets == 0 || n_king_buckets > 32 || hidden_dim == 0 || hidden_dim > 8192 {
@@ -298,14 +306,19 @@ impl QuantNnue {
                 .collect();
             (w2, Vec::new(), 0, b2)
         };
-        let hidden_stack = if version == 2 {
+        let hidden_stack = if version == 2 || version == 5 {
+            let pairwise = version == 5;
+            if pairwise && hidden_dim % 8 != 0 {
+                bail!("v3 pairwise hidden stack needs a width divisible by 8, got {hidden_dim}");
+            }
+            let n_in = if pairwise { hidden_dim } else { 2 * hidden_dim };
             let l1 = u32le(r, "l1")? as usize;
             let l2 = u32le(r, "l2")? as usize;
             if l1 == 0 || l1 > 256 || l2 == 0 || l2 > 256 {
                 bail!("invalid v3 hidden stack {l1}x{l2}");
             }
             let nb = n_output_buckets;
-            let mut hw = vec![0u8; nb * l1 * 2 * hidden_dim];
+            let mut hw = vec![0u8; nb * l1 * n_in];
             r.read_exact(&mut hw).context("read v3 h1_w")?;
             let read_f32 = |r: &mut R, n: usize, what: &str| -> Result<Vec<f32>> {
                 let mut b = vec![0u8; n * 4];
@@ -313,14 +326,29 @@ impl QuantNnue {
                 Ok(b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
             };
             let h1_w: Vec<i8> = hw.into_iter().map(|b| b as i8).collect();
-            let h1_w_blk = crate::eval::nnue::sparse_l1::block_major(&h1_w, nb, l1, 2 * hidden_dim);
+            let h1_w_blk = crate::eval::nnue::sparse_l1::block_major(&h1_w, nb, l1, n_in);
+            let h1_b = read_f32(r, nb * l1, "h1_b")?;
+            let h2_w = read_f32(r, nb * l2 * l1, "h2_w")?;
             Some(HiddenStackV3 {
                 l1,
                 l2,
+                pairwise,
                 h1_w,
                 h1_w_blk,
-                h1_b: read_f32(r, nb * l1, "h1_b")?,
-                h2_w: read_f32(r, nb * l2 * l1, "h2_w")?,
+                h1_b,
+                h2_w_t: {
+                    let w = &h2_w;
+                    let mut t = vec![0f32; w.len()];
+                    for b in 0..nb {
+                        for j in 0..l2 {
+                            for k in 0..l1 {
+                                t[(b * l1 + k) * l2 + j] = w[(b * l2 + j) * l1 + k];
+                            }
+                        }
+                    }
+                    t
+                },
+                h2_w,
                 h2_b: read_f32(r, nb * l2, "h2_b")?,
                 h3_w: read_f32(r, nb * l2, "h3_w")?,
                 h3_b: read_f32(r, nb, "h3_b")?,

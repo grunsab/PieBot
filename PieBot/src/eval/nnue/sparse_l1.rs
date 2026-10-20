@@ -102,6 +102,88 @@ unsafe fn activate_avx512(acc: &[i16], qa: i32, x: &mut [u8]) {
     }
 }
 
+/// Pairwise activation to u8 (file version 5), side to move first: for each
+/// perspective `acc` of width `h`, `x[i] = (clamp(acc[i]) * clamp(acc[i + h/2])) >> 8`
+/// for `i < h/2`, so `x` holds `h` values. `qa` must be at most 255.
+pub fn activate_pairwise(first: &[i16], second: &[i16], qa: i32, x: &mut [u8]) {
+    let h = first.len();
+    let half = h / 2;
+    debug_assert!(qa <= 255 && h % 2 == 0 && second.len() == h && x.len() >= h);
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    {
+        if half % 32 == 0 {
+            unsafe {
+                pairwise_avx512(first, qa, &mut x[..half]);
+                pairwise_avx512(second, qa, &mut x[half..h]);
+            }
+            return;
+        }
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if half % 32 == 0 && is_x86_feature_detected!("avx2") {
+            unsafe {
+                pairwise_avx2(first, qa, &mut x[..half]);
+                pairwise_avx2(second, qa, &mut x[half..h]);
+            }
+            return;
+        }
+    }
+    pairwise_scalar(first, qa, &mut x[..half]);
+    pairwise_scalar(second, qa, &mut x[half..h]);
+}
+
+fn pairwise_scalar(acc: &[i16], qa: i32, x: &mut [u8]) {
+    let q = qa as i16;
+    let half = acc.len() / 2;
+    for (i, d) in x.iter_mut().enumerate().take(half) {
+        let a = acc[i].clamp(0, q) as u32;
+        let b = acc[i + half].clamp(0, q) as u32;
+        *d = ((a * b) >> 8) as u8;
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn pairwise_avx2(acc: &[i16], qa: i32, x: &mut [u8]) {
+    use std::arch::x86_64::*;
+    let zero = _mm256_setzero_si256();
+    let q = _mm256_set1_epi16(qa as i16);
+    let half = acc.len() / 2;
+    let ap = acc.as_ptr();
+    let bp = acc.as_ptr().add(half);
+    let xp = x.as_mut_ptr();
+    for i in 0..half / 32 {
+        let load = |p: *const i16, o: usize| {
+            let v = _mm256_loadu_si256(p.add(o) as *const __m256i);
+            _mm256_min_epi16(_mm256_max_epi16(v, zero), q)
+        };
+        // a * b <= 255 * 255 < 2^16: the low 16 bits are the exact product.
+        let p0 = _mm256_srli_epi16(_mm256_mullo_epi16(load(ap, i * 32), load(bp, i * 32)), 8);
+        let p1 = _mm256_srli_epi16(_mm256_mullo_epi16(load(ap, i * 32 + 16), load(bp, i * 32 + 16)), 8);
+        let p = _mm256_permute4x64_epi64(_mm256_packus_epi16(p0, p1), 0xD8);
+        _mm256_storeu_si256(xp.add(i * 32) as *mut __m256i, p);
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[inline]
+unsafe fn pairwise_avx512(acc: &[i16], qa: i32, x: &mut [u8]) {
+    use std::arch::x86_64::*;
+    let zero = _mm512_setzero_si512();
+    let q = _mm512_set1_epi16(qa as i16);
+    let half = acc.len() / 2;
+    let ap = acc.as_ptr();
+    let bp = acc.as_ptr().add(half);
+    let xp = x.as_mut_ptr();
+    for i in 0..half / 32 {
+        let a = _mm512_min_epi16(_mm512_max_epi16(_mm512_loadu_si512(ap.add(i * 32) as *const _), zero), q);
+        let b = _mm512_min_epi16(_mm512_max_epi16(_mm512_loadu_si512(bp.add(i * 32) as *const _), zero), q);
+        let p = _mm512_srli_epi16(_mm512_mullo_epi16(a, b), 8);
+        _mm256_storeu_si256(xp.add(i * 32) as *mut __m256i, _mm512_cvtepi16_epi8(p));
+    }
+}
+
 /// Dense reference: `out[j] = sum_k x[k] * w[j][k]` over row-major weights.
 pub fn dense_ref(x: &[u8], w_rows: &[i8], l1: usize, out: &mut [i32]) {
     let n = x.len();
@@ -190,16 +272,19 @@ unsafe fn vnni(x: &[u8], w_blk: &[i8], l1: usize, out: &mut [i32]) {
     }
     // List the non-zero blocks. Compress in a register, then store: a
     // compressing store to memory is microcoded and very slow on Zen 4.
-    let mut idx = [0u32; 2048 + 16];
+    // Uninitialised: zero-filling 8 KB on every call cost more than the
+    // sparse product itself. Only the first `n` entries are ever read.
+    let mut idx_buf = std::mem::MaybeUninit::<[u32; 2048 + 16]>::uninit();
+    let idx_ptr = idx_buf.as_mut_ptr() as *mut u32;
     let mut n = 0usize;
     let step = _mm512_set1_epi32(16);
     let mut lanes = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
     for &m in masks.iter().take(blocks / 16) {
-        _mm512_storeu_si512(idx.as_mut_ptr().add(n) as *mut _, _mm512_maskz_compress_epi32(m, lanes));
+        _mm512_storeu_si512(idx_ptr.add(n) as *mut _, _mm512_maskz_compress_epi32(m, lanes));
         n += m.count_ones() as usize;
         lanes = _mm512_add_epi32(lanes, step);
     }
-    let idx = &idx[..n];
+    let idx = std::slice::from_raw_parts(idx_ptr, n);
     for c in 0..l1 / 16 {
         let woff = c * 64;
         let mut a = [_mm512_setzero_si512(); 4];

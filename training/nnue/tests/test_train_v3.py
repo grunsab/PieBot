@@ -294,3 +294,68 @@ class V3PreciseHeadTests(unittest.TestCase):
             p = Path(d) / "n.nnue"
             tv3.export(model, p, 16)
             self.assertEqual(tv3.load_quant(p)["version"], 4)
+
+
+@unittest.skipIf(torch is None, "torch/chess not installed")
+class V3PairwiseTests(unittest.TestCase):
+    """File version 5: hidden stack fed by a pairwise-multiplied accumulator."""
+
+    def records(self, boards):
+        import lc0_to_v3bin as conv
+        arr = np.zeros(len(boards), dtype=conv.V3_DTYPE)
+        for i, b in enumerate(boards):
+            occ, pcs = conv.encode_board(b)
+            arr[i]["occ"], arr[i]["pcs"], arr[i]["stm"] = occ, np.frombuffer(pcs, dtype=np.uint8), 0 if b.turn else 1
+        return arr
+
+    def test_pairwise_halves_the_first_layer_input(self):
+        import train_v3 as tv3
+        model = tv3.build_model(32, 16, 32, pairwise=True)
+        self.assertEqual(tuple(model.h1_w.shape), (8 * 16, 32))
+
+    def test_pairwise_activation_is_the_product_of_the_two_halves(self):
+        import train_v3 as tv3
+        torch.manual_seed(3)
+        model = tv3.build_model(8, 4, 4, pairwise=True)
+        acc = torch.tensor([[-0.5, 0.2, 1.5, 0.9, 0.5, 0.5, 0.3, 2.0]])
+        x = model.pairwise_act(acc)
+        want = torch.tensor([[0.0, 0.1, 0.3, 0.9]])
+        self.assertTrue(torch.allclose(x, want), x)
+
+    def test_pairwise_forward_keeps_its_activations_for_a_sparsity_penalty(self):
+        import train_v3 as tv3
+        torch.manual_seed(4)
+        model = tv3.build_model(32, 16, 32, pairwise=True)
+        boards = random_boards(8, seed=3)
+        arr = self.records(boards)
+        ia, ib, bk = tv3.gpu_features(arr["occ"], arr["pcs"], arr["stm"], torch.device("cpu"))
+        model(ia, ib, bk)
+        self.assertEqual(tuple(model.last_act.shape), (8, 32))
+        pen = tv3.activation_penalty(model)
+        self.assertAlmostEqual(pen.item(), model.last_act.mean().item(), places=6)
+        pen.backward()
+        self.assertIsNotNone(model.ft.grad)
+
+    def test_pairwise_export_tracks_the_float_model(self):
+        import train_v3 as tv3
+        torch.manual_seed(78)
+        model = tv3.build_model(32, 16, 32, pairwise=True)
+        with torch.no_grad():
+            model.h1_w.mul_(8.0)
+            model.h1_b.uniform_(0.0, 0.5)
+            model.h2_b.uniform_(0.0, 0.5)
+        boards = random_boards(80, seed=19)
+        arr = self.records(boards)
+        ia, ib, bk = tv3.gpu_features(arr["occ"], arr["pcs"], arr["stm"], torch.device("cpu"))
+        with torch.no_grad():
+            want = (model(ia, ib, bk) * tv3.EVAL_SCALE).numpy()
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "pw.nnue"
+            tv3.export(model, p, 32)
+            net = tv3.load_quant(p)
+        self.assertEqual(net["version"], tv3.FILE_VERSION_PAIRWISE)
+        self.assertTrue(net["pairwise"])
+        self.assertEqual(net["h1_w"].shape, (8, 16, 32))
+        got = np.array([tv3.quant_eval_fen(net, b.fen()) for b in boards])
+        self.assertLess(np.mean(np.abs(got - want)), 3.0)
+        self.assertLess(np.max(np.abs(got - want)), 12.0)

@@ -75,7 +75,11 @@ fn play_random_games(lazy: bool) {
 }
 
 fn play_random_games_with(lazy: bool, experts: usize) {
-    let mut net = QuantNetwork::new(random_v3_experts(32, 0xabc0_ffee, experts));
+    play_random_games_on(random_v3_experts(32, 0xabc0_ffee, experts), lazy);
+}
+
+fn play_random_games_on(model: QuantNnue, lazy: bool) {
+    let mut net = QuantNetwork::new(model);
     net.set_lazy(lazy);
     let mut seed = if lazy { 99 } else { 7 };
     for game in 0..30 {
@@ -264,5 +268,56 @@ fn split_head_kernel_equals_its_scalar_reference() {
         let lo = vec![63i8; len];
         let (fast, slow) = piebot::eval::nnue::network_v3::split_dot_for_tests(&acc, &hi, &lo, 255);
         assert_eq!(fast, slow, "saturated len {len}");
+    }
+}
+
+fn pairwise_fixture() -> QuantNnue {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    QuantNnue::load_quantized(dir.join("v3pw_fixture.nnue")).expect("load PIENNQ03 v5 fixture")
+}
+
+#[test]
+fn pairwise_hidden_stack_matches_the_python_reference_fixture() {
+    // The f32 layers can round differently from numpy by one centipawn.
+    let model = pairwise_fixture();
+    let hs = model.v3.as_ref().unwrap().hidden_stack.as_ref().expect("hidden stack");
+    assert!(hs.pairwise);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let cases: Vec<(String, i32)> =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("v3pw_fixture_evals.json")).unwrap()).unwrap();
+    let net = QuantNetwork::new(model);
+    let mut exact = 0;
+    for (fen, want_stm) in &cases {
+        let b = Board::from_fen(fen, false).unwrap();
+        let white = net.eval_full(&b);
+        let stm = if b.side_to_move() == cozy_chess::Color::White { white } else { -white };
+        assert!((stm - want_stm).abs() <= 1, "{fen}: engine {stm} python {want_stm}");
+        exact += (stm == *want_stm) as usize;
+    }
+    assert!(exact * 10 >= cases.len() * 9, "only {exact}/{} exact", cases.len());
+}
+
+#[test]
+fn incremental_pairwise_matches_full_recompute() {
+    play_random_games_on(pairwise_fixture(), false);
+    play_random_games_on(pairwise_fixture(), true);
+}
+
+#[test]
+fn simd_pairwise_activation_matches_the_scalar_formula() {
+    use piebot::eval::nnue::sparse_l1;
+    let mut s = 91u64;
+    for h in [64usize, 1024, 48] {
+        let a: Vec<i16> = (0..2 * h).map(|_| (lcg(&mut s) % 1200) as i16 - 600).collect();
+        let mut x = vec![0u8; h];
+        sparse_l1::activate_pairwise(&a[..h], &a[h..], 255, &mut x);
+        let half = h / 2;
+        for (p, acc) in [&a[..h], &a[h..]].iter().enumerate() {
+            for i in 0..half {
+                let c0 = (acc[i] as i32).clamp(0, 255);
+                let c1 = (acc[i + half] as i32).clamp(0, 255);
+                assert_eq!(x[p * half + i] as i32, (c0 * c1) >> 8, "h={h} p={p} i={i}");
+            }
+        }
     }
 }

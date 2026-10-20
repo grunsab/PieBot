@@ -354,29 +354,64 @@ impl V3State {
         scale: i32,
     ) -> i32 {
         let (first, second) = if stm == Color::White { (white, black) } else { (black, white) };
-        // u8 activations, side to move first: (clamp(acc, 0, QA))^2 >> 8.
-        let n = 2 * h;
-        let mut xbuf = [0u8; 4096];
-        let x = &mut xbuf[..n];
-        sparse_l1::activate(first, second, qa, x);
+        // u8 activations, side to move first: (clamp(acc, 0, QA))^2 >> 8, or
+        // for a pairwise stack the product of each accumulator's halves >> 8.
+        let n = if hs.pairwise { h } else { 2 * h };
+        // Scratch buffers are left uninitialised: zero-filling them on every
+        // evaluation cost as much as the sparse first layer. Each is fully
+        // written (activate: all n bytes; product: all l1 outputs) before it
+        // is read.
+        let mut xbuf = std::mem::MaybeUninit::<[u8; 4096]>::uninit();
+        let x = unsafe { std::slice::from_raw_parts_mut(xbuf.as_mut_ptr() as *mut u8, n) };
+        if hs.pairwise {
+            sparse_l1::activate_pairwise(first, second, qa, x);
+        } else {
+            sparse_l1::activate(first, second, qa, x);
+        }
         let l1 = hs.l1;
         let l2 = hs.l2;
-        let mut acc1 = [0i32; 256];
-        sparse_l1::product(x, &hs.h1_w_blk[bucket * l1 * n..(bucket + 1) * l1 * n], l1, &mut acc1);
-        let mut y1 = [0f32; 256];
+        let mut acc1_buf = std::mem::MaybeUninit::<[i32; 256]>::uninit();
+        let acc1 = unsafe { std::slice::from_raw_parts_mut(acc1_buf.as_mut_ptr() as *mut i32, 256) };
+        sparse_l1::product(x, &hs.h1_w_blk[bucket * l1 * n..(bucket + 1) * l1 * n], l1, acc1);
+        let mut y1 = [0f32; 64];
+        let mut y1_big = Vec::new();
+        let y1: &mut [f32] = if l1 <= 64 {
+            &mut y1[..]
+        } else {
+            y1_big.resize(l1, 0.0);
+            &mut y1_big[..]
+        };
         for j in 0..l1 {
             let v = acc1[j] as f32 / (254.0 * 64.0) + hs.h1_b[bucket * l1 + j];
             y1[j] = v.clamp(0.0, 1.0);
         }
-        let w2 = &hs.h2_w[bucket * l2 * l1..(bucket + 1) * l2 * l1];
-        let mut out = 0f32;
-        for j in 0..l2 {
-            let mut v = hs.h2_b[bucket * l2 + j];
-            for k in 0..l1 {
-                v += w2[j * l1 + k] * y1[k];
+        // k outer, j inner: each output still sums bias, then k = 0..l1 in
+        // order (bit-identical to the row-wise loop), but the inner loop is
+        // independent across outputs and vectorises.
+        let wt = &hs.h2_w_t[bucket * l1 * l2..(bucket + 1) * l1 * l2];
+        let mut v_small = [0f32; 64];
+        let mut v_big = Vec::new();
+        let v: &mut [f32] = if l2 <= 64 {
+            &mut v_small[..l2]
+        } else {
+            v_big.resize(l2, 0.0);
+            &mut v_big[..]
+        };
+        v.copy_from_slice(&hs.h2_b[bucket * l2..(bucket + 1) * l2]);
+        for k in 0..l1 {
+            let yk = y1[k];
+            for (vj, &w) in v.iter_mut().zip(&wt[k * l2..(k + 1) * l2]) {
+                *vj += w * yk;
             }
-            out += hs.h3_w[bucket * l2 + j] * v.clamp(0.0, 1.0);
         }
+        // Eight partial sums break the serial add chain (numpy's dot also
+        // sums out of order; the fixtures allow 1 cp).
+        let h3 = &hs.h3_w[bucket * l2..(bucket + 1) * l2];
+        let mut part = [0f32; 8];
+        for (j, (&vj, &w)) in v.iter().zip(h3).enumerate() {
+            part[j % 8] += w * vj.clamp(0.0, 1.0);
+        }
+        let mut out = part.iter().sum::<f32>();
         out += hs.h3_b[bucket];
         (out * scale as f32) as i32
     }
