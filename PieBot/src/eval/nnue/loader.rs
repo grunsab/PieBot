@@ -27,6 +27,9 @@ pub struct QuantNnue {
     pub v3: Option<std::sync::Arc<QuantNnueV3>>,
 }
 
+/// Version-4 output weights are split as `hi = w >> 6` (i8) and `lo = w & 63`.
+pub const W2_SPLIT_SHIFT: u32 = 6;
+
 /// Arch-v3 model (`training/nnue/train_v3.py`): king-bucketed, horizontally
 /// mirrored inputs (kings included), shared feature transformer, SCReLU,
 /// output heads chosen by piece count.
@@ -49,8 +52,14 @@ pub struct QuantNnueV3 {
     pub w1: Vec<i16>,
     pub b1: Vec<i16>,
     /// Per output bucket, `2 * hidden` weights, side-to-move half first.
+    /// File version 4 stores i16 weights; they are split at load time into
+    /// `w2` = `w >> w2_shift` and `w2_lo` = `w & ((1 << w2_shift) - 1)`, so
+    /// the head is `(dot(w2) << w2_shift) + dot(w2_lo)` with the i8 kernels.
+    /// Versions 1-3: `w2_shift` 0 and `w2_lo` empty.
     pub w2: Vec<i8>,
-    pub b2: Vec<i32>,
+    pub w2_lo: Vec<i8>,
+    pub w2_shift: u32,
+    pub b2: Vec<i64>,
     /// File version 2: a hidden stack replaces the linear head.
     pub hidden_stack: Option<HiddenStackV3>,
 }
@@ -63,6 +72,9 @@ pub struct HiddenStackV3 {
     pub l2: usize,
     /// `[bucket][l1][2 * hidden]`
     pub h1_w: Vec<i8>,
+    /// The same weights block-major, `[bucket][2 * hidden / 4][l1][4]`, for
+    /// the sparse first layer (see `sparse_l1`).
+    pub h1_w_blk: Vec<i8>,
     pub h1_b: Vec<f32>,
     /// `[bucket][l2][l1]`
     pub h2_w: Vec<f32>,
@@ -213,6 +225,9 @@ impl QuantNnue {
         // u32 hidden_dim, u32 n_output_buckets, i32 qa, i32 qb, i32 scale,
         // i16 w1[n_king_buckets * 768 * hidden] (feature-major), i16 b1[hidden],
         // i8 w2[n_output_buckets * 2 * hidden], i32 b2[n_output_buckets]
+        // Version 3 adds u32 n_experts + u8 expert_of_pieces[33] after the
+        // layout; version 2 appends a hidden stack; version 4 has the experts
+        // fields and stores i16 w2 and i64 b2 (a precise linear head).
         fn u32le<R: Read>(r: &mut R, what: &str) -> Result<u32> {
             let mut b = [0u8; 4];
             r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
@@ -224,7 +239,7 @@ impl QuantNnue {
         r.read_exact(&mut king_bucket_layout).context("read v3 bucket layout")?;
         let mut n_experts = 1usize;
         let mut expert_of_pieces = [0u8; 33];
-        if version == 3 {
+        if version == 3 || version == 4 {
             n_experts = u32le(r, "n_experts")? as usize;
             r.read_exact(&mut expert_of_pieces).context("read v3 expert table")?;
             if n_experts == 0 || n_experts > 8 || expert_of_pieces.iter().any(|&e| e as usize >= n_experts) {
@@ -236,7 +251,7 @@ impl QuantNnue {
         let qa = u32le(r, "qa")? as i32;
         let qb = u32le(r, "qb")? as i32;
         let scale = u32le(r, "scale")? as i32;
-        if !(1..=3).contains(&version) {
+        if !(1..=4).contains(&version) {
             bail!("unsupported PIENNQ03 version {version}");
         }
         if n_king_buckets == 0 || n_king_buckets > 32 || hidden_dim == 0 || hidden_dim > 8192 {
@@ -259,15 +274,30 @@ impl QuantNnue {
         };
         let w1 = read_i16(r, n_features * hidden_dim, "w1")?;
         let b1 = read_i16(r, hidden_dim, "b1")?;
-        let mut w2b = vec![0u8; n_output_buckets * 2 * hidden_dim];
-        r.read_exact(&mut w2b).context("read v3 w2")?;
-        let w2: Vec<i8> = w2b.into_iter().map(|b| b as i8).collect();
-        let mut b2b = vec![0u8; n_output_buckets * 4];
-        r.read_exact(&mut b2b).context("read v3 b2")?;
-        let b2: Vec<i32> = b2b
-            .chunks_exact(4)
-            .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect();
+        let n_w2 = n_output_buckets * 2 * hidden_dim;
+        let (w2, w2_lo, w2_shift, b2) = if version == 4 {
+            let wide = read_i16(r, n_w2, "w2")?;
+            if wide.iter().any(|&w| !(-8192..=8191).contains(&w)) {
+                bail!("v3 version 4 output weight outside [-8192, 8191]");
+            }
+            let hi = wide.iter().map(|&w| (w >> W2_SPLIT_SHIFT) as i8).collect();
+            let lo = wide.iter().map(|&w| (w & ((1 << W2_SPLIT_SHIFT) - 1)) as i8).collect();
+            let mut b2b = vec![0u8; n_output_buckets * 8];
+            r.read_exact(&mut b2b).context("read v3 b2")?;
+            let b2 = b2b.chunks_exact(8).map(|c| i64::from_le_bytes(c.try_into().unwrap())).collect();
+            (hi, lo, W2_SPLIT_SHIFT, b2)
+        } else {
+            let mut w2b = vec![0u8; n_w2];
+            r.read_exact(&mut w2b).context("read v3 w2")?;
+            let w2: Vec<i8> = w2b.into_iter().map(|b| b as i8).collect();
+            let mut b2b = vec![0u8; n_output_buckets * 4];
+            r.read_exact(&mut b2b).context("read v3 b2")?;
+            let b2 = b2b
+                .chunks_exact(4)
+                .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as i64)
+                .collect();
+            (w2, Vec::new(), 0, b2)
+        };
         let hidden_stack = if version == 2 {
             let l1 = u32le(r, "l1")? as usize;
             let l2 = u32le(r, "l2")? as usize;
@@ -282,10 +312,13 @@ impl QuantNnue {
                 r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
                 Ok(b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
             };
+            let h1_w: Vec<i8> = hw.into_iter().map(|b| b as i8).collect();
+            let h1_w_blk = crate::eval::nnue::sparse_l1::block_major(&h1_w, nb, l1, 2 * hidden_dim);
             Some(HiddenStackV3 {
                 l1,
                 l2,
-                h1_w: hw.into_iter().map(|b| b as i8).collect(),
+                h1_w,
+                h1_w_blk,
                 h1_b: read_f32(r, nb * l1, "h1_b")?,
                 h2_w: read_f32(r, nb * l2 * l1, "h2_w")?,
                 h2_b: read_f32(r, nb * l2, "h2_b")?,
@@ -326,6 +359,8 @@ impl QuantNnue {
                 w1,
                 b1,
                 w2,
+                w2_lo,
+                w2_shift,
                 b2,
                 hidden_stack,
             })),

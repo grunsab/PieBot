@@ -39,7 +39,7 @@ fn random_v3_experts(hidden: usize, seed: u64, experts: usize) -> QuantNnue {
     let w1 = (0..nf * hidden).map(|_| (lcg(&mut s) % 61) as i16 - 30).collect();
     let b1 = (0..hidden).map(|_| (lcg(&mut s) % 41) as i16 - 20).collect();
     let w2 = (0..8 * 2 * hidden).map(|_| (lcg(&mut s) % 121) as i8 - 60).collect();
-    let b2 = (0..8).map(|_| (lcg(&mut s) % 2001) as i32 - 1000).collect();
+    let b2 = (0..8).map(|_| (lcg(&mut s) % 2001) as i64 - 1000).collect();
     QuantNnue {
         meta: QuantMeta { version: 1, input_dim: nf, hidden_dim: hidden, output_dim: 1 },
         w1_scale: 1.0,
@@ -62,6 +62,8 @@ fn random_v3_experts(hidden: usize, seed: u64, experts: usize) -> QuantNnue {
             w1,
             b1,
             w2,
+            w2_lo: Vec::new(),
+            w2_shift: 0,
             b2,
             hidden_stack: None,
         })),
@@ -188,5 +190,79 @@ fn experts_engine_matches_the_python_reference_fixture() {
         let white = net.eval_full(&b);
         let stm = if b.side_to_move() == cozy_chess::Color::White { white } else { -white };
         assert_eq!(stm, want_stm, "{fen}");
+    }
+}
+
+#[test]
+fn sparse_first_layer_equals_the_dense_product() {
+    use piebot::eval::nnue::sparse_l1;
+    let mut s = 0x5eed_u64;
+    for &(l1, n) in &[(16usize, 2048usize), (32, 2048), (16, 512), (8, 2048), (12, 64)] {
+        let w: Vec<i8> = (0..l1 * n).map(|_| (lcg(&mut s) % 256) as i32 as u8 as i8).collect();
+        let blk = sparse_l1::block_major(&w, 1, l1, n);
+        for zero_pct in [0u64, 50, 90, 99, 100] {
+            let x: Vec<u8> =
+                (0..n).map(|_| if lcg(&mut s) % 100 < zero_pct { 0 } else { (lcg(&mut s) % 255) as u8 }).collect();
+            let (mut want, mut got) = ([0i32; 64], [0i32; 64]);
+            sparse_l1::dense_ref(&x, &w, l1, &mut want);
+            sparse_l1::product(&x, &blk, l1, &mut got);
+            assert_eq!(&got[..l1], &want[..l1], "l1={l1} n={n} zero={zero_pct}%");
+            let mut got2 = [0i32; 64];
+            sparse_l1::product_scalar(&x, &blk, l1, &mut got2);
+            assert_eq!(&got2[..l1], &want[..l1], "scalar l1={l1} n={n} zero={zero_pct}%");
+        }
+    }
+}
+
+#[test]
+fn simd_activation_matches_the_scalar_formula() {
+    use piebot::eval::nnue::sparse_l1;
+    let mut s = 77u64;
+    let h = 1024;
+    let a: Vec<i16> = (0..2 * h).map(|_| (lcg(&mut s) % 1200) as i16 - 600).collect();
+    let mut x = vec![0u8; 2 * h];
+    sparse_l1::activate(&a[..h], &a[h..], 255, &mut x);
+    for (i, &v) in a.iter().enumerate() {
+        let c = (v as i32).clamp(0, 255);
+        assert_eq!(x[i] as i32, (c * c) >> 8, "i={i}");
+    }
+}
+
+#[test]
+fn precise_head_engine_matches_the_python_reference_fixture() {
+    // File version 4: i16 output weights (split hi/lo at load), 4 experts.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let model = QuantNnue::load_quantized(dir.join("v3p_fixture.nnue")).expect("load version-4 fixture");
+    let v3 = model.v3.as_ref().unwrap();
+    assert_eq!((v3.qb, v3.w2_shift, v3.n_experts), (4096, 6, 4));
+    let cases: Vec<(String, i32)> =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("v3p_fixture_evals.json")).unwrap()).unwrap();
+    assert!(cases.len() >= 50);
+    let net = QuantNetwork::new(model);
+    for (fen, want_stm) in cases {
+        let b = Board::from_fen(&fen, false).unwrap();
+        let white = net.eval_full(&b);
+        let stm = if b.side_to_move() == cozy_chess::Color::White { white } else { -white };
+        assert_eq!(stm, want_stm, "{fen}");
+    }
+}
+
+#[test]
+fn split_head_kernel_equals_its_scalar_reference() {
+    let mut s = 77u64;
+    for &len in &[16usize, 32, 48, 1024, 1040, 2048] {
+        for _ in 0..20 {
+            let acc: Vec<i16> = (0..len).map(|_| (lcg(&mut s) % 700) as i16 - 200).collect();
+            let hi: Vec<i8> = (0..len).map(|_| (lcg(&mut s) % 256) as i16 as i8).collect();
+            let lo: Vec<i8> = (0..len).map(|_| (lcg(&mut s) % 64) as i8).collect();
+            let (fast, slow) = piebot::eval::nnue::network_v3::split_dot_for_tests(&acc, &hi, &lo, 255);
+            assert_eq!(fast, slow, "len {len}");
+        }
+        // Worst case: every activation saturated, extreme weights.
+        let acc = vec![255i16; len];
+        let hi = vec![-128i8; len];
+        let lo = vec![63i8; len];
+        let (fast, slow) = piebot::eval::nnue::network_v3::split_dot_for_tests(&acc, &hi, &lo, 255);
+        assert_eq!(fast, slow, "saturated len {len}");
     }
 }

@@ -10,6 +10,7 @@
 //! build the child slot, and the slot is built when an evaluation needs it
 //! (immediately, unless lazy mode is on).
 
+use crate::eval::nnue::sparse_l1;
 use crate::eval::nnue::loader::QuantNnueV3;
 use crate::eval::nnue::network::{
     push_delta_capture_fused, push_delta_quiet_fused_plain, screlu_dot_pub, vec_add_assign_i16,
@@ -329,8 +330,15 @@ impl V3State {
         }
         let w = &m.w2[bucket * 2 * h..(bucket + 1) * 2 * h];
         let (first, second) = if stm == Color::White { (white, black) } else { (black, white) };
-        let sum = screlu_dot_pub(first, &w[..h], m.qa) + screlu_dot_pub(second, &w[h..], m.qa);
-        let num = (sum + m.b2[bucket] as i64) * m.scale as i64;
+        let sum = if m.w2_shift == 0 {
+            screlu_dot_pub(first, &w[..h], m.qa) + screlu_dot_pub(second, &w[h..], m.qa)
+        } else {
+            let lo = &m.w2_lo[bucket * 2 * h..(bucket + 1) * 2 * h];
+            let (h1, l1) = screlu_dot_split(first, &w[..h], &lo[..h], m.qa);
+            let (h2, l2) = screlu_dot_split(second, &w[h..], &lo[h..], m.qa);
+            ((h1 + h2) << m.w2_shift) + l1 + l2
+        };
+        let num = (sum + m.b2[bucket]) * m.scale as i64;
         (num / (m.qa as i64 * m.qa as i64 * m.qb as i64)) as i32
     }
 
@@ -347,24 +355,17 @@ impl V3State {
     ) -> i32 {
         let (first, second) = if stm == Color::White { (white, black) } else { (black, white) };
         // u8 activations, side to move first: (clamp(acc, 0, QA))^2 >> 8.
-        let mut x = [0u8; 4096];
         let n = 2 * h;
-        for (i, &a) in first.iter().chain(second.iter()).enumerate() {
-            let v = (a as i32).clamp(0, qa);
-            x[i] = ((v * v) >> 8) as u8;
-        }
-        let x = &x[..n];
+        let mut xbuf = [0u8; 4096];
+        let x = &mut xbuf[..n];
+        sparse_l1::activate(first, second, qa, x);
         let l1 = hs.l1;
         let l2 = hs.l2;
+        let mut acc1 = [0i32; 256];
+        sparse_l1::product(x, &hs.h1_w_blk[bucket * l1 * n..(bucket + 1) * l1 * n], l1, &mut acc1);
         let mut y1 = [0f32; 256];
-        let w1 = &hs.h1_w[bucket * l1 * n..(bucket + 1) * l1 * n];
         for j in 0..l1 {
-            let row = &w1[j * n..(j + 1) * n];
-            let mut acc = 0i32;
-            for k in 0..n {
-                acc += x[k] as i32 * row[k] as i32;
-            }
-            let v = acc as f32 / (254.0 * 64.0) + hs.h1_b[bucket * l1 + j];
+            let v = acc1[j] as f32 / (254.0 * 64.0) + hs.h1_b[bucket * l1 + j];
             y1[j] = v.clamp(0.0, 1.0);
         }
         let w2 = &hs.h2_w[bucket * l2 * l1..(bucket + 1) * l2 * l1];
@@ -396,22 +397,7 @@ impl V3State {
     /// Full recompute for a board (parity testing); white-POV centipawns.
     pub(crate) fn eval_full(&self, board: &Board) -> i32 {
         let place = Placement3::of(board);
-        let h = self.h;
-        let mut accs = [self.model.b1.clone(), self.model.b1.clone()];
-        for p in 0..2 {
-            let key = self.key(&place, p);
-            for c in 0..2 {
-                for pc in 0..6 {
-                    let mut bb = place.pieces[c][pc];
-                    while bb != 0 {
-                        let sq = bb.trailing_zeros() as usize;
-                        bb &= bb - 1;
-                        let i = Self::feature(key, p, c, pc, sq) as usize;
-                        vec_add_assign_i16(&mut accs[p], &self.model.w1[i * h..(i + 1) * h]);
-                    }
-                }
-            }
-        }
+        let accs = self.full_accumulators(board);
         let stm = board.side_to_move();
         let v = self.head(&accs[0], &accs[1], stm, place.count());
         if stm == Color::White {
@@ -420,4 +406,135 @@ impl V3State {
             -v
         }
     }
+
+    /// Accumulators (white, black perspective) computed from scratch.
+    fn full_accumulators(&self, board: &Board) -> [Vec<i16>; 2] {
+        let place = Placement3::of(board);
+        let h = self.h;
+        let mut accs = [self.model.b1.clone(), self.model.b1.clone()];
+        for (p, acc) in accs.iter_mut().enumerate() {
+            let key = self.key(&place, p);
+            for c in 0..2 {
+                for pc in 0..6 {
+                    let mut bb = place.pieces[c][pc];
+                    while bb != 0 {
+                        let sq = bb.trailing_zeros() as usize;
+                        bb &= bb - 1;
+                        let i = Self::feature(key, p, c, pc, sq) as usize;
+                        vec_add_assign_i16(acc, &self.model.w1[i * h..(i + 1) * h]);
+                    }
+                }
+            }
+        }
+        accs
+    }
+}
+
+/// Accumulators (white, black perspective) of `board` from scratch, for
+/// benchmarks and diagnostics outside the crate.
+#[doc(hidden)]
+pub fn debug_accumulators(model: &Arc<QuantNnueV3>, board: &Board) -> [Vec<i16>; 2] {
+    V3State::new(model.clone()).full_accumulators(board)
+}
+
+/// SCReLU dot products against split output weights (file version 4):
+/// returns `(sum clamp(a)^2 * hi, sum clamp(a)^2 * lo)`, both exact. `hi` is
+/// in [-128, 127] and `lo` in [0, 63], so `clamp(a) * w` fits i16 for
+/// `qa <= 255` and the i32 lanes are flushed every 1024 inputs.
+pub(crate) fn screlu_dot_split(acc: &[i16], hi: &[i8], lo: &[i8], qa: i32) -> (i64, i64) {
+    debug_assert!(acc.len() == hi.len() && acc.len() == lo.len());
+    if qa <= 255 {
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+        {
+            return unsafe { split_avx512(acc, hi, lo, qa as i16) };
+        }
+        #[cfg(all(target_arch = "x86_64", not(target_feature = "avx512bw")))]
+        {
+            if is_x86_feature_detected!("avx2") {
+                return unsafe { split_avx2(acc, hi, lo, qa as i16) };
+            }
+        }
+    }
+    split_scalar(acc, hi, lo, qa)
+}
+
+fn split_scalar(acc: &[i16], hi: &[i8], lo: &[i8], qa: i32) -> (i64, i64) {
+    let (mut sh, mut sl) = (0i64, 0i64);
+    for i in 0..acc.len() {
+        let v = (acc[i] as i64).clamp(0, qa as i64);
+        sh += v * v * hi[i] as i64;
+        sl += v * v * lo[i] as i64;
+    }
+    (sh, sl)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[cfg_attr(target_feature = "avx512bw", allow(dead_code))]
+#[target_feature(enable = "avx2")]
+unsafe fn split_avx2(acc: &[i16], hi: &[i8], lo: &[i8], qa: i16) -> (i64, i64) {
+    use std::arch::x86_64::*;
+    // Lanes are summed in i64: eight lanes of up to ~1.1e9 overflow i32.
+    unsafe fn hsum(v: __m256i) -> i64 {
+        let mut lanes = [0i32; 8];
+        _mm256_storeu_si256(lanes.as_mut_ptr() as *mut __m256i, v);
+        lanes.iter().map(|&x| x as i64).sum()
+    }
+    let zero = _mm256_setzero_si256();
+    let qv = _mm256_set1_epi16(qa);
+    let n = acc.len() / 16 * 16;
+    let (mut th, mut tl) = (0i64, 0i64);
+    let mut i = 0;
+    while i < n {
+        let end = (i + 1024).min(n);
+        let (mut sh, mut sl) = (_mm256_setzero_si256(), _mm256_setzero_si256());
+        while i < end {
+            let a = _mm256_loadu_si256(acc.as_ptr().add(i) as *const __m256i);
+            let v = _mm256_min_epi16(_mm256_max_epi16(a, zero), qv);
+            let wh = _mm256_cvtepi8_epi16(_mm_loadu_si128(hi.as_ptr().add(i) as *const __m128i));
+            let wl = _mm256_cvtepi8_epi16(_mm_loadu_si128(lo.as_ptr().add(i) as *const __m128i));
+            sh = _mm256_add_epi32(sh, _mm256_madd_epi16(v, _mm256_mullo_epi16(v, wh)));
+            sl = _mm256_add_epi32(sl, _mm256_madd_epi16(v, _mm256_mullo_epi16(v, wl)));
+            i += 16;
+        }
+        th += hsum(sh);
+        tl += hsum(sl);
+    }
+    let (rh, rl) = split_scalar(&acc[n..], &hi[n..], &lo[n..], qa as i32);
+    (th + rh, tl + rl)
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+unsafe fn split_avx512(acc: &[i16], hi: &[i8], lo: &[i8], qa: i16) -> (i64, i64) {
+    use std::arch::x86_64::*;
+    let zero = _mm512_setzero_si512();
+    let qv = _mm512_set1_epi16(qa);
+    let n = acc.len() / 32 * 32;
+    let (mut th, mut tl) = (0i64, 0i64);
+    let mut i = 0;
+    while i < n {
+        let end = (i + 2048).min(n);
+        let (mut sh, mut sl) = (_mm512_setzero_si512(), _mm512_setzero_si512());
+        while i < end {
+            let a = _mm512_loadu_si512(acc.as_ptr().add(i) as *const _);
+            let v = _mm512_min_epi16(_mm512_max_epi16(a, zero), qv);
+            let wh = _mm512_cvtepi8_epi16(_mm256_loadu_si256(hi.as_ptr().add(i) as *const __m256i));
+            let wl = _mm512_cvtepi8_epi16(_mm256_loadu_si256(lo.as_ptr().add(i) as *const __m256i));
+            sh = _mm512_add_epi32(sh, _mm512_madd_epi16(v, _mm512_mullo_epi16(v, wh)));
+            sl = _mm512_add_epi32(sl, _mm512_madd_epi16(v, _mm512_mullo_epi16(v, wl)));
+            i += 32;
+        }
+        let mut lanes = [0i32; 16];
+        _mm512_storeu_si512(lanes.as_mut_ptr() as *mut _, sh);
+        th += lanes.iter().map(|&x| x as i64).sum::<i64>();
+        _mm512_storeu_si512(lanes.as_mut_ptr() as *mut _, sl);
+        tl += lanes.iter().map(|&x| x as i64).sum::<i64>();
+    }
+    let (rh, rl) = split_scalar(&acc[n..], &hi[n..], &lo[n..], qa as i32);
+    (th + rh, tl + rl)
+}
+
+/// Test hook: the split kernel against its scalar reference.
+#[doc(hidden)]
+pub fn split_dot_for_tests(acc: &[i16], hi: &[i8], lo: &[i8], qa: i32) -> ((i64, i64), (i64, i64)) {
+    (screlu_dot_split(acc, hi, lo, qa), split_scalar(acc, hi, lo, qa))
 }
