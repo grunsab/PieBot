@@ -12,7 +12,7 @@ magic.
 - Activation: SCReLU on both perspectives' accumulators.
 - Output: one linear head over the 2×1024 activations.
 
-The previous default network, `models/lc0_chunk_00034965.nnue`, uses this format; the current default, `models/v3_lc0t91_b16.nnue`, is arch-v3.
+The older default network, `models/lc0_chunk_00034965.nnue`, uses this format; the current default, `models/v3pw_bt4_1500.nnue`, is arch-v3.
 
 ## Arch-v3 (`PIENNQ03`)
 
@@ -35,11 +35,17 @@ The previous default network, `models/lc0_chunk_00034965.nnue`, uses this format
   Routing is a fixed rule, not a learned gate, and only one expert is active,
   so the layer has four times the weights at almost the cost of one. The
   implementation is our own; only the idea comes from Triumviratus.
-- **Hidden stack (optional, off).** A 2×1024 → 16 → 32 → 1 stack per output
-  bucket is implemented and tested. It improved hold-out loss slightly (0.6106
-  against 0.6124 on a 128M-position comparison) but cut the engine from about
-  2.07M to 0.67M nodes/s and lost 295 Elo in games, so released networks use
-  the linear head.
+- **Hidden stack.** A 2×1024 → 16 → 32 → 1 stack per output bucket (file
+  version 2) improved hold-out loss slightly at 128M positions but cut the
+  engine from about 2.07M to 0.67M nodes/s and lost 295 Elo in games.
+- **Pairwise hidden stack (file version 5, the current default).** Each
+  perspective's accumulator is multiplied half by half,
+  `crelu(a[i]) × crelu(a[i + 512])`, giving 2×512 inputs to a 16 → 32 → 1
+  stack per output bucket. Training adds an L1 penalty on these activations
+  (`--act-l1`), so most are zero and the engine's sparse first-layer kernel
+  (`PieBot/src/eval/nnue/sparse_l1.rs`) skips them. `v3pw_bt4_1500` searches
+  about 13% fewer nodes per second than the linear-head net, against two
+  thirds fewer for the dense version 2 stack.
 
 Quantisation follows arch-v2: feature weights and biases ×QA (QA = 255,
 i16), output weights ×QB (QB = 64, i8), output biases in the QA²·QB domain
@@ -55,10 +61,11 @@ All integers are little-endian.
 
 ```
 magic            8 bytes  "PIENNQ03"
-version          u32      1 = linear head, 2 = hidden stack, 3 = material experts
+version          u32      1 = linear head, 2 = hidden stack, 3 = material experts,
+                          4 = experts with a precise head, 5 = pairwise hidden stack
 n_king_buckets   u32      16 or 32
 bucket_layout    u8[32]   bucket of each oriented, mirrored king square (rank*4 + file)
--- version 3 only --
+-- versions 3 and 4 --
 n_experts        u32
 expert_of_pieces u8[33]   expert index by piece count
 -- all versions --
@@ -67,16 +74,19 @@ n_output_buckets u32
 qa, qb, scale    i32 × 3
 w1               i16[n_features × hidden]   feature-major
 b1               i16[hidden]
-w2               i8[n_output_buckets × 2·hidden]
-b2               i32[n_output_buckets]
--- version 2 only --
+w2               i8[n_output_buckets × 2·hidden]   (version 4: i16, QB = 4096)
+b2               i32[n_output_buckets]             (version 4: i64)
+-- versions 2 and 5 --
 l1, l2           u32 × 2
-h1_w             i8[n_output_buckets·l1 × 2·hidden]
+h1_w             i8[n_output_buckets·l1 × n_in]    n_in = 2·hidden (version 5: hidden)
 h1_b, h2_w, h2_b, h3_w, h3_b   f32
 ```
 
 `n_features` is `n_experts × n_king_buckets × 768` (one expert unless the file
-is version 3).
+is version 3 or 4). In versions 2 and 5, `w2` and `b2` are still present but
+unused. Version 4 splits each i16 output weight into two i8 halves at load
+time, so the engine keeps its i8 kernels and the quantisation error of the
+head drops from about 24 cp to 4 cp.
 
 ## Engine implementation
 
@@ -132,6 +142,15 @@ recomputation.
      --hidden 1024 --buckets 16 --positions 3e9
    ```
 
+4. **Bullet, at scale.** [`training/bullet`](../training/bullet/README.md)
+   trains the same networks with [bullet](https://github.com/jw1912/bullet)
+   on Stockfish-format binpacks of Leela games relabelled with Leela's BT4
+   network (Hugging Face datasets `vondele/linrock_relabel_*`,
+   `vondele/from_kaggle_*_relabel` and `xushawn/test80-bt4-relabel`; about
+   565 GB, 220B entries, roughly 150B kept after the same filters). Only
+   the Leela-derived sets are used; Stockfish-labelled sets are excluded.
+   Its exports are byte-identical to `train_v3.py`'s.
+
 The earlier arch-v2 LCZero pipeline (`fetch_lc0_*`, `lc0_corpus.py`,
 `lc0_filter.py`) is described in
 [history/LCZeroTraining.md](history/LCZeroTraining.md).
@@ -183,6 +202,41 @@ change in strength.
 
 Hold-out loss reached 0.6013 at 2.75B positions. Checkpoints after about
 1.25B positions are within noise of each other at 200 games.
+
+### Bullet run on BT4-relabelled data (current default)
+
+Pairwise hidden stack (L1 16, L2 32, `--act-l1 0.1`), 16 king buckets,
+width 1024, one pass over the BT4-relabelled binpacks: 1500 superbatches of
+100M positions, cosine learning-rate decay from 1e-3 to 3e-5, WDL weight 0.2,
+BCE loss, about 4M positions/s on one RTX 4080 (about 10 hours). Checkpoints
+played `v3_lc0t91_b16` with the same binary, 200 games at 10+0.1
+(`evidence/nnue_bt4_20261020/`):
+
+| Positions trained | Elo vs `v3_lc0t91_b16` [95% CI] |
+| ---: | :--- |
+| 2B | −24.4 |
+| 32B | +61.4 [+34.7, +88.9] |
+| 64B | +72.2 [+44.9, +100.5] |
+| 92B | +105.6 [+79.1, +133.4] |
+| 120B | +141.0 [+111.9, +172.1] |
+| 150B (final) | +121.1 [+90.6, +153.5] |
+| final, 1000-game confirmation (W435 D534 L31) | +148.8 [+135.9, +162.2] |
+
+The gain kept rising with data until the learning rate had decayed, unlike
+the 725M-position runs, where everything past 1.25B positions was noise.
+Against full-strength Stockfish 19 under the same conditions as above
+(60+0.5, 280 games, Syzygy, `Contempt 40`) the final net scored
+0 / 152 / 128, 54.3% win or draw, against 32.9% for `v3_lc0t91_b16`
+(Elo −171.5 [−195.6, −148.9]).
+
+A linear-head run with identical data and schedule was the control. Its
+checkpoints stayed level with `v3_lc0t91_b16` up to about 60B positions,
+then climbed as the learning rate decayed, finishing at +100.0
+[+69.9, +131.6] over 200 games (`linear_checkpoint_gates_200g.txt`), against
++121.1 for the pairwise net in the same test. Played directly, the pairwise
+net beat the linear one by +73.2 [+54.1, +92.7] over 400 games (W110 D263
+L27, `pw1500_vs_linear1500_400g.json`). The data gives most of the gain over
+`v3_lc0t91_b16`, and the pairwise stack is clearly worth its 13% speed cost.
 
 ## Tests
 

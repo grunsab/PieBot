@@ -63,8 +63,8 @@ multi-threaded Elo of this search has not been measured.
 `tp(T::...)` in `alphabeta.rs`). With `PIEBOT_TUNE=1` they are advertised as
 UCI spin options, which lets one binary be tested against itself with
 different settings and lets `scripts/experiments/spsa.py` tune them. The
-defaults come from two SPSA rounds: 6000 game pairs at 6+0.06, then 8000 at
-8+0.08. Experiment toggles are tunables too, and their defaults are the
+defaults come from three SPSA rounds: 6000 game pairs at 6+0.06, then 8000 at
+8+0.08, then 6000 at 8+0.08 with the `v3pw_bt4_1500` net. Experiment toggles are tunables too, and their defaults are the
 measured best.
 
 ## Measured experiments
@@ -80,6 +80,8 @@ Source files are in
 | v1 + NNUE speed-ups (v2) vs previous search | 400 | +401.9 [+363.8, +448.5] | adopted |
 | SPSA round 1 | 1000 | +95.8 [+82.4, +109.6] | adopted |
 | SPSA round 2 | 1000 | +16.7 [+5.0, +28.4] | adopted |
+| SPSA round 3, retuned for `v3pw_bt4_1500` | 1000 | +10.8 [+2.4, +19.1] | adopted |
+| SPSA round 3 at 60+0.6 | 400 | +11.3 [+1.3, +21.3] | confirms round 3 |
 | No check extension (`CheckExt=0`), two runs pooled | 1600 | +9.3 [+0.3, +18.4] | adopted |
 | Cuckoo upcoming-repetition detection (`UpcomingRep=1`) | 1000 | +10.8 [-1.5, +23.1] | adopted |
 | SEE-guarded check extension (`CheckExt=2`) | 600 | -13.9 [-29.1, +1.3] | rejected |

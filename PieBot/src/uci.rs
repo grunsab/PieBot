@@ -494,6 +494,9 @@ impl UciEngine {
 
     pub fn auto_load_default_model(&mut self) -> bool {
         let candidates = [
+            "models/v3pw_bt4_1500.nnue",
+            "../models/v3pw_bt4_1500.nnue",
+            "../../models/v3pw_bt4_1500.nnue",
             "models/v3_lc0t91_b16.nnue",
             "../models/v3_lc0t91_b16.nnue",
             "../../models/v3_lc0t91_b16.nnue",
@@ -1233,13 +1236,13 @@ mod tests {
     }
 
     #[test]
-    fn auto_load_prefers_the_arch_v3_network() {
+    fn auto_load_prefers_the_pairwise_bt4_network() {
         let mut engine = UciEngine::new();
-        let shipped = ["models/v3_lc0t91_b16.nnue", "../models/v3_lc0t91_b16.nnue"];
+        let shipped = ["models/v3pw_bt4_1500.nnue", "../models/v3pw_bt4_1500.nnue"];
         if shipped.iter().any(|p| std::path::Path::new(p).is_file()) {
             assert!(engine.auto_load_default_model());
             let path = engine.default_model_path.clone().unwrap();
-            assert!(path.ends_with("v3_lc0t91_b16.nnue"), "{path}");
+            assert!(path.ends_with("v3pw_bt4_1500.nnue"), "{path}");
         }
     }
 }
