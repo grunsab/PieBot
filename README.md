@@ -58,7 +58,14 @@ one-for-one into gains against other opponents. Full tables:
   [documents/NNUE.md](documents/NNUE.md).
 - **Endgames:** Syzygy WDL/DTZ probing (3-4-5 men tested).
 - **Parallel search:** Lazy SMP over a shared transposition table.
+- **Pondering:** `go ponder`, `ponderhit` and `bestmove ... ponder`. The
+  expected reply comes from the transposition table; after a `ponderhit`,
+  time already spent pondering counts towards the move.
 - **Contempt:** a configurable draw score, useful against stronger opponents.
+  For lichess-bot,
+  [`scripts/lichess_bot/extra_game_handlers.py`](scripts/lichess_bot/extra_game_handlers.py)
+  sets it per game from the rating difference (+200 → +40, clamped to
+  −25…+50); copy it over lichess-bot's file of the same name.
 - **Tuning:** 55 search constants exposed as runtime parameters and tuned by
   SPSA.
 
@@ -114,6 +121,7 @@ absolute path of a network. No other configuration is needed.
 | `NNUEQuantFile` | string | `models/v3pw_bt4_1500.nnue` | Quantised network: arch-v2 (`PIENNQ02`) or arch-v3 (`PIENNQ03`). Loading a net clears the hash. |
 | `NNUEFile` | string | empty | Dense f32 network (`PIENNUE1`), for development only. |
 | `EvalBlend` | spin, 0-100 | 100 | Percentage weight of the network against the piece-square evaluation. |
+| `Ponder` | check | false | Tells the engine the GUI may send `go ponder`; pondering itself needs no setting. |
 | `Contempt` | spin, -200-200 | 0 | Draw score in centipawns for the searching side. Positive values avoid losing lines by preferring draws; 40 helped against Stockfish 19. Leave at 0 for normal play. |
 | `SyzygyPath` | string | empty | Syzygy table directories, separated by `;` or `:`. |
 

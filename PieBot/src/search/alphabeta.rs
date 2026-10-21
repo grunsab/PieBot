@@ -1435,6 +1435,17 @@ impl Searcher {
         self.tt_mb = mb.max(1);
         self.tt = Arc::new(PackedTt::with_mb(self.tt_mb));
     }
+    /// The transposition table's best move for `board`, if it is legal there.
+    /// Used for the expected reply in `bestmove ... ponder`.
+    pub fn tt_best_move(&self, board: &Board) -> Option<String> {
+        let m = self.tt.probe(board.hash()).and_then(|e| e.mv)?;
+        let mut legal = false;
+        board.generate_moves(|ml| {
+            legal = ml.into_iter().any(|x| x == m);
+            legal
+        });
+        legal.then(|| format!("{m}"))
+    }
     pub fn tt_probe(&self, board: &Board) -> Option<(u32, Bound)> {
         self.tt
             .probe(board.hash())

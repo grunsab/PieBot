@@ -21,7 +21,7 @@ use std::sync::{mpsc, Arc};
 #[cfg(not(feature = "board-pleco"))]
 use std::thread;
 #[cfg(not(feature = "board-pleco"))]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(not(feature = "board-pleco"))]
 const ENGINE_NAME: &str = "PieBot NNUE";
@@ -48,6 +48,8 @@ struct GoOptions {
     binc_ms: Option<u64>,
     moves_to_go: Option<u64>,
     infinite: bool,
+    /// `go ponder`: search the expected position until `ponderhit` or `stop`.
+    ponder: bool,
 }
 
 #[cfg(not(feature = "board-pleco"))]
@@ -94,6 +96,7 @@ impl GoOptions {
                         .map(|moves| moves.max(1));
                 }
                 "infinite" => options.infinite = true,
+                "ponder" => options.ponder = true,
                 _ => {}
             }
         }
@@ -474,6 +477,22 @@ struct SearchOutcome {
 struct ActiveSearch {
     stop: Arc<AtomicBool>,
     outcome_rx: mpsc::Receiver<SearchOutcome>,
+    /// Set while a `go ponder` search waits for `ponderhit` or `stop`: the
+    /// time the move would have had on our clock, and when pondering began.
+    pondering: Option<(Option<Duration>, Instant)>,
+    /// After `ponderhit`, when to stop the search.
+    deadline: Option<Instant>,
+    /// A ponder search that finished on its own; its `bestmove` is withheld
+    /// until `ponderhit` or `stop`, as UCI requires.
+    held: Option<SearchOutcome>,
+}
+
+/// When to stop after `ponderhit`. Time spent pondering counts towards the
+/// move: aim for three quarters of the move's budget measured from the start
+/// of pondering, but think for at least a tenth of it after the hit.
+#[cfg(not(feature = "board-pleco"))]
+fn ponderhit_deadline(started: Instant, budget: Duration, now: Instant) -> Instant {
+    (started + budget.mul_f64(0.75)).max(now + budget / 10)
 }
 
 #[cfg(not(feature = "board-pleco"))]
@@ -563,6 +582,7 @@ impl UciEngine {
             self.default_model_path.as_deref().unwrap_or("")
         );
         println!("{}", eval_blend_option_line());
+        println!("option name Ponder type check default false");
         println!("option name Contempt type spin default 0 min -200 max 200");
         println!("option name SyzygyPath type string default <empty>");
         if std::env::var_os("PIEBOT_TUNE").is_some() {
@@ -669,6 +689,8 @@ impl UciEngine {
                 Ok(n) => Some(format!("info string syzygy: {n} tables, up to {} pieces", crate::search::syzygy::max_pieces())),
                 Err(e) => Some(format!("info string syzygy load failed: {e}")),
             },
+            // Pondering is driven by `go ponder`; the option only tells the GUI.
+            "ponder" => None,
             "contempt" => {
                 if let Ok(v) = value.trim().parse::<i32>() {
                     crate::search::alphabeta::CONTEMPT
@@ -750,7 +772,16 @@ impl UciEngine {
     }
 
     fn start_search(&mut self, args: &str) -> ActiveSearch {
-        let options = GoOptions::parse(args);
+        let mut options = GoOptions::parse(args);
+        let pondering = if options.ponder {
+            // Budget the move as if it were ours now, then search without a
+            // clock until the opponent's move is known.
+            let budget = search_params_for_go(&options, self.pos.board(), self.threads).movetime;
+            options.infinite = true;
+            Some((budget, Instant::now()))
+        } else {
+            None
+        };
         let params = search_params_for_go(&options, self.pos.board(), self.threads);
         let position = self.pos.clone();
         let mut searcher = std::mem::take(&mut self.searcher);
@@ -772,7 +803,13 @@ impl UciEngine {
             })
             .expect("failed to start UCI search worker");
 
-        ActiveSearch { stop, outcome_rx }
+        ActiveSearch {
+            stop,
+            outcome_rx,
+            pondering,
+            deadline: None,
+            held: None,
+        }
     }
 
     fn finish_search(&mut self, outcome: SearchOutcome) {
@@ -788,7 +825,18 @@ impl UciEngine {
             result.nodes
         );
         if let Some(best) = result.bestmove {
-            println!("bestmove {}", format_uci_move(&outcome.position, &best));
+            let uci = format_uci_move(&outcome.position, &best);
+            let ponder = apply_uci_moves(outcome.position.clone(), std::slice::from_ref(&uci))
+                .ok()
+                .and_then(|next| {
+                    self.searcher
+                        .tt_best_move(next.board())
+                        .map(|m| format_uci_move(&next, &m))
+                });
+            match ponder {
+                Some(p) => println!("bestmove {uci} ponder {p}"),
+                None => println!("bestmove {uci}"),
+            }
         } else {
             println!("bestmove 0000");
         }
@@ -821,25 +869,35 @@ impl UciEngine {
         let mut quitting = false;
 
         loop {
-            if let Some(search) = active.as_ref() {
-                match search.outcome_rx.try_recv() {
-                    Ok(outcome) => {
-                        active = None;
-                        self.finish_search(outcome);
-                        if quitting {
-                            break;
+            if let Some(mut search) = active.take() {
+                if search.deadline.is_some_and(|d| Instant::now() >= d) {
+                    search.deadline = None;
+                    search.stop.store(true, Ordering::Relaxed);
+                }
+                if search.held.is_some() {
+                    active = Some(search);
+                } else {
+                    match search.outcome_rx.try_recv() {
+                        Ok(outcome) if search.pondering.is_some() && !quitting => {
+                            search.held = Some(outcome);
+                            active = Some(search);
                         }
-                        continue;
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        active = None;
-                        println!("info string search worker terminated unexpectedly");
-                        println!("bestmove 0000");
-                        if quitting {
-                            break;
+                        Ok(outcome) => {
+                            self.finish_search(outcome);
+                            if quitting {
+                                break;
+                            }
+                            continue;
                         }
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            println!("info string search worker terminated unexpectedly");
+                            println!("bestmove 0000");
+                            if quitting {
+                                break;
+                            }
+                        }
+                        Err(mpsc::TryRecvError::Empty) => active = Some(search),
                     }
-                    Err(mpsc::TryRecvError::Empty) => {}
                 }
             }
 
@@ -848,8 +906,14 @@ impl UciEngine {
                     Ok(line) => line,
                     Err(mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        if let Some(search) = active.as_ref() {
+                        if let Some(mut search) = active.take() {
+                            search.pondering = None;
+                            if let Some(held) = search.held.take() {
+                                self.finish_search(held);
+                                break;
+                            }
                             search.stop.store(true, Ordering::Relaxed);
+                            active = Some(search);
                             quitting = true;
                             continue;
                         }
@@ -869,23 +933,49 @@ impl UciEngine {
                 continue;
             }
 
-            if let Some(search) = active.as_ref() {
+            if let Some(mut search) = active.take() {
                 match line.as_str() {
-                    "stop" => search.stop.store(true, Ordering::Relaxed),
-                    "quit" => {
-                        search.stop.store(true, Ordering::Relaxed);
-                        quitting = true;
-                    }
                     "isready" if pending.is_empty() => self.cmd_isready(),
                     "isready" => pending.push_back(line),
                     "uci" => self.cmd_uci(),
+                    "ponderhit" => {
+                        // The opponent played the expected move: the search
+                        // continues, now on our clock.
+                        if let Some((budget, started)) = search.pondering.take() {
+                            if let Some(held) = search.held.take() {
+                                self.finish_search(held);
+                                continue;
+                            }
+                            let now = Instant::now();
+                            search.deadline = budget.map(|b| ponderhit_deadline(started, b, now));
+                        }
+                    }
                     _ => {
-                        // State-changing commands must be applied to the real
-                        // searcher after it returns from the worker thread.
-                        search.stop.store(true, Ordering::Relaxed);
-                        pending.push_back(line);
+                        // Any other command ends pondering.
+                        search.pondering = None;
+                        if let Some(held) = search.held.take() {
+                            self.finish_search(held);
+                            if line != "stop" {
+                                pending.push_front(line);
+                            }
+                            continue;
+                        }
+                        match line.as_str() {
+                            "stop" => search.stop.store(true, Ordering::Relaxed),
+                            "quit" => {
+                                search.stop.store(true, Ordering::Relaxed);
+                                quitting = true;
+                            }
+                            _ => {
+                                // State-changing commands must be applied to the real
+                                // searcher after it returns from the worker thread.
+                                search.stop.store(true, Ordering::Relaxed);
+                                pending.push_back(line);
+                            }
+                        }
                     }
                 }
+                active = Some(search);
                 continue;
             }
 
