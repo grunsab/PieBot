@@ -5,6 +5,7 @@ pub mod loader;
 pub mod network;
 pub mod network_v3;
 pub mod quant;
+pub mod sparse_l1;
 use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
 use std::fs::File;

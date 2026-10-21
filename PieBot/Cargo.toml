@@ -2,7 +2,7 @@
 name = "piebot"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 authors = ["PieBot Team"]
 description = "A Rust chess engine with CPU-only NNUE and optimized alpha-beta search"
 license = "AGPL-3.0-only"

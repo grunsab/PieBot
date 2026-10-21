@@ -22,6 +22,7 @@ occurred, the fifty-move rule, stalemate or insufficient material.
 | Previous search (August 2026) | 0 / 2 / 138 (140 games) | 1.4% |
 | October 2026 search, SPSA-tuned, arch-v2 net | 0 / 54 / 226 | 19.3% |
 | October 2026 search, arch-v3 net (`v3_lc0t91_b16`) | 0 / 92 / 188 | 32.9% |
+| October 2026 search, pairwise net on BT4 data (`v3pw_bt4_1500`) | 0 / 152 / 128 | 54.3% |
 
 **Self-play progression** (Elo with 95% confidence intervals):
 
@@ -31,6 +32,9 @@ occurred, the fifty-move rule, stalemate or insufficient material.
 | SPSA tuning, round 1 | 1000 | 10+0.1 | +95.8 [+82.4, +109.6] |
 | SPSA tuning, round 2 | 1000 | 10+0.1 | +16.7 [+5.0, +28.4] |
 | Arch-v3 net against the arch-v2 net, same binary | 1000 | 10+0.1 | +95.1 [+80.1, +110.3] |
+| Pairwise net (`v3pw_bt4_1500`, 150B BT4-relabelled Leela positions) against the arch-v3 net | 1000 | 10+0.1 | +148.8 [+135.9, +162.2] |
+| SPSA tuning, round 3, for the pairwise net | 1000 | 10+0.1 | +10.8 [+2.4, +19.1] |
+| SPSA round 3, slower games | 400 | 60+0.6 | +11.3 [+1.3, +21.3] |
 
 Self-play gains are measured engine against engine and do not translate
 one-for-one into gains against other opponents. Full tables:
@@ -54,7 +58,14 @@ one-for-one into gains against other opponents. Full tables:
   [documents/NNUE.md](documents/NNUE.md).
 - **Endgames:** Syzygy WDL/DTZ probing (3-4-5 men tested).
 - **Parallel search:** Lazy SMP over a shared transposition table.
+- **Pondering:** `go ponder`, `ponderhit` and `bestmove ... ponder`. The
+  expected reply comes from the transposition table; after a `ponderhit`,
+  time already spent pondering counts towards the move.
 - **Contempt:** a configurable draw score, useful against stronger opponents.
+  For lichess-bot,
+  [`scripts/lichess_bot/extra_game_handlers.py`](scripts/lichess_bot/extra_game_handlers.py)
+  sets it per game from the rating difference (+200 → +40, clamped to
+  −25…+50); copy it over lichess-bot's file of the same name.
 - **Tuning:** 55 search constants exposed as runtime parameters and tuned by
   SPSA.
 
@@ -73,7 +84,7 @@ Build from inside `PieBot/`. `PieBot/.cargo/config.toml` sets
 build started from the repository root with `--manifest-path` produces a
 slower, generic binary. The engine is `PieBot/target/release/uci`.
 
-At start-up the engine looks for `models/v3_lc0t91_b16.nnue` **relative to
+At start-up the engine looks for `models/v3pw_bt4_1500.nnue` **relative to
 its working directory**. If the file is not found, it plays on a simple
 piece-square evaluation without warning. When starting the engine from
 anywhere else (a GUI, a script), set `UseNNUE` to `true` and `NNUEQuantFile` to
@@ -84,7 +95,7 @@ uci
 id name PieBot NNUE
 ...
 uciok
-setoption name NNUEQuantFile value /path/to/PieBot/models/v3_lc0t91_b16.nnue
+setoption name NNUEQuantFile value /path/to/PieBot/models/v3pw_bt4_1500.nnue
 setoption name UseNNUE value true
 setoption name Hash value 256
 isready
@@ -107,9 +118,10 @@ absolute path of a network. No other configuration is needed.
 | `Threads` | spin, 1-512 | 1 | Lazy SMP search threads, including the main thread. |
 | `Hash` | spin, 1-16384 | 64 | Transposition table size in MiB. Large sizes allocate quickly (lazily zeroed pages). |
 | `UseNNUE` | check | true | Use the network evaluation. |
-| `NNUEQuantFile` | string | `models/v3_lc0t91_b16.nnue` | Quantised network: arch-v2 (`PIENNQ02`) or arch-v3 (`PIENNQ03`). Loading a net clears the hash. |
+| `NNUEQuantFile` | string | `models/v3pw_bt4_1500.nnue` | Quantised network: arch-v2 (`PIENNQ02`) or arch-v3 (`PIENNQ03`). Loading a net clears the hash. |
 | `NNUEFile` | string | empty | Dense f32 network (`PIENNUE1`), for development only. |
 | `EvalBlend` | spin, 0-100 | 100 | Percentage weight of the network against the piece-square evaluation. |
+| `Ponder` | check | false | Tells the engine the GUI may send `go ponder`; pondering itself needs no setting. |
 | `Contempt` | spin, -200-200 | 0 | Draw score in centipawns for the searching side. Positive values avoid losing lines by preferring draws; 40 helped against Stockfish 19. Leave at 0 for normal play. |
 | `SyzygyPath` | string | empty | Syzygy table directories, separated by `;` or `:`. |
 
@@ -127,8 +139,9 @@ Networks live in [`models/`](models/), with hashes in
 
 | File | Format | Notes |
 | :--- | :--- | :--- |
-| `v3_lc0t91_b16.nnue` | arch-v3 (`PIENNQ03`), 16 king buckets, 8 output buckets, 1024 wide, 25 MB | Current default. Trained on 725M filtered LCZero test91 positions. |
-| `lc0_chunk_00034965.nnue` | arch-v2 (`PIENNQ02`), HalfKP, 1024 wide, 84 MB | Previous default. Trained on LCZero data. |
+| `v3pw_bt4_1500.nnue` | arch-v3 (`PIENNQ03` version 5), 16 king buckets, 1024 wide, pairwise 16 → 32 → 1 hidden stack per output bucket, 25 MB | Current default. Trained with bullet on 150B Leela positions relabelled by BT4. |
+| `v3_lc0t91_b16.nnue` | arch-v3 (`PIENNQ03`), 16 king buckets, 8 output buckets, linear head, 1024 wide, 25 MB | Previous default. Trained on 725M filtered LCZero test91 positions. |
+| `lc0_chunk_00034965.nnue` | arch-v2 (`PIENNQ02`), HalfKP, 1024 wide, 84 MB | Older default. Trained on LCZero data. |
 | `v8_cycle_000013_quant.nnue` | arch-v2 (`PIENNQ02`) | Earlier self-play network (August 2026). |
 | `cycle_000098_quant.nnue` | arch-v1 (`PIENNQ01`) | Historical; kept because benchmarking scripts read it by path. |
 

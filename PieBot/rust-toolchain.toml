@@ -1,0 +1,5 @@
+[toolchain]
+# 1.89+ compiles the AVX-512 kernels (target features stabilised in 1.89);
+# older toolchains silently drop them.
+channel = "1.99.0"
+profile = "minimal"

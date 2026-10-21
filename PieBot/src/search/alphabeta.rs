@@ -57,57 +57,57 @@ macro_rules! tunables {
 }
 
 tunables! {
-    BonusMul = 138, 50, 400;
-    BonusOff = 98, 0, 300;
-    BonusMax = 1826, 500, 4000;
-    MalusMul = 237, 50, 400;
-    MalusOff = 76, 0, 300;
-    MalusMax = 1467, 500, 4000;
+    BonusMul = 141, 50, 400;
+    BonusOff = 99, 0, 300;
+    BonusMax = 1847, 500, 4000;
+    MalusMul = 233, 50, 400;
+    MalusOff = 77, 0, 300;
+    MalusMax = 1476, 500, 4000;
     LmrBase = 929, 0, 2000;
-    LmrDiv = 213, 150, 400;
-    RazorBase = 446, 100, 1000;
-    RazorMul = 272, 50, 600;
-    RfpDepth = 9, 4, 16;
-    RfpMul = 139, 30, 200;
+    LmrDiv = 215, 150, 400;
+    RazorBase = 460, 100, 1000;
+    RazorMul = 283, 50, 600;
+    RfpDepth = 8, 4, 16;
+    RfpMul = 137, 30, 200;
     RfpCut = 18, 0, 60;
     RfpWorsen = 15, 0, 60;
     RfpImproving = 26, 0, 80;
     NmpBase = 4, 2, 7;
     NmpDepthDiv = 3, 2, 6;
-    NmpEvalDiv = 198, 80, 400;
+    NmpEvalDiv = 202, 80, 400;
     NmpStaticMul = 20, 0, 50;
-    NmpStaticBase = 172, 0, 400;
+    NmpStaticBase = 169, 0, 400;
     IirDepth = 5, 3, 10;
-    ProbcutMargin = 206, 80, 400;
-    ProbcutImproving = 61, 0, 150;
+    ProbcutMargin = 214, 80, 400;
+    ProbcutImproving = 62, 0, 150;
     ProbcutDepth = 5, 3, 9;
     LmpBase = 3, 1, 8;
-    CapFutBase = 255, 50, 500;
-    CapFutMul = 233, 50, 400;
-    CapSeeMul = 169, 50, 300;
-    HistPruneMul = 3446, 1000, 8000;
-    HistLmrDiv = 6427, 2000, 15000;
-    FutBase = 94, 20, 250;
-    FutMul = 110, 40, 250;
+    CapFutBase = 250, 50, 500;
+    CapFutMul = 241, 50, 400;
+    CapSeeMul = 164, 50, 300;
+    HistPruneMul = 3488, 1000, 8000;
+    HistLmrDiv = 6347, 2000, 15000;
+    FutBase = 92, 20, 250;
+    FutMul = 106, 40, 250;
     QuietSeeMul = 25, 5, 60;
     SeDepth = 6, 4, 10;
     SeMargin = 61, 20, 150;
     SeTtPvMargin = 70, 0, 150;
     SeDouble = 20, 0, 60;
-    LmrTtPv = 994, 0, 2500;
-    LmrCut = 1780, 0, 3500;
-    LmrTtCapture = 1003, 0, 2500;
-    LmrNotImproving = 627, 0, 2000;
-    LmrCheck = 766, 0, 2000;
-    LmrCutoffCnt = 907, 0, 2500;
-    LmrTtMove = 1831, 0, 3500;
-    LmrCapture = 604, 0, 2000;
-    LmrStatDiv = 10514, 3000, 25000;
+    LmrTtPv = 1013, 0, 2500;
+    LmrCut = 1815, 0, 3500;
+    LmrTtCapture = 1007, 0, 2500;
+    LmrNotImproving = 634, 0, 2000;
+    LmrCheck = 757, 0, 2000;
+    LmrCutoffCnt = 895, 0, 2500;
+    LmrTtMove = 1815, 0, 3500;
+    LmrCapture = 601, 0, 2000;
+    LmrStatDiv = 10452, 3000, 25000;
     DeeperBase = 49, 10, 120;
     DeeperMul = 2, 0, 8;
     Shallower = 9, 0, 30;
-    QsFutility = 205, 50, 400;
-    QsSee = 80, 0, 200;
+    QsFutility = 223, 50, 400;
+    QsSee = 79, 0, 200;
     AspDelta = 20, 5, 50;
     AspDiv = 15, 6, 64;
     CorrPawn = 2, 0, 4;
@@ -120,7 +120,7 @@ tunables! {
     HindsightMargin = 175, 0, 500;
     EvalScaleBase = 0, 0, 400;
     ThreatEnter = 0, 0, 120;
-    TmSoft = 50, 20, 80;
+    TmSoft = 52, 20, 80;
 }
 
 /// Draw bias in centipawns for the side that started the search: a drawn
@@ -1434,6 +1434,17 @@ impl Searcher {
     pub fn set_tt_capacity_mb(&mut self, mb: usize) {
         self.tt_mb = mb.max(1);
         self.tt = Arc::new(PackedTt::with_mb(self.tt_mb));
+    }
+    /// The transposition table's best move for `board`, if it is legal there.
+    /// Used for the expected reply in `bestmove ... ponder`.
+    pub fn tt_best_move(&self, board: &Board) -> Option<String> {
+        let m = self.tt.probe(board.hash()).and_then(|e| e.mv)?;
+        let mut legal = false;
+        board.generate_moves(|ml| {
+            legal = ml.into_iter().any(|x| x == m);
+            legal
+        });
+        legal.then(|| format!("{m}"))
     }
     pub fn tt_probe(&self, board: &Board) -> Option<(u32, Bound)> {
         self.tt

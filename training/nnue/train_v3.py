@@ -39,6 +39,18 @@ MAGIC = b"PIENNQ03"
 FILE_VERSION_SINGLE = 1   # feature transformer + bucketed linear head
 FILE_VERSION_HIDDEN = 2   # + bucketed hidden stack 2h -> L1 -> L2 -> 1
 FILE_VERSION_EXPERTS = 3  # linear head; input layer split into material experts
+# Linear head (1 or more experts) with i16 output weights at QB_PRECISE and
+# i64 biases. The i8 weights of versions 1 and 3 (QB = 64) round each output
+# weight by up to 1/128, which moved trained evals by ~28 cp (sd); at 4096
+# the rounding is ~64x smaller. The engine splits each weight into
+# hi = w >> 6 (i8) and lo = w & 63 so its exact i16 SCReLU kernels still apply.
+FILE_VERSION_PRECISE = 4
+QB_PRECISE = 4096
+# Hidden stack fed by a pairwise-multiplied accumulator (Stockfish's feature
+# transformer output): for each perspective, x[i] = clamp(a[i]) * clamp(a[i + h/2])
+# for i < h/2, so the first layer reads h inputs instead of 2h, and an input
+# is zero whenever either factor is, which makes it sparse.
+FILE_VERSION_PAIRWISE = 5
 L1_IN_SCALE = 254         # SCReLU output 0..1 -> u8 0..254 ((acc clamped)^2 >> 8)
 L1_QB = 64                # L1 weights as i8
 N_KING_BUCKETS = 16
@@ -68,19 +80,28 @@ N_EXPERTS = 1
 EXPERT_OF_PIECES = [0] * 33
 
 
-def experts_table(n: int) -> list:
-    """Piece count (0..32) -> expert. 4 experts: 32-25, 24-17, 16-9, 8-2 pieces."""
+def experts_table(n: int, cuts=None) -> list:
+    """Piece count (0..32) -> expert.
+
+    ``cuts`` are the lowest piece counts of experts 0..n-2, highest band first;
+    expert n-1 takes the rest. The default 4-expert split is 32-25, 24-17,
+    16-9, 8-2 pieces; ``(24, 16, 10)`` gives Consilium's bands (>=24, 16-23,
+    10-15, <=9), which are close to equal-frequency on LCZero data.
+    """
     if n == 1:
         return [0] * 33
     if n == 4:
-        return [0 if p >= 25 else 1 if p >= 17 else 2 if p >= 9 else 3 for p in range(33)]
+        cuts = tuple(cuts or (25, 17, 9))
+        if len(cuts) != 3 or list(cuts) != sorted(cuts, reverse=True):
+            raise ValueError("4 experts need 3 descending cuts")
+        return [next((i for i, c in enumerate(cuts) if p >= c), 3) for p in range(33)]
     raise ValueError("experts must be 1 or 4")
 
 
-def set_experts(n: int) -> None:
+def set_experts(n: int, cuts=None) -> None:
     global N_EXPERTS, EXPERT_OF_PIECES, N_FEATURES
     N_EXPERTS = n
-    EXPERT_OF_PIECES = experts_table(n)
+    EXPERT_OF_PIECES = experts_table(n, cuts)
     N_FEATURES = N_EXPERTS * N_KING_BUCKETS * 768
 
 
@@ -132,14 +153,25 @@ def piece_features(squares_codes, king_white: int, king_black: int):
 # Training (torch imported lazily so the reference helpers work without it)
 # ---------------------------------------------------------------------------
 
-def build_model(hidden: int, l1: int = 0, l2: int = 32):
+def build_model(hidden: int, l1: int = 0, l2: int = 32, factorised: bool = False, pairwise: bool = False):
+    """Float model. With ``factorised`` (experts only), each expert's input
+    weights are a shared base, trained on every position, plus a per-expert
+    delta that starts at zero (Consilium's parameterisation); ``ft`` then
+    holds the deltas and ``effective_ft`` the folded weights."""
     import torch
+
+    factorised = factorised and N_EXPERTS > 1
+    n_base = N_KING_BUCKETS * 768
 
     class V3(torch.nn.Module):
         def __init__(self):
             super().__init__()
             self.l1 = l1
             self.l2 = l2
+            self.pairwise = bool(pairwise and l1 > 0)
+            if self.pairwise and hidden % 2:
+                raise ValueError("pairwise needs an even accumulator width")
+            self.factorised = factorised
             self.ft = torch.nn.Parameter(torch.empty(N_FEATURES + 1, hidden))  # last row: padding
             self.ft_bias = torch.nn.Parameter(torch.full((hidden,), 0.5))
             self.out_w = torch.nn.Parameter(torch.empty(N_OUTPUT_BUCKETS, 2 * hidden))
@@ -148,23 +180,53 @@ def build_model(hidden: int, l1: int = 0, l2: int = 32):
                 torch.nn.init.normal_(self.ft, 0.0, 0.5 / math.sqrt(30.0))
                 self.ft[N_FEATURES].zero_()
                 torch.nn.init.uniform_(self.out_w, -1.0 / math.sqrt(2 * hidden), 1.0 / math.sqrt(2 * hidden))
+            if factorised:
+                self.ft_base = torch.nn.Parameter(self.ft.detach()[: n_base + 1].clone())
+                with torch.no_grad():
+                    self.ft_base[n_base].zero_()
+                    self.ft.zero_()
             if l1 > 0:
                 nb = N_OUTPUT_BUCKETS
-                self.h1_w = torch.nn.Parameter(torch.empty(nb * l1, 2 * hidden))
+                self.h1_w = torch.nn.Parameter(torch.empty(nb * l1, self.l1_in()))
                 self.h1_b = torch.nn.Parameter(torch.zeros(nb * l1))
                 self.h2_w = torch.nn.Parameter(torch.empty(nb * l2, l1))
                 self.h2_b = torch.nn.Parameter(torch.zeros(nb * l2))
                 self.h3_w = torch.nn.Parameter(torch.empty(nb, l2))
                 self.h3_b = torch.nn.Parameter(torch.zeros(nb))
                 with torch.no_grad():
-                    for w, fan in ((self.h1_w, 2 * hidden), (self.h2_w, l1), (self.h3_w, l2)):
+                    for w, fan in ((self.h1_w, self.l1_in()), (self.h2_w, l1), (self.h3_w, l2)):
                         torch.nn.init.uniform_(w, -1.0 / math.sqrt(fan), 1.0 / math.sqrt(fan))
 
-        def forward(self, idx_stm, idx_nstm, bucket):
+        def l1_in(self):
+            """Width of the first hidden layer's input (both perspectives)."""
+            return hidden if self.pairwise else 2 * hidden
+
+        def pairwise_act(self, acc):
+            c = acc.clamp(0.0, 1.0)
+            return c[:, : hidden // 2] * c[:, hidden // 2:]
+
+        def effective_ft(self):
+            """Input weights per feature, (N_FEATURES, hidden), deltas folded in."""
+            if not self.factorised:
+                return self.ft[:N_FEATURES]
+            return self.ft[:N_FEATURES] + self.ft_base[:n_base].repeat(N_EXPERTS, 1)
+
+        def accumulate(self, idx):
             f = torch.nn.functional.embedding_bag
-            a = f(idx_stm, self.ft, mode="sum", padding_idx=N_FEATURES) + self.ft_bias
-            b = f(idx_nstm, self.ft, mode="sum", padding_idx=N_FEATURES) + self.ft_bias
-            h = torch.cat([a, b], dim=1).clamp(0.0, 1.0).pow(2)
+            acc = f(idx, self.ft, mode="sum", padding_idx=N_FEATURES) + self.ft_bias
+            if self.factorised:
+                base_idx = torch.where(idx == N_FEATURES, torch.full_like(idx, n_base), idx % n_base)
+                acc = acc + f(base_idx, self.ft_base, mode="sum", padding_idx=n_base)
+            return acc
+
+        def forward(self, idx_stm, idx_nstm, bucket):
+            a = self.accumulate(idx_stm)
+            b = self.accumulate(idx_nstm)
+            if self.pairwise:
+                h = torch.cat([self.pairwise_act(a), self.pairwise_act(b)], dim=1)
+                self.last_act = h  # for activation_penalty
+            else:
+                h = torch.cat([a, b], dim=1).clamp(0.0, 1.0).pow(2)
             if self.l1 == 0:
                 w = self.out_w[bucket]
                 return (h * w).sum(1) + self.out_b[bucket]
@@ -176,6 +238,35 @@ def build_model(hidden: int, l1: int = 0, l2: int = 32):
             return (y2 * self.h3_w[bucket]).sum(1) + self.h3_b[bucket]
 
     return V3()
+
+
+def activation_penalty(model):
+    """Mean first-layer input of the last forward pass (pairwise stacks). Added
+    to the loss with a small weight (--act-l1), it pushes activations to zero,
+    which is what lets the engine skip blocks of the first hidden layer."""
+    return model.last_act.mean()
+
+
+def init_from_single(model, single_state: dict) -> None:
+    """Start a factorised experts model from a trained single-expert, linear
+    network of the same king buckets and width: its input weights become the
+    shared base, the deltas stay zero, so the starting point plays exactly
+    like that network."""
+    import torch
+
+    n_base = N_KING_BUCKETS * 768
+    with torch.no_grad():
+        ft = single_state["ft"]
+        if ft.shape[0] != n_base + 1 or (not getattr(model, "factorised", False) and N_EXPERTS > 1):
+            raise ValueError(f"base net has {ft.shape[0] - 1} features, expected {n_base}")
+        if getattr(model, "factorised", False):
+            model.ft_base.copy_(ft.to(model.ft_base))
+            model.ft.zero_()
+        else:  # plain fine-tune of the same network (a control run)
+            model.ft.copy_(ft.to(model.ft))
+        model.ft_bias.copy_(single_state["ft_bias"].to(model.ft_bias))
+        model.out_w.copy_(single_state["out_w"].to(model.out_w))
+        model.out_b.copy_(single_state["out_b"].to(model.out_b))
 
 
 def gpu_features(occ, pcs, stm, device):
@@ -281,38 +372,55 @@ def evaluate(model, data, device, wdl_weight, batch=16384):
     return tot / max(n, 1)
 
 
-def export(model, path: Path, hidden: int) -> None:
+def export(model, path: Path, hidden: int, version: int | None = None) -> None:
+    """Write a PIENNQ03 file. ``version`` defaults to 2 for a hidden stack and
+    4 (precise linear head) otherwise; 1 or 3 write the legacy i8 head."""
     import torch
 
     l1 = getattr(model, "l1", 0)
     with torch.no_grad():
-        ft = model.ft[:N_FEATURES].detach().cpu().numpy()
+        ft = model.effective_ft().detach().cpu().numpy()
         fb = model.ft_bias.detach().cpu().numpy()
         ow = model.out_w.detach().cpu().numpy()
         ob = model.out_b.detach().cpu().numpy()
     w1 = np.clip(np.round(ft * QA), -32768, 32767).astype("<i2")
     b1 = np.clip(np.round(fb * QA), -32768, 32767).astype("<i2")
-    w2 = np.clip(np.round(ow * QB), -128, 127).astype("i1")
-    b2 = np.round(ob * QA * QA * QB).astype("<i4")
+    pairwise = getattr(model, "pairwise", False)
+    if version is None:
+        version = FILE_VERSION_PAIRWISE if pairwise else FILE_VERSION_HIDDEN if l1 else FILE_VERSION_PRECISE
+    if pairwise and version != FILE_VERSION_PAIRWISE:
+        raise ValueError("a pairwise hidden stack is written as version 5")
+    if l1 and not pairwise and version != FILE_VERSION_HIDDEN:
+        raise ValueError("a hidden stack is written as version 2")
+    if version == FILE_VERSION_SINGLE and N_EXPERTS > 1:
+        version = FILE_VERSION_EXPERTS
+    if version == FILE_VERSION_PRECISE:
+        qb = QB_PRECISE
+        w2 = np.clip(np.round(ow * qb), -8192, 8191).astype("<i2")
+        b2 = np.round(ob.astype(np.float64) * QA * QA * qb).astype("<i8")
+    else:
+        qb = QB
+        w2 = np.clip(np.round(ow * QB), -128, 127).astype("i1")
+        b2 = np.round(ob * QA * QA * QB).astype("<i4")
     tmp = path.with_suffix(".tmp")
     with open(tmp, "wb") as f:
         if l1 and N_EXPERTS > 1:
             raise ValueError("experts with a hidden stack are not supported")
-        version = FILE_VERSION_HIDDEN if l1 else FILE_VERSION_EXPERTS if N_EXPERTS > 1 else FILE_VERSION_SINGLE
         f.write(MAGIC)
         f.write(struct.pack("<II", version, N_KING_BUCKETS))
         f.write(bytes(KING_BUCKET_LAYOUT))
-        if version == FILE_VERSION_EXPERTS:
+        if version in (FILE_VERSION_EXPERTS, FILE_VERSION_PRECISE):
             f.write(struct.pack("<I", N_EXPERTS))
             f.write(bytes(EXPERT_OF_PIECES))
         f.write(struct.pack("<II", hidden, N_OUTPUT_BUCKETS))
-        f.write(struct.pack("<iii", QA, QB, EVAL_SCALE))
+        f.write(struct.pack("<iii", QA, qb, EVAL_SCALE))
         f.write(w1.tobytes())
         f.write(b1.tobytes())
         f.write(w2.tobytes())
         f.write(b2.tobytes())
         if l1:
-            # Hidden stack: u32 l1, u32 l2; i8 h1_w[nb*l1][2h] (x L1_QB),
+            # Hidden stack: u32 l1, u32 l2; i8 h1_w[nb*l1][2h] (x L1_QB; [h] for
+            # version 5, the two pairwise halves side to move first),
             # f32 h1_b[nb*l1], f32 h2_w[nb*l2][l1], f32 h2_b[nb*l2],
             # f32 h3_w[nb][l2], f32 h3_b[nb].
             with torch.no_grad():
@@ -333,7 +441,7 @@ def load_quant(path: Path) -> dict:
     version, nkb = struct.unpack_from("<II", raw, off); off += 8
     layout = list(raw[off:off + 32]); off += 32
     n_experts, expert_table = 1, [0] * 33
-    if version == FILE_VERSION_EXPERTS:
+    if version in (FILE_VERSION_EXPERTS, FILE_VERSION_PRECISE):
         (n_experts,) = struct.unpack_from("<I", raw, off); off += 4
         expert_table = list(raw[off:off + 33]); off += 33
     hidden, nout = struct.unpack_from("<II", raw, off); off += 8
@@ -341,16 +449,22 @@ def load_quant(path: Path) -> dict:
     nf = n_experts * nkb * 768
     w1 = np.frombuffer(raw, "<i2", nf * hidden, off).reshape(nf, hidden); off += nf * hidden * 2
     b1 = np.frombuffer(raw, "<i2", hidden, off); off += hidden * 2
-    w2 = np.frombuffer(raw, "i1", nout * 2 * hidden, off).reshape(nout, 2 * hidden); off += nout * 2 * hidden
-    b2 = np.frombuffer(raw, "<i4", nout, off); off += nout * 4
+    if version == FILE_VERSION_PRECISE:
+        w2 = np.frombuffer(raw, "<i2", nout * 2 * hidden, off).reshape(nout, 2 * hidden); off += nout * 4 * hidden
+        b2 = np.frombuffer(raw, "<i8", nout, off); off += nout * 8
+    else:
+        w2 = np.frombuffer(raw, "i1", nout * 2 * hidden, off).reshape(nout, 2 * hidden); off += nout * 2 * hidden
+        b2 = np.frombuffer(raw, "<i4", nout, off); off += nout * 4
     net = dict(version=version, layout=layout, hidden=hidden, nout=nout, qa=qa, qb=qb, scale=scale,
                w1=w1, b1=b1, w2=w2, b2=b2, l1=0, n_experts=n_experts, expert_table=expert_table,
                nkb=nkb)
-    if version == FILE_VERSION_HIDDEN:
+    net["pairwise"] = version == FILE_VERSION_PAIRWISE
+    if version in (FILE_VERSION_HIDDEN, FILE_VERSION_PAIRWISE):
         l1, l2 = struct.unpack_from("<II", raw, off); off += 8
         net["l1"], net["l2"] = l1, l2
-        net["h1_w"] = np.frombuffer(raw, "i1", nout * l1 * 2 * hidden, off).reshape(nout, l1, 2 * hidden)
-        off += nout * l1 * 2 * hidden
+        n_in = hidden if net["pairwise"] else 2 * hidden
+        net["h1_w"] = np.frombuffer(raw, "i1", nout * l1 * n_in, off).reshape(nout, l1, n_in)
+        off += nout * l1 * n_in
         for name, shape in (("h1_b", (nout, l1)), ("h2_w", (nout, l2, l1)), ("h2_b", (nout, l2)),
                             ("h3_w", (nout, l2)), ("h3_b", (nout,))):
             n = int(np.prod(shape))
@@ -387,8 +501,14 @@ def quant_eval_fen(net: dict, fen: str) -> int:
     h = np.concatenate([np.clip(stm, 0, net["qa"]), np.clip(nstm, 0, net["qa"])])
     bucket = output_bucket(len(pairs))
     if net.get("l1"):
-        # u8 activations: (clamped acc)^2 >> 8, i32 dot with i8 weights, then f32.
-        x = (h * h) >> 8
+        # u8 activations: (clamped acc)^2 >> 8, or for version 5 the product of
+        # the two clamped halves >> 8; i32 dot with i8 weights, then f32.
+        if net.get("pairwise"):
+            half = net["hidden"] // 2
+            cs, cn = np.clip(stm, 0, net["qa"]), np.clip(nstm, 0, net["qa"])
+            x = np.concatenate([(cs[:half] * cs[half:]) >> 8, (cn[:half] * cn[half:]) >> 8])
+        else:
+            x = (h * h) >> 8
         y1 = (x.astype(np.int64) @ net["h1_w"][bucket].astype(np.int64).T).astype(np.float32)
         y1 = np.clip(y1 / np.float32(L1_IN_SCALE * L1_QB) + net["h1_b"][bucket], 0, 1).astype(np.float32)
         y2 = np.clip(net["h2_w"][bucket] @ y1 + net["h2_b"][bucket], 0, 1).astype(np.float32)
@@ -405,14 +525,28 @@ def main() -> None:
     import torch
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data", required=True, help="directory with train/ and holdout/ *.bin")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--data", help="directory with train/ and holdout/ *.bin")
+    ap.add_argument("--out", required=True, help="run directory, or the .nnue path with --reexport-from")
+    ap.add_argument("--reexport-from", default="",
+                    help="state.pt to export again (with --file-version) instead of training")
+    ap.add_argument("--file-version", type=int, default=0,
+                    help="PIENNQ03 version to write (default: 4 for linear heads, 2 for a hidden stack)")
     ap.add_argument("--hidden", type=int, default=1024)
     ap.add_argument("--buckets", type=int, default=16, choices=(16, 32))
     ap.add_argument("--experts", type=int, default=1, choices=(1, 4),
                     help="material experts on the input layer (see set_experts)")
+    ap.add_argument("--expert-cuts", default="",
+                    help="lowest piece count of experts 0..2, e.g. 24,16,10 (default 25,17,9)")
+    ap.add_argument("--factorised", action="store_true",
+                    help="experts as a shared base plus zero-initialised per-expert deltas")
+    ap.add_argument("--init-from", default="",
+                    help="state.pt of a trained single-expert linear net to start the shared base from")
     ap.add_argument("--l1", type=int, default=0, help="hidden stack width (0: linear head)")
     ap.add_argument("--l2", type=int, default=32)
+    ap.add_argument("--act-l1", type=float, default=0.0,
+                    help="weight of the L1 penalty on pairwise activations (sparsity)")
+    ap.add_argument("--pairwise", action="store_true",
+                    help="feed the hidden stack the product of the accumulator's two halves (version 5)")
     ap.add_argument("--batch", type=int, default=16384)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--final-lr-frac", type=float, default=0.03)
@@ -425,7 +559,17 @@ def main() -> None:
     a = ap.parse_args()
 
     set_king_buckets(a.buckets)
-    set_experts(a.experts)
+    cuts = tuple(int(c) for c in a.expert_cuts.split(",")) if a.expert_cuts else None
+    set_experts(a.experts, cuts)
+    if a.reexport_from:
+        st = torch.load(a.reexport_from, map_location="cpu", weights_only=False)
+        model = build_model(a.hidden, a.l1, a.l2, factorised=a.factorised, pairwise=a.pairwise)
+        model.load_state_dict(st["model"])
+        export(model, Path(a.out), a.hidden, version=a.file_version or None)
+        print(f"exported {a.reexport_from} ({st.get('seen', 0):,} positions) to {a.out}", flush=True)
+        return
+    if not a.data:
+        ap.error("--data is required for training")
     torch.manual_seed(a.seed)
     random.seed(a.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -441,7 +585,10 @@ def main() -> None:
     data = Shards(train_files, seed=a.seed)
     print(f"train positions {data.total():,} in {len(train_files)} files; holdout {len(hold):,}", flush=True)
 
-    model = build_model(a.hidden, a.l1, a.l2).to(device)
+    model = build_model(a.hidden, a.l1, a.l2, factorised=a.factorised, pairwise=a.pairwise).to(device)
+    if a.init_from and not (a.resume and (out / "state.pt").exists()):
+        init_from_single(model, torch.load(a.init_from, map_location=device, weights_only=False)["model"])
+        print(f"shared base initialised from {a.init_from}", flush=True)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     seen = 0
     state_path = out / "state.pt"
@@ -467,13 +614,16 @@ def main() -> None:
             p = targets(d["q"], d["result"], d["flags"], device, a.wdl_weight)
             loss = torch.nn.functional.binary_cross_entropy_with_logits(model(ia, ib, bk), p)
             opt.zero_grad(set_to_none=True)
-            loss.backward()
+            total_loss = loss + a.act_l1 * activation_penalty(model) if a.act_l1 else loss
+            total_loss.backward()
             opt.step()
             with torch.no_grad():
                 model.out_w.clamp_(-W2_LIMIT, W2_LIMIT)
                 if a.l1:
                     model.h1_w.clamp_(-127 / L1_QB, 127 / L1_QB)
                 model.ft[N_FEATURES].zero_()
+                if getattr(model, "factorised", False):
+                    model.ft_base[N_KING_BUCKETS * 768].zero_()
             seen += a.batch
             if seen >= next_eval or seen >= total:
                 next_eval += int(a.eval_every)
@@ -485,10 +635,10 @@ def main() -> None:
                 log.write(json.dumps(rec) + "\n")
                 log.flush()
                 torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "seen": seen}, state_path)
-                export(model, out / f"v3_{seen // 1_000_000:06d}M.nnue", a.hidden)
+                export(model, out / f"v3_{seen // 1_000_000:06d}M.nnue", a.hidden, version=a.file_version or None)
             if seen >= total:
                 break
-    export(model, out / "v3_final.nnue", a.hidden)
+    export(model, out / "v3_final.nnue", a.hidden, version=a.file_version or None)
 
 
 if __name__ == "__main__":

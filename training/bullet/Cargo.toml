@@ -1,0 +1,24 @@
+[package]
+name = "piebot-bullet"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "Train PieBot arch-v3 (PIENNQ03) networks with bullet on Stockfish binpacks"
+publish = false
+
+# Standalone: not part of the engine's workspace.
+[workspace]
+
+[dependencies]
+# bullet (MIT), pinned: 2026-09-27 "Update README (#559)".
+bullet = { git = "https://github.com/jw1912/bullet", rev = "c004ebf04025edf91c6ccac47e72d561062a46b5", package = "bullet_lib" }
+bullet-trainer = { git = "https://github.com/jw1912/bullet", rev = "c004ebf04025edf91c6ccac47e72d561062a46b5", package = "bullet-trainer" }
+bullet-compiler = { git = "https://github.com/jw1912/bullet", rev = "c004ebf04025edf91c6ccac47e72d561062a46b5", package = "bullet-compiler" }
+sfbinpack = "0.6.4"
+
+[features]
+default = []
+cuda = ["bullet/cuda"]
+
+[profile.release]
+opt-level = 3
