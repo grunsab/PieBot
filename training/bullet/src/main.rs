@@ -27,6 +27,8 @@ use bullet_trainer::model::utils::{read_from_byte_buffer, write_to_byte_buffer};
 use piebot_bullet::*;
 use sfbinpack::{ChunkReader, read_chunk_into};
 
+mod threats_train;
+
 type Trainer = ValueTrainer<AdamWOptimiser, ChessBucketsMirroredExperts, MaterialCount<OUTPUT_BUCKETS>>;
 
 struct Args(HashMap<String, Vec<String>>);
@@ -78,7 +80,9 @@ fn meta_from(a: &Args) -> NetMeta {
     let cuts = if experts == 1 { Vec::new() } else { parse_cuts(&a.get("expert-cuts", "26,17,11")) };
     let stack = a.flag("pairwise").then(|| (a.num("l1", "16"), a.num("l2", "32")));
     assert!(stack.is_none() || experts == 1, "--pairwise takes one expert");
-    let m = NetMeta { buckets: a.num("buckets", "16"), hidden: a.num("hidden", "1024"), experts, cuts, stack };
+    let threats = a.flag("threats");
+    assert!(!threats || stack.is_some(), "--threats needs --pairwise");
+    let m = NetMeta { buckets: a.num("buckets", "16"), hidden: a.num("hidden", "1024"), experts, cuts, stack, threats };
     m.table(); // validate
     m
 }
@@ -284,6 +288,9 @@ fn init_from(trainer: &mut Trainer, meta: &NetMeta, ckpt: &str) {
 
 fn train(a: &Args) {
     let meta = meta_from(a);
+    if meta.threats {
+        return train_threats(a, meta);
+    }
     let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"), a.num("act-l1", "0"));
     let out = a.get("out", "checkpoints");
     std::fs::create_dir_all(&out).unwrap();
@@ -332,10 +339,51 @@ fn train(a: &Args) {
     trainer.run(&schedule, &settings, &loader);
 }
 
+/// `train --pairwise --threats`: see threats_train.rs. Same options as `train`.
+fn train_threats(a: &Args, meta: NetMeta) {
+    let out = a.get("out", "checkpoints");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(Path::new(&out).join(NetMeta::FILE), meta.to_text()).unwrap();
+    let superbatches: usize = a.num("superbatches", "2000");
+    let lr0: f32 = a.num("lr", "0.001");
+    let threads: usize = a.num("threads", "8");
+    let loader = InterleavedBinpackLoader {
+        files: data_files(a),
+        buffer_positions: a.num::<usize>("buffer-mpos", "16") * 1_000_000,
+        threads,
+        filter: filter_from(a),
+        scores: ScoreMap::new(score_mode(a)),
+        seed: a.num("seed", "1"),
+    };
+    println!("data: {} binpack files; threat inputs on", loader.files.len());
+    let cfg = threats_train::Config {
+        loss: loss_by_name(&a.get("loss", "bce")),
+        act_l1: a.num("act-l1", "0"),
+        out,
+        net_id: a.get("net-id", "piebot_v3"),
+        superbatches,
+        start: a.num("start-superbatch", "1"),
+        lr0,
+        final_lr: lr0 * a.num::<f32>("final-lr-frac", "0.03"),
+        warmup_batches: a.num("warmup-batches", "1000"),
+        batch_size: a.num("batch", "16384"),
+        batches_per_superbatch: a.num("batches-per-superbatch", "6104"),
+        wdl: a.num("wdl", "0.2"),
+        save_rate: a.num("save-rate", "20"),
+        threads,
+        resume: a.0.get("resume").and_then(|v| v.first()).cloned(),
+        init_from: a.0.get("init-from").and_then(|v| v.first()).cloned(),
+        measure_loader: a.flag("measure-loader"),
+        meta,
+    };
+    assert!(!a.flag("no-factoriser"), "train --threats always uses the factoriser");
+    threats_train::run(cfg, loader);
+}
+
 /// The net's shape for a checkpoint file: `piebot_net.txt` from the run
 /// directory (the checkpoint's parent) when present, else the command line.
 fn meta_for_checkpoint(a: &Args, file: &Path) -> NetMeta {
-    let explicit = ["buckets", "hidden", "experts", "expert-cuts", "pairwise", "l1", "l2"].iter().any(|k| a.flag(k));
+    let explicit = ["buckets", "hidden", "experts", "expert-cuts", "pairwise", "l1", "l2", "threats"].iter().any(|k| a.flag(k));
     let saved = file
         .parent()
         .and_then(|ck| ck.parent())
@@ -353,16 +401,34 @@ fn export(a: &Args) {
     let m = meta_for_checkpoint(a, Path::new(&input));
     let net = FloatNet::from_bullet_floats_meta(Path::new(&input), &m).unwrap_or_else(|e| panic!("{e}"));
     net.write_piennq03_version(Path::new(&output), a.num("file-version", default_version(&m))).unwrap();
-    println!("wrote {output}");
+    let (worst, lane) = net.worst_case_accumulator();
+    println!("wrote {output} (worst-case accumulator {worst} at lane {lane})");
+    if worst > i16::MAX as i64 {
+        eprintln!("WARNING: {output}: a 32-piece worst case reaches {worst} > 32767 at lane {lane}; the engine's i16 accumulator could wrap");
+    }
 }
 
-/// Version 5 for a pairwise stack, else 4 (precise linear head).
+/// Version 6 with threat inputs, 5 for a plain pairwise stack, else 4
+/// (precise linear head).
 fn default_version(m: &NetMeta) -> &'static str {
-    if m.stack.is_some() { "5" } else { "4" }
+    if m.threats { "6" } else if m.stack.is_some() { "5" } else { "4" }
 }
 
 fn evalfens(a: &Args) {
     let meta = meta_from(a);
+    if meta.threats {
+        let ckpt = a.get("checkpoint", "");
+        let fens: Vec<String> = std::fs::read_to_string(a.get("fens", ""))
+            .unwrap()
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect();
+        let vals = threats_train::eval_fens(&meta, &ckpt, &fens);
+        let rows: Vec<String> = fens.iter().zip(vals).map(|(f, v)| format!("[{f:?}, {v}]")).collect();
+        println!("[{}]", rows.join(",\n "));
+        return;
+    }
     let mut trainer = build(&meta, &a.get("loss", "bce"), !a.flag("no-factoriser"), 0.0);
     if let Some(ckpt) = a.0.get("checkpoint").and_then(|v| v.first()) {
         trainer.load_from_checkpoint(ckpt);

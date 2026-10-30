@@ -66,6 +66,7 @@ fn random_v3_experts(hidden: usize, seed: u64, experts: usize) -> QuantNnue {
             w2_shift: 0,
             b2,
             hidden_stack: None,
+            threat_w: Vec::new(),
         })),
     }
 }
@@ -201,7 +202,7 @@ fn experts_engine_matches_the_python_reference_fixture() {
 fn sparse_first_layer_equals_the_dense_product() {
     use piebot::eval::nnue::sparse_l1;
     let mut s = 0x5eed_u64;
-    for &(l1, n) in &[(16usize, 2048usize), (32, 2048), (16, 512), (8, 2048), (12, 64)] {
+    for &(l1, n) in &[(16usize, 2048usize), (32, 2048), (16, 1024), (16, 512), (16, 96), (8, 2048), (12, 64)] {
         let w: Vec<i8> = (0..l1 * n).map(|_| (lcg(&mut s) % 256) as i32 as u8 as i8).collect();
         let blk = sparse_l1::block_major(&w, 1, l1, n);
         for zero_pct in [0u64, 50, 90, 99, 100] {
@@ -214,6 +215,17 @@ fn sparse_first_layer_equals_the_dense_product() {
             let mut got2 = [0i32; 64];
             sparse_l1::product_scalar(&x, &blk, l1, &mut got2);
             assert_eq!(&got2[..l1], &want[..l1], "scalar l1={l1} n={n} zero={zero_pct}%");
+            // The AVX2 / AVX-VNNI block-sparse path, used on x86 without AVX-512.
+            let mut got3 = [0i32; 64];
+            if sparse_l1::product_avx2_sparse(&x, &blk, l1, &mut got3) {
+                assert_eq!(&got3[..l1], &want[..l1], "avx2 sparse l1={l1} n={n} zero={zero_pct}%");
+            } else {
+                #[cfg(target_arch = "x86_64")]
+                assert!(
+                    !(l1 % 16 == 0 && n % 32 == 0 && std::is_x86_feature_detected!("avx2")),
+                    "AVX2 sparse path refused a supported shape l1={l1} n={n}"
+                );
+            }
         }
     }
 }
@@ -222,13 +234,14 @@ fn sparse_first_layer_equals_the_dense_product() {
 fn simd_activation_matches_the_scalar_formula() {
     use piebot::eval::nnue::sparse_l1;
     let mut s = 77u64;
-    let h = 1024;
-    let a: Vec<i16> = (0..2 * h).map(|_| (lcg(&mut s) % 1200) as i16 - 600).collect();
-    let mut x = vec![0u8; 2 * h];
-    sparse_l1::activate(&a[..h], &a[h..], 255, &mut x);
-    for (i, &v) in a.iter().enumerate() {
-        let c = (v as i32).clamp(0, 255);
-        assert_eq!(x[i] as i32, (c * c) >> 8, "i={i}");
+    for h in [1024usize, 2048] {
+        let a: Vec<i16> = (0..2 * h).map(|_| (lcg(&mut s) % 1200) as i16 - 600).collect();
+        let mut x = vec![0u8; 2 * h];
+        sparse_l1::activate(&a[..h], &a[h..], 255, &mut x);
+        for (i, &v) in a.iter().enumerate() {
+            let c = (v as i32).clamp(0, 255);
+            assert_eq!(x[i] as i32, (c * c) >> 8, "h={h} i={i}");
+        }
     }
 }
 
@@ -307,7 +320,7 @@ fn incremental_pairwise_matches_full_recompute() {
 fn simd_pairwise_activation_matches_the_scalar_formula() {
     use piebot::eval::nnue::sparse_l1;
     let mut s = 91u64;
-    for h in [64usize, 1024, 48] {
+    for h in [64usize, 1024, 2048, 48] {
         let a: Vec<i16> = (0..2 * h).map(|_| (lcg(&mut s) % 1200) as i16 - 600).collect();
         let mut x = vec![0u8; h];
         sparse_l1::activate_pairwise(&a[..h], &a[h..], 255, &mut x);
@@ -319,5 +332,29 @@ fn simd_pairwise_activation_matches_the_scalar_formula() {
                 assert_eq!(x[p * half + i] as i32, (c0 * c1) >> 8, "h={h} p={p} i={i}");
             }
         }
+    }
+}
+
+#[test]
+fn loader_rejects_a_hidden_stack_wider_than_the_scratch_buffer() {
+    // The first hidden layer's input lives in a fixed stack buffer of
+    // sparse_l1::MAX_STACK_INPUT bytes; a wider file must be refused up front.
+    let header = |version: u32, hidden: u32| {
+        let mut b = b"PIENNQ03".to_vec();
+        b.extend_from_slice(&version.to_le_bytes());
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&LAYOUT);
+        for v in [hidden, 8, 255, 64, 400] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b
+    };
+    let max = piebot::eval::nnue::sparse_l1::MAX_STACK_INPUT as u32;
+    for (version, hidden) in [(5u32, max + 8), (2, max / 2 + 8)] {
+        let path = std::env::temp_dir().join(format!("piebot_wide_v{version}_{}.nnue", std::process::id()));
+        std::fs::write(&path, header(version, hidden)).unwrap();
+        let err = QuantNnue::load_quantized(&path).err().expect("must refuse").to_string();
+        let _ = std::fs::remove_file(&path);
+        assert!(err.contains("hidden stack input"), "version {version} hidden {hidden}: {err}");
     }
 }

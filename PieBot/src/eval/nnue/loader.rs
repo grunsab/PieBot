@@ -62,6 +62,10 @@ pub struct QuantNnueV3 {
     pub b2: Vec<i64>,
     /// File version 2: a hidden stack replaces the linear head.
     pub hidden_stack: Option<HiddenStackV3>,
+    /// File version 6 (version 5 plus threat inputs, see `threats.rs`):
+    /// feature-major i8 rows, `threat_w[idx * hidden .. (idx + 1) * hidden]`,
+    /// added to each perspective's accumulator. Empty for other versions.
+    pub threat_w: Vec<i8>,
 }
 
 /// Per output bucket: `2h -> l1` in int8 (inputs `(clamp(acc)^2) >> 8`,
@@ -236,6 +240,8 @@ impl QuantNnue {
         // by the pairwise product of each accumulator's halves, so h1_w is
         // [nb][l1][hidden]); version 4 has the experts
         // fields and stores i16 w2 and i64 b2 (a precise linear head).
+        // Version 6 is version 5 followed by u32 n_threat_features and
+        // i8 threat_w[n_threat_features * hidden] (feature-major).
         fn u32le<R: Read>(r: &mut R, what: &str) -> Result<u32> {
             let mut b = [0u8; 4];
             r.read_exact(&mut b).with_context(|| format!("read v3 {what}"))?;
@@ -259,11 +265,18 @@ impl QuantNnue {
         let qa = u32le(r, "qa")? as i32;
         let qb = u32le(r, "qb")? as i32;
         let scale = u32le(r, "scale")? as i32;
-        if !(1..=5).contains(&version) {
+        if !(1..=6).contains(&version) {
             bail!("unsupported PIENNQ03 version {version}");
         }
         if n_king_buckets == 0 || n_king_buckets > 32 || hidden_dim == 0 || hidden_dim > 8192 {
             bail!("invalid v3 dims: buckets={n_king_buckets} hidden={hidden_dim}");
+        }
+        if version == 2 || version >= 5 {
+            let n_in = if version >= 5 { hidden_dim } else { 2 * hidden_dim };
+            let max = crate::eval::nnue::sparse_l1::MAX_STACK_INPUT;
+            if n_in > max {
+                bail!("v3 hidden stack input {n_in} exceeds {max} (hidden={hidden_dim})");
+            }
         }
         if king_bucket_layout.iter().any(|&b| b as usize >= n_king_buckets) {
             bail!("v3 bucket layout names a bucket >= {n_king_buckets}");
@@ -306,8 +319,8 @@ impl QuantNnue {
                 .collect();
             (w2, Vec::new(), 0, b2)
         };
-        let hidden_stack = if version == 2 || version == 5 {
-            let pairwise = version == 5;
+        let hidden_stack = if version == 2 || version >= 5 {
+            let pairwise = version >= 5;
             if pairwise && hidden_dim % 8 != 0 {
                 bail!("v3 pairwise hidden stack needs a width divisible by 8, got {hidden_dim}");
             }
@@ -356,6 +369,18 @@ impl QuantNnue {
         } else {
             None
         };
+        let threat_w = if version == 6 {
+            let n = u32le(r, "n_threat_features")? as usize;
+            let want = crate::eval::nnue::threats::N_THREAT_FEATURES;
+            if n != want {
+                bail!("v3 threat feature count {n}, expected {want}");
+            }
+            let mut b = vec![0u8; n * hidden_dim];
+            r.read_exact(&mut b).context("read v3 threat_w")?;
+            b.into_iter().map(|x| x as i8).collect()
+        } else {
+            Vec::new()
+        };
         let mut extra = [0u8; 1];
         if r.read(&mut extra).context("check v3 trailing bytes")? != 0 {
             bail!("trailing bytes after PIENNQ03 payload");
@@ -391,6 +416,7 @@ impl QuantNnue {
                 w2_shift,
                 b2,
                 hidden_stack,
+                threat_w,
             })),
         })
     }

@@ -9,6 +9,10 @@
 //! The result is exactly the dense integer product; `dense_ref` is the
 //! reference the tests compare against.
 
+/// Largest first-hidden-layer input (bytes) the evaluator's stack scratch
+/// buffer holds; the loader refuses wider files.
+pub const MAX_STACK_INPUT: usize = 4096;
+
 /// Row-major `[bucket][l1][n]` to block-major `[bucket][n/4][l1][4]`.
 pub fn block_major(w: &[i8], buckets: usize, l1: usize, n: usize) -> Vec<i8> {
     assert_eq!(n % 4, 0, "input width must be a multiple of 4");
@@ -194,8 +198,9 @@ pub fn dense_ref(x: &[u8], w_rows: &[i8], l1: usize, out: &mut [i32]) {
 }
 
 /// `out[..l1] = x . W` over one bucket's block-major weights (`[n/4][l1][4]`),
-/// exactly. AVX-512 VNNI when compiled in (dense or block-sparse, chosen per
-/// call by how many blocks are non-zero), else AVX2, else scalar.
+/// exactly. AVX-512 VNNI when compiled in, else AVX2 (with AVX-VNNI when
+/// compiled in), else scalar. The SIMD paths are dense or block-sparse, chosen
+/// per call by how many blocks are non-zero.
 pub fn product(x: &[u8], w_blk: &[i8], l1: usize, out: &mut [i32]) {
     debug_assert_eq!(x.len() % 4, 0);
     debug_assert_eq!(w_blk.len(), x.len() * l1);
@@ -206,14 +211,154 @@ pub fn product(x: &[u8], w_blk: &[i8], l1: usize, out: &mut [i32]) {
             return;
         }
     }
-    #[cfg(target_arch = "x86_64")]
-    {
-        if l1 % 16 == 0 && is_x86_feature_detected!("avx2") {
-            unsafe { dense_avx2(x, w_blk, l1, out) };
-            return;
-        }
+    if product_avx2_sparse(x, w_blk, l1, out) {
+        return;
     }
     sparse_scalar(x, w_blk, l1, out);
+}
+
+/// The x86 path without AVX-512: lists the non-zero 4-byte blocks with AVX2,
+/// then multiplies only those, with `vpdpbusd ymm` when AVX-VNNI is compiled
+/// in and exact i16 widening otherwise; mostly non-zero inputs take the dense
+/// pass. Returns false (leaving `out` untouched) when the CPU or the shape is
+/// not supported, so callers can fall back.
+pub fn product_avx2_sparse(x: &[u8], w_blk: &[i8], l1: usize, out: &mut [i32]) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if l1 % 16 == 0 && x.len() % 32 == 0 && x.len() <= 8192 && is_x86_feature_detected!("avx2") {
+            unsafe { sparse_avx2(x, w_blk, l1, out) };
+            return true;
+        }
+    }
+    let _ = (x, w_blk, l1, out);
+    false
+}
+
+/// For each 8-bit mask, the positions of its set bits, in order.
+#[cfg(target_arch = "x86_64")]
+static NNZ_LUT: [[u16; 8]; 256] = {
+    let mut t = [[0u16; 8]; 256];
+    let mut m = 0;
+    while m < 256 {
+        let (mut k, mut b) = (0, 0);
+        while b < 8 {
+            if m & (1 << b) != 0 {
+                t[m][k] = b as u16;
+                k += 1;
+            }
+            b += 1;
+        }
+        m += 1;
+    }
+    t
+};
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn sparse_avx2(x: &[u8], w_blk: &[i8], l1: usize, out: &mut [i32]) {
+    use std::arch::x86_64::*;
+    let blocks = x.len() / 4;
+    // Indices of the non-zero blocks, branch-free: each group of 8 blocks
+    // gives an 8-bit mask, whose offsets come from a table and are stored all
+    // at once; the write position advances by the popcount. Uninitialised:
+    // only the first `n` entries are read (+8 for the last full store).
+    let mut idx_buf = std::mem::MaybeUninit::<[u16; 2048 + 8]>::uninit();
+    let idx = idx_buf.as_mut_ptr() as *mut u16;
+    let mut n = 0usize;
+    let zero = _mm256_setzero_si256();
+    let xp = x.as_ptr();
+    let mut base = _mm_setzero_si128();
+    let eight = _mm_set1_epi16(8);
+    for g in 0..blocks / 8 {
+        let v = _mm256_loadu_si256(xp.add(g * 32) as *const __m256i);
+        let is_zero = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(v, zero))) as u32;
+        let m = (!is_zero & 0xFF) as usize;
+        let offs = _mm_loadu_si128(NNZ_LUT[m].as_ptr() as *const __m128i);
+        _mm_storeu_si128(idx.add(n) as *mut __m128i, _mm_add_epi16(base, offs));
+        n += m.count_ones() as usize;
+        base = _mm_add_epi16(base, eight);
+    }
+    if n * 4 > blocks * 3 {
+        // Mostly non-zero: a straight pass is cheaper than the index list.
+        dense_avx2(x, w_blk, l1, out);
+        return;
+    }
+    let idx = std::slice::from_raw_parts(idx, n);
+    #[cfg(target_feature = "avxvnni")]
+    {
+        sparse_list_vnni256(x, w_blk, l1, idx, out);
+    }
+    #[cfg(not(target_feature = "avxvnni"))]
+    {
+        sparse_list_avx2(x, w_blk, l1, idx, out);
+    }
+}
+
+/// `vpdpbusd ymm` over the listed blocks: u8 inputs times i8 weights summed
+/// in i32, exact. Each 32-byte weight register is 8 outputs x 4 inputs.
+#[cfg(all(target_arch = "x86_64", target_feature = "avxvnni"))]
+#[inline]
+unsafe fn sparse_list_vnni256(x: &[u8], w_blk: &[i8], l1: usize, idx: &[u16], out: &mut [i32]) {
+    use std::arch::x86_64::*;
+    let x32 = x.as_ptr() as *const i32;
+    let wp = w_blk.as_ptr();
+    let row = l1 * 4;
+    for c in 0..l1 / 16 {
+        let woff = c * 64;
+        // Two independent accumulator pairs to hide the dpbusd latency.
+        let (mut a0, mut a1, mut b0, mut b1) =
+            (_mm256_setzero_si256(), _mm256_setzero_si256(), _mm256_setzero_si256(), _mm256_setzero_si256());
+        let mut pairs = idx.chunks_exact(2);
+        for q in &mut pairs {
+            let (i, j) = (q[0] as usize, q[1] as usize);
+            let xi = _mm256_set1_epi32(x32.add(i).read_unaligned());
+            let xj = _mm256_set1_epi32(x32.add(j).read_unaligned());
+            let wi = wp.add(i * row + woff);
+            let wj = wp.add(j * row + woff);
+            a0 = _mm256_dpbusd_avx_epi32(a0, xi, _mm256_loadu_si256(wi as *const __m256i));
+            a1 = _mm256_dpbusd_avx_epi32(a1, xi, _mm256_loadu_si256(wi.add(32) as *const __m256i));
+            b0 = _mm256_dpbusd_avx_epi32(b0, xj, _mm256_loadu_si256(wj as *const __m256i));
+            b1 = _mm256_dpbusd_avx_epi32(b1, xj, _mm256_loadu_si256(wj.add(32) as *const __m256i));
+        }
+        for &i in pairs.remainder() {
+            let i = i as usize;
+            let xi = _mm256_set1_epi32(x32.add(i).read_unaligned());
+            let wi = wp.add(i * row + woff);
+            a0 = _mm256_dpbusd_avx_epi32(a0, xi, _mm256_loadu_si256(wi as *const __m256i));
+            a1 = _mm256_dpbusd_avx_epi32(a1, xi, _mm256_loadu_si256(wi.add(32) as *const __m256i));
+        }
+        let o = out.as_mut_ptr().add(c * 16) as *mut __m256i;
+        _mm256_storeu_si256(o, _mm256_add_epi32(a0, b0));
+        _mm256_storeu_si256(o.add(1), _mm256_add_epi32(a1, b1));
+    }
+}
+
+/// Exact AVX2 fallback over the listed blocks, widening to i16 as `dense_avx2` does.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(dead_code)]
+unsafe fn sparse_list_avx2(x: &[u8], w_blk: &[i8], l1: usize, idx: &[u16], out: &mut [i32]) {
+    use std::arch::x86_64::*;
+    let x32 = x.as_ptr() as *const i32;
+    let w8 = w_blk.as_ptr();
+    let row = l1 * 4;
+    for c in 0..l1 / 16 {
+        let woff = c * 64;
+        let mut a = [_mm256_setzero_si256(); 4];
+        for &b in idx {
+            let b = b as usize;
+            let xv = _mm256_cvtepu8_epi16(_mm_set1_epi32(x32.add(b).read_unaligned()));
+            let base = w8.add(b * row + woff);
+            for (u, acc) in a.iter_mut().enumerate() {
+                let w = _mm256_cvtepi8_epi16(_mm_loadu_si128(base.add(u * 16) as *const __m128i));
+                *acc = _mm256_add_epi32(*acc, _mm256_madd_epi16(xv, w));
+            }
+        }
+        let lo = _mm256_permute4x64_epi64(_mm256_hadd_epi32(a[0], a[1]), 0xD8);
+        let hi = _mm256_permute4x64_epi64(_mm256_hadd_epi32(a[2], a[3]), 0xD8);
+        _mm256_storeu_si256(out.as_mut_ptr().add(c * 16) as *mut __m256i, lo);
+        _mm256_storeu_si256(out.as_mut_ptr().add(c * 16 + 8) as *mut __m256i, hi);
+    }
 }
 
 /// The portable fallback of `product`, public so tests cover it everywhere.
@@ -320,8 +465,8 @@ unsafe fn dense_avx2(x: &[u8], w_blk: &[i8], l1: usize, out: &mut [i32]) {
     for c in 0..l1 / 16 {
         let woff = c * 64;
         let mut a = [_mm256_setzero_si256(); 4];
-        // No zero-block skip: the activations are dense, and the branch
-        // mispredicts more than the multiply it would save.
+        // No zero-block skip: callers come here only when most blocks are
+        // non-zero, where the branch would mispredict more than it saves.
         for b in 0..blocks {
             // The block's 4 bytes as i16, repeated: [x0 x1 x2 x3] x 4.
             let xv = _mm256_cvtepu8_epi16(_mm_set1_epi32(x32.add(b).read_unaligned()));

@@ -38,6 +38,10 @@ pub const QB_PRECISE: i32 = 4096;
 /// x[i] = clamp(a[i]) * clamp(a[i + h/2]) for i < h/2, then L1 (i8 at
 /// `L1_QB`, crelu) -> L2 (f32, crelu) -> 1 (f32), each with 8 output buckets.
 pub const FILE_VERSION_PAIRWISE: u32 = 5;
+/// Version 5 plus threat inputs: u32 n_threat_features, then i8
+/// threat_w[n][hidden] (x QA) after the hidden stack.
+pub const FILE_VERSION_THREATS: u32 = 6;
+pub use piebot::eval::nnue::threats::{MAX_ACTIVE as MAX_THREATS, N_THREAT_FEATURES};
 pub const L1_QB: i32 = 64;
 
 /// 16 buckets, indexed by rank * 4 + file for the mirrored half (files a-d).
@@ -112,6 +116,8 @@ pub struct NetMeta {
     pub cuts: Vec<usize>,
     /// Pairwise hidden stack widths (l1, l2); None for the linear head.
     pub stack: Option<(usize, usize)>,
+    /// Threat inputs (file version 6; needs the pairwise stack).
+    pub threats: bool,
 }
 
 impl NetMeta {
@@ -126,6 +132,9 @@ impl NetMeta {
         let mut t = format!("buckets={}\nhidden={}\nexperts={}\ncuts={}\n", self.buckets, self.hidden, self.experts, cuts.join(","));
         if let Some((l1, l2)) = self.stack {
             t += &format!("pairwise_l1={l1}\npairwise_l2={l2}\n");
+        }
+        if self.threats {
+            t += "threats=1\n";
         }
         t
     }
@@ -143,7 +152,8 @@ impl NetMeta {
             (Some(l1), Some(l2)) => Some((l1, l2)),
             _ => None,
         };
-        Some(Self { buckets: num("buckets")?, hidden: num("hidden")?, experts: num("experts")?, cuts, stack })
+        let threats = m.get("threats").is_some_and(|v| v == "1");
+        Some(Self { buckets: num("buckets")?, hidden: num("hidden")?, experts: num("experts")?, cuts, stack, threats })
     }
 }
 
@@ -192,6 +202,21 @@ impl SparseInputType for ChessBucketsMirroredExperts {
     fn description(&self) -> String {
         "Horizontally mirrored, king bucketed psqt inputs, one block per material expert".to_string()
     }
+}
+
+/// Threat features (PIENNQ03 version 6) of a position for the side to move
+/// and the other side, sorted: the engine's own map
+/// (`piebot::eval::nnue::threats`), fed the board as bullet stores it (side
+/// to move as White, ranks flipped when Black is to move). Threat features
+/// only use relative colours and oriented squares, so this equals the
+/// engine's features on the real board.
+pub fn threat_features(pos: &ChessBoard) -> (Vec<u32>, Vec<u32>) {
+    let mut pieces = [[0u64; 6]; 2];
+    for (piece, square) in pos.into_iter() {
+        pieces[usize::from(piece & 8 > 0)][usize::from(piece & 7)] |= 1u64 << square;
+    }
+    use piebot::eval::nnue::threats::features_of_pieces;
+    (features_of_pieces(pieces, 0), features_of_pieces(pieces, 1))
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +557,8 @@ pub struct FloatNet {
     pub b2: Vec<f32>,
     /// Pairwise hidden stack; w2/b2 (the unused linear head) are then zero.
     pub stack: Option<PairwiseStack>,
+    /// Threat input weights, feature-major `[N_THREAT_FEATURES][hidden]`.
+    pub threat_w: Option<Vec<f32>>,
 }
 
 /// Float weights of the pairwise hidden stack, in train_v3's layout:
@@ -575,7 +602,7 @@ impl FloatNet {
             v
         };
         let (w1, b1, w2, b2) = (take(sizes[0]), take(sizes[1]), take(sizes[2]), take(sizes[3]));
-        Ok(Self { buckets, layout: layout(buckets), hidden, experts, expert_table, w1, b1, w2, b2, stack: None })
+        Ok(Self { buckets, layout: layout(buckets), hidden, experts, expert_table, w1, b1, w2, b2, stack: None, threat_w: None })
     }
 
     /// Read a checkpoint's float `quantised.bin` for any shape in `meta`.
@@ -586,18 +613,60 @@ impl FloatNet {
                 if meta.experts != 1 {
                     return Err(io::Error::new(io::ErrorKind::InvalidInput, "a pairwise stack takes one expert"));
                 }
-                Self::from_bullet_floats_pairwise(path, meta.buckets, meta.hidden, l1, l2)
+                Self::from_bullet_floats_pairwise_threats(path, meta.buckets, meta.hidden, l1, l2, meta.threats)
             }
         }
+    }
+
+    /// Largest accumulator magnitude any position could reach once quantised,
+    /// and the lane where it occurs: per expert/bucket block and lane, the
+    /// bias plus the 32 largest same-signed feature weights (a position has
+    /// at most 32 pieces). The engine's i16 accumulators wrap silently, so a
+    /// result above 32767 means some position could evaluate wrongly.
+    pub fn worst_case_accumulator(&self) -> (i64, usize) {
+        let q = |x: f32| round_even(x * QA as f32).clamp(-32768.0, 32767.0) as i64;
+        let h = self.hidden;
+        let mut best = (0i64, 0usize);
+        let mut col = Vec::with_capacity(768);
+        for block in 0..self.experts * self.buckets {
+            for lane in 0..h {
+                col.clear();
+                col.extend((0..768).map(|f| q(self.w1[(block * 768 + f) * h + lane])));
+                col.sort_unstable();
+                let bias = q(self.b1[lane]);
+                let neg: i64 = col.iter().take(32).filter(|&&v| v < 0).sum();
+                let pos: i64 = col.iter().rev().take(32).filter(|&&v| v > 0).sum();
+                for v in [(bias + pos).abs(), (bias + neg).abs()] {
+                    if v > best.0 {
+                        best = (v, lane);
+                    }
+                }
+            }
+        }
+        best
     }
 
     /// The pairwise save format: l0w (factoriser merged), l0b, then l1w, l1b,
     /// l2w, l2b, l3w, l3b with each weight transposed to [out][in].
     pub fn from_bullet_floats_pairwise(path: &Path, buckets: usize, hidden: usize, l1: usize, l2: usize) -> io::Result<Self> {
+        Self::from_bullet_floats_pairwise_threats(path, buckets, hidden, l1, l2, false)
+    }
+
+    /// As `from_bullet_floats_pairwise`, with the threat weights `l0t`
+    /// (feature-major) saved after the stack when `threats`.
+    pub fn from_bullet_floats_pairwise_threats(
+        path: &Path,
+        buckets: usize,
+        hidden: usize,
+        l1: usize,
+        l2: usize,
+        threats: bool,
+    ) -> io::Result<Self> {
         let raw = std::fs::read(path)?;
         let nb = OUTPUT_BUCKETS;
         let nf = buckets * 768;
-        let sizes = [nf * hidden, hidden, nb * l1 * hidden, nb * l1, nb * l2 * l1, nb * l2, nb * l2, nb];
+        let nt = if threats { N_THREAT_FEATURES * hidden } else { 0 };
+        let sizes = [nf * hidden, hidden, nb * l1 * hidden, nb * l1, nb * l2 * l1, nb * l2, nb * l2, nb, nt];
         let need: usize = sizes.iter().sum::<usize>() * 4;
         if raw.len() < need || raw.len() - need >= 64 {
             return Err(io::Error::new(
@@ -622,6 +691,7 @@ impl FloatNet {
             h3_w: take(sizes[6]),
             h3_b: take(sizes[7]),
         };
+        let threat_w = threats.then(|| take(sizes[8]));
         Ok(Self {
             buckets,
             layout: layout(buckets),
@@ -633,6 +703,7 @@ impl FloatNet {
             w2: vec![0.0; nb * 2 * hidden],
             b2: vec![0.0; nb],
             stack: Some(stack),
+            threat_w,
         })
     }
 
@@ -643,13 +714,22 @@ impl FloatNet {
     }
 
     pub fn write_piennq03_version(&self, path: &Path, version: u32) -> io::Result<()> {
-        if self.stack.is_some() != (version == FILE_VERSION_PAIRWISE) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "a pairwise stack is written as version 5, and only it"));
+        let pairwise = version == FILE_VERSION_PAIRWISE || version == FILE_VERSION_THREATS;
+        if self.stack.is_some() != pairwise {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "a pairwise stack is written as version 5 or 6, and only it"));
         }
-        if version == FILE_VERSION_PAIRWISE && self.experts != 1 {
+        if self.threat_w.is_some() != (version == FILE_VERSION_THREATS) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "threat weights are written as version 6, and only they"));
+        }
+        if let Some(tw) = &self.threat_w {
+            if tw.len() != N_THREAT_FEATURES * self.hidden {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "threat weights have the wrong size"));
+            }
+        }
+        if pairwise && self.experts != 1 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "experts with a hidden stack are not supported"));
         }
-        if version != FILE_VERSION_SINGLE && version != FILE_VERSION_PRECISE && version != FILE_VERSION_PAIRWISE {
+        if version != FILE_VERSION_SINGLE && version != FILE_VERSION_PRECISE && !pairwise {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("cannot write PIENNQ03 version {version}")));
         }
         let precise = version == FILE_VERSION_PRECISE;
@@ -710,6 +790,12 @@ impl FloatNet {
                 }
             }
         }
+        if let Some(tw) = &self.threat_w {
+            // i8 at QA, as threats.write_threat_net expects; training clips
+            // these weights to +-127 / QA, so the clamp only catches rounding.
+            out.extend_from_slice(&(N_THREAT_FEATURES as u32).to_le_bytes());
+            out.extend(tw.iter().map(|&w| round_even(w * qa).clamp(-128.0, 127.0) as i8 as u8));
+        }
         let tmp = path.with_extension("tmp");
         File::create(&tmp)?.write_all(&out)?;
         std::fs::rename(tmp, path)
@@ -719,6 +805,120 @@ impl FloatNet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pairwise_net(hidden: usize, threats: bool) -> FloatNet {
+        let nb = OUTPUT_BUCKETS;
+        let (l1, l2) = (16, 32);
+        let f = |n: usize, k: f32| (0..n).map(|i| ((i as f32 * 0.37 + k).sin()) * 0.4).collect::<Vec<f32>>();
+        FloatNet {
+            buckets: 16, layout: layout(16), hidden, experts: 1, expert_table: [0; 33],
+            w1: f(16 * 768 * hidden, 1.0), b1: f(hidden, 2.0),
+            w2: vec![0.0; nb * 2 * hidden], b2: vec![0.0; nb],
+            stack: Some(PairwiseStack {
+                l1, l2, h1_w: f(nb * l1 * hidden, 3.0), h1_b: f(nb * l1, 4.0), h2_w: f(nb * l2 * l1, 5.0),
+                h2_b: f(nb * l2, 6.0), h3_w: f(nb * l2, 7.0), h3_b: f(nb, 8.0),
+            }),
+            threat_w: threats.then(|| f(N_THREAT_FEATURES * hidden, 9.0).into_iter().map(|w| w * 2.0).collect()),
+        }
+    }
+
+    #[test]
+    fn net_meta_round_trips_the_threats_flag() {
+        let m = NetMeta { buckets: 16, hidden: 64, experts: 1, cuts: vec![], stack: Some((16, 32)), threats: true };
+        let back = NetMeta::parse(&m.to_text()).unwrap();
+        assert!(back.threats && back.stack == Some((16, 32)) && back.hidden == 64);
+        let plain = NetMeta { threats: false, ..m };
+        assert!(!NetMeta::parse(&plain.to_text()).unwrap().threats);
+    }
+
+    #[test]
+    fn version_6_is_version_5_plus_the_i8_threat_block() {
+        let dir = std::env::temp_dir().join(format!("piebot_v6_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let with = pairwise_net(16, true);
+        with.write_piennq03_version(&dir.join("v6.nnue"), FILE_VERSION_THREATS).unwrap();
+        let mut without = pairwise_net(16, false);
+        without.write_piennq03_version(&dir.join("v5.nnue"), FILE_VERSION_PAIRWISE).unwrap();
+        let (v6, v5) = (std::fs::read(dir.join("v6.nnue")).unwrap(), std::fs::read(dir.join("v5.nnue")).unwrap());
+        assert_eq!(&v6[..8], &v5[..8]);
+        assert_eq!(u32::from_le_bytes(v6[8..12].try_into().unwrap()), 6);
+        assert_eq!(&v6[12..v5.len()], &v5[12..]);
+        let tail = &v6[v5.len()..];
+        assert_eq!(u32::from_le_bytes(tail[..4].try_into().unwrap()) as usize, N_THREAT_FEATURES);
+        let tw = with.threat_w.as_ref().unwrap();
+        assert_eq!(tail.len() - 4, tw.len());
+        for (i, (&b, &w)) in tail[4..].iter().zip(tw).enumerate().step_by(997) {
+            assert_eq!(b as i8, round_even(w * QA as f32).clamp(-128.0, 127.0) as i8, "weight {i}");
+        }
+        // A plain net can't be written as version 6, nor a threats net as 5.
+        assert!(without.write_piennq03_version(&dir.join("x.nnue"), FILE_VERSION_THREATS).is_err());
+        without.threat_w = Some(vec![0.0; N_THREAT_FEATURES * 16]);
+        assert!(without.write_piennq03_version(&dir.join("x.nnue"), FILE_VERSION_PAIRWISE).is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_threats_checkpoint_carries_the_threat_rows_after_the_stack() {
+        let dir = std::env::temp_dir().join(format!("piebot_tq_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let net = pairwise_net(16, true);
+        let st = net.stack.as_ref().unwrap();
+        let mut raw = Vec::new();
+        for part in [&net.w1, &net.b1, &st.h1_w, &st.h1_b, &st.h2_w, &st.h2_b, &st.h3_w, &st.h3_b, net.threat_w.as_ref().unwrap()] {
+            for &v in part.iter() {
+                raw.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        std::fs::write(dir.join("q.bin"), &raw).unwrap();
+        let m = NetMeta { buckets: 16, hidden: 16, experts: 1, cuts: vec![], stack: Some((16, 32)), threats: true };
+        let back = FloatNet::from_bullet_floats_meta(&dir.join("q.bin"), &m).unwrap();
+        assert_eq!(back.threat_w.as_ref().unwrap(), net.threat_w.as_ref().unwrap());
+        assert_eq!(back.stack.as_ref().unwrap().h3_b, st.h3_b);
+        let plain = NetMeta { threats: false, ..m };
+        assert!(FloatNet::from_bullet_floats_meta(&dir.join("q.bin"), &plain).is_err(), "extra floats must not be ignored");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn threat_features_match_the_engine_from_both_sides() {
+        use piebot::eval::nnue::threats;
+        for fen in [
+            "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+            "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 4 4",
+            "1Q6/7k/2q5/8/3BN3/2R1b3/5n2/r3K3 w - - 0 40",
+            "6k1/5ppp/8/3Nn3/8/2B5/5PPP/2R3K1 b - - 0 30",
+        ] {
+            let pos: ChessBoard = format!("{fen} | 0 | 0.5").parse().unwrap();
+            let board = cozy_chess::Board::from_fen(fen, false).unwrap();
+            let (stm_side, ntm_side) = if board.side_to_move() == cozy_chess::Color::White { (0, 1) } else { (1, 0) };
+            let (stm, ntm) = threat_features(&pos);
+            assert_eq!(stm, threats::features(&board, stm_side), "{fen} stm");
+            assert_eq!(ntm, threats::features(&board, ntm_side), "{fen} ntm");
+            assert!(!stm.is_empty());
+        }
+    }
+
+    #[test]
+    fn worst_case_accumulator_bounds_32_pieces_and_the_bias() {
+        let hidden = 8;
+        let nf = 16 * 768;
+        let mut net = FloatNet {
+            buckets: 16, layout: layout(16), hidden, experts: 1, expert_table: [0; 33],
+            w1: vec![0.0; nf * hidden], b1: vec![0.0; hidden],
+            w2: vec![0.0; OUTPUT_BUCKETS * 2 * hidden], b2: vec![0.0; OUTPUT_BUCKETS], stack: None, threat_w: None,
+        };
+        // Lane 3 of bucket 5: 40 features at +1000 (quantised), only 32 can be active.
+        for f in 0..40 {
+            net.w1[(5 * 768 + f) * hidden + 3] = 1000.0 / QA as f32;
+        }
+        // Lane 6 of bucket 0: 32 features at -900.
+        for f in 100..132 {
+            net.w1[f * hidden + 6] = -900.0 / QA as f32;
+        }
+        assert_eq!(net.worst_case_accumulator(), (32_000, 3));
+        net.b1[6] = -4000.0 / QA as f32;
+        assert_eq!(net.worst_case_accumulator(), (32 * 900 + 4000, 6));
+    }
 
     #[test]
     fn q_mapping_round_trips() {
@@ -754,9 +954,9 @@ mod tests {
 
     #[test]
     fn net_meta_round_trips() {
-        let m = NetMeta { buckets: 16, hidden: 1024, experts: 4, cuts: vec![26, 17, 11], stack: None };
+        let m = NetMeta { buckets: 16, hidden: 1024, experts: 4, cuts: vec![26, 17, 11], stack: None, threats: false };
         assert_eq!(NetMeta::parse(&m.to_text()), Some(m));
-        let m = NetMeta { buckets: 16, hidden: 1024, experts: 1, cuts: vec![], stack: Some((16, 32)) };
+        let m = NetMeta { buckets: 16, hidden: 1024, experts: 1, cuts: vec![], stack: Some((16, 32)), threats: false };
         assert_eq!(NetMeta::parse(&m.to_text()), Some(m));
     }
 

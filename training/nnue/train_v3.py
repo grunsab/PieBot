@@ -51,6 +51,10 @@ QB_PRECISE = 4096
 # for i < h/2, so the first layer reads h inputs instead of 2h, and an input
 # is zero whenever either factor is, which makes it sparse.
 FILE_VERSION_PAIRWISE = 5
+# Version 5 plus threat inputs (threats.py): after the hidden stack,
+# u32 n_threat_features then i8 threat_w[n_threat_features][hidden], whose
+# rows are added to each perspective's accumulator like piece rows.
+FILE_VERSION_THREATS = 6
 L1_IN_SCALE = 254         # SCReLU output 0..1 -> u8 0..254 ((acc clamped)^2 >> 8)
 L1_QB = 64                # L1 weights as i8
 N_KING_BUCKETS = 16
@@ -458,8 +462,8 @@ def load_quant(path: Path) -> dict:
     net = dict(version=version, layout=layout, hidden=hidden, nout=nout, qa=qa, qb=qb, scale=scale,
                w1=w1, b1=b1, w2=w2, b2=b2, l1=0, n_experts=n_experts, expert_table=expert_table,
                nkb=nkb)
-    net["pairwise"] = version == FILE_VERSION_PAIRWISE
-    if version in (FILE_VERSION_HIDDEN, FILE_VERSION_PAIRWISE):
+    net["pairwise"] = version in (FILE_VERSION_PAIRWISE, FILE_VERSION_THREATS)
+    if version in (FILE_VERSION_HIDDEN, FILE_VERSION_PAIRWISE, FILE_VERSION_THREATS):
         l1, l2 = struct.unpack_from("<II", raw, off); off += 8
         net["l1"], net["l2"] = l1, l2
         n_in = hidden if net["pairwise"] else 2 * hidden
@@ -469,12 +473,18 @@ def load_quant(path: Path) -> dict:
                             ("h3_w", (nout, l2)), ("h3_b", (nout,))):
             n = int(np.prod(shape))
             net[name] = np.frombuffer(raw, "<f4", n, off).reshape(shape); off += n * 4
+    if version == FILE_VERSION_THREATS:
+        import threats
+        (n_threat,) = struct.unpack_from("<I", raw, off); off += 4
+        assert n_threat == threats.N_THREAT_FEATURES, f"threat feature count {n_threat}"
+        net["threat_w"] = np.frombuffer(raw, "i1", n_threat * hidden, off).reshape(n_threat, hidden)
+        off += n_threat * hidden
     assert off == len(raw), "trailing bytes"
     return net
 
 
-def quant_eval_fen(net: dict, fen: str) -> int:
-    """Integer evaluation (side-to-move centipawns) exactly as the engine does it."""
+def quant_accumulators(net: dict, fen: str) -> list:
+    """Each perspective's integer accumulator (White first), as the engine builds it."""
     import chess
 
     board = chess.Board(fen)
@@ -492,11 +502,25 @@ def quant_eval_fen(net: dict, fen: str) -> int:
         globals().update(N_EXPERTS=saved[0], EXPERT_OF_PIECES=saved[1], N_KING_BUCKETS=saved[2],
                          KING_BUCKET_LAYOUT=saved[3], N_FEATURES=saved[4])
     acc = []
-    for feats in (fw, fbk):
+    for persp, feats in enumerate((fw, fbk)):
         a = net["b1"].astype(np.int64).copy()
         for f in feats:
             a += net["w1"][f]
+        if net.get("threat_w") is not None:
+            import threats
+            for f in threats.threat_features(board, persp):
+                a += net["threat_w"][f]
         acc.append(a)
+    return acc
+
+
+def quant_eval_fen(net: dict, fen: str) -> int:
+    """Integer evaluation (side-to-move centipawns) exactly as the engine does it."""
+    import chess
+
+    board = chess.Board(fen)
+    pairs = board.piece_map()
+    acc = quant_accumulators(net, fen)
     stm, nstm = (acc[0], acc[1]) if board.turn else (acc[1], acc[0])
     h = np.concatenate([np.clip(stm, 0, net["qa"]), np.clip(nstm, 0, net["qa"])])
     bucket = output_bucket(len(pairs))
