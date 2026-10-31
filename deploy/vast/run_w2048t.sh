@@ -12,6 +12,7 @@
 # newest checkpoint that passes the watcher's check, and pins the trainer to
 # the E-cores. INIT_FROM=<plain checkpoint dir> starts from a plain pairwise
 # checkpoint of the same width with zero threat weights instead of from scratch.
+# LR and FINAL_LR_FRAC override the schedule (a fine-tune wants a lower LR).
 set -euo pipefail
 export PATH=/root/.cargo/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ulimit -n 65536
@@ -22,6 +23,8 @@ OUT=${OUT:-/workspace/w2048t}
 NET_ID=${NET_ID:-w2048t}
 HIDDEN=${HIDDEN:-2048}
 SUPERBATCHES=${SUPERBATCHES:-3000}
+LR=${LR:-0.001}
+FINAL_LR_FRAC=${FINAL_LR_FRAC:-0.03}
 CPUS=${CPUS:-16-31}
 B=$REPO/training/bullet/target/release/piebot-bullet
 
@@ -49,5 +52,5 @@ fi
 
 exec taskset -c "$CPUS" "$B" train "${ARGS[@]}" --out "$OUT" --net-id "$NET_ID" \
   --hidden "$HIDDEN" --pairwise --l1 16 --l2 32 --threats --act-l1 0.1 --buckets 16 \
-  --wdl 0.2 --loss bce --lr 0.001 --final-lr-frac 0.03 --seed 2048 \
+  --wdl 0.2 --loss bce --lr "$LR" --final-lr-frac "$FINAL_LR_FRAC" --seed 2048 \
   --superbatches "$SUPERBATCHES" --save-rate 20 --threads 8 "${START[@]}"

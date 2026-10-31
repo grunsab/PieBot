@@ -163,5 +163,51 @@ The whole-row prefetch was reverted, because it was slower. The other two change
 | w2048-600 | 11 | 127 | 62 | 37.3% | −91 (−117, −65) | |
 | w2048-800 | 9 | 137 | 54 | 38.8% | −80 (−105, −55) | |
 | w2048-1000 | 12 | 134 | 54 | 39.5% | −74 (−102, −47) | |
+| w2048-1200 | 9 | 148 | 43 | 39.0% | −60 (−86, −34) | |
+| w2048-1400 | 19 | 138 | 43 | 44.0% | −42 (−67, −17) | |
+| w2048-1600 | 17 | 154 | 29 | 47.0% | −21 (−42, 0) | |
+| w2048-1800 | 18 | 151 | 31 | 46.8% | −23 (−44, −1) | |
+| w2048-2000 | 18 | 149 | 33 | 46.3% | −26 (−48, −4) | |
+| w2048-2200 | 19 | 155 | 26 | 48.3% | −12 (−33, 9) | |
+| w2048-2400 | 29 | 147 | 24 | 51.3% | +9 (−17, 34) | |
+| w2048-2600 | 21 | 161 | 18 | 50.8% | +5 (−14, 25) | |
+| w2048-2800 | 33 | 145 | 22 | 52.8% | +19 (−5, 43) | |
+| w2048-3000 | 35 | 150 | 15 | 55.0% | **+35 (15, 55)** | |
 
 The gap closes by about 15 Elo per 200 superbatches after w2048-400. The learning rate is still high at this point, so the 2048 net isn't expected to match the finished 1024 net yet. Pentanomials for w2048-400 onward are in the gate JSONs on the box.
+
+### Longer time control (60+0.6, 30 games, seed 601, `books/openings_v1.fen`)
+
+| Checkpoint | W | D | L | Draw types |
+| :--- | ---: | ---: | ---: | :--- |
+| w2048-2400 | 0 | 30 | 0 | 26 threefold, 3 insufficient material, 1 ply cap |
+
+At 60+0.6 both nets draw every game from this book, so the match can't tell them apart. Measuring strength at long time controls needs a less balanced book or the SF19 protocol.
+
+## SF19 check: w2048-2400 (100 games, same protocol and seed as the Phase 3 baseline)
+
+| Net | Games | W | D | L | Win or draw (Wilson 95%) |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| w2048-2400 | 100 | 0 | 64 | 36 | **64.0%** (54.2-72.7%) |
+| `v3pw_bt4_1500`, same 100 openings and colours | 100 | | | | 53.0% |
+
+- **Same games compared:** the same 100 openings and colours are compared game by game.
+  - w2048-2400 held 18 games that `v3pw_bt4_1500` lost.
+  - `v3pw_bt4_1500` held 7 that w2048-2400 lost.
+  - Two-sided sign test: p = 0.043.
+- **Pentanomial:** [4, 28, 18, 0, 0].
+- **Raw results:** `w2048-2400_vs_sf19_s1901_100g.json`.
+- **Caveat:** this is a mid-run checkpoint and doesn't count toward the target. Phase 7 needs 280 + 280 games.
+
+## Training finished; threats run started as a fine-tune
+
+- **Plain run:** finished 2026-10-31 10:36 UTC, 3000 superbatches in 26.9 h. The final running loss was 0.5149, and w2048-3000 passed the checkpoint check (worst-case accumulator 15,108).
+- **SF19 on w2048-3000:** the full 280-game protocol run is in progress (`w2048-3000_vs_sf19_s1901.json`).
+- **Threats run, from scratch:** it trained at about 1.0M positions/s, against 2.86M for the plain run, so 3000 superbatches would take about 83 h. It was stopped before its first save.
+- **Owner's choice instead:** a fine-tune from w2048-3000 with zero threat weights.
+  - 800 superbatches, LR 0.0003 on a cosine schedule to 0.00003.
+  - Gated every 200 superbatches against w2048-3000.
+  - Settings: `deploy/vast/piebot_w2048t.conf`.
+  - The first superbatches log a running loss of 0.525, which confirms it started from the trained net (a from-scratch start is 0.563).
+  - Each superbatch takes about 78 s, so about 17 h in all.
+- **Engine for the threat gates:** `/workspace/bin/uci_threats` (sha 003e0fca…), built from the PR #16 code. The threat tests pass on the box.
