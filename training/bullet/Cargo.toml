@@ -15,6 +15,9 @@ bullet = { git = "https://github.com/jw1912/bullet", rev = "c004ebf04025edf91c6c
 bullet-trainer = { git = "https://github.com/jw1912/bullet", rev = "c004ebf04025edf91c6ccac47e72d561062a46b5", package = "bullet-trainer" }
 bullet-compiler = { git = "https://github.com/jw1912/bullet", rev = "c004ebf04025edf91c6ccac47e72d561062a46b5", package = "bullet-compiler" }
 sfbinpack = "0.6.4"
+# The engine, for its threat-feature map (one implementation for both).
+piebot = { path = "../../PieBot" }
+cozy-chess = "0.3"
 
 [features]
 default = []

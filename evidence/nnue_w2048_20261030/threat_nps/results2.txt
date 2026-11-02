@@ -1,0 +1,9 @@
+== w2048-320 plain, old binary (control)
+/workspace/bin/uci_w2048: knps per position [1293, 1218, 1640, 3733, 1355]  mean 1848
+== w2048-320 + threats rand, first threats binary
+/workspace/bin/uci_threats: knps per position [694, 607, 1545, 3327, 734]  mean 1381
+== w2048-320 + threats rand, in-place diff + full-row prefetch
+/workspace/bin/uci_threats2: knps per position [653, 604, 1516, 3239, 706]  mean 1344
+== w2048-320 plain, new binary
+/workspace/bin/uci_threats2: knps per position [1264, 1228, 1636, 3627, 1343]  mean 1819
+NPS2_DONE

@@ -43,3 +43,27 @@ class StatsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CpuPinningTests(unittest.TestCase):
+    def test_cpu_pairs_parse(self):
+        self.assertEqual(uci_match.parse_cpu_pairs("0:2,4:6, 8:10"), [(0, 2), (4, 6), (8, 10)])
+        self.assertEqual(uci_match.parse_cpu_pairs(""), [])
+        with self.assertRaises(ValueError):
+            uci_match.parse_cpu_pairs("0:0")       # both engines on one CPU
+        with self.assertRaises(ValueError):
+            uci_match.parse_cpu_pairs("0:2,2:4")   # a CPU in two pairs
+
+    def test_pinned_command_wraps_with_taskset(self):
+        self.assertEqual(uci_match.pinned(["/x/uci", "--flag"], 6), ["taskset", "-c", "6", "/x/uci", "--flag"])
+        self.assertEqual(uci_match.pinned(["/x/uci"], None), ["/x/uci"])
+
+    def test_engines_run_on_their_cpus(self):
+        import os
+        cpus = sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else []
+        if len(cpus) < 2 or not Path("/usr/bin/taskset").exists():
+            self.skipTest("needs Linux taskset and two CPUs")
+        import subprocess
+        out = subprocess.run(uci_match.pinned(["taskset", "-p", "$$"], cpus[1])[:3] + ["sh", "-c", "taskset -pc $$"],
+                             capture_output=True, text=True).stdout
+        self.assertTrue(out.strip().endswith(f": {cpus[1]}"), out)

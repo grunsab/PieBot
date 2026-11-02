@@ -36,6 +36,31 @@ import chess.engine
 
 PYTHON_CHESS_MANAGED = {"ponder", "multipv", "uci_chess960"}
 
+# With --cpu-pairs, each worker process owns one (A cpu, B cpu) pair for its
+# whole life; set by the pool initializer.
+_CPU_PAIR: tuple[int, int] | None = None
+
+
+def parse_cpu_pairs(spec: str) -> list[tuple[int, int]]:
+    """"0:2,4:6" -> [(0, 2), (4, 6)]: one pair per worker, A's CPU first."""
+    pairs = []
+    for item in filter(None, (x.strip() for x in spec.split(","))):
+        a, b = (int(v) for v in item.split(":"))
+        pairs.append((a, b))
+    flat = [c for p in pairs for c in p]
+    if len(flat) != len(set(flat)):
+        raise ValueError(f"--cpu-pairs uses a CPU twice: {spec}")
+    return pairs
+
+
+def pinned(cmd: list[str], cpu: int | None) -> list[str]:
+    return cmd if cpu is None else ["taskset", "-c", str(cpu), *cmd]
+
+
+def _claim_cpu_pair(queue) -> None:
+    global _CPU_PAIR
+    _CPU_PAIR = queue.get()
+
 
 def parse_opts(items: list[str]) -> dict:
     out: dict = {}
@@ -91,8 +116,9 @@ def pentanomial_stats(pair_scores: list[float]) -> dict:
 
 
 def play_pair(task: dict) -> dict:
-    a = chess.engine.SimpleEngine.popen_uci(task["a_cmd"])
-    b = chess.engine.SimpleEngine.popen_uci(task["b_cmd"])
+    cpu_a, cpu_b = _CPU_PAIR if _CPU_PAIR is not None else (None, None)
+    a = chess.engine.SimpleEngine.popen_uci(pinned(task["a_cmd"], cpu_a))
+    b = chess.engine.SimpleEngine.popen_uci(pinned(task["b_cmd"], cpu_b))
     games = []
     try:
         for eng, opts in ((a, task["a_opts"]), (b, task["b_opts"])):
@@ -194,7 +220,12 @@ def main() -> None:
     ap.add_argument("--grace", type=float, default=0.25, help="seconds past zero before a loss on time")
     ap.add_argument("--out", required=True)
     ap.add_argument("--resume", action="store_true", help="keep finished pairs already in --out")
+    ap.add_argument("--cpu-pairs", default="",
+                    help="pin engines: 'A:B,A:B,...', one CPU pair per worker (sets --workers)")
     args = ap.parse_args()
+    cpu_pairs = parse_cpu_pairs(args.cpu_pairs)
+    if cpu_pairs:
+        args.workers = len(cpu_pairs)
     if args.games % 2:
         raise SystemExit("--games must be even")
     init, inc = (float(x) for x in args.tc.split("+"))
@@ -227,7 +258,14 @@ def main() -> None:
         done = {p["pair"] for p in pairs}
         tasks = [t for t in tasks if t["game_id"] not in done]
         print(f"resuming: {len(pairs)} pairs kept, {len(tasks)} to play", flush=True)
-    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+    pool_kw = {}
+    if cpu_pairs:
+        import multiprocessing as mp
+        q = mp.get_context().Queue()
+        for p in cpu_pairs:
+            q.put(p)
+        pool_kw = {"initializer": _claim_cpu_pair, "initargs": (q,)}
+    with ProcessPoolExecutor(max_workers=args.workers, **pool_kw) as pool:
         futures = [pool.submit(play_pair, t) for t in tasks]
         for fut in as_completed(futures):
             pairs.append(fut.result())

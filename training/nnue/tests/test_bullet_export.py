@@ -349,5 +349,98 @@ class BulletPairwiseTests(unittest.TestCase):
         self.assertLess(np.abs(got - ref).max(), 0.05)
 
 
+def threats_float_eval(w, wt, fen, hidden, l1, l2):
+    """Float pairwise forward pass with threat rows, in numpy (white-first
+    perspectives, train_v3's feature map and threats.py)."""
+    import threats
+    import train_v3 as tv3
+    b = chess.Board(fen)
+    pairs = [(sq, (0 if p.color else 1) * 6 + p.piece_type - 1) for sq, p in b.piece_map().items()]
+    fw, fb = tv3.piece_features(pairs, b.king(chess.WHITE), b.king(chess.BLACK))
+    accs = []
+    for persp, feats in enumerate((fw, fb)):
+        a = w["fb"].astype(np.float64) + w["ft"][feats].astype(np.float64).sum(0)
+        a += wt[threats.threat_features(b, persp)].astype(np.float64).sum(0)
+        accs.append(a)
+    stm, nstm = (accs[0], accs[1]) if b.turn else (accs[1], accs[0])
+    half = hidden // 2
+    pw = lambda a: np.clip(a[:half], 0, 1) * np.clip(a[half:], 0, 1)
+    x = np.concatenate([pw(stm), pw(nstm)])
+    k = tv3.output_bucket(len(pairs))
+    y1 = np.clip(w["h1_w"][k * l1:(k + 1) * l1] @ x + w["h1_b"][k * l1:(k + 1) * l1], 0, 1)
+    y2 = np.clip(w["h2_w"][k * l2:(k + 1) * l2] @ y1 + w["h2_b"][k * l2:(k + 1) * l2], 0, 1)
+    return float(w["h3_w"][k] @ y2 + w["h3_b"][k]) * tv3.EVAL_SCALE
+
+
+class BulletThreatsTests(unittest.TestCase):
+    """Threat inputs (file version 6, `train --pairwise --threats`)."""
+
+    @unittest.skipIf(torch is None, "needs torch and chess")
+    def test_threats_exporter_is_the_pairwise_export_plus_the_i8_threat_block(self):
+        import threats
+        import train_v3 as tv3
+        tv3.set_king_buckets(16)
+        rng = np.random.default_rng(4)
+        nf, nb = 16 * 768, 8
+        w = {
+            "ft": rng.normal(0, 0.05, (nf, PW_HIDDEN)), "fb": rng.normal(0.3, 0.2, PW_HIDDEN),
+            "h1_w": rng.uniform(-1.9, 1.9, (nb * PW_L1, PW_HIDDEN)), "h1_b": rng.normal(0, 0.3, nb * PW_L1),
+            "h2_w": rng.normal(0, 0.5, (nb * PW_L2, PW_L1)), "h2_b": rng.normal(0, 0.3, nb * PW_L2),
+            "h3_w": rng.normal(0, 0.5, (nb, PW_L2)), "h3_b": rng.normal(0, 0.3, nb),
+        }
+        w = {k: v.astype(np.float32) for k, v in w.items()}
+        wt = rng.uniform(-0.5, 0.5, (threats.N_THREAT_FEATURES, PW_HIDDEN)).astype(np.float32)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            ck = d / "run" / "t-20"
+            ck.mkdir(parents=True)
+            order = ("ft", "fb", "h1_w", "h1_b", "h2_w", "h2_b", "h3_w", "h3_b")
+            raw = np.concatenate([w[k].ravel() for k in order] + [wt.ravel()]).astype("<f4").tobytes()
+            raw += b"\0" * ((64 - len(raw) % 64) % 64)
+            (ck / "quantised.bin").write_bytes(raw)
+            (d / "run" / "piebot_net.txt").write_text(
+                f"buckets=16\nhidden={PW_HIDDEN}\nexperts=1\ncuts=\npairwise_l1={PW_L1}\npairwise_l2={PW_L2}\nthreats=1\n")
+            subprocess.run([str(BIN), "export", "--input", str(ck / "quantised.bin"), "--output", str(d / "cli.nnue")],
+                           check=True, capture_output=True)
+            tv3.export(pairwise_model(w, PW_HIDDEN, PW_L1, PW_L2), d / "py5.nnue", PW_HIDDEN)
+            # Round half to even, as the exporter does; |w| <= 0.5 stays inside i8.
+            q = np.clip(np.rint(wt * tv3.QA), -128, 127).astype(np.int8)
+            threats.write_threat_net(d / "py5.nnue", d / "py6.nnue", q)
+            self.assertEqual((d / "cli.nnue").read_bytes(), (d / "py6.nnue").read_bytes())
+            net = tv3.load_quant(d / "cli.nnue")
+        self.assertEqual(net["version"], tv3.FILE_VERSION_THREATS)
+
+    @unittest.skipUnless(os.environ.get("PIEBOT_BULLET_THREATS_CHECKPOINT"), "set PIEBOT_BULLET_THREATS_CHECKPOINT")
+    def test_threats_bullet_eval_matches_a_numpy_pass_over_the_checkpoint(self):
+        import threats
+        import train_v3 as tv3
+        ckpt = Path(os.environ["PIEBOT_BULLET_THREATS_CHECKPOINT"])
+        hidden = int(os.environ.get("PIEBOT_BULLET_HIDDEN", "1024"))
+        l1, l2 = 16, 32
+        tv3.set_king_buckets(16)
+        fens = random_fens(60, seed=23)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "fens.txt").write_text("\n".join(fens) + "\n")
+            out = subprocess.run([str(BIN), "evalfens", "--checkpoint", str(ckpt), "--fens", str(d / "fens.txt"),
+                                  "--hidden", str(hidden), "--pairwise", "--l1", str(l1), "--l2", str(l2), "--threats"],
+                                 check=True, capture_output=True, text=True).stdout
+            rows = json.loads(out[out.index("[["):])
+            subprocess.run([str(BIN), "export", "--input", str(ckpt / "quantised.bin"), "--output", str(d / "net.nnue")],
+                           check=True, capture_output=True)
+            net = tv3.load_quant(d / "net.nnue")
+        raw = np.fromfile(ckpt / "quantised.bin", dtype="<f4")
+        w = pairwise_floats(raw, hidden, l1, l2)
+        n5 = sum(v.size for v in w.values())
+        wt = raw[n5:n5 + threats.N_THREAT_FEATURES * hidden].reshape(threats.N_THREAT_FEATURES, hidden)
+        self.assertGreater(np.abs(wt).max(), 0, "threat weights never trained")
+        ref = np.array([threats_float_eval(w, wt, f, hidden, l1, l2) for f, _ in rows])
+        got = np.array([cp for _, cp in rows])
+        quant = np.array([tv3.quant_eval_fen(net, f) for f, _ in rows])
+        print(f"\nthreats: bullet vs numpy float max {np.abs(got - ref).max():.4f} cp; "
+              f"integer vs float mean {np.mean(quant - ref):+.2f}, max |{np.abs(quant - ref).max():.2f}| cp")
+        self.assertLess(np.abs(got - ref).max(), 0.05)
+
+
 if __name__ == "__main__":
     unittest.main()

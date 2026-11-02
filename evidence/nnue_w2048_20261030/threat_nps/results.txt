@@ -1,0 +1,17 @@
+== v3pw_bt4_1500 plain, old binary (control)
+/workspace/bin/uci_w2048: knps per position [1561, 1528, 2178, 4186, 1560]  mean 2203
+== v3pw_bt4_1500 plain, threats binary
+/workspace/bin/uci_threats: knps per position [1556, 1526, 2205, 4149, 1549]  mean 2197
+== v3pw_bt4_1500 + threats, zero weights
+/workspace/bin/uci_threats: knps per position [858, 864, 1836, 3862, 911]  mean 1666
+== v3pw_bt4_1500 + threats, random weights (sd 2)
+/workspace/bin/uci_threats: knps per position [896, 821, 1788, 3556, 910]  mean 1594
+== w2048-320 plain, old binary (control)
+/workspace/bin/uci_w2048: knps per position [1262, 1218, 1617, 3680, 1319]  mean 1819
+== w2048-320 plain, threats binary
+/workspace/bin/uci_threats: knps per position [1267, 1208, 1654, 3699, 1329]  mean 1832
+== w2048-320 + threats, zero weights
+/workspace/bin/uci_threats: knps per position [712, 624, 1362, 3397, 768]  mean 1373
+== w2048-320 + threats, random weights (sd 2)
+/workspace/bin/uci_threats: knps per position [686, 627, 1515, 3312, 735]  mean 1375
+NPS_DONE

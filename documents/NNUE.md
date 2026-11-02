@@ -46,6 +46,23 @@ The older default network, `models/lc0_chunk_00034965.nnue`, uses this format; t
   (`PieBot/src/eval/nnue/sparse_l1.rs`) skips them. `v3pw_bt4_1500` searches
   about 13% fewer nodes per second than the linear-head net, against two
   thirds fewer for the dense version 2 stack.
+- **Threat inputs (file version 6, experimental; no trained net yet).**
+  Version 5 plus a second set of input features, one per (attacker, its
+  square, attacked piece, its square), seen from each perspective with
+  relative colours and the piece features' orientation and mirror (no king
+  buckets).
+  - The pair rules follow Stockfish's FullThreats, for 59,808 features:
+    - kings neither attack nor get attacked;
+    - pawns attack only knights and rooks;
+    - bishops and rooks attack P/N/B/R;
+    - knights and queens attack P/N/B/R/Q;
+    - a same-type pair counts once.
+  - Defending one's own piece counts too.
+  - The reference is `training/nnue/threats.py`. The engine
+    (`PieBot/src/eval/nnue/threats.rs`) and the trainer (`train --threats`,
+    which calls the engine's map) must match it exactly.
+  - Threat rows are i8 (×QA) and are added to the same i16 accumulator as the
+    piece rows.
 
 Quantisation follows arch-v2: feature weights and biases ×QA (QA = 255,
 i16), output weights ×QB (QB = 64, i8), output biases in the QA²·QB domain
@@ -62,7 +79,8 @@ All integers are little-endian.
 ```
 magic            8 bytes  "PIENNQ03"
 version          u32      1 = linear head, 2 = hidden stack, 3 = material experts,
-                          4 = experts with a precise head, 5 = pairwise hidden stack
+                          4 = experts with a precise head, 5 = pairwise hidden stack,
+                          6 = pairwise hidden stack with threat inputs
 n_king_buckets   u32      16 or 32
 bucket_layout    u8[32]   bucket of each oriented, mirrored king square (rank*4 + file)
 -- versions 3 and 4 --
@@ -76,10 +94,13 @@ w1               i16[n_features × hidden]   feature-major
 b1               i16[hidden]
 w2               i8[n_output_buckets × 2·hidden]   (version 4: i16, QB = 4096)
 b2               i32[n_output_buckets]             (version 4: i64)
--- versions 2 and 5 --
+-- versions 2, 5 and 6 --
 l1, l2           u32 × 2
-h1_w             i8[n_output_buckets·l1 × n_in]    n_in = 2·hidden (version 5: hidden)
+h1_w             i8[n_output_buckets·l1 × n_in]    n_in = 2·hidden (versions 5, 6: hidden)
 h1_b, h2_w, h2_b, h3_w, h3_b   f32
+-- version 6 --
+n_threats        u32      59808
+threat_w         i8[n_threats × hidden]   feature-major, ×QA
 ```
 
 `n_features` is `n_experts × n_king_buckets × 768` (one expert unless the file
@@ -109,6 +130,15 @@ The arch-v3 code is in `PieBot/src/eval/nnue/network_v3.rs`, dispatched from
   vectorises (to AVX-512 under `target-cpu=native`); they measured faster than
   earlier hand-written AVX2 intrinsics. The SCReLU head has explicit AVX-512,
   AVX2 and NEON versions.
+
+- **Threat inputs (version 6).** A move changes a threat only if the
+  threat's attacker or target square changed, or if it comes from a slider
+  that sees a changed square. For each changed square the engine lists those
+  threats on both boards, using reverse attack lookups, and diffs the two
+  lists. The piece changes and threat changes are then applied in one fused
+  pass, and the threat rows are prefetched on x86. A rebuild adds every
+  active threat row to the cached piece accumulator. Nets without threats
+  skip all of this.
 
 These are exact: tests compare incremental and lazy evaluation against full
 recomputation.
@@ -247,6 +277,12 @@ L27, `pw1500_vs_linear1500_400g.json`). The data gives most of the gain over
   integer reference evaluator (`train_v3.py::quant_eval_fen`) on exported
   fixtures in `PieBot/tests/data/` (`v3_fixture`, `v3e_fixture`; the hidden-stack
   fixture `v3h_fixture` allows ±1 cp for f32 rounding).
+- `PieBot/tests/nnue_threats.rs`: threat features and evaluations against the
+  Python reference (`v3t_fixture.json`), and incremental threat changes
+  against the difference of full feature sets along random games. Also
+  `training/nnue/tests/test_threats.py` (the reference itself, including an
+  independent ray-walking restatement) and the threat tests in
+  `test_bullet_export.py`.
 - `PieBot/tests/nnue_arch_v2.rs`: the same parity checks for arch-v2.
 - `training/nnue/tests/test_lc0_to_v3bin.py` and `test_train_v3.py`: record
   encoding, GPU features against the reference, mirroring, bucket layouts,

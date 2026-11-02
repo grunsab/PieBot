@@ -11,6 +11,7 @@
 //! (immediately, unless lazy mode is on).
 
 use crate::eval::nnue::sparse_l1;
+use crate::eval::nnue::threats;
 use crate::eval::nnue::loader::QuantNnueV3;
 use crate::eval::nnue::network::{
     push_delta_capture_fused, push_delta_quiet_fused_plain, screlu_dot_pub, vec_add_assign_i16,
@@ -24,7 +25,7 @@ const MAX_DELTA: usize = 4;
 /// Piece bitboards indexed `[color][piece]` (cozy-chess order), kings included.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Placement3 {
-    pieces: [[u64; 6]; 2],
+    pub(crate) pieces: [[u64; 6]; 2],
 }
 
 impl Placement3 {
@@ -66,6 +67,8 @@ enum Pending {
     Move {
         delta: [Option<Delta>; 2],
         place: Placement3,
+        /// The parent's placement, for the threat-input diff (file version 6).
+        prev: Placement3,
     },
 }
 
@@ -208,7 +211,7 @@ impl V3State {
         }
         self.slot_keys[t] = keys;
         self.slot_pieces[t] = pa.count();
-        self.pending[t] = Pending::Move { delta, place: pa };
+        self.pending[t] = Pending::Move { delta, place: pa, prev: pb };
         self.top = t;
         self.stm = after.side_to_move();
         if !self.lazy {
@@ -246,9 +249,15 @@ impl V3State {
         let pending = std::mem::replace(&mut self.pending[t], Pending::Built);
         match pending {
             Pending::Built => {}
-            Pending::Move { delta, place } => {
+            Pending::Move { delta, place, prev } => {
+                let threats = !self.model.threat_w.is_empty() && delta.iter().any(Option::is_some);
+                let mut diff = threats::RawDiff::new();
+                if threats {
+                    threats::raw_diff_into(&prev, &place, &mut diff);
+                }
                 for p in 0..2 {
                     match delta[p] {
+                        Some(d) if threats => self.threat_delta_into(t, p, &d, &diff),
                         Some(d) => self.delta_into(t, p, &d),
                         None => self.rebuild_into(t, p, &place),
                     }
@@ -279,7 +288,41 @@ impl V3State {
         }
     }
 
-    /// Build perspective `p` of slot `t` from the refresh cache for its key.
+    /// Child slot `t`, perspective `p`, from its parent: the piece delta and
+    /// the threat features the move changed, in one fused pass.
+    fn threat_delta_into(&mut self, t: usize, p: usize, d: &Delta, diff: &threats::RawDiff) {
+        let h = self.h;
+        let mirror = self.slot_keys[t][p] & 1 == 1;
+        let (mut added, mut removed) = (threats::List::new(), threats::List::new());
+        threats::diff_features(diff, p, mirror, &mut added, &mut removed);
+        let m = &*self.model;
+        threats::prefetch_rows(&m.threat_w, removed.as_slice(), h);
+        threats::prefetch_rows(&m.threat_w, added.as_slice(), h);
+        let (parents, child) = self.stack.split_at_mut(t * 2 * h);
+        let src = &parents[(t - 1) * 2 * h + p * h..(t - 1) * 2 * h + (p + 1) * h];
+        let dst = &mut child[p * h..(p + 1) * h];
+        threats::fused_update(
+            dst,
+            src,
+            &m.w1,
+            &d.sub[..d.ns as usize],
+            &d.add[..d.na as usize],
+            &m.threat_w,
+            removed.as_slice(),
+            added.as_slice(),
+            h,
+        );
+    }
+
+    /// `dst = src + every active threat row of `place`` (perspective `p`).
+    fn with_all_threats(model: &QuantNnueV3, dst: &mut [i16], src: &[i16], p: usize, place: &Placement3) {
+        let mut feats = threats::List::new();
+        threats::active(place, p, &mut feats);
+        threats::fused_update(dst, src, &model.w1, &[], &[], &model.threat_w, &[], feats.as_slice(), model.hidden_dim);
+    }
+
+    /// Build perspective `p` of slot `t` from the refresh cache for its key
+    /// (piece features only), then add the threat rows.
     fn rebuild_into(&mut self, t: usize, p: usize, place: &Placement3) {
         let h = self.h;
         let key = self.slot_keys[t][p];
@@ -318,7 +361,12 @@ impl V3State {
         }
         entry.place = Some(*place);
         let base = t * 2 * h;
-        self.stack[base + p * h..base + (p + 1) * h].copy_from_slice(&entry.acc);
+        let dst = &mut self.stack[base + p * h..base + (p + 1) * h];
+        if model.threat_w.is_empty() {
+            dst.copy_from_slice(&entry.acc);
+        } else {
+            Self::with_all_threats(model, dst, &entry.acc, p, place);
+        }
     }
 
     fn head(&self, white: &[i16], black: &[i16], stm: Color, pieces: u32) -> i32 {
@@ -361,7 +409,8 @@ impl V3State {
         // evaluation cost as much as the sparse first layer. Each is fully
         // written (activate: all n bytes; product: all l1 outputs) before it
         // is read.
-        let mut xbuf = std::mem::MaybeUninit::<[u8; 4096]>::uninit();
+        debug_assert!(n <= sparse_l1::MAX_STACK_INPUT);
+        let mut xbuf = std::mem::MaybeUninit::<[u8; sparse_l1::MAX_STACK_INPUT]>::uninit();
         let x = unsafe { std::slice::from_raw_parts_mut(xbuf.as_mut_ptr() as *mut u8, n) };
         if hs.pairwise {
             sparse_l1::activate_pairwise(first, second, qa, x);
@@ -459,6 +508,10 @@ impl V3State {
                         vec_add_assign_i16(acc, &self.model.w1[i * h..(i + 1) * h]);
                     }
                 }
+            }
+            if !self.model.threat_w.is_empty() {
+                let pieces = acc.clone();
+                Self::with_all_threats(&self.model, acc, &pieces, p, &place);
             }
         }
         accs
