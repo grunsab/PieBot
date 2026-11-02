@@ -19,6 +19,10 @@
     "sha256": "538ecabf59f6bd1eb516e438ff8331192858d42cfe395023ec26030c4c09062a",
     "bytes": 25334412
   },
+  "w2048-3000.nnue": {
+    "sha256": "1f2ec30194ae90bde2a67c3bf4293fb4bc15fd4ef4ae3de017cb472eafc4a79e",
+    "bytes": 50649740
+  },
   "_provenance": {
     "lc0_chunk_00034965.nnue": "LCZero campaign pass 17 chunk 34965, arch-v2 dual-perspective SCReLU hidden-1024 (PIENNQ02). Lowest validation loss of that campaign, 0.6201. Elo figures recorded for it earlier came from a harness whose draw adjudication was later found wrong and are not quoted.",
     "cycle_000098_quant.nnue": "last promotion-accepted model of run main_72h_self_teacher_repair_v1 (confirmed +0.25, CI [+0.042,+0.458]); campaign_v2 incumbent at blend 25 RETAINED DELIBERATELY: scripts/cpu_benchmark.sh:22 reads this file by path to qualify successor boxes, and its sha is pinned in run_vast_campaign_v2.sh and test_cpu_benchmark.py. Do not delete.",
@@ -26,6 +30,7 @@
     "v8_cycle_000013_quant.nnue": "campaign_v8 cycle 13, gameplay-gate accepted at blend 75; arch-v2 dual-perspective SCReLU hidden-1024 (magic PIENNQ02). v8 is the objective-fixed lineage: BCE through sigmoid(cp/400) had gone blind above ~600cp where 28% of labels sit, so a normalised-cp Huber term was added and TEACHER_MIX dropped to 0.9 to restore the game-outcome signal. Reference cp RMSE fell 326 -> 218 over 11 cycles with best_epoch=1 every cycle. Bootstrapped weights-only from v7 cycle 147. See evidence/objective_saturation_20260816.json.",
     "cycle_000094_quant.nnue": "REMOVED from the tree 2026-08-16 (superseded, no code references). Still recoverable from git history; sha256 7a922154c40e276197caf4ffd933e5bc6172bf84c6511b4afc4db3574feb9b0f, 5243106 bytes.",
     "v3_lc0t91_b16.nnue": "arch-v3 (PIENNQ03 v1): 16 mirrored king buckets, 8 output buckets, linear head, 1024 wide. Trained 2026-10-19 on 725M filtered LCZero test91 positions (3B samples). +95.1 Elo [+80.1, +110.3] over lc0_chunk_00034965 in 1000 games at 10+0.1 with the same binary (evidence/nnue_v3_20261019).",
-    "v3pw_bt4_1500.nnue": "arch-v3 (PIENNQ03 v5): 16 mirrored king buckets, 1024 wide, pairwise 16x32 hidden stack per output bucket, trained with --act-l1 0.1. Trained 2026-10-20 with bullet (training/bullet) for 1500 superbatches (~150B positions) on BT4-relabelled Leela binpacks. +148.8 Elo [+135.9, +162.2] over v3_lc0t91_b16 in 1000 games at 10+0.1 with the same binary (evidence/nnue_bt4_20261020)."
+    "v3pw_bt4_1500.nnue": "arch-v3 (PIENNQ03 v5): 16 mirrored king buckets, 1024 wide, pairwise 16x32 hidden stack per output bucket, trained with --act-l1 0.1. Trained 2026-10-20 with bullet (training/bullet) for 1500 superbatches (~150B positions) on BT4-relabelled Leela binpacks. +148.8 Elo [+135.9, +162.2] over v3_lc0t91_b16 in 1000 games at 10+0.1 with the same binary (evidence/nnue_bt4_20261020).",
+    "w2048-3000.nnue": "arch-v3 (PIENNQ03 v5): 16 mirrored king buckets, 2048 wide, pairwise 16x32 hidden stack per output bucket, trained with --act-l1 0.1. Trained 2026-10-30/31 with bullet for 3000 superbatches (~300B positions) on BT4-relabelled Leela and Stockfish-position binpacks, DFRC excluded, no Stockfish scores. +35 Elo [+15, +55] over v3pw_bt4_1500 in 200 games at 10+0.1; vs Stockfish 19 at 60+0.5, 280 games, 68.6% win-or-draw against 55.4% for v3pw_bt4_1500 on the same openings (evidence/nnue_w2048_20261030). Not the default net."
   }
 }
